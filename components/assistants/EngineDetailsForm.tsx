@@ -154,7 +154,10 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         'disable-onedrive-upload': 'Prevents uploading files from OneDrive.',
         'disable-talk-to-content': 'Disables Q&A on specific content.',
         'disable-google-drive-upload': 'Prevents uploading files from Google Drive.',
-        'disable-welcome-emails': 'Prevents sending welcome emails to new users.'
+        'disable-welcome-emails': 'Prevents sending welcome emails to new users.',
+        'disable-canvas': 'Disables the canvas feature.',
+        'disable-canvas-workspace': 'Disables the canvas workspace.',
+        'disable-skills': 'Disables the use of specialized skills.'
     };
 
     const KNOWN_FEATURES = Object.keys(FEATURE_INFO);
