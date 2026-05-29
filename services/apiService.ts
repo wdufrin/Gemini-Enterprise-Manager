@@ -272,6 +272,11 @@ export const getProjectIamPolicy = async (projectId: string): Promise<any> => {
     });
 };
 
+export const setProjectIamPolicy = async (projectId: string, policy: any): Promise<any> => {
+    const url = `https://cloudresourcemanager.googleapis.com/v1/projects/${projectId}:setIamPolicy`;
+    return gapiRequest<any>(url, 'POST', projectId, undefined, { policy });
+};
+
 // --- BigQuery & Logging Sinks ---
 
 export const getDataset = async (projectId: string, datasetId: string): Promise<any> => {
