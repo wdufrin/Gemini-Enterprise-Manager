@@ -106,6 +106,7 @@ export interface Agent {
   };
   lowCodeAgentDefinition?: any;
   managedAgentDefinition?: any;
+  workflowAgentDefinition?: any;
   authorizations?: string[]; // Deprecated
   authorizationConfig?: AuthorizationConfig;
   entitlements?: any[];

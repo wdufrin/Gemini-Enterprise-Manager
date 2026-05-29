@@ -63,7 +63,67 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
     // State for copying agent card
     const [copyCardSuccess, setCopyCardSuccess] = useState<string | null>(null);
 
+    // State for low-code model editing
+    const [fullAgent, setFullAgent] = useState<Agent | null>(null);
+    const [selectedModel, setSelectedModel] = useState<string>('');
+    const [isSavingModel, setIsSavingModel] = useState(false);
+    const [saveModelError, setSaveModelError] = useState<string | null>(null);
+
     const agentId = agent.name.split('/').pop() || '';
+
+    React.useEffect(() => {
+        const fetchFullAgent = async () => {
+            try {
+                const data = await api.getAgent(agent.name, config);
+                setFullAgent(data);
+                
+                // Extract model
+                if (data.lowCodeAgentDefinition?.nodes?.[0]?.llmAgentNode?.model) {
+                    setSelectedModel(data.lowCodeAgentDefinition.nodes[0].llmAgentNode.model);
+                } else if (data.workflowAgentDefinition?.agentFlow?.nodes) {
+                     const agentNode = data.workflowAgentDefinition.agentFlow.nodes.find((n: any) => n.agentNode?.model);
+                     if (agentNode?.agentNode?.model) {
+                         setSelectedModel(agentNode.agentNode.model);
+                     }
+                }
+            } catch (err) {
+                console.error("Failed to fetch full agent details", err);
+            }
+        };
+        fetchFullAgent();
+    }, [agent.name, config]);
+
+    const handleSaveModel = async () => {
+        if (!fullAgent || !selectedModel) return;
+        setIsSavingModel(true);
+        setSaveModelError(null);
+        try {
+            const updatedAgent = { ...fullAgent };
+            const payload: any = {};
+            
+            if (updatedAgent.lowCodeAgentDefinition?.nodes?.[0]?.llmAgentNode) {
+                updatedAgent.lowCodeAgentDefinition.nodes[0].llmAgentNode.model = selectedModel;
+                if (updatedAgent.lowCodeAgentDefinition.deployedNodes?.[0]?.llmAgentNode) {
+                    updatedAgent.lowCodeAgentDefinition.deployedNodes[0].llmAgentNode.model = selectedModel;
+                }
+                payload.lowCodeAgentDefinition = updatedAgent.lowCodeAgentDefinition;
+            } else if (updatedAgent.workflowAgentDefinition?.agentFlow?.nodes) {
+                const agentNodeIndex = updatedAgent.workflowAgentDefinition.agentFlow.nodes.findIndex((n: any) => n.agentNode?.model);
+                if (agentNodeIndex !== -1) {
+                    updatedAgent.workflowAgentDefinition.agentFlow.nodes[agentNodeIndex].agentNode.model = selectedModel;
+                }
+                payload.workflowAgentDefinition = updatedAgent.workflowAgentDefinition;
+            }
+            
+            await api.updateAgent(agent, payload, config);
+            setFullAgent(updatedAgent);
+            alert("Model updated successfully!");
+        } catch (err: any) {
+            setSaveModelError(err.message || 'Failed to save model.');
+        } finally {
+            setIsSavingModel(false);
+        }
+    };
     const isToggling = togglingAgentId === agentId;
     const statusColorClass = agent.state === 'ENABLED' ? 'bg-green-500' : agent.state === 'DISABLED' ? 'bg-red-500' : 'bg-yellow-500';
 
@@ -373,6 +433,39 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                             <code>{JSON.stringify(iamPolicy, null, 2)}</code>
                         </pre>
                     )}
+                </div>
+            )}
+
+            {(fullAgent?.lowCodeAgentDefinition || fullAgent?.workflowAgentDefinition) && (
+                <div className="mt-6 border-t border-gray-700 pt-6">
+                    <h3 className="text-lg font-semibold text-white">Low-Code Agent Configuration</h3>
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                        <div>
+                            <label htmlFor="agentModel" className="block text-sm font-medium text-gray-400 mb-1">Model</label>
+                            <select 
+                                id="agentModel"
+                                value={selectedModel} 
+                                onChange={(e) => setSelectedModel(e.target.value)}
+                                className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]"
+                            >
+                                <option value="">-- Select Model --</option>
+                                <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
+                                <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                                <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                                <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                            </select>
+                        </div>
+                        <div>
+                            <button 
+                                onClick={handleSaveModel} 
+                                disabled={isSavingModel || !selectedModel}
+                                className="px-5 py-2.5 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-600 h-[42px]"
+                            >
+                                {isSavingModel ? 'Saving...' : 'Save Model'}
+                            </button>
+                        </div>
+                    </div>
+                    {saveModelError && <p className="text-red-400 mt-2 text-sm">{saveModelError}</p>}
                 </div>
             )}
 

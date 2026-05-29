@@ -617,7 +617,8 @@ export const updateAgent = async (agent: Agent, payload: any, config: Config) =>
     if (payload.starterPrompts) updateMask.push('starter_prompts');
     if (payload.adkAgentDefinition) updateMask.push('adk_agent_definition');
     if (payload.a2aAgentDefinition) updateMask.push('a2a_agent_definition');
-    if (payload.a2aAgentDefinition) updateMask.push('a2a_agent_definition');
+    if (payload.lowCodeAgentDefinition) updateMask.push('low_code_agent_definition');
+    if (payload.workflowAgentDefinition) updateMask.push('workflow_agent_definition');
     if (payload.authorizations) updateMask.push('authorizations');
     if (payload.authorizationConfig) updateMask.push('authorization_config');
 
