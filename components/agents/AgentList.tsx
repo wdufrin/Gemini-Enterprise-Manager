@@ -25,7 +25,11 @@ interface AgentListProps {
   onRegisterNew: () => void;
   onToggleAgentStatus: (agent: Agent) => void;
   togglingAgentId?: string | null;
-  deletingAgentId?: string | null;
+  deletingAgentIds: Set<string>;
+  selectedAgents: Set<string>;
+  onToggleSelect: (name: string) => void;
+  onToggleSelectAll: () => void;
+  onDeleteSelected: () => void;
   onSort: (key: SortableAgentKey) => void;
   sortConfig: SortConfig;
   onUpdateAgentName?: (agent: Agent, newName: string) => Promise<void>;
@@ -42,10 +46,28 @@ const SortIcon: React.FC<{ direction: 'asc' | 'desc' }> = ({ direction }) => {
   );
 };
 
-const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgent, onDeleteAgent, onRegisterNew, onToggleAgentStatus, togglingAgentId, deletingAgentId, onSort, sortConfig, onUpdateAgentName }) => {
+const AgentList: React.FC<AgentListProps> = ({ 
+  agents, 
+  onSelectAgent, 
+  onEditAgent, 
+  onDeleteAgent, 
+  onRegisterNew, 
+  onToggleAgentStatus, 
+  togglingAgentId, 
+  deletingAgentIds, 
+  selectedAgents,
+  onToggleSelect,
+  onToggleSelectAll,
+  onDeleteSelected,
+  onSort, 
+  sortConfig, 
+  onUpdateAgentName 
+}) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  const isAllSelected = agents.length > 0 && selectedAgents.size === agents.length;
 
   const handleEditClick = (agent: Agent) => {
     setEditingId(agent.name);
@@ -90,12 +112,25 @@ const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgen
     <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
       <div className="p-4 flex justify-between items-center border-b border-gray-700">
         <h2 className="text-xl font-bold text-white">Registered Agents</h2>
-        <button
-          onClick={onRegisterNew}
-          className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-green-500"
-        >
-          Register New Agent
-        </button>
+        <div className="flex items-center gap-4">
+          {selectedAgents.size > 0 && (
+            <>
+              <span className="text-sm text-gray-300">{selectedAgents.size} selected</span>
+              <button
+                onClick={onDeleteSelected}
+                className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700"
+              >
+                Delete Selected
+              </button>
+            </>
+          )}
+          <button
+            onClick={onRegisterNew}
+            className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-green-500"
+          >
+            Register New Agent
+          </button>
+        </div>
       </div>
       {agents.length === 0 ? (
         <p className="text-gray-400 p-6 text-center">No agents found for the provided configuration.</p>
@@ -104,6 +139,15 @@ const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgen
             <table className="min-w-full divide-y divide-gray-700">
                 <thead className="bg-gray-700/50">
                     <tr>
+                        <th scope="col" className="px-6 py-3 w-10">
+                          <input
+                              type="checkbox"
+                              checked={isAllSelected}
+                              onChange={onToggleSelectAll}
+                              aria-label="Select all agents"
+                              className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
+                          />
+                        </th>
                         <SortableHeader sortKey="displayName">Display Name</SortableHeader>
                         <SortableHeader sortKey="state">Status</SortableHeader>
                         <SortableHeader sortKey="agentType">Agent Type</SortableHeader>
@@ -118,7 +162,8 @@ const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgen
                     {agents.map((agent) => {
                         const agentId = agent.name.split('/').pop() || '';
                         const isToggling = togglingAgentId === agentId;
-                        const isDeleting = deletingAgentId === agentId;
+                        const isDeleting = deletingAgentIds.has(agent.name);
+                        const isSelected = selectedAgents.has(agent.name);
                         const statusColorClass = agent.state === 'ENABLED' ? 'bg-green-500' : agent.state === 'DISABLED' ? 'bg-red-500' : 'bg-yellow-500';
 
                         let statusButton = null;
@@ -149,7 +194,16 @@ const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgen
                         }
 
                         return (
-                            <tr key={agent.name} className="hover:bg-gray-700/50 transition-colors">
+                            <tr key={agent.name} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
+                                <td className="px-6 py-4">
+                                    <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={() => onToggleSelect(agent.name)}
+                                        aria-label={`Select agent ${agent.displayName}`}
+                                        className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
+                                    />
+                                </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white flex items-center">
                                     <span className={`h-2.5 w-2.5 rounded-full mr-3 shrink-0 ${statusColorClass}`}></span>
                                     {editingId === agent.name ? (

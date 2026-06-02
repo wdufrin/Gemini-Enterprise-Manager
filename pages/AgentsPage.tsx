@@ -63,11 +63,13 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [togglingAgentId, setTogglingAgentId] = useState<string | null>(null);
-  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
+  const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
+  const [deletingAgentIds, setDeletingAgentIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // State for delete confirmation modal
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null);
+  const [agentsToDelete, setAgentsToDelete] = useState<Agent[]>([]);
 
   // Configuration state
   const [config, setConfig] = useState(() => ({
@@ -236,6 +238,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     } else {
       setAgents([]); // Clear agents if app isn't selected
     }
+    setSelectedAgents(new Set());
   }, [fetchAgents, config.appId]);
 
   const handleToggleStatus = async (agent: Agent) => {
@@ -258,27 +261,76 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     }
   };
 
-  const requestDelete = (agent: Agent) => {
-    setAgentToDelete(agent);
-    setIsDeleteModalOpen(true);
+  const handleToggleSelect = (agentName: string) => {
+    setSelectedAgents(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(agentName)) {
+        newSet.delete(agentName);
+      } else {
+        newSet.add(agentName);
+      }
+      return newSet;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedAgents.size === agents.length) {
+      setSelectedAgents(new Set());
+    } else {
+      setSelectedAgents(new Set(agents.map(a => a.name)));
+    }
+  };
+
+  const handleRequestDelete = (agent?: Agent) => {
+    let toDelete: Agent[] = [];
+    if (agent) {
+      toDelete = [agent];
+    } else {
+      toDelete = agents.filter(a => selectedAgents.has(a.name));
+    }
+
+    if (toDelete.length > 0) {
+      setAgentsToDelete(toDelete);
+      setIsDeleteModalOpen(true);
+    }
   };
 
   const confirmDelete = async () => {
-    if (!agentToDelete) return;
+    if (agentsToDelete.length === 0) return;
 
-    const agentId = agentToDelete.name.split('/').pop() || '';
-    setDeletingAgentId(agentId);
+    setIsDeleting(true);
+    setDeletingAgentIds(new Set(agentsToDelete.map(a => a.name)));
     setIsDeleteModalOpen(false);
     setError(null);
-    try {
-      await api.deleteResource(agentToDelete.name, apiConfig);
-      fetchAgents(); // Refresh the list
-    } catch (err: any) {
-      setError(err.message || `Failed to delete agent ${agentId}.`);
-    } finally {
-      setDeletingAgentId(null);
-      setAgentToDelete(null);
+
+    const results = await Promise.allSettled(
+        agentsToDelete.map(a => api.deleteResource(a.name, apiConfig))
+    );
+
+    const failures: string[] = [];
+    results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+            const agentName = agentsToDelete[index].displayName;
+            const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+            failures.push(`- ${agentName}: ${reason}`);
+        }
+    });
+
+    if (failures.length > 0) {
+        setError(`Failed to delete ${failures.length} agent(s):\n${failures.join('\n')}`);
     }
+    
+    if (selectedAgent && agentsToDelete.some(a => a.name === selectedAgent.name)) {
+        setViewMode('list');
+        setSelectedAgent(null);
+    }
+    
+    setAgentsToDelete([]);
+    setSelectedAgents(new Set());
+    await fetchAgents(); // Refresh the list
+
+    setIsDeleting(false);
+    setDeletingAgentIds(new Set());
   };
 
   const handleFormSuccess = () => {
@@ -354,11 +406,15 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
               agents={sortedAgents}
               onSelectAgent={handleSelectAgent}
               onEditAgent={handleEditAgent}
-              onDeleteAgent={requestDelete}
+              onDeleteAgent={handleRequestDelete}
               onRegisterNew={() => { setSelectedAgent(null); setViewMode('form'); }}
               onToggleAgentStatus={handleToggleStatus}
               togglingAgentId={togglingAgentId}
-              deletingAgentId={deletingAgentId}
+              deletingAgentIds={deletingAgentIds}
+              selectedAgents={selectedAgents}
+              onToggleSelect={handleToggleSelect}
+              onToggleSelectAll={handleToggleSelectAll}
+              onDeleteSelected={() => handleRequestDelete()}
               onSort={handleSort}
               sortConfig={sortConfig}
               onUpdateAgentName={handleUpdateAgentName}
@@ -418,20 +474,24 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
       </div>
       {renderContent()}
 
-      {agentToDelete && (
+      {agentsToDelete.length > 0 && (
         <ConfirmationModal
             isOpen={isDeleteModalOpen}
             onClose={() => setIsDeleteModalOpen(false)}
             onConfirm={confirmDelete}
-            title="Confirm Agent Deletion"
+            title={`Confirm Deletion of ${agentsToDelete.length} Agent(s)`}
             confirmText="Delete"
-            isConfirming={!!deletingAgentId}
+            isConfirming={isDeleting}
         >
-            <p>Are you sure you want to permanently delete this agent?</p>
-            <div className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600">
-                <p className="font-bold text-white">{agentToDelete.displayName}</p>
-                <p className="text-xs font-mono text-gray-400 mt-1">{agentToDelete.name.split('/').pop()}</p>
-            </div>
+            <p>Are you sure you want to permanently delete the following agent(s)?</p>
+            <ul className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600 max-h-48 overflow-y-auto space-y-1">
+                {agentsToDelete.map(a => (
+                    <li key={a.name} className="text-sm">
+                        <p className="font-bold text-white">{a.displayName}</p>
+                        <p className="text-xs font-mono text-gray-400 mt-1">{a.name.split('/').pop()}</p>
+                    </li>
+                ))}
+            </ul>
             <p className="mt-4 text-sm text-yellow-300">This action cannot be undone.</p>
         </ConfirmationModal>
       )}
