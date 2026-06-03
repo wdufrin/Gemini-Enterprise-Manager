@@ -312,14 +312,26 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
             
             const enrichedAgents = baseAgents.map((agent, index) => {
                 const viewResult = agentViewResults[index];
-                if (viewResult.status === 'fulfilled' && viewResult.value.agentView) {
-                    return {
-                        ...agent,
-                        agentType: viewResult.value.agentView.agentType,
-                        agentOrigin: viewResult.value.agentView.agentOrigin,
-                    };
+                let agentType = viewResult.status === 'fulfilled' && viewResult.value?.agentView ? viewResult.value.agentView.agentType : undefined;
+                let agentOrigin = viewResult.status === 'fulfilled' && viewResult.value?.agentView ? viewResult.value.agentView.agentOrigin : undefined;
+
+                if (!agentType) {
+                    if (agent.adkAgentDefinition) {
+                        agentType = 'ADK';
+                    } else if (agent.a2aAgentDefinition) {
+                        agentType = 'A2A';
+                    } else if (agent.lowCodeAgentDefinition || agent.workflowAgentDefinition) {
+                        agentType = 'LOW_CODE';
+                    } else if (!agent.state || (agent.state !== 'ENABLED' && agent.state !== 'DISABLED')) {
+                        agentType = 'LOW_CODE';
+                    }
                 }
-                return agent;
+
+                return {
+                    ...agent,
+                    agentType,
+                    agentOrigin,
+                };
             });
             setAgents(enrichedAgents);
           } else {
