@@ -84,6 +84,9 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
   const [curlCommand, setCurlCommand] = useState('');
   const [copySuccessCurl, setCopySuccessCurl] = useState(false);
 
+  const [isCrossProject, setIsCrossProject] = useState(false);
+  const [sourceProjectId, setSourceProjectId] = useState('');
+
   const isEditingDisabled = agentToEdit && !agentToEdit.state;
 
   useEffect(() => {
@@ -115,6 +118,10 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
 
       const rePath = agentToEdit.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine || '';
       const reParts = rePath.split('/');
+      const reProject = reParts.length > 1 ? reParts[1] : '';
+      const isCross = reProject && reProject !== config.projectId;
+      setIsCrossProject(!!isCross);
+      setSourceProjectId(reProject || config.projectId || '');
 
       const desc = agentToEdit.adkAgentDefinition?.toolSettings?.toolDescription || '';
       const createdByMatch = desc.match(/Created By: (.*)/);
@@ -151,6 +158,12 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     }
   }, [agentToEdit, config.appLocation]);
 
+  useEffect(() => {
+    if (!agentToEdit) {
+      setSourceProjectId(config.projectId || '');
+    }
+  }, [config.projectId, agentToEdit]);
+
 
     // Effect to generate the cURL command preview for both create and update
     useEffect(() => {
@@ -170,7 +183,8 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
         let agentDefinitionPayload: any = {};
         
         if (agentType === 'reasoning_engine') {
-            const reasoningEnginePath = `projects/${projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
+            const reProject = isCrossProject && sourceProjectId ? sourceProjectId : projectId;
+            const reasoningEnginePath = `projects/${reProject}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
             const newToolDescription = `[Agent Metadata]
 Created By: ${formData.createdBy || 'N/A'}
 Agent Engine: ${reasoningEnginePath}
@@ -303,7 +317,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
 
             setCurlCommand(command);
         }
-    }, [formData, agentToEdit, config, agentType]);
+    }, [formData, agentToEdit, config, agentType, isCrossProject, sourceProjectId]);
 
 
   useEffect(() => {
@@ -417,7 +431,8 @@ Rewritten agent description:`;
     setEngineLoadError(null);
     setReasoningEngines([]);
     try {
-        const engineConfig = { ...config, reasoningEngineLocation: formData.reasoningEngineLocation };
+        const activeProject = isCrossProject && sourceProjectId ? sourceProjectId : config.projectId;
+        const engineConfig = { ...config, projectId: activeProject, reasoningEngineLocation: formData.reasoningEngineLocation };
         const response = await api.listReasoningEngines(engineConfig);
         setReasoningEngines(response.reasoningEngines || []);
         if (!response.reasoningEngines || response.reasoningEngines.length === 0) {
@@ -499,7 +514,8 @@ Rewritten agent description:`;
     let agentDefinitionPayload: any = {};
     
     if (agentType === 'reasoning_engine') {
-        const reasoningEnginePath = `projects/${config.projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
+        const reProject = isCrossProject && sourceProjectId ? sourceProjectId : config.projectId;
+        const reasoningEnginePath = `projects/${reProject}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
         const newToolDescription = `[Agent Metadata]
 Created By: ${formData.createdBy || 'N/A'}
 Agent Engine: ${reasoningEnginePath}
@@ -802,6 +818,37 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                                     <textarea name="additionalInfo" value={formData.additionalInfo} onChange={handleChange} rows={3} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" />
                                 </div>
                             </div>
+                            <div className="flex items-center space-x-3 mb-2">
+                                <input
+                                    type="checkbox"
+                                    id="isCrossProject"
+                                    checked={isCrossProject}
+                                    onChange={(e) => {
+                                        setIsCrossProject(e.target.checked);
+                                        if (!e.target.checked) {
+                                            setSourceProjectId(config.projectId || '');
+                                        }
+                                    }}
+                                    disabled={isEditingDisabled}
+                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                                />
+                                <label htmlFor="isCrossProject" className="text-sm font-medium text-gray-300">Cross-Project Agent Engine (Runtime)</label>
+                            </div>
+                            {isCrossProject && (
+                                <div className="mb-2">
+                                    <label htmlFor="sourceProjectId" className="block text-sm font-medium text-gray-300">Source Project ID / Number</label>
+                                    <input
+                                        type="text"
+                                        id="sourceProjectId"
+                                        value={sourceProjectId}
+                                        onChange={(e) => setSourceProjectId(e.target.value)}
+                                        placeholder="e.g. 474791121936"
+                                        disabled={isEditingDisabled}
+                                        className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm"
+                                        required
+                                    />
+                                </div>
+                            )}
                             <div>
                                 <label htmlFor="reasoningEngineLocation" className="block text-sm font-medium text-gray-300">Agent Engine Location</label>
                                 <div className="flex items-center space-x-2 mt-1">

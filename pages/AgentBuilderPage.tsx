@@ -507,28 +507,51 @@ const generateAuthPy = (): string => {
     return `import os
 import logging
 from typing import Optional
+from google.oauth2.credentials import Credentials
 from google.adk.tools import ToolContext
-from google.adk.tools._google_credentials import BaseGoogleCredentialsConfig, GoogleCredentialsManager
 
 logger = logging.getLogger(__name__)
 
-async def get_user_credentials(tool_context: ToolContext) -> Optional[any]:
+def get_user_credentials(tool_context: ToolContext) -> Optional[Credentials]:
     """
     Extracts user OAuth2 credentials from the ToolContext state using the configured AUTH_ID.
-    Uses GoogleCredentialsManager for robust handling.
+    Falls back to environment variables or Application Default Credentials (ADC).
     """
     auth_id = os.getenv("AUTH_ID")
-    if not auth_id:
-        logger.warning("AUTH_ID environment variable not set.")
-        return None
+    
+    # 1. Try to get the token from ToolContext state
+    if auth_id and tool_context.state:
+        access_token = tool_context.state.get(auth_id)
+        if access_token:
+            logger.info(f"Successfully retrieved access token from ToolContext using AUTH_ID: {auth_id}")
+            return Credentials(token=access_token)
+            
+    # 2. Check environment variable matching AUTH_ID (for local testing)
+    if auth_id:
+        env_token_specific = os.getenv(auth_id)
+        if env_token_specific:
+            logger.info(f"Successfully retrieved access token from environment variable: {auth_id}")
+            return Credentials(token=env_token_specific)
+            
+    # 3. Check general fallback environment variables
+    env_token = os.getenv("GCP_ACCESS_TOKEN") or os.getenv("USER_ACCESS_TOKEN")
+    if env_token:
+        logger.info("Successfully retrieved access token from standard environment fallback")
+        return Credentials(token=env_token)
         
+    # 4. Fallback to Application Default Credentials (ADC)
     try:
-        credentials_config = BaseGoogleCredentialsConfig(external_access_token_key=auth_id)
-        manager = GoogleCredentialsManager(credentials_config)
-        creds = await manager.get_valid_credentials(tool_context)
+        import google.auth
+        from google.auth.transport.requests import Request
+        creds, project = google.auth.default()
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        elif not creds.token:
+            creds.refresh(Request())
+        logger.info("Using Application Default Credentials (ADC) as fallback")
         return creds
     except Exception as e:
-        logger.error(f"Failed to resolve credentials: {e}")
+        logger.warning(f"Failed to get ADC fallback: {e}")
         return None
 `;
 };
@@ -1117,7 +1140,7 @@ def run_connectivity_test(tool_context: ToolContext, source_ip: str = None, sour
         code += `
 import google.cloud.logging as cloud_logging
 
-async def search_logs(tool_context: ToolContext, filter_str: str, project_id: str = None) -> str:
+def search_logs(tool_context: ToolContext, filter_str: str, project_id: str = None) -> str:
     """
     Search GCP Cloud Logs using a filter string.
 
@@ -1130,7 +1153,7 @@ async def search_logs(tool_context: ToolContext, filter_str: str, project_id: st
         or a message indicating no logs were found.
     """
     try:
-        credential = await get_user_credentials(tool_context)
+        credential = get_user_credentials(tool_context)
         if not credential:
             return "Error: Authentication required. Access token not available."
 
@@ -1173,7 +1196,7 @@ async def search_logs(tool_context: ToolContext, filter_str: str, project_id: st
 import time
 import google.cloud.monitoring_v3 as monitoring_v3
 
-async def check_health(tool_context: ToolContext, project_id: str = None) -> str:
+def check_health(tool_context: ToolContext, project_id: str = None) -> str:
     """
     Checks the health of applications in the GCP project by listing alert policies.
     """
@@ -1181,7 +1204,7 @@ async def check_health(tool_context: ToolContext, project_id: str = None) -> str
         if not project_id:
             project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 
-        credential = await get_user_credentials(tool_context)
+        credential = get_user_credentials(tool_context)
         if not credential:
             return "Error: Authentication required. Access token not available."
 
@@ -1193,7 +1216,7 @@ async def check_health(tool_context: ToolContext, project_id: str = None) -> str
     except Exception as e:
         return f"Error checking health: {str(e)}"
 
-async def get_service_metrics(tool_context: ToolContext, service_name: str, metric_type: str = "cpu", duration_minutes: int = 60, project_id: str = None) -> str:
+def get_service_metrics(tool_context: ToolContext, service_name: str, metric_type: str = "cpu", duration_minutes: int = 60, project_id: str = None) -> str:
     """
     Retrieves metrics for a specific Cloud Run service.
 
@@ -1205,7 +1228,7 @@ async def get_service_metrics(tool_context: ToolContext, service_name: str, metr
     try:
         if not project_id:
             project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-        credential = await get_user_credentials(tool_context)
+        credential = get_user_credentials(tool_context)
         if not credential:
             return "Error: Authentication required. Access token not available."
 
@@ -1273,7 +1296,7 @@ async def get_service_metrics(tool_context: ToolContext, service_name: str, metr
         code += `
 import google.cloud.run_v2 as run_v2
 
-async def list_services(tool_context: ToolContext, project_id: str = None) -> str:
+def list_services(tool_context: ToolContext, project_id: str = None) -> str:
     """
     List Cloud Run services in the configured project across ALL regions.
 
@@ -1287,7 +1310,7 @@ async def list_services(tool_context: ToolContext, project_id: str = None) -> st
         if not project_id:
             return "Error: GOOGLE_CLOUD_PROJECT not set."
 
-        credential = await get_user_credentials(tool_context)
+        credential = get_user_credentials(tool_context)
         if not credential:
             return "Error: Authentication required. Access token not available."
 
@@ -1329,7 +1352,7 @@ async def list_services(tool_context: ToolContext, project_id: str = None) -> st
         code += `
 import google.cloud.resourcemanager_v3 as resourcemanager_v3
 
-async def list_projects(tool_context: ToolContext, filter: str = "lifecycleState:ACTIVE") -> str:
+def list_projects(tool_context: ToolContext, filter: str = "lifecycleState:ACTIVE") -> str:
     """
     List accessible Google Cloud projects.
 
@@ -1340,7 +1363,7 @@ async def list_projects(tool_context: ToolContext, filter: str = "lifecycleState
         A list of "Project Name (ID)" found.
     """
     try:
-        credential = await get_user_credentials(tool_context)
+        credential = get_user_credentials(tool_context)
         if not credential:
             return "Error: Authentication required. Access token not available."
 
@@ -1359,13 +1382,13 @@ async def list_projects(tool_context: ToolContext, filter: str = "lifecycleState
     except Exception as e:
         return f"Error listing projects: {str(e)}"
 
-async def resolve_project_id(tool_context: ToolContext, name_or_id: str) -> str:
+def resolve_project_id(tool_context: ToolContext, name_or_id: str) -> str:
     """
     Resolves a Project Name or ID to a Project ID.
     """
     if " " in name_or_id or any(c.isupper() for c in name_or_id):
         try:
-            credential = await get_user_credentials(tool_context)
+            credential = get_user_credentials(tool_context)
             if not credential:
                 return "Error: Authentication required."
 
@@ -1389,7 +1412,7 @@ async def resolve_project_id(tool_context: ToolContext, name_or_id: str) -> str:
 from datetime import datetime, timedelta, timezone
 from google.cloud import logging_v2
 
-async def list_recent_changes(tool_context: ToolContext, project_id: str = None, hours_ago: int = 24) -> str:
+def list_recent_changes(tool_context: ToolContext, project_id: str = None, hours_ago: int = 24) -> str:
     """
     Lists recent Admin Activity (system changes) for the project.
     Queries Cloud Logging for 'cloudaudit.googleapis.com%2Factivity' logs.
@@ -1401,7 +1424,7 @@ async def list_recent_changes(tool_context: ToolContext, project_id: str = None,
         if not project_id:
             return "Error: GOOGLE_CLOUD_PROJECT not set."
 
-        credential = await get_user_credentials(tool_context)
+        credential = get_user_credentials(tool_context)
         if not credential:
             return "Error: Authentication required."
 
@@ -1477,7 +1500,7 @@ async def list_recent_changes(tool_context: ToolContext, project_id: str = None,
         code += `
 from googleapiclient import discovery
 
-async def check_database_fleet_health(tool_context: ToolContext, project_id: str = None) -> str:
+def check_database_fleet_health(tool_context: ToolContext, project_id: str = None) -> str:
     """
     Checks the health of Cloud SQL, Spanner, and Firestore instances in the project.
     """
@@ -1487,7 +1510,7 @@ async def check_database_fleet_health(tool_context: ToolContext, project_id: str
     if not project_id:
         return "Error: GOOGLE_CLOUD_PROJECT not set."
 
-    credential = await get_user_credentials(tool_context)
+    credential = get_user_credentials(tool_context)
     if not credential:
         return "Error: Authentication required. Access token not available."
 
@@ -1567,7 +1590,7 @@ import requests
 import json
 from google.auth.transport.requests import Request as GoogleAuthRequest
 
-async def investigate_with_cloud_assist(tool_context: ToolContext, query: str, project_id: str = None) -> str:
+def investigate_with_cloud_assist(tool_context: ToolContext, query: str, project_id: str = None) -> str:
     """Invokes the Gemini Cloud Assist API to perform a deep investigation of a Google Cloud issue.
 
     Args:
@@ -1576,7 +1599,7 @@ async def investigate_with_cloud_assist(tool_context: ToolContext, query: str, p
     """
     try:
         project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
-        credential = await get_user_credentials(tool_context)
+        credential = get_user_credentials(tool_context)
         if not credential: return "Error: Authentication required."
 
         # Ensure credential is valid
@@ -4126,6 +4149,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                 <div>
                                     <label className="block text-sm font-medium text-gray-400 mb-1">Model</label>
                                     <select name="model" value={adkConfig.model} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
+                                        <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
                                         <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
                                         <option value="gemini-3-flash-preview">Gemini 3.0 Flash (Preview)</option>
                                         <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
@@ -4549,6 +4573,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                 <div><label className="block text-sm font-medium text-gray-400 mb-1">Provider Organization</label><input name="providerOrganization" type="text" value={a2aConfig.providerOrganization} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
                                 <div><label className="block text-sm font-medium text-gray-400 mb-1">Model</label>
                                     <select name="model" value={a2aConfig.model} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
+                                            <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
                                             <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
                                             <option value="gemini-3-flash-preview">Gemini 3.0 Flash (Preview)</option>
                                         <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
