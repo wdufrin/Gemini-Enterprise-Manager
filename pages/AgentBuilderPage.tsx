@@ -47,6 +47,7 @@ interface AdkAgentConfig {
     useGoogleSearch: boolean;
     enableOAuth: boolean;
     authId: string;
+    allowAdcFallback: boolean;
     enableDiscoveryApi: boolean;
     discoveryConfig: DiscoveryConfig;
     enableBqAnalytics: boolean;
@@ -503,7 +504,7 @@ echo "Your A2A function is now available at: $SERVICE_URL"
 
 // --- ADK Generators ---
 
-const generateAuthPy = (): string => {
+const generateAuthPy = (allowAdcFallback: boolean = true): string => {
     return `import os
 import logging
 from typing import Optional
@@ -539,7 +540,7 @@ def get_user_credentials(tool_context: ToolContext) -> Optional[Credentials]:
         logger.info("Successfully retrieved access token from standard environment fallback")
         return Credentials(token=env_token)
         
-    # 4. Fallback to Application Default Credentials (ADC)
+${allowAdcFallback ? `    # 4. Fallback to Application Default Credentials (ADC)
     try:
         import google.auth
         from google.auth.transport.requests import Request
@@ -552,7 +553,9 @@ def get_user_credentials(tool_context: ToolContext) -> Optional[Credentials]:
         return creds
     except Exception as e:
         logger.warning(f"Failed to get ADC fallback: {e}")
-        return None
+        return None` : `    # 4. Fallback to Application Default Credentials (ADC) is disabled
+    logger.warning("User OAuth token not found, and Service Account fallback is disabled.")
+    return None`}
 `;
 };
 
@@ -3254,6 +3257,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         useGoogleSearch: false,
         enableOAuth: false,
         authId: 'temp_oauth',
+        allowAdcFallback: true,
         enableDiscoveryApi: false,
         discoveryConfig: {
             projectId: '',
@@ -3520,7 +3524,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         const reqsCode = generateAdkRequirementsFile(adkConfig);
         const readmeCode = generateAdkReadmeFile(adkConfig);
         const deployCode = generateAdkDeployScript(adkConfig);
-        const authCode = generateAuthPy();
+        const authCode = generateAuthPy(adkConfig.allowAdcFallback);
         const toolsCode = generateToolsPy(adkConfig, true);
         const initCode = generateInitPy();
         setAdkGeneratedCode({ app: generateAppPy(true), agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode, auth: authCode, tools: toolsCode, init: initCode });
@@ -4065,6 +4069,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                         useGoogleSearch: false,
                                                         enableOAuth: false,
                                                         authId: 'temp_oauth',
+                                                        allowAdcFallback: true,
                                                         enableDiscoveryApi: false,
                                                         discoveryConfig: {
                                                             projectId: '',
@@ -4150,8 +4155,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     <label className="block text-sm font-medium text-gray-400 mb-1">Model</label>
                                     <select name="model" value={adkConfig.model} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
                                         <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-                                        <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
-                                        <option value="gemini-3-flash-preview">Gemini 3.0 Flash (Preview)</option>
+                                        <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
+                                        <option value="gemini-3-flash">Gemini 3.0 Flash</option>
                                         <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
 
@@ -4397,20 +4402,28 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                             <span className="text-sm text-gray-300">Enable Email Sending Tool</span>
                                         </label>
 
-                                        <div className="flex items-center space-x-3 mt-2">
-                                            <label className="flex items-center space-x-3 cursor-pointer">
-                                                <input type="checkbox" name="enableOAuth" checked={adkConfig.enableOAuth} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                                <span className="text-sm text-gray-300">Enable OAuth Flow</span>
-                                            </label>
+                                        <div className="flex flex-col gap-2 mt-2">
+                                            <div className="flex items-center space-x-3">
+                                                <label className="flex items-center space-x-3 cursor-pointer">
+                                                    <input type="checkbox" name="enableOAuth" checked={adkConfig.enableOAuth} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                                    <span className="text-sm text-gray-300">Enable OAuth Flow</span>
+                                                </label>
+                                                {adkConfig.enableOAuth && (
+                                                    <input
+                                                        type="text"
+                                                        name="authId"
+                                                        value={adkConfig.authId}
+                                                        onChange={handleAdkConfigChange}
+                                                        placeholder="Auth ID (e.g. bqtest)"
+                                                        className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-32"
+                                                    />
+                                                )}
+                                            </div>
                                             {adkConfig.enableOAuth && (
-                                                <input
-                                                    type="text"
-                                                    name="authId"
-                                                    value={adkConfig.authId}
-                                                    onChange={handleAdkConfigChange}
-                                                    placeholder="Auth ID (e.g. bqtest)"
-                                                    className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-32"
-                                                />
+                                                <label className="flex items-center space-x-3 pl-6 cursor-pointer" title="If disabled, tools will fail with an error if no user token is present, instead of defaulting to the service account.">
+                                                    <input type="checkbox" name="allowAdcFallback" checked={adkConfig.allowAdcFallback} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                                    <span className="text-xs text-gray-400">Allow fallback to Service Account (ADC)</span>
+                                                </label>
                                             )}
                                         </div>
                                     </div>
@@ -4574,8 +4587,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                 <div><label className="block text-sm font-medium text-gray-400 mb-1">Model</label>
                                     <select name="model" value={a2aConfig.model} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
                                             <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-                                            <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
-                                            <option value="gemini-3-flash-preview">Gemini 3.0 Flash (Preview)</option>
+                                            <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
+                                            <option value="gemini-3-flash">Gemini 3.0 Flash</option>
                                         <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
 

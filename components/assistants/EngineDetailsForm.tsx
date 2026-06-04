@@ -164,10 +164,11 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
 
     // Known model configs list
     const KNOWN_MODELS = [
+        'gemini-3.1-pro',
         'gemini-3-pro-preview',
         'gemini-3-pro-image-preview',
         'gemini-2.5-flash-image',
-        'gemini-3-flash-preview',
+        'gemini-3-flash',
         'gemini-2.5-pro',
         'gemini-2.5-flash'
     ];

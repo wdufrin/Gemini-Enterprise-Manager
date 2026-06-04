@@ -449,7 +449,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                                 className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]"
                             >
                                 <option value="">-- Select Model --</option>
-                                <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
+                                <option value="gemini-3.1-pro">gemini-3.1-pro</option>
                                 <option value="gemini-2.5-pro">gemini-2.5-pro</option>
                                 <option value="gemini-1.5-pro">gemini-1.5-pro</option>
                                 <option value="gemini-1.5-flash">gemini-1.5-flash</option>
