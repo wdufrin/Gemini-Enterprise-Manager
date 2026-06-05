@@ -555,7 +555,7 @@ ${allowAdcFallback ? `    # 4. Fallback to Application Default Credentials (ADC)
         logger.warning(f"Failed to get ADC fallback: {e}")
         return None` : `    # 4. Fallback to Application Default Credentials (ADC) is disabled
     logger.warning("User OAuth token not found, and Service Account fallback is disabled.")
-    return None`}
+    raise PermissionError("Access Denied: Valid end-user OAuth token not found, and ADC Service Account fallback is disabled.")`}
 `;
 };
 

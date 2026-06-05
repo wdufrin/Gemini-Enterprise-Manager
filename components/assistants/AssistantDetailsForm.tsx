@@ -79,7 +79,6 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
     const [isLoadingIam, setIsLoadingIam] = useState(false);
     const [iamError, setIamError] = useState<string | null>(null);
     const [isIamDirty, setIsIamDirty] = useState(false);
-    const [alsoGrantNotebooks, setAlsoGrantNotebooks] = useState(false);
 
     useEffect(() => {
         const policyObj = assistant.customerPolicy ? { ...(assistant.customerPolicy as any) } : {};
@@ -248,28 +247,25 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         setIsIamDirty(true);
         setNewMember('');
 
-        if (alsoGrantNotebooks) {
-            try {
-                setIamError(null);
-                setIsLoadingIam(true);
-                const projectPolicy = await api.getProjectIamPolicy(config.projectId);
-                let notebookBinding = projectPolicy.bindings.find((b: any) => b.role === 'roles/discoveryengine.notebookLmUser');
-                if (!notebookBinding) {
-                    notebookBinding = { role: 'roles/discoveryengine.notebookLmUser', members: [] };
-                    projectPolicy.bindings.push(notebookBinding);
-                }
-                if (!notebookBinding.members.includes(memberString)) {
-                    notebookBinding.members.push(memberString);
-                }
-                await api.setProjectIamPolicy(config.projectId, projectPolicy);
-                setSuccess("Granted project-level NotebookLM access.");
-                setTimeout(() => setSuccess(null), 3000);
-            } catch (e: any) {
-                setIamError(`Failed to grant NotebookLM access: ${e.message}`);
-            } finally {
-                setIsLoadingIam(false);
-                setAlsoGrantNotebooks(false);
+        try {
+            setIamError(null);
+            setIsLoadingIam(true);
+            const projectPolicy = await api.getProjectIamPolicy(config.projectId);
+            let notebookBinding = projectPolicy.bindings.find((b: any) => b.role === 'roles/discoveryengine.agentspaceRestrictedUser');
+            if (!notebookBinding) {
+                notebookBinding = { role: 'roles/discoveryengine.agentspaceRestrictedUser', members: [] };
+                projectPolicy.bindings.push(notebookBinding);
             }
+            if (!notebookBinding.members.includes(memberString)) {
+                notebookBinding.members.push(memberString);
+            }
+            await api.setProjectIamPolicy(config.projectId, projectPolicy);
+            setSuccess("Granted local permissions and mandatory project-level Agentspace Restricted User access.");
+            setTimeout(() => setSuccess(null), 3000);
+        } catch (e: any) {
+            setIamError(`Failed to grant mandatory Agentspace Restricted User access: ${e.message}`);
+        } finally {
+            setIsLoadingIam(false);
         }
     };
 
@@ -708,7 +704,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                             <div>
-                                <strong>NotebookLM Access:</strong> To enable NotebookLM features for these users, they also need the <code>roles/discoveryengine.notebookLmUser</code> role at the project level. Use the checkbox below when adding a user to automate this.
+                                <strong>Mandatory User Access:</strong> To ensure these users can use connectors, agents, and notebooks, they are also automatically granted the mandatory <code>roles/discoveryengine.agentspaceRestrictedUser</code> role at the project level upon addition.
                             </div>
                         </div>
                         
@@ -765,18 +761,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                                         Add
                                     </button>
                                 </div>
-                                <div className="flex items-center mt-2">
-                                    <input 
-                                        type="checkbox" 
-                                        id="alsoGrantNotebooks" 
-                                        checked={alsoGrantNotebooks} 
-                                        onChange={(e) => setAlsoGrantNotebooks(e.target.checked)}
-                                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
-                                    />
-                                    <label htmlFor="alsoGrantNotebooks" className="text-xs text-gray-300 ml-2">
-                                        Also grant project-level NotebookLM access (roles/discoveryengine.notebookLmUser)
-                                    </label>
-                                </div>
+                                {/* Mandatory project-level grant is performed automatically */}
                                 <div className="text-xs text-gray-400 mt-2 space-y-1 bg-gray-900/50 p-3 rounded-md border border-gray-800">
                                     <p className="font-semibold text-gray-300">Supported Formats:</p>
                                     <p><span className="text-blue-400">Standard User</span>: <code>user:email@example.com</code></p>
