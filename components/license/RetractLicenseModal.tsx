@@ -41,7 +41,7 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
     currentProjectNumber,
     onSuccess
 }) => {
-    const [count, setCount] = useState(1);
+    const [count, setCount] = useState<number | ''>(1);
     const [isLoading, setIsLoading] = useState(false);
     const [isFetchingUsage, setIsFetchingUsage] = useState(false);
     const [usageStats, setUsageStats] = useState<{ used: number; available: number } | null>(null);
@@ -80,7 +80,7 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
 
             setUsageStats({ used, available });
             // Reset count if it exceeds available
-            if (count > available) setCount(Math.max(1, available));
+            if (count !== '' && count > available) setCount(Math.max(1, available));
         } catch (e) {
             console.warn("Failed to fetch user licenses for retraction stats", e);
             // Fallback: assume all allocated are potentially unused if we fail to check? 
@@ -106,7 +106,7 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
 
             await api.retractLicense(billingAccountId, billingAccountLicenseConfigId, {
                 licenseConfig: licenseConfigName,
-                licenseCount: count
+                licenseCount: typeof count === 'number' ? count : 1
             }, config);
 
             onSuccess();
@@ -162,7 +162,10 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
                             min="1"
                             max={maxRetractable}
                             value={count}
-                            onChange={(e) => setCount(parseInt(e.target.value))}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                setCount(val === '' ? '' : Math.max(1, Math.min(maxRetractable, parseInt(val, 10) || 1)));
+                            }}
                             className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                         <p className="text-xs text-yellow-500 mt-2 font-semibold">Note: Only one reclaim per day is allowed for licenses.</p>

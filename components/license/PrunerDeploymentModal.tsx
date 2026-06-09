@@ -371,7 +371,7 @@ const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, o
         runRegion: 'us-central1',
         appLocation: currentConfig.appLocation || 'global',
         userStoreId: currentConfig.userStoreId || 'default_user_store',
-        pruneDays: 30
+        pruneDays: 30 as number | ''
     });
     
     // Advanced State
@@ -480,12 +480,13 @@ const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, o
         }
     };
 
-    const mainPy = generateMainPy(config.pruneDays, config.appLocation, config.userStoreId);
+    const pruneDaysVal = typeof config.pruneDays === 'number' ? config.pruneDays : 30;
+    const mainPy = generateMainPy(pruneDaysVal, config.appLocation, config.userStoreId);
     const deploySh = generateDeploySh(
         config.projectId, 
         config.appLocation, 
         config.userStoreId, 
-        config.pruneDays, 
+        pruneDaysVal, 
         config.runRegion, 
         customSaEmail.trim() || undefined,
         skipIamInScript
@@ -629,7 +630,17 @@ gcloud projects add-iam-policy-binding ${config.projectId} \\
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-400">Prune After (Days)</label>
-                                <input type="number" value={config.pruneDays} onChange={(e) => setConfig({...config, pruneDays: parseInt(e.target.value)})} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" disabled={isDeploying} />
+                                <input 
+                                    type="number" 
+                                    value={config.pruneDays} 
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        setConfig({...config, pruneDays: val === '' ? '' : Math.max(1, parseInt(val, 10) || 1)});
+                                    }} 
+                                    className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" 
+                                    disabled={isDeploying} 
+                                    min="1"
+                                />
                             </div>
                         </div>
                         

@@ -25,7 +25,7 @@ interface PruneLicensesModalProps {
 }
 
 const PruneLicensesModal: React.FC<PruneLicensesModalProps> = ({ isOpen, onClose, onConfirm, userLicenses, isDeleting }) => {
-  const [days, setDays] = useState<number>(30);
+  const [days, setDays] = useState<number | ''>(30);
   const [matches, setMatches] = useState<number>(0);
 
   useEffect(() => {
@@ -34,7 +34,11 @@ const PruneLicensesModal: React.FC<PruneLicensesModalProps> = ({ isOpen, onClose
     }
   }, [isOpen, userLicenses, days]);
 
-  const calculateMatches = (numDays: number) => {
+  const calculateMatches = (numDays: number | '') => {
+    if (numDays === '') {
+        setMatches(0);
+        return;
+    }
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - numDays);
     const count = userLicenses.filter(l => {
@@ -45,8 +49,8 @@ const PruneLicensesModal: React.FC<PruneLicensesModalProps> = ({ isOpen, onClose
   };
 
   const handleDaysChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseInt(e.target.value, 10);
-    setDays(isNaN(val) ? 0 : val);
+    const val = e.target.value;
+    setDays(val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
   };
 
   if (!isOpen) return null;
@@ -87,7 +91,7 @@ const PruneLicensesModal: React.FC<PruneLicensesModalProps> = ({ isOpen, onClose
         <footer className="p-4 bg-gray-900/50 border-t border-gray-700 flex justify-end space-x-3">
           <button onClick={onClose} disabled={isDeleting} className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50">Cancel</button>
           <button
-            onClick={() => onConfirm(days)}
+            onClick={() => onConfirm(days === '' ? 30 : days)}
             disabled={isDeleting || matches === 0}
             className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed flex items-center"
           >

@@ -109,7 +109,7 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
     };
 
     const [isBulkScanning, setIsBulkScanning] = useState(false);
-    const [scanDurationHours, setScanDurationHours] = useState<number>(2);
+    const [scanDurationHours, setScanDurationHours] = useState<number | ''>(2);
 
     const checkDataConnector = async (collection: Collection) => {
         const collectionId = collection.name.split('/').pop() || 'default_collection';
@@ -213,14 +213,15 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
             }
 
             // 5. Fetch Recent Error Logs
-            addStep('Fetch Recent Error Logs', 'info', { filter: `severity>=ERROR AND >= ${scanDurationHours}h ago` });
+            const duration = typeof scanDurationHours === 'number' ? scanDurationHours : 2;
+            addStep('Fetch Recent Error Logs', 'info', { filter: `severity>=ERROR AND >= ${duration}h ago` });
             let recentLogs: any[] = [];
             try {
-                const logsResponse = await api.fetchConnectorLogs(collectionConfig, connector.name, scanDurationHours);
+                const logsResponse = await api.fetchConnectorLogs(collectionConfig, connector.name, duration);
                 recentLogs = logsResponse.entries || [];
                 if (recentLogs.length > 0) {
                     addStep('Fetch Recent Error Logs', 'fail', { count: recentLogs.length, latest: recentLogs[0].textPayload || 'See Details' });
-                    diagnostics.errors.push(`Found ${recentLogs.length} error logs in the last ${scanDurationHours} hours.`);
+                    diagnostics.errors.push(`Found ${recentLogs.length} error logs in the last ${duration} hours.`);
                     // Mark validaton as Failed if we have recent errors
                     status = 'error';
                     message = `Validation Failed: ${recentLogs.length} Recent Errors`;
@@ -339,7 +340,10 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
                             type="number"
                             id="scanDuration"
                             value={scanDurationHours}
-                            onChange={(e) => setScanDurationHours(Math.max(1, parseInt(e.target.value) || 2))}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                setScanDurationHours(val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
+                            }}
                             className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] focus:ring-blue-500"
                             min="1"
                         />

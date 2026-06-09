@@ -9,7 +9,7 @@ interface Props {
 
 const CostsUI: React.FC<Props> = ({ projectNumber }) => {
     const [edition, setEdition] = useState<'Standard' | 'Plus'>('Standard');
-    const [licenses, setLicenses] = useState<number>(10);
+    const [licenses, setLicenses] = useState<number | ''>(10);
     const [showInstructions, setShowInstructions] = useState(false);
 
     // API State
@@ -233,15 +233,16 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
         };
 
         const m = multipliers[edition];
+        const numLicenses = Number(licenses) || 0;
         return {
-            tasksAndActions: licenses * m.tasksAndActions,
-            textAnswerGen: licenses * m.textAnswerGen,
-            imageGen: licenses * m.imageGen,
-            videoGen: licenses * m.videoGen,
-            grounding: licenses * m.grounding,
-            webGrounding: licenses * m.webGrounding,
-            ideaGeneration: licenses * m.ideaGeneration,
-            deepResearch: licenses * m.deepResearch
+            tasksAndActions: numLicenses * m.tasksAndActions,
+            textAnswerGen: numLicenses * m.textAnswerGen,
+            imageGen: numLicenses * m.imageGen,
+            videoGen: numLicenses * m.videoGen,
+            grounding: numLicenses * m.grounding,
+            webGrounding: numLicenses * m.webGrounding,
+            ideaGeneration: numLicenses * m.ideaGeneration,
+            deepResearch: numLicenses * m.deepResearch
         };
     }, [edition, licenses]);
 
@@ -505,7 +506,10 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             type="number" 
                             min="1"
                             value={licenses} 
-                            onChange={(e) => setLicenses(Math.max(1, parseInt(e.target.value) || 1))}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                setLicenses(val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
+                            }}
                             className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[42px]"
                         />
                     </div>

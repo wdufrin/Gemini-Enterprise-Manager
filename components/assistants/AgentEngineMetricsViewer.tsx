@@ -211,7 +211,7 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                                 <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Count of calls by tool</h4>
                                 <div className="h-64 w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
+                                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                                         <BarChart data={parsedData.chartData} margin={{ top: 5, right: 30, left: 20, bottom: 25 }}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                                             <XAxis 
@@ -246,7 +246,7 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                                 <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Error rate by tool (%)</h4>
                                 <div className="h-64 w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
+                                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                                         <BarChart data={parsedData.chartData} margin={{ top: 5, right: 30, left: 20, bottom: 25 }}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                                             <XAxis 
@@ -282,7 +282,7 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 lg:col-span-2">
                                 <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Duration (ms) by tool (Estimated P95)</h4>
                                 <div className="h-72 w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
+                                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                                         <LineChart data={parsedData.chartData} margin={{ top: 5, right: 30, left: 20, bottom: 25 }}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                                             <XAxis 

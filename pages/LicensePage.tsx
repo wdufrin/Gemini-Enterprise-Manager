@@ -28,6 +28,7 @@ import CloudConsoleButton from '../components/CloudConsoleButton';
 import DistributeLicenseModal from '../components/license/DistributeLicenseModal';
 import RetractLicenseModal from '../components/license/RetractLicenseModal';
 import GroupLicenseDeploymentModal from '../components/license/GroupLicenseDeploymentModal';
+import ExportLicenseModal from '../components/license/ExportLicenseModal';
 
 interface LicensePageProps {
   projectNumber: string;
@@ -65,6 +66,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
   const [isPruneModalOpen, setIsPruneModalOpen] = useState(false);
   const [isDeploymentModalOpen, setIsDeploymentModalOpen] = useState(false);
   const [isGroupDeploymentModalOpen, setIsGroupDeploymentModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   
   // Single Delete State
   const [licenseToDelete, setLicenseToDelete] = useState<any | null>(null);
@@ -819,6 +821,14 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
           userLicenses={userLicenses}
           isDeleting={isActionLoading}
       />
+      <ExportLicenseModal
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          projectNumber={projectNumber}
+          userLicenses={userLicenses}
+          filteredUserLicenses={filteredUserLicenses}
+          licenseNames={licenseNames}
+      />
       
       {isDeploymentModalOpen && (
           <PrunerDeploymentModal 
@@ -988,6 +998,16 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                         className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center whitespace-nowrap h-[38px]"
                     >
                         {isLicensesLoading ? 'Loading...' : 'Refresh List'}
+                    </button>
+                    <button 
+                        onClick={() => setIsExportModalOpen(true)}
+                        disabled={isLicensesLoading || !projectNumber || userLicenses.length === 0}
+                        className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center whitespace-nowrap h-[38px]"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Export Data
                     </button>
                     <button 
                         onClick={() => setIsPruneModalOpen(true)}

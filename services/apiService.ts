@@ -1514,6 +1514,24 @@ export const createBigQueryTable = async (projectId: string, datasetId: string, 
     return gapiRequest<any>(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables`, 'POST', projectId, undefined, body);
 };
 
+export const createBigQueryTableWithSchema = async (projectId: string, datasetId: string, tableId: string, schema: any) => {
+    const body = {
+        tableReference: { tableId, datasetId, projectId },
+        schema
+    };
+    return gapiRequest<any>(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables`, 'POST', projectId, undefined, body);
+};
+
+export const insertBigQueryRows = async (projectId: string, datasetId: string, tableId: string, rows: any[]) => {
+    const body = {
+        kind: "bigquery#tableDataInsertAllRequest",
+        rows: rows.map(row => ({
+            json: row
+        }))
+    };
+    return gapiRequest<any>(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables/${tableId}/insertAll`, 'POST', projectId, undefined, body);
+};
+
 export const runBigQueryQuery = async (projectId: string, query: string) => {
     return gapiRequest<any>(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`, 'POST', projectId, undefined, { query, useLegacySql: false });
 };

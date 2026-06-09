@@ -39,7 +39,7 @@ const DistributeLicenseModal: React.FC<DistributeLicenseModalProps> = ({
 }) => {
     const [targetProject, setTargetProject] = useState(currentProjectNumber);
     const [location, setLocation] = useState('global');
-    const [count, setCount] = useState(1);
+    const [count, setCount] = useState<number | ''>(1);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -100,7 +100,7 @@ const DistributeLicenseModal: React.FC<DistributeLicenseModalProps> = ({
             await api.distributeLicense(billingAccountId, billingAccountLicenseConfigId, {
                 projectNumber: targetProject,
                 location: location,
-                licenseCount: count,
+                licenseCount: typeof count === 'number' ? count : 1,
                 licenseConfigId: selectedConfigId || undefined,
             }, config);
 
@@ -189,7 +189,10 @@ const DistributeLicenseModal: React.FC<DistributeLicenseModalProps> = ({
                             required
                             min="1"
                             value={count}
-                            onChange={(e) => setCount(parseInt(e.target.value))}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                setCount(val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
+                            }}
                             className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                     </div>

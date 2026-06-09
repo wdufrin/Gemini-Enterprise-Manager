@@ -44,8 +44,8 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     setTables(allTables);
 
                     // 4. Fetch real data for charts
-                    const messageTablePrefix = `${projectId}.${dataset}.discoveryengine_googleapis_com_gen_ai_user_message_*`;
-                    const activityTablePrefix = `${projectId}.${dataset}.discoveryengine_googleapis_com_gemini_enterprise_user_activity_*`;
+                    const messageTablePrefix = `${projectId}.${dataset}.v_consolidated_user_messages`;
+                    const activityTablePrefix = `${projectId}.${dataset}.v_consolidated_user_activity`;
                     
                     // Calculate start time based on timeRange
                     const startTime = new Date();
@@ -54,25 +54,12 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     
                     // Query 1: Messages by Role (with fix for mixed data types)
                     const roleQuery = `
-                        SELECT role, COUNT(*) as count FROM (
-                          SELECT 'model' as role
-                          FROM \`${messageTablePrefix}\`
-                          WHERE timestamp >= TIMESTAMP('${startTimeStr}')
-                          
-                          UNION ALL
-                          
-                          SELECT 'user' as role
-                          FROM \`${activityTablePrefix}\`
-                          WHERE jsonPayload.request.query.parts IS NOT NULL
-                            AND timestamp >= TIMESTAMP('${startTimeStr}')
-                          
-                          UNION ALL
-                          
-                          SELECT 'model' as role
-                          FROM \`${activityTablePrefix}\`
-                          WHERE jsonPayload.response.answer.replies IS NOT NULL
-                            AND timestamp >= TIMESTAMP('${startTimeStr}')
-                        )
+                        SELECT 
+                          jsonPayload.content.role as role, 
+                          COUNT(*) as count
+                        FROM \`${messageTablePrefix}\`
+                        WHERE jsonPayload.content.role IS NOT NULL
+                          AND timestamp >= TIMESTAMP('${startTimeStr}')
                         GROUP BY role
                     `;
                     
@@ -129,17 +116,17 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                           WHERE resource.labels.agent_id IS NOT NULL AND timestamp >= TIMESTAMP('${startTimeStr}')
                           UNION ALL
                           SELECT 
-                            jsonPayload.request.userevent.agentspaceinfo.agentinfo.agentid as agent_id,
+                            COALESCE(REGEXP_EXTRACT(jsonPayload.request.agent.name, r'agents/([^/]+)'), jsonPayload.request.agent.name) as agent_id,
                             COALESCE(
-                              jsonPayload.request.userevent.agentspaceinfo.agentinfo.name,
                               jsonPayload.request.agent.displayname,
                               jsonPayload.request.agent.displayName,
                               jsonPayload.response.displayname,
                               jsonPayload.response.displayName,
-                              jsonPayload.request.userevent.agentspaceinfo.agentinfo.agentid
+                              REGEXP_EXTRACT(jsonPayload.request.agent.name, r'agents/([^/]+)'),
+                              jsonPayload.request.agent.name
                             ) as agent_name
                           FROM \`${activityTablePrefix}\`
-                          WHERE jsonPayload.request.userevent.agentspaceinfo.agentinfo.agentid IS NOT NULL AND timestamp >= TIMESTAMP('${startTimeStr}')
+                          WHERE (jsonPayload.request.agent.name IS NOT NULL OR jsonPayload.request.agent.displayname IS NOT NULL) AND timestamp >= TIMESTAMP('${startTimeStr}')
                         ),
                         agent_real_names AS (
                           SELECT agent_id, MAX(agent_name) as real_name
