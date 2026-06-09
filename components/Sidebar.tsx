@@ -133,7 +133,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
         </svg>
         <div className="flex flex-col ml-3 justify-center">
             <span className="text-lg font-bold text-gray-100 tracking-tight leading-none">Gemini Enterprise</span>
-            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0609.277</span>
+            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0609.278</span>
         </div>
       </div>
       

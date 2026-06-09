@@ -425,9 +425,15 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                                 {modalLicenseConfigs.length > 0 ? (
                                     modalLicenseConfigs.map(cfg => {
                                         const id = cfg.name.split('/').pop();
+                                        const exp = cfg.endDate && cfg.endDate.year 
+                                            ? `${cfg.endDate.year}-${String(cfg.endDate.month || 1).padStart(2, '0')}-${String(cfg.endDate.day || 1).padStart(2, '0')}` 
+                                            : '';
+                                        const optionText = cfg.displayName 
+                                            ? `${cfg.displayName} (Exp: ${exp || 'None'})` 
+                                            : `${id} (Exp: ${exp || 'None'})`;
                                         return (
                                             <option key={cfg.name} value={id}>
-                                                {cfg.displayName || id}
+                                                {optionText}
                                             </option>
                                         );
                                     })

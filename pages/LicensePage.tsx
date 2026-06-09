@@ -979,11 +979,20 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                         <option value="" disabled>Select Target License...</option>
                         <option value="REVOKE" className="text-yellow-400">Revoke License</option>
                         <option value="DELETE" className="text-red-400">Delete Users</option>
-                        {apiLicenseConfigs.map(cfg => (
-                            <option key={cfg.name} value={`license_config="${cfg.name}"`}>
-                                Apply: {cfg.displayName || cfg.name.split('/').pop()}
-                            </option>
-                        ))}
+                        {apiLicenseConfigs.map(cfg => {
+                            const id = cfg.name.split('/').pop();
+                            const exp = cfg.endDate && cfg.endDate.year 
+                                ? `${cfg.endDate.year}-${String(cfg.endDate.month || 1).padStart(2, '0')}-${String(cfg.endDate.day || 1).padStart(2, '0')}` 
+                                : '';
+                            const optionText = cfg.displayName 
+                                ? `${cfg.displayName} (Exp: ${exp || 'None'})` 
+                                : `${id} (Exp: ${exp || 'None'})`;
+                            return (
+                                <option key={cfg.name} value={`license_config="${cfg.name}"`}>
+                                    Apply: {optionText}
+                                </option>
+                            );
+                        })}
                     </select>
                     <button 
                         onClick={handleBulkAction} 
@@ -1472,12 +1481,19 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                                           const jobType = labels['job-type'] || 'N/A';
                                           const lastRun = lastRunTimes[id] ? new Date(lastRunTimes[id]).toLocaleString() : 'N/A';
                                           
+                                          const matchConfig = apiLicenseConfigs.find(c => c.name.split('/').pop() === geSku);
+                                          const expDate = matchConfig && matchConfig.endDate && matchConfig.endDate.year
+                                              ? `${matchConfig.endDate.year}-${String(matchConfig.endDate.month || 1).padStart(2, '0')}-${String(matchConfig.endDate.day || 1).padStart(2, '0')}`
+                                              : '';
+                                          
                                           return (
                                               <tr key={idx} className="hover:bg-gray-700/50 transition-colors">
                                                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{id}</td>
                                                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{runRegion}</td>
                                                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{geRegion}</td>
-                                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{geSku}</td>
+                                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                                                      {geSku} {expDate ? `(Exp: ${expDate})` : ''}
+                                                  </td>
                                                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{jobType}</td>
                                                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{lastRun}</td>
                                                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
