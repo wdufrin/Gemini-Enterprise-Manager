@@ -491,7 +491,7 @@ gcloud scheduler jobs create http trigger-auto-backup \\
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
             <div className={`bg-gray-800 rounded-lg shadow-xl w-full ${isAutoBackupMode ? 'max-w-4xl' : 'max-w-md'} p-6 border border-gray-700 font-sans max-h-[90vh] overflow-y-auto`}>
-                <h2 className="text-xl font-bold text-white mb-2">{isAutoBackupMode ? 'Setup Auto-Backup (Cloud Function)' : 'Backup Metrics to BigQuery'}</h2>
+                <h2 className="text-xl font-bold text-white mb-2">{isAutoBackupMode ? 'Setup Auto-Backup (Cloud Function)' : 'Backup Analytics to BigQuery'}</h2>
                 <p className="text-sm text-gray-400 mb-4">
                     {isAutoBackupMode 
                         ? 'Generate a Cloud Function to automatically backup metrics to BigQuery every month with a timestamped table.' 
@@ -765,7 +765,7 @@ gcloud scheduler jobs create http trigger-auto-backup \\
                                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center w-full"
                                 >
                                     {isExporting && <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>}
-                                    {isExporting ? 'Exporting...' : 'Export Metrics'}
+                                    {isExporting ? 'Exporting...' : 'Export Analytics'}
                                 </button>
                                 <button onClick={() => setIsAutoBackupMode(true)} className="px-4 py-2 bg-teal-900/30 hover:bg-teal-800/50 rounded-md text-teal-300 border border-teal-800 transition-colors flex items-center justify-center text-sm w-full">
                                     <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>

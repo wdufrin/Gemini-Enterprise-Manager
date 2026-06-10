@@ -605,7 +605,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                         onClick={() => setIsExportModalOpen(true)}
                         className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 shadow-md"
                     >
-                        Backup Metrics
+                        Backup Analytics
                     </button>
                 </div>
             </div>
