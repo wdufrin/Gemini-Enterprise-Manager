@@ -27,6 +27,15 @@ interface ConnectorDetailsModalProps {
   status: 'success' | 'error';
 }
 
+const escapeHtml = (text: string): string => {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
 const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
   isOpen,
   onClose,
@@ -203,9 +212,9 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                   <div className="text-gray-300 mt-2 group-open:animate-fadeIn">
                     <pre className="text-xs bg-gray-950 p-2 rounded overflow-x-auto border border-gray-800"
                       dangerouslySetInnerHTML={{
-                        __html: (JSON.stringify(data.connectorState, null, 2) || '{}')
-                          .replace(/("state": "FAILED")/g, '<span class="text-red-500 font-bold">$1</span>')
-                          .replace(/("error": {[^}]+})/g, '<span class="text-red-400">$1</span>')
+                        __html: escapeHtml(JSON.stringify(data.connectorState, null, 2) || '{}')
+                          .replace(/(&quot;state&quot;: &quot;FAILED&quot;)/g, '<span class="text-red-500 font-bold">$1</span>')
+                          .replace(/(&quot;error&quot;:\s*\{[^}]+\})/g, '<span class="text-red-400">$1</span>')
                       }}
                     />
                   </div>
@@ -224,8 +233,8 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                     <div className="text-gray-300 mt-2 group-open:animate-fadeIn">
                       <pre className="text-xs bg-gray-950 p-2 rounded overflow-x-auto border border-gray-800"
                         dangerouslySetInnerHTML={{
-                          __html: JSON.stringify(rawOps, null, 2)
-                            .replace(/("error":\s*\{[\s\S]*?\}(,|\s*\}))/g, '<span class="text-red-400 font-bold">$1</span>')
+                          __html: escapeHtml(JSON.stringify(rawOps, null, 2))
+                            .replace(/(&quot;error&quot;:\s*\{[\s\S]*?\}(,|\s*\}))/g, '<span class="text-red-400 font-bold">$1</span>')
                         }}
                       />
                     </div>

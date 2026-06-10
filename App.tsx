@@ -69,7 +69,7 @@ const ALL_CLOUD_RUN_LOCATIONS = [
     'asia-east1', 'asia-southeast1'
 ];
 
-const GOOGLE_CLIENT_ID = '180054373655-2b600fnjissdmll4ipj2ndhr0i2h03fj.apps.googleusercontent.com';
+const DEFAULT_GOOGLE_CLIENT_ID = '180054373655-2b600fnjissdmll4ipj2ndhr0i2h03fj.apps.googleusercontent.com';
 
 const InnerApp: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>(Page.AGENTS);
@@ -81,11 +81,28 @@ const InnerApp: React.FC = () => {
     const [projectId, setProjectId] = useState<string>(() => sessionStorage.getItem('agentspace-projectId') || '');
   
   // SSO State
+  const [googleClientId, setGoogleClientId] = useState<string>('');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-    const userEmailRef = useRef<string | null>(null);
+  const userEmailRef = useRef<string | null>(null);
   const tokenClient = useRef<any>(null);
-    const tokenExpiryRef = useRef<number | null>(null);
-    const isRenewingRef = useRef<boolean>(false);
+  const tokenExpiryRef = useRef<number | null>(null);
+  const isRenewingRef = useRef<boolean>(false);
+
+  // Load client ID from runtime config.json
+  useEffect(() => {
+    fetch('/config.json')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.GOOGLE_CLIENT_ID) {
+          setGoogleClientId(data.GOOGLE_CLIENT_ID);
+        } else {
+          setGoogleClientId(DEFAULT_GOOGLE_CLIENT_ID);
+        }
+      })
+      .catch(() => {
+        setGoogleClientId(DEFAULT_GOOGLE_CLIENT_ID);
+      });
+  }, []);
 
   // State for the initialization and login flow
   const [isGapiInitialized, setIsGapiInitialized] = useState(false);
@@ -198,9 +215,9 @@ const InnerApp: React.FC = () => {
   // Initialize Token Client
   useEffect(() => {
 
-      if (window.google && window.google.accounts && GOOGLE_CLIENT_ID) {
+      if (window.google && window.google.accounts && googleClientId) {
           tokenClient.current = window.google.accounts.oauth2.initTokenClient({
-              client_id: GOOGLE_CLIENT_ID,
+              client_id: googleClientId,
               // Update scopes to include Dialogflow
               scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/dialogflow',
               callback: (tokenResponse: any) => {
@@ -230,7 +247,7 @@ const InnerApp: React.FC = () => {
               },
           });
       }
-  }, [handleSetAccessToken]);
+  }, [googleClientId, handleSetAccessToken]);
 
     // Passive Auto-Renewal on user activity
     useEffect(() => {

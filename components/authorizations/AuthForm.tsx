@@ -204,7 +204,12 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
             delete payload.serverSideOauth2;
         }
 
-        const payloadString = JSON.stringify(payload, null, 2);
+        const previewPayload = JSON.parse(JSON.stringify(payload));
+        if (previewPayload.serverSideOauth2 && previewPayload.serverSideOauth2.clientSecret) {
+            previewPayload.serverSideOauth2.clientSecret = '[YOUR_CLIENT_SECRET]';
+        }
+
+        const payloadString = JSON.stringify(previewPayload, null, 2);
         const location = config.appLocation || 'global';
         const domain = location === 'global' ? 'discoveryengine.googleapis.com' : `${location}-discoveryengine.googleapis.com`;
 
@@ -242,7 +247,12 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
             },
         };
 
-        const payloadString = JSON.stringify(createPayload, null, 2);
+        const previewPayload = JSON.parse(JSON.stringify(createPayload));
+        if (previewPayload.serverSideOauth2 && previewPayload.serverSideOauth2.clientSecret) {
+            previewPayload.serverSideOauth2.clientSecret = '[YOUR_CLIENT_SECRET]';
+        }
+
+        const payloadString = JSON.stringify(previewPayload, null, 2);
         const location = config.appLocation || 'global';
         const domain = location === 'global' ? 'discoveryengine.googleapis.com' : `${location}-discoveryengine.googleapis.com`;
         const url = `https://${domain}/v1alpha/projects/${projectId}/locations/${location}/authorizations?authorizationId=${finalAuthId}`;

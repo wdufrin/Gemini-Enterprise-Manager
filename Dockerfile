@@ -17,19 +17,16 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Serve the compiled front-end
-FROM node:22-alpine
-
-# Set working directory
-WORKDIR /app
+FROM nginx:alpine
 
 # Copy the compiled build from the builder stage
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Install 'serve' globally to serve the static files natively
-RUN npm install -g serve
+# Copy custom Nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Cloud Run expects the container to listen on Port 8080
 EXPOSE 8080
 
-# Run 'serve' allowing single-page app routing (-s) on port 8080
-CMD ["serve", "-s", "dist", "-l", "8080"]
+# Run Nginx in foreground
+CMD ["nginx", "-g", "daemon off;"]

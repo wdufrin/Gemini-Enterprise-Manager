@@ -250,7 +250,7 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                     </div>
                     <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Request Volume</h4>
                     <div className="h-64 w-full">
-                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                        <ResponsiveContainer width="100%" height={256} minWidth={0}>
                             <AreaChart data={volumeData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                                 <XAxis dataKey="time" stroke="#9CA3AF" fontSize={12} />
@@ -275,7 +275,7 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                     </div>
                     <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Messages by Role</h4>
                     <div className="h-64 w-full flex justify-center items-center">
-                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                        <ResponsiveContainer width="100%" height={256} minWidth={0}>
                             <PieChart>
                                 <Pie
                                     data={roleData || [{ name: 'model', value: 7 }, { name: 'user', value: 5 }]}
@@ -310,7 +310,7 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                     </div>
                     <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Messages by Agent</h4>
                     <div className="h-64 w-full">
-                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                        <ResponsiveContainer width="100%" height={256} minWidth={0}>
                             {agentData ? (
                                 <BarChart data={agentData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />

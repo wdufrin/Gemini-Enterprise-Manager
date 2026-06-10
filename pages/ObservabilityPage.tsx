@@ -312,9 +312,9 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                                                 const tableId = table.tableReference.tableId;
                                                 return tableId.replace(/_\d{8}$/, '');
                                             }))).map(baseTableId => (
-                                                <div key={baseTableId} className="p-2 bg-gray-900 rounded-md border border-gray-700 text-sm text-gray-300 font-mono flex justify-between items-center">
-                                                    <span>{baseTableId}</span>
-                                                    <span className="text-xs text-gray-500 bg-gray-800 px-1 rounded">Partitioned</span>
+                                                <div key={baseTableId} className="p-2 bg-gray-900 rounded-md border border-gray-700 text-sm text-gray-300 font-mono flex justify-between items-center min-w-0" title={baseTableId}>
+                                                    <span className="truncate mr-2">{baseTableId}</span>
+                                                    <span className="text-xs text-gray-500 bg-gray-800 px-1 rounded shrink-0">Partitioned</span>
                                                 </div>
                                             ))}
                                         </div>

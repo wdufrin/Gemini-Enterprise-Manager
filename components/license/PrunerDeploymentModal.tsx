@@ -269,9 +269,13 @@ echo "Skipping project-level IAM bindings (verified in UI)..."
 # 3. Grant Permissions
 echo "Granting IAM permissions..."
 
+# Grant Discovery Engine Editor permission (required to list/update user licenses).
+# Security Tip: In production, create and assign a custom IAM role containing only
+# 'discoveryengine.userLicenses.list' and 'discoveryengine.userLicenses.update'
+# instead of discoveryengine.editor or discoveryengine.admin.
 gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:$SA_EMAIL" \
-    --role="roles/discoveryengine.admin" --condition=None
+    --role="roles/discoveryengine.editor" --condition=None
 
 gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:$SA_EMAIL" \
@@ -725,7 +729,10 @@ gcloud projects add-iam-policy-binding ${config.projectId} \\
                                         The Cloud Build service account (<code>{cloudBuildSa}</code>) does not have permission to create Scheduler jobs or Cloud Run services by default.
                                     </p>
                                     <p className="text-xs text-orange-100 mb-2 font-semibold">
-                                        You MUST run these commands in your Cloud Shell or local terminal before deploying, otherwise the build will fail with PERMISSION_DENIED.
+                                        🛡️ Recommended: Click "Download .zip" below and execute <code>./deploy.sh</code> in your local terminal. This uses your personal credentials and avoids granting broad Project IAM Admin rights to Cloud Build.
+                                    </p>
+                                    <p className="text-xs text-orange-100 mb-2">
+                                        Alternatively, if you wish to deploy directly from the UI via Cloud Build, you must run these commands in Cloud Shell to grant Cloud Build the necessary permissions:
                                     </p>
                                     <div className="bg-black/50 p-2 rounded border border-orange-800 relative group">
                                             <pre className="text-[10px] text-orange-50 whitespace-pre-wrap font-mono">

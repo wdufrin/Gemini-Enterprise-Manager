@@ -57,7 +57,10 @@ const generateDeploySh = (
     content += "echo \"Using Service Account Email: $SA_EMAIL\"\n\n";
     
     content += "echo \"Granting IAM permissions...\"\n";
-    content += "gcloud projects add-iam-policy-binding $PROJECT_ID --member=\"serviceAccount:$SA_EMAIL\" --role=\"roles/discoveryengine.admin\" --condition=None\n";
+    content += "# Grant Discovery Engine Editor permission (required to list/update user licenses).\n";
+    content += "# Security Tip: In production, create and assign a custom IAM role containing only\n";
+    content += "# 'discoveryengine.userLicenses.list' and 'discoveryengine.userLicenses.update' instead.\n";
+    content += "gcloud projects add-iam-policy-binding $PROJECT_ID --member=\"serviceAccount:$SA_EMAIL\" --role=\"roles/discoveryengine.editor\" --condition=None\n";
     content += "gcloud projects add-iam-policy-binding $PROJECT_ID --member=\"serviceAccount:$SA_EMAIL\" --role=\"roles/logging.logWriter\" --condition=None\n";
     content += "gcloud projects add-iam-policy-binding $PROJECT_ID --member=\"serviceAccount:$SA_EMAIL\" --role=\"roles/storage.objectViewer\" --condition=None\n";
 
