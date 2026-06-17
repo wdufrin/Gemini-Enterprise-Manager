@@ -39,6 +39,7 @@ interface A2aConfig {
 
 // Separate interface for ADK Agent
 interface AdkAgentConfig {
+    adkVersion?: '1.35.1' | '2.2';
     name: string;
     description: string;
     model: string;
@@ -504,12 +505,16 @@ echo "Your A2A function is now available at: $SERVICE_URL"
 
 // --- ADK Generators ---
 
-const generateAuthPy = (allowAdcFallback: boolean = true): string => {
+const generateAuthPy = (config: AdkAgentConfig, allowAdcFallback: boolean = true): string => {
+    const isV2 = config.adkVersion === '2.2';
+    const toolContextImport = isV2 ? 'from google.antigravity import ToolContext' : 'from google.adk.tools import ToolContext';
+
     return `import os
 import logging
 from typing import Optional
 from google.oauth2.credentials import Credentials
-from google.adk.tools import ToolContext
+${toolContextImport}
+
 
 logger = logging.getLogger(__name__)
 
@@ -560,6 +565,9 @@ ${allowAdcFallback ? `    # 4. Fallback to Application Default Credentials (ADC)
 };
 
 const generateToolsPy = (config: AdkAgentConfig, useRelativeImports: boolean = false): string => {
+    const isV2 = config.adkVersion === '2.2';
+    const toolContextImport = isV2 ? 'from google.antigravity import ToolContext' : 'from google.adk.tools import ToolContext';
+
     let code = `import os
 import logging
 import json
@@ -569,11 +577,11 @@ import google.auth.transport.requests
 import google.oauth2.id_token
 from typing import Optional, Dict, Any, List
 from google.genai import types
-from google.adk.tools import ToolContext
-from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
+${toolContextImport}
+${isV2 ? '' : 'from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams'}
 
 try:
-    from google.adk.tools import Artifact
+    ${isV2 ? 'from google.antigravity.types import FileChange as Artifact # Dummy mapping' : 'from google.adk.tools import Artifact'}
 except ImportError:
     from pydantic import BaseModel, Field
     class Artifact(BaseModel):
@@ -591,7 +599,10 @@ except ImportError:
         def get_user_credentials(context): return None
 
 logger = logging.getLogger(__name__)
+`;
 
+    if (!isV2) {
+        code += `
 def get_logging_mcp_toolset() -> McpToolset:
     """
     Creates and returns the Cloud Logging MCP toolset.
@@ -619,7 +630,10 @@ def get_logging_mcp_toolset() -> McpToolset:
         tool_name_prefix="logging_",
         header_provider=auth_header_provider
     )
+`;
+    }
 
+    code += `
 def get_current_time() -> str:
     """
     Gets the current UTC time formatted as an ISO 8601 string.
@@ -627,7 +641,6 @@ def get_current_time() -> str:
     """
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
-
 `;
 
     if (config.enableDiscoveryApi) {
@@ -834,7 +847,7 @@ def create_a2a_tool(url: str, tool_name: str):
 `;
     }
 
-    if (config.enableBigQueryMcp) {
+    if (!isV2 && config.enableBigQueryMcp) {
         code += `
 def get_bq_mcp_toolset() -> McpToolset:
     """
@@ -872,9 +885,10 @@ def get_bq_mcp_toolset() -> McpToolset:
         { key: 'enableMapsGroundingMcp', name: 'mapstools', url: 'https://mapstools.googleapis.com/mcp' },
     ];
 
-    mcpServices.forEach(({ key, name, url }) => {
-        if ((config as any)[key]) {
-            code += `
+    if (!isV2) {
+        mcpServices.forEach(({ key, name, url }) => {
+            if ((config as any)[key]) {
+                code += `
 def get_${name}_mcp_toolset() -> McpToolset:
     """
     Returns the ${name} MCP Toolset.
@@ -901,8 +915,9 @@ def get_${name}_mcp_toolset() -> McpToolset:
         header_provider=auth_header_provider
     )
 `;
-        }
-    });
+            }
+        });
+    }
 
     if (config.enableEmailTool) {
         code += `
@@ -1646,7 +1661,7 @@ import time
 import asyncio
 import urllib.request
 import json
-from google.adk.tools import ToolContext
+${toolContextImport}
 from typing import Any
 
 async def render_graphviz(dot_code: str, tool_context: ToolContext) -> str:
@@ -2018,7 +2033,289 @@ adk web
 `;
 };
 
+const generateAdk22PythonCode = (config: AdkAgentConfig, useRelativeImports: boolean = false): string => {
+    const toolImports = new Set<string>();
+    const toolInitializations: string[] = [];
+    const toolListForAgent: string[] = [];
+
+    // Import from tools now
+    const toolsImport = new Set<string>();
+
+    // Model selection logic
+    const modelName = config.model;
+
+    // Inject A2A Helper Function Import
+    if (config.tools.some(t => t.type === 'A2AClientTool')) {
+        toolsImport.add('create_a2a_tool');
+    }
+
+    config.tools.forEach(tool => {
+        if (tool.type === 'A2AClientTool' && tool.url) {
+            const funcName = tool.variableName || 'a2a_tool';
+            toolInitializations.push(
+                `${tool.variableName} = create_a2a_tool(\n    url="${tool.url}",\n    tool_name="${funcName}"\n)`
+            );
+            toolListForAgent.push(tool.variableName);
+        }
+    });
+
+    if (config.enableDiscoveryApi) {
+        toolsImport.add('query_gemini_enterprise');
+        toolListForAgent.push('query_gemini_enterprise');
+    }
+
+    if (config.enableEmailTool) {
+        toolsImport.add('send_email');
+        toolListForAgent.push('send_email');
+    }
+
+    if (config.enableSecurityCommandCenterApi) {
+        toolsImport.add('list_active_findings');
+        toolListForAgent.push('list_active_findings');
+    }
+
+    if (config.enableRecommenderApi) {
+        toolsImport.add('list_recommendations');
+        toolsImport.add('list_cost_recommendations');
+        toolListForAgent.push('list_recommendations');
+        toolListForAgent.push('list_cost_recommendations');
+    }
+
+    if (config.enableServiceHealthApi) {
+        toolsImport.add('check_service_health');
+        toolListForAgent.push('check_service_health');
+    }
+
+    if (config.enableNetworkManagementApi) {
+        toolsImport.add('run_connectivity_test');
+        toolListForAgent.push('run_connectivity_test');
+    }
+
+    if (config.enableCloudAssistApi) {
+        toolsImport.add('investigate_with_cloud_assist');
+        toolListForAgent.push('investigate_with_cloud_assist');
+    }
+
+    if (config.enableCloudLoggingApi) {
+        toolsImport.add('search_logs');
+        toolListForAgent.push('search_logs');
+    }
+
+    if (config.enableCloudMonitoringApi) {
+        toolsImport.add('check_health');
+        toolsImport.add('get_service_metrics');
+        toolListForAgent.push('check_health');
+        toolListForAgent.push('get_service_metrics');
+    }
+
+    if (config.enableCloudRunApi) {
+        toolsImport.add('list_services');
+        toolListForAgent.push('list_services');
+    }
+
+    if (config.enableResourceManagerApi) {
+        toolsImport.add('list_projects');
+        toolsImport.add('resolve_project_id');
+        toolListForAgent.push('list_projects');
+        toolListForAgent.push('resolve_project_id');
+    }
+
+    if (config.enableAdminActivityApi) {
+        toolsImport.add('list_recent_changes');
+        toolListForAgent.push('list_recent_changes');
+    }
+
+    if (config.enableDatabaseFleetApi) {
+        toolsImport.add('check_database_fleet_health');
+        toolListForAgent.push('check_database_fleet_health');
+    }
+
+    const formatPythonString = (str: string) => {
+        const needsTripleQuotes = str.includes('\n') || str.includes('"');
+        if (needsTripleQuotes) {
+            const escapedStr = str.replace(/"""/g, '\\"\\"\\"');
+            return `"""${escapedStr}"""`;
+        }
+        return `"${str.replace(/"/g, '\\"')}"`;
+    };
+
+    let finalInstruction = config.instruction;
+    if (config.enableGraphvizRendering) {
+        toolsImport.add('render_graphviz');
+        toolListForAgent.push('render_graphviz');
+    }
+
+    const imports = [
+        'import os',
+        'import asyncio',
+        'import nest_asyncio',
+        'nest_asyncio.apply()',
+        'from dotenv import load_dotenv',
+        'from google.antigravity import Agent, LocalAgentConfig, ToolContext, types',
+        'from google.antigravity.hooks import policy',
+        'from pydantic import BaseModel, PrivateAttr',
+        'from typing import Any',
+        ...Array.from(toolImports),
+    ].filter(Boolean);
+
+    if (toolsImport.size > 0) {
+        const toolsList = Array.from(toolsImport).join(', ');
+        imports.push(`try:
+    from .tools import ${toolsList}
+except ImportError:
+    from tools import ${toolsList}`);
+    }
+
+    return `
+${imports.join('\n')}
+
+load_dotenv()
+
+# Force Vertex AI API variant to prevent the 'Missing key inputs argument' Google AI validation error
+os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
+
+# Initialize Tools
+${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No additional tools defined'}
+
+# Wrapper for Synchronous Execution (Reasoning Engine Requirement for some runtimes)
+class SyncAgentWrapper(BaseModel):
+    """
+    Wraps an async agent to provide a synchronous query interface
+    compatible with Vertex AI Reasoning Engine's strict expectations.
+    """
+    _lazy_agent: Any = PrivateAttr(default=None)
+
+    def query(self, input: str = "", message: str = "", **kwargs) -> str:
+        if self._lazy_agent is None:
+            self.set_up()
+
+        prompt = input or message
+        
+        async def _run_loop():
+            async with self._lazy_agent as agent:
+                response = await agent.chat(prompt)
+                return await response.text()
+            
+        return asyncio.run(_run_loop())
+
+    def set_up(self):
+        """
+        Called by Reasoning Engine infrastructure during initialization or lazily.
+        """
+        if self._lazy_agent is None:
+            self._lazy_agent = create_agent()
+
+    async def _run_async_impl(self, input: str = "", message: str = "", **kwargs):
+        if self._lazy_agent is None:
+            self.set_up()
+
+        prompt = input or message
+        async with self._lazy_agent as agent:
+            response = await agent.chat(prompt)
+            async for chunk in response:
+                yield chunk
+
+    async def run_async(self, ctx):
+        """
+        Handler for async stream execution expected by the Vertex AI ADK templates.
+        """
+        prompt = getattr(ctx, "query", "") or getattr(ctx, "message", "") or ""
+        if not prompt and hasattr(ctx, "new_message") and ctx.new_message:
+            if hasattr(ctx.new_message, "parts") and ctx.new_message.parts:
+                prompt = "".join([getattr(p, "text", "") for p in ctx.new_message.parts if getattr(p, "text", None)])
+
+        if self._lazy_agent is None:
+            self.set_up()
+
+        try:
+            from google.adk.events import Event
+            from google.genai import types as genai_types
+        except ImportError:
+            class Event:
+                def __init__(self, content): self.content = content
+                def is_final_response(self): return True
+            class genai_types:
+                class Content:
+                    def __init__(self, role, parts): self.role = role; self.parts = parts
+                class Part:
+                    @staticmethod
+                    def from_text(text):
+                        class PartText:
+                            def __init__(self, t): self.text = t
+                        return PartText(text)
+
+        async with self._lazy_agent as agent:
+            response = await agent.chat(prompt)
+            async for chunk in response:
+                txt = str(chunk)
+                if txt:
+                    yield Event(content=genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=txt)]))
+
+# Define the agent factory
+def create_agent():
+    # Resolve static auth headers if AUTH_ID environment variable is provided
+    headers = {}
+    auth_id = os.getenv("AUTH_ID")
+    if auth_id:
+        token = os.getenv(auth_id)
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+            
+    # Add x-goog-user-project for quota attribution (critical for Google APIs)
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    if project_id:
+        headers["x-goog-user-project"] = project_id
+
+    mcp_servers = []
+    
+    ${config.enableBigQueryMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="bigquery", url="https://bigquery.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableCloudLoggingMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="logging", url="https://logging.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableBigtableAdminMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="bigtable", url="https://bigtableadmin.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableCloudSqlMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="sqladmin", url="https://sqladmin.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableCloudMonitoringMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="monitoring", url="https://monitoring.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableComputeEngineMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="compute", url="https://compute.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableFirestoreMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="firestore", url="https://firestore.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableGkeMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="container", url="https://container.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableResourceManagerMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="resourcemanager", url="https://cloudresourcemanager.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableSpannerMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="spanner", url="https://spanner.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableDeveloperKnowledgeMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="developerknowledge", url="https://developerknowledge.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableMapsGroundingMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="mapstools", url="https://mapstools.googleapis.com/mcp", headers=headers))` : ''}
+
+    ${config.customMcpEndpoints && config.customMcpEndpoints.length > 0 ? `
+    # Custom MCP Endpoints
+    ${config.customMcpEndpoints.map(endpoint => {
+        const safeName = endpoint.name.replace(/[^a-zA-Z0-9_]/g, '_');
+        return `mcp_servers.append(types.McpStreamableHttpServer(name="${safeName}", url="${endpoint.url}", headers=headers))`;
+    }).join('\n    ')}` : ''}
+
+    # Safety Policies
+    policies = []
+    ${config.enableCodeExecution ? `policies.append(policy.allow("run_command"))` : ''}
+
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+
+    config = LocalAgentConfig(
+        model=os.getenv("MODEL", ${formatPythonString(modelName)}),
+        system_instructions=${formatPythonString(finalInstruction)},
+        vertex=True,
+        project=project_id,
+        location=location,
+        tools=[${toolListForAgent.join(', ')}],
+        mcp_servers=mcp_servers,
+        policies=policies if policies else None,
+        workspaces=[os.getcwd()]
+    )
+
+    return Agent(config)
+
+root_agent = create_agent()
+`.trim();
+};
+
 const generateAdkPythonCode = (config: AdkAgentConfig, useRelativeImports: boolean = false): string => {
+    if (config.adkVersion === '2.2') {
+        return generateAdk22PythonCode(config, useRelativeImports);
+    }
     const toolImports = new Set<string>();
     const toolInitializations: string[] = [];
     const toolListForAgent: string[] = [];
@@ -2558,8 +2855,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Wrap for deployment (lazy)
-# Wrap for deployment (lazy)
-app = SyncAgentWrapper(name="lazy_app")
+app = SyncAgentWrapper()
 `.trim();
 };
 
@@ -2840,7 +3136,15 @@ BQ_USER_PROJECT="${projectNumber}"`;
 };
 
 const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
-    const defaultDeps = [
+    const isV2 = config.adkVersion === '2.2';
+    const defaultDeps = isV2 ? [
+        "google-antigravity>=0.1.3",
+        "pydantic>=2.0.0",
+        "python-dotenv",
+        "nest_asyncio",
+        "requests",
+        "httpx"
+    ] : [
         "google-adk[eval]>=1.26.0",
         "google-cloud-aiplatform[adk,agent_engines]>=1.75.0",
         "python-dotenv",
@@ -3249,6 +3553,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
     // --- ADK State ---
     const [adkConfig, setAdkConfig] = useState<AdkAgentConfig>({
+        adkVersion: '1.35.1',
         name: '',
         description: 'An agent that can do awesome things.',
         model: 'gemini-2.5-flash',
@@ -3524,7 +3829,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         const reqsCode = generateAdkRequirementsFile(adkConfig);
         const readmeCode = generateAdkReadmeFile(adkConfig);
         const deployCode = generateAdkDeployScript(adkConfig);
-        const authCode = generateAuthPy(adkConfig.allowAdcFallback);
+        const authCode = generateAuthPy(adkConfig, adkConfig.allowAdcFallback);
         const toolsCode = generateToolsPy(adkConfig, true);
         const initCode = generateInitPy();
         setAdkGeneratedCode({ app: generateAppPy(true), agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode, auth: authCode, tools: toolsCode, init: initCode });
@@ -4149,6 +4454,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     <label className="block text-sm font-medium text-gray-400 mb-1">Agent Location</label>
                                     <select value={vertexLocation} onChange={(e) => setVertexLocation(e.target.value)} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
                                         <option value="us-central1">us-central1</option><option value="europe-west1">europe-west1</option><option value="asia-east1">asia-east1</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-1">ADK Version</label>
+                                    <select name="adkVersion" value={adkConfig.adkVersion || '1.35.1'} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
+                                        <option value="1.35.1">ADK 1.35.1 (Legacy)</option>
+                                        <option value="2.2">ADK 2.2 (Antigravity SDK)</option>
                                     </select>
                                 </div>
                                 <div>
