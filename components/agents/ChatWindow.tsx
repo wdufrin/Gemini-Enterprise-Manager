@@ -255,25 +255,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
         } : undefined;
 
         try {
-            // 1. Create Session if needed (to attach User ID)
-            if (!currentSessionId && userProfile?.email) {
-                try {
-                    const sessionPayload = {
-                        name: '', // Server generated
-                        userPseudoId: userProfile.email
-                    };
-                    const newSession = await api.createDiscoverySession(sessionPayload, config);
-                    if (newSession.name) {
-                        currentSessionId = newSession.name;
-                        setSessionId(newSession.name);
-                    }
-                } catch (sessionErr) {
-                    console.warn("Failed to create user-attributed session, falling back to anonymous auto-creation.", sessionErr);
-                }
-            } // Close if (!currentSessionId && userProfile?.email)
-
             let chatAccessToken = accessToken;
-
 
             if (authMode === 'wif') {
                 setIsExchangingToken(true);
@@ -295,6 +277,24 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                     setIsExchangingToken(false);
                 }
             }
+
+            // 1. Create Session if needed (to attach User ID), using correct token context
+            const sessionUserEmail = authMode === 'wif' ? (wifSignedInEmail || userProfile?.email) : userProfile?.email;
+            if (!currentSessionId && sessionUserEmail) {
+                try {
+                    const sessionPayload = {
+                        name: '', // Server generated
+                        userPseudoId: sessionUserEmail
+                    };
+                    const newSession = await api.createDiscoverySession(sessionPayload, config, chatAccessToken);
+                    if (newSession.name) {
+                        currentSessionId = newSession.name;
+                        setSessionId(newSession.name);
+                    }
+                } catch (sessionErr) {
+                    console.warn("Failed to create user-attributed session, falling back to anonymous auto-creation.", sessionErr);
+                }
+            } // Close if (!currentSessionId && sessionUserEmail)
 
             await api.streamChat(
                 null, 
@@ -486,6 +486,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                                         ))}
                                     </div>
                                 )}
+
+
                                 <div className="mt-3 pt-3 border-t border-gray-800 flex justify-between">
                                     <button 
                                         onClick={() => setSelectedDsNames(new Set(linkedDataStores.map(d => d.name)))}

@@ -16,7 +16,7 @@
 
 
 import { describe, it, expect, vi } from 'vitest';
-import { streamChat } from './apiService';
+import { streamChat, createDiscoverySession } from './apiService';
 
 // Mock gapi
 vi.mock('./gapiService', () => ({
@@ -178,6 +178,35 @@ describe('apiService', () => {
 
       expect(onChunk).toHaveBeenCalledTimes(1);
       expect(onChunk).toHaveBeenCalledWith(JSON.parse(jsonWithEscapedQuotes));
+    });
+  });
+
+  describe('createDiscoverySession', () => {
+    it('should use fetch when accessToken is provided', async () => {
+      (global.fetch as any).mockClear();
+      const mockSession = { name: 'projects/p/locations/l/collections/c/engines/a/sessions/s' };
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => mockSession
+      });
+
+      const result = await createDiscoverySession(
+        { userPseudoId: 'test@example.com' },
+        { projectId: 'p', appLocation: 'l', collectionId: 'c', appId: 'a' } as any,
+        'custom-token'
+      );
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://l-discoveryengine.googleapis.com/v1alpha/projects/p/locations/l/collections/c/engines/a/sessions',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Authorization': 'Bearer custom-token',
+            'X-Goog-User-Project': 'p'
+          })
+        })
+      );
+      expect(result).toEqual(mockSession);
     });
   });
 });

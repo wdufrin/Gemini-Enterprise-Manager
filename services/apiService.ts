@@ -403,7 +403,7 @@ export const getDiscoveryAnswer = async (name: string, config: Config) => {
     return gapiRequest<any>(url, 'GET', config.projectId);
 };
 
-export const createDiscoverySession = async (session: DiscoverySession, config: Config) => {
+export const createDiscoverySession = async (session: DiscoverySession, config: Config, accessToken?: string) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
     // API: POST .../sessions (Server-generated ID)
     const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId || 'default_collection'}/engines/${config.appId}/sessions`;
@@ -425,6 +425,23 @@ export const createDiscoverySession = async (session: DiscoverySession, config: 
 
     // Pass through other fields if needed, but be careful of output-only ones.
     // if (session.labels) cleanPayload.labels = session.labels;
+
+    if (accessToken) {
+        const response = await fetch(finalUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'X-Goog-User-Project': config.projectId
+            },
+            body: JSON.stringify(cleanPayload)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Failed to create session: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+        return response.json() as Promise<DiscoverySession>;
+    }
 
     return gapiRequest<DiscoverySession>(finalUrl, 'POST', config.projectId, undefined, cleanPayload);
 };
