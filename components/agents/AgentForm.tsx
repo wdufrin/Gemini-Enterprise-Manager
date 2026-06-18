@@ -57,6 +57,8 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     a2aOrg: 'My Organization',
   });
   const [agentType, setAgentType] = useState<AgentType>('reasoning_engine');
+  const [a2aStreaming, setA2aStreaming] = useState(true);
+  const [a2aExtensions, setA2aExtensions] = useState<any[]>([]);
   
   // Cloud Run Picker State
   const [cloudRunRegion, setCloudRunRegion] = useState('us-central1');
@@ -107,11 +109,21 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
           type = 'a2a';
           try {
               const card = JSON.parse(agentToEdit.a2aAgentDefinition.jsonAgentCard);
-              a2aUrl = card.url ? card.url.replace('/invoke', '') : '';
+              a2aUrl = card.url || '';
               a2aOrg = card.provider?.organization || '';
+              if (card.capabilities) {
+                  setA2aStreaming(card.capabilities.streaming !== false);
+                  setA2aExtensions(card.capabilities.extensions || []);
+              } else {
+                  setA2aStreaming(true);
+                  setA2aExtensions([]);
+              }
           } catch (e) {
               console.warn("Failed to parse A2A agent card JSON", e);
           }
+      } else {
+          setA2aStreaming(true);
+          setA2aExtensions([]);
       }
 
       setAgentType(type);
@@ -200,14 +212,17 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
             const a2aUrl = formData.a2aUrl || '';
             const cardObject = {
                 protocolVersion: "0.3.0",
-                url: `${a2aUrl.replace(/\/$/, '')}/invoke`,
+                url: a2aUrl,
                 provider: {
                     organization: formData.a2aOrg,
                     url: formData.a2aUrl,
                 },
                 name: formData.displayName,
                 description: formData.description,
-                capabilities: {},
+                capabilities: {
+                    streaming: a2aStreaming,
+                    ...(a2aExtensions.length > 0 ? { extensions: a2aExtensions } : {})
+                },
                 defaultInputModes: ["text/plain"],
                 defaultOutputModes: ["text/plain"],
                 skills: [{ description: "Chat", examples: ["Hello"], id: "chat", name: "Chat", tags: ["chat"] }],
@@ -317,7 +332,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
 
             setCurlCommand(command);
         }
-    }, [formData, agentToEdit, config, agentType, isCrossProject, sourceProjectId]);
+    }, [formData, agentToEdit, config, agentType, isCrossProject, sourceProjectId, a2aStreaming, a2aExtensions]);
 
 
   useEffect(() => {
@@ -490,11 +505,10 @@ Rewritten agent description:`;
 
   const handleServiceSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
       const uri = e.target.value;
-      const svc = cloudRunServices.find(s => s.uri === uri);
       if (uri) {
           setFormData(prev => ({
               ...prev,
-              a2aUrl: uri,
+              a2aUrl: `${uri.replace(/\/$/, '')}/invoke`,
           }));
       }
   }
@@ -539,14 +553,17 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
         const a2aUrl = formData.a2aUrl || '';
         const cardObject = {
             protocolVersion: "0.3.0",
-            url: `${a2aUrl.replace(/\/$/, '')}/invoke`,
+            url: a2aUrl,
             provider: {
                 organization: formData.a2aOrg,
                 url: formData.a2aUrl,
             },
             name: formData.displayName,
             description: formData.description,
-            capabilities: {},
+            capabilities: {
+                streaming: a2aStreaming,
+                ...(a2aExtensions.length > 0 ? { extensions: a2aExtensions } : {})
+            },
             defaultInputModes: ["text/plain"],
             defaultOutputModes: ["text/plain"],
             skills: [{ description: "Chat", examples: ["Hello"], id: "chat", name: "Chat", tags: ["chat"] }],
@@ -879,14 +896,14 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                     ) : (
                         <>
                             <div>
-                                <label htmlFor="a2aUrl" className="block text-sm font-medium text-gray-300">Agent URL (Required)</label>
+                                <label htmlFor="a2aUrl" className="block text-sm font-medium text-gray-300">Invoke URL (Required)</label>
                                 <div className="flex gap-2 items-center">
                                     <input 
                                         type="url" 
                                         name="a2aUrl" 
                                         value={formData.a2aUrl} 
                                         onChange={handleChange} 
-                                        placeholder="https://my-service.run.app" 
+                                        placeholder="https://my-service.run.app/invoke" 
                                         className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" 
                                         required 
                                     />
@@ -898,7 +915,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                                         {useCloudRunPicker ? 'Cancel Scan' : 'Pick from Cloud Run'}
                                     </button>
                                 </div>
-                                <p className="mt-1 text-xs text-gray-400">The public URL of your Cloud Run service or HTTP agent.</p>
+                                <p className="mt-1 text-xs text-gray-400">The full HTTP endpoint used to invoke the agent (e.g. including `/invoke` or any custom path).</p>
                             </div>
                             
                             {useCloudRunPicker && (
@@ -950,6 +967,73 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                             <div>
                                 <label htmlFor="a2aOrg" className="block text-sm font-medium text-gray-300">Provider Organization</label>
                                 <input type="text" name="a2aOrg" value={formData.a2aOrg} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" />
+                            </div>
+
+                            <div>
+                                <label className="flex items-center space-x-3 mb-2 cursor-pointer mt-4">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={a2aStreaming} 
+                                        onChange={(e) => setA2aStreaming(e.target.checked)} 
+                                        className="form-checkbox h-4 w-4 text-teal-500 rounded border-gray-600 bg-gray-800 focus:ring-teal-500"
+                                        disabled={isEditingDisabled}
+                                    />
+                                    <span className="text-sm font-medium text-gray-300">Enable Streaming</span>
+                                </label>
+                            </div>
+
+                            {/* Extensions list */}
+                            <div className="mt-4 border-t border-gray-700/50 pt-4">
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Agent Extensions / DCR Registration</label>
+                                {a2aExtensions.map((ext, idx) => (
+                                    <div key={idx} className="bg-gray-900/50 p-3 rounded-md border border-gray-700/50 mb-3 space-y-2">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-xs font-semibold text-gray-400">Extension #{idx + 1}</span>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => setA2aExtensions(prev => prev.filter((_, i) => i !== idx))} 
+                                                className="text-xs text-red-400 hover:underline"
+                                                disabled={isEditingDisabled}
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[11px] text-gray-500">Extension URI</label>
+                                            <input 
+                                                type="text" 
+                                                value={ext.uri || ''} 
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setA2aExtensions(prev => prev.map((item, i) => i === idx ? { ...item, uri: val } : item));
+                                                }}
+                                                className="w-full bg-gray-800 border-gray-700 rounded text-xs p-1 mt-0.5 text-gray-300 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                                                disabled={isEditingDisabled}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[11px] text-gray-500">Target Registration URL</label>
+                                            <input 
+                                                type="text" 
+                                                value={ext.params?.target_url || ''} 
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setA2aExtensions(prev => prev.map((item, i) => i === idx ? { ...item, params: { ...item.params, target_url: val } } : item));
+                                                }}
+                                                className="w-full bg-gray-800 border-gray-700 rounded text-xs p-1 mt-0.5 text-gray-300 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                                                disabled={isEditingDisabled}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+                                <button 
+                                    type="button" 
+                                    onClick={() => setA2aExtensions(prev => [...prev, { uri: 'https://cloud.google.com/marketplace/docs/partners/ai-agents/setup-dcr', params: { target_url: '' } }])} 
+                                    className="w-full py-1 bg-gray-900 hover:bg-gray-800 border border-gray-700 rounded text-xs text-gray-300 font-semibold transition-colors"
+                                    disabled={isEditingDisabled}
+                                >
+                                    + Add Extension (DCR)
+                                </button>
                             </div>
                         </>
                     )}

@@ -841,12 +841,22 @@ export const signInWithOidcPopup = (
                         return;
                     }
 
-                    // Decode JWT to extract email claim (best-effort)
+                    // Decode JWT to extract email and validate nonce
                     let email: string | undefined;
                     try {
                         const payload = JSON.parse(atob(idToken.split('.')[1]));
-                        email = payload.email || payload.preferred_username || payload.upn;
-                    } catch { /* ignore decode errors */ }
+                        if (payload && payload.nonce !== nonce) {
+                            reject(new Error('Nonce mismatch — possible replay attack.'));
+                            return;
+                        }
+                        email = payload?.email || payload?.preferred_username || payload?.upn;
+                    } catch (err: any) {
+                        if (err.message && err.message.includes('Nonce mismatch')) {
+                            reject(err);
+                            return;
+                        }
+                        // Ignore decode errors for email claim extraction
+                    }
 
                     resolve({ idToken, email });
                 }

@@ -23,8 +23,7 @@ const VanityUrlDeploymentForm: React.FC<VanityUrlDeploymentFormProps> = ({ engin
     const [automateGLB, setAutomateGLB] = useState(false);
     const [automateDNS, setAutomateDNS] = useState(false);
     const [customDomain, setCustomDomain] = useState('');
-    const [iapClientId, setIapClientId] = useState('');
-    const [iapClientSecret, setIapClientSecret] = useState('');
+
 
     useEffect(() => {
         const resolveProject = async () => {

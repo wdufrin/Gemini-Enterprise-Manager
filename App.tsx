@@ -76,7 +76,7 @@ const InnerApp: React.FC = () => {
   const [pageContext, setPageContext] = useState<any>(null);
     const [refreshKey, setRefreshKey] = useState(0);
   
-  const [accessToken, setAccessToken] = useState<string>(() => sessionStorage.getItem('agentspace-accessToken') || '');
+  const [accessToken, setAccessToken] = useState<string>('');
   const [projectNumber, setProjectNumber] = useState<string>(() => sessionStorage.getItem('agentspace-projectNumber') || '');
     const [projectId, setProjectId] = useState<string>(() => sessionStorage.getItem('agentspace-projectId') || '');
   
@@ -159,7 +159,6 @@ const InnerApp: React.FC = () => {
   const handleSetAccessToken = useCallback((token: string) => {
     const trimmedToken = token.trim();
     setAccessToken(trimmedToken); // Keep main state in sync
-    sessionStorage.setItem('agentspace-accessToken', trimmedToken);
     
     if (trimmedToken) {
       setIsGapiLoading(true);
@@ -246,6 +245,13 @@ const InnerApp: React.FC = () => {
                   }
               },
           });
+          
+          // Try to obtain a token silently on load
+          try {
+              tokenClient.current.requestAccessToken({ prompt: 'none' });
+          } catch (e) {
+              console.log("Silent login not available on mount:", e);
+          }
       }
   }, [googleClientId, handleSetAccessToken]);
 
@@ -290,7 +296,6 @@ const InnerApp: React.FC = () => {
   const handleSignOut = () => {
       setAccessToken('');
       setUserProfile(null);
-      sessionStorage.removeItem('agentspace-accessToken');
       setIsGapiInitialized(false);
       setIsGapiReady(false);
   };
@@ -706,13 +711,7 @@ const InnerApp: React.FC = () => {
     }, [projectNumber]);
 
 
-  // On initial component mount, check for an existing token and try to initialize.
-  useEffect(() => {
-    const existingToken = sessionStorage.getItem('agentspace-accessToken');
-    if (existingToken) {
-        handleSetAccessToken(existingToken);
-    }
-  }, [handleSetAccessToken]);
+  // Note: Session token load removed in favor of direct browser silent refresh on load.
 
   const renderPage = () => {
     const commonProps = { projectNumber };
