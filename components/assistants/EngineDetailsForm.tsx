@@ -137,7 +137,7 @@ const FEATURE_DEFS: FeatureDefinition[] = [
     { key: 'disable-skills', displayName: 'Enable specialized skills', description: 'Allows the assistant to use specialized developer skills.', isInverted: true },
     { key: 'disable-canvas', displayName: 'Enable Canvas', description: 'Enables side-by-side interactive document and slide generation.', isInverted: true },
     { key: 'disable-canvas-workspace', displayName: 'Enable Canvas Workspace', description: 'Allows users to interact with Canvas workspace views.', isInverted: true },
-    { key: 'disable-mobile-app-access', displayName: 'Enable Mobile App Access', description: 'Shows a QR code to download and sign in via the mobile app.', isInverted: false },
+
     { key: 'agent-sharing-without-admin-approval', displayName: 'Enable agent sharing without admin approval', description: 'Allows sharing agents with other team members without admin approval.', isInverted: false },
     { key: 'enable-end-user-sharing-with-groups', displayName: 'Enable sharing custom agents with Groups', description: 'Allows sharing custom agents with Google Groups.', isInverted: false },
     { key: 'cross-product-intelligence', displayName: 'Enable Cross-product Intelligence', description: 'Integrates contextual insights across workspace apps.', isInverted: false }
@@ -150,6 +150,11 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         observabilityEnabled: false,
         sensitiveLoggingEnabled: false,
         marketplaceAgentVisibility: 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED',
+        searchTier: 'SEARCH_TIER_STANDARD',
+        searchAddOnLlm: false,
+        enableWebApp: false,
+        enableAutocomplete: false,
+        enableQualityFeedback: false,
     });
     const [features, setFeatures] = useState<Record<string, boolean>>({});
     const [modelConfigs, setModelConfigs] = useState<Record<string, boolean>>({});
@@ -168,6 +173,9 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+    const [customIdp, setCustomIdp] = useState('');
+    const [customTenantId, setCustomTenantId] = useState('');
+    const [customClientId, setCustomClientId] = useState('');
 
     // Known model configs list
     const KNOWN_MODELS = [
@@ -187,6 +195,11 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             observabilityEnabled: engine.observabilityConfig?.observabilityEnabled || false,
             sensitiveLoggingEnabled: engine.observabilityConfig?.sensitiveLoggingEnabled || false,
             marketplaceAgentVisibility: (engine as any).marketplaceAgentVisibility || 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED',
+            searchTier: engine.searchEngineConfig?.searchTier || 'SEARCH_TIER_STANDARD',
+            searchAddOnLlm: engine.searchEngineConfig?.searchAddOns?.includes('SEARCH_ADD_ON_LLM') || false,
+            enableWebApp: widgetConfig?.accessSettings?.enableWebApp || false,
+            enableAutocomplete: widgetConfig?.uiSettings?.enableAutocomplete || false,
+            enableQualityFeedback: widgetConfig?.uiSettings?.enableQualityFeedback || false,
         });
 
         const currentFeatures: Record<string, boolean> = {};
@@ -201,6 +214,17 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                 currentFeatures[f.key] = apiVal === 'FEATURE_STATE_ON';
             }
         });
+
+        // Explicitly read mobile app access (legacy key, inverted)
+        const disableMobileVal = engine.features?.['disable-mobile-app-access'];
+        currentFeatures['disable-mobile-app-access'] = disableMobileVal !== 'FEATURE_STATE_ON';
+
+        // Explicitly read QR code login (new key, direct)
+        const qrCodeVal = engine.features?.['mobile-app-access'];
+        currentFeatures['mobile-app-access'] = qrCodeVal !== undefined
+            ? qrCodeVal === 'FEATURE_STATE_ON'
+            : !!engine.mobileDeeplinkUrl;
+
         setFeatures(currentFeatures);
 
         const currentModels: Record<string, boolean> = {};
@@ -214,7 +238,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             });
         }
         setModelConfigs(currentModels);
-    }, [engine]);
+    }, [engine, widgetConfig]);
 
     useEffect(() => {
         const fetchConfigs = async () => {
@@ -319,6 +343,21 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                 updateMask.push('observabilityConfig');
             }
 
+            const currentSearchTier = engine.searchEngineConfig?.searchTier || 'SEARCH_TIER_STANDARD';
+            const currentLlmAddon = engine.searchEngineConfig?.searchAddOns?.includes('SEARCH_ADD_ON_LLM') || false;
+
+            if (formData.searchTier !== currentSearchTier || formData.searchAddOnLlm !== currentLlmAddon) {
+                const addons = [];
+                if (formData.searchAddOnLlm) {
+                    addons.push('SEARCH_ADD_ON_LLM');
+                }
+                payload.searchEngineConfig = {
+                    searchTier: formData.searchTier,
+                    searchAddOns: addons
+                };
+                updateMask.push('searchEngineConfig');
+            }
+
             // Calculate idp config changes
             let idpChanged = false;
             if (idpData.idpType !== originalIdpData.idpType || (idpData.idpType === 'THIRD_PARTY' && idpData.workforcePoolName !== originalIdpData.workforcePoolName)) {
@@ -339,8 +378,40 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             if (widgetConfig && originalWidgetConfig) {
                 const currentProvider = widgetConfig.accessSettings?.workforceIdentityPoolProvider || '';
                 const origProvider = originalWidgetConfig.accessSettings?.workforceIdentityPoolProvider || '';
-                if (currentProvider !== origProvider) {
-                    await api.updateWidgetConfig(engine.name, { accessSettings: widgetConfig.accessSettings }, ['accessSettings'], config);
+
+                const currentEnableWebApp = formData.enableWebApp;
+                const origEnableWebApp = originalWidgetConfig.accessSettings?.enableWebApp || false;
+
+                const currentAutocomplete = formData.enableAutocomplete;
+                const origAutocomplete = originalWidgetConfig.uiSettings?.enableAutocomplete || false;
+
+                const currentFeedback = formData.enableQualityFeedback;
+                const origFeedback = originalWidgetConfig.uiSettings?.enableQualityFeedback || false;
+
+                if (currentProvider !== origProvider || currentEnableWebApp !== origEnableWebApp || currentAutocomplete !== origAutocomplete || currentFeedback !== origFeedback) {
+                    const updatePayload: any = {
+                        accessSettings: {
+                            ...widgetConfig.accessSettings,
+                            enableWebApp: currentEnableWebApp,
+                            workforceIdentityPoolProvider: currentProvider || null
+                        },
+                        uiSettings: {
+                            ...widgetConfig.uiSettings,
+                            enableAutocomplete: currentAutocomplete,
+                            enableQualityFeedback: currentFeedback
+                        }
+                    };
+
+                    const widgetMask = [];
+                    if (currentProvider !== origProvider || currentEnableWebApp !== origEnableWebApp) {
+                        widgetMask.push('accessSettings');
+                    }
+                    if (currentAutocomplete !== origAutocomplete || currentFeedback !== origFeedback) {
+                        widgetMask.push('uiSettings');
+                    }
+
+                    const updatedWidget = await api.updateWidgetConfig(engine.name, updatePayload, widgetMask, config);
+                    setWidgetConfig(updatedWidget);
                     widgetChanged = true;
                 }
             }
@@ -363,6 +434,29 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                     featuresChanged = true;
                 }
             });
+
+            // Explicitly set both mobile app access keys independently
+            const mobileEnabled = features['disable-mobile-app-access'];
+            const disableMobileState = mobileEnabled ? 'FEATURE_STATE_OFF' : 'FEATURE_STATE_ON';
+
+            const qrCodeEnabled = features['mobile-app-access'];
+
+            if (newFeaturesMap['disable-mobile-app-access'] !== disableMobileState) {
+                newFeaturesMap['disable-mobile-app-access'] = disableMobileState;
+                featuresChanged = true;
+            }
+
+            if (qrCodeEnabled) {
+                if (newFeaturesMap['mobile-app-access'] !== 'FEATURE_STATE_ON') {
+                    newFeaturesMap['mobile-app-access'] = 'FEATURE_STATE_ON';
+                    featuresChanged = true;
+                }
+            } else {
+                if (newFeaturesMap['mobile-app-access'] !== undefined) {
+                    delete newFeaturesMap['mobile-app-access'];
+                    featuresChanged = true;
+                }
+            }
 
             if (featuresChanged) {
                 payload.features = newFeaturesMap;
@@ -451,53 +545,264 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                     </label>
                 </div>
 
-                <CollapsibleSection title="Usage Audit Logging (Observability)">
+                <CollapsibleSection title="Feature Management">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-900/30 rounded-md">
+                        {FEATURE_DEFS.map(feature => (
+                            <label key={feature.key} className="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-800 rounded transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={features[feature.key] || false}
+                                    onChange={() => handleFeatureChange(feature.key)}
+                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                                />
+                                <span className="text-sm text-gray-300 break-words truncate">{feature.displayName}</span>
+                                <InfoTooltip text={feature.description} />
+                            </label>
+                        ))}
+                    </div>
+                </CollapsibleSection>
+
+                <CollapsibleSection title="Model Configuration">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-900/30 rounded-md">
+                        {KNOWN_MODELS.map(model => (
+                            <label key={model} className="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-800 rounded transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={modelConfigs[model] || false}
+                                    onChange={() => handleModelChange(model)}
+                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                                />
+                                <span className="text-sm text-gray-300 break-words truncate">{model}</span>
+                                {/* Generic tooltip for models as we don't have descriptions in api docs for each */}
+                                <InfoTooltip text={`Enable or disable the ${model} model.`} />
+                            </label>
+                        ))}
+                    </div>
+                </CollapsibleSection>
+
+                <CollapsibleSection title="Search Engine Configuration">
                     <div className="space-y-4 p-4 bg-gray-900/30 rounded-md">
-                        {onLaunchWizard && (
-                            <div className="flex justify-between items-center border-b border-gray-700 pb-2 mb-2">
-                                <span className="text-xs text-gray-400">Configure project-level audit logs and links.</span>
-                                <button 
-                                    type="button" 
-                                    onClick={onLaunchWizard}
-                                    className="flex items-center gap-1 text-xs bg-blue-900/50 hover:bg-blue-800/60 text-blue-300 border border-blue-700 px-2 py-1 rounded transition-colors"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                    </svg>
-                                    Launch Wizard
-                                </button>
-                            </div>
-                        )}
+                        <div>
+                            <label htmlFor="searchTier" className="block text-sm font-medium text-gray-300 mb-1">
+                                Search Tier <InfoTooltip text="Configures the capabilities and pricing tier of the search engine (Standard vs Enterprise)." />
+                            </label>
+                            <select
+                                name="searchTier"
+                                value={formData.searchTier}
+                                onChange={handleChange}
+                                className="block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm text-gray-200 focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 h-[42px]"
+                            >
+                                <option value="SEARCH_TIER_STANDARD">Standard Search Tier</option>
+                                <option value="SEARCH_TIER_ENTERPRISE">Enterprise Search Tier</option>
+                            </select>
+                        </div>
                         <div className="flex items-center space-x-3 cursor-pointer">
                             <input
                                 type="checkbox"
-                                name="observabilityEnabled"
-                                id="observabilityEnabled"
-                                checked={Boolean(formData.observabilityEnabled)}
+                                name="searchAddOnLlm"
+                                id="searchAddOnLlm"
+                                checked={Boolean(formData.searchAddOnLlm)}
                                 onChange={handleChange}
                                 className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
                             />
-                            <label htmlFor="observabilityEnabled" className="flex items-center text-sm font-medium text-gray-300 cursor-pointer">
-                                Enable Usage Audit Logging
-                                <InfoTooltip text="Captures request and response data, including prompts and grounding metadata, and stores it in Cloud Logging." />
+                            <label htmlFor="searchAddOnLlm" className="flex items-center text-sm font-medium text-gray-300 cursor-pointer">
+                                Enable AI Overview (Generative Answers Add-on)
+                                <InfoTooltip text="Allows the search engine to use Large Language Models (LLM) to generate natural language summaries of search results." />
                             </label>
                         </div>
-                        
-                        <div className={`flex items-center space-x-3 pl-6 transition-opacity ${formData.observabilityEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                    </div>
+                </CollapsibleSection>
+
+                <CollapsibleSection title="Gemini Web App UI Settings">
+                    <div className="space-y-4 p-4 bg-gray-900/30 rounded-md">
+                        <div className="flex items-center space-x-3 cursor-pointer">
                             <input
                                 type="checkbox"
-                                name="sensitiveLoggingEnabled"
-                                id="sensitiveLoggingEnabled"
-                                checked={Boolean(formData.sensitiveLoggingEnabled)}
+                                name="enableWebApp"
+                                id="enableWebApp"
+                                checked={Boolean(formData.enableWebApp)}
                                 onChange={handleChange}
-                                disabled={!formData.observabilityEnabled}
                                 className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
                             />
-                            <label htmlFor="sensitiveLoggingEnabled" className="flex items-center text-sm font-medium text-gray-300 cursor-pointer">
-                                Enable Sensitive Data Logging
-                                <InfoTooltip text="WARNING: Sensitive data isn't filtered out of the audit logs when this is enabled." />
+                            <label htmlFor="enableWebApp" className="flex items-center text-sm font-medium text-gray-300 cursor-pointer">
+                                Enable User-Facing Web App Endpoint
+                                <InfoTooltip text="Enables or disables the default Google-hosted web interface portal for this assistant/search app." />
                             </label>
                         </div>
+                        <div className="flex items-center space-x-3 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                name="enableAutocomplete"
+                                id="enableAutocomplete"
+                                checked={Boolean(formData.enableAutocomplete)}
+                                onChange={handleChange}
+                                className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+                            />
+                            <label htmlFor="enableAutocomplete" className="flex items-center text-sm font-medium text-gray-300 cursor-pointer">
+                                Enable Autocomplete Suggestions
+                                <InfoTooltip text="Shows matching autocomplete suggestion dropdowns as users type queries in the search/chat bar." />
+                            </label>
+                        </div>
+                        <div className="flex items-center space-x-3 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                name="enableQualityFeedback"
+                                id="enableQualityFeedback"
+                                checked={Boolean(formData.enableQualityFeedback)}
+                                onChange={handleChange}
+                                className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+                            />
+                            <label htmlFor="enableQualityFeedback" className="flex items-center text-sm font-medium text-gray-300 cursor-pointer">
+                                Enable Thumbs Up/Down Quality Ratings
+                                <InfoTooltip text="Renders standard quality rating feedback icons (thumbs up/down) next to assistant/chat replies." />
+                            </label>
+                        </div>
+                    </div>
+                </CollapsibleSection>
+
+                <CollapsibleSection title="Mobile App Link & QR Code">
+                    <div className="space-y-4 p-4 bg-gray-900/30 rounded-md">
+                        <div className="flex flex-col md:flex-row md:items-center gap-6 pb-3 border-b border-gray-700/60 mb-4">
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    id="mobileAppAccessToggle"
+                                    checked={features['disable-mobile-app-access'] || false}
+                                    onChange={() => setFeatures(prev => ({
+                                        ...prev,
+                                        'disable-mobile-app-access': !prev['disable-mobile-app-access']
+                                    }))}
+                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+                                />
+                                <span className="text-sm font-semibold text-white">
+                                    Enable Mobile App Access
+                                </span>
+                                <InfoTooltip text="Allows users to connect to this app from their mobile devices." />
+                            </label>
+
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    id="qrCodeLoginToggle"
+                                    checked={features['mobile-app-access'] || false}
+                                    onChange={() => setFeatures(prev => ({
+                                        ...prev,
+                                        'mobile-app-access': !prev['mobile-app-access']
+                                    }))}
+                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+                                />
+                                <span className="text-sm font-semibold text-white">
+                                    Enable QR Code Login widget
+                                </span>
+                                <InfoTooltip text="Displays the login QR code widget on the user's web app homepage." />
+                            </label>
+                        </div>
+
+                        {engine.mobileDeeplinkUrl ? (
+                            <div className="space-y-4">
+                                <div className="p-3 bg-blue-900/20 border border-blue-700/50 rounded-md text-sm text-blue-200">
+                                    <strong>Mobile Deep Link Active:</strong> Google Cloud has generated the mobile app configuration link for this engine.
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-400 mb-1">Generated Mobile URL</label>
+                                    <div className="flex gap-2">
+                                        <input type="text" value={engine.mobileDeeplinkUrl} className="flex-1 bg-gray-700 border-gray-600 rounded px-3 py-1.5 text-xs text-gray-300 font-mono" readOnly />
+                                        <button
+                                            type="button"
+                                            onClick={() => navigator.clipboard.writeText(engine.mobileDeeplinkUrl || '')}
+                                            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded text-xs border border-gray-600 transition-colors"
+                                        >
+                                            Copy
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col items-center justify-center p-6 bg-white rounded-lg border border-gray-700 w-fit mx-auto">
+                                    <img 
+                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(engine.mobileDeeplinkUrl)}`} 
+                                        alt="Mobile Login QR Code" 
+                                        className="mb-2" 
+                                    />
+                                    <span className="text-[10px] text-gray-500 font-medium">Scan to login via Mobile App</span>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="p-3 bg-yellow-900/20 border border-yellow-800 rounded-md text-sm text-yellow-200">
+                                    <strong>No Live Mobile Link Found:</strong> Ensure you have configured a workforce identity pool provider under the IDP Configuration section below. 
+                                </div>
+                                <div className="border-t border-gray-700 pt-4 space-y-3">
+                                    <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">Preview / Manual Link Generator</h4>
+                                    <p className="text-xs text-gray-400">If you want to construct or preview the QR code manually for this client app before it is provisioned on Google Cloud, fill in the parameters below:</p>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-[10px] font-medium text-gray-400">Identity Provider (IDP)</label>
+                                            <input 
+                                                type="text" 
+                                                value={customIdp} 
+                                                onChange={(e) => setCustomIdp(e.target.value)} 
+                                                placeholder="locations/global/workforcePools/my-pool/providers/my-provider" 
+                                                className="mt-1 block w-full bg-gray-800 border-gray-600 rounded px-2 py-1 text-xs text-gray-200" 
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-medium text-gray-400">Entra Tenant ID</label>
+                                            <input 
+                                                type="text" 
+                                                value={customTenantId} 
+                                                onChange={(e) => setCustomTenantId(e.target.value)} 
+                                                placeholder="5ae87d26-ea67..." 
+                                                className="mt-1 block w-full bg-gray-800 border-gray-600 rounded px-2 py-1 text-xs text-gray-200" 
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-medium text-gray-400">Client ID (Workforce Pool Client)</label>
+                                            <input 
+                                                type="text" 
+                                                value={customClientId} 
+                                                onChange={(e) => setCustomClientId(e.target.value)} 
+                                                placeholder="b56052a7-6ac1..." 
+                                                className="mt-1 block w-full bg-gray-800 border-gray-600 rounded px-2 py-1 text-xs text-gray-200" 
+                                            />
+                                        </div>
+                                    </div>
+                                    
+                                    {customIdp && customTenantId && customClientId && (
+                                        <div className="pt-4 border-t border-gray-800 space-y-3 animate-fadeIn">
+                                            <div>
+                                                <label className="block text-[10px] font-medium text-gray-400 mb-1">Generated Preview URL</label>
+                                                <div className="flex gap-2">
+                                                    <input 
+                                                        type="text" 
+                                                        value={`https://vertexaisearch.cloud.google.com/mobile?cid=${widgetConfig?.accessSettings?.workforceIdentityPoolProvider ? widgetConfig.name.split('/').pop() : 'cid-placeholder'}&cid_location=${config.appLocation}&idp=${encodeURIComponent(customIdp)}&tenant_id=${customTenantId}&client_id=${customClientId}&project_id=${config.projectId || 'project-placeholder'}`} 
+                                                        className="flex-1 bg-gray-700 border-gray-600 rounded px-2 py-1 text-xs text-gray-300 font-mono" 
+                                                        readOnly 
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const url = `https://vertexaisearch.cloud.google.com/mobile?cid=${widgetConfig?.accessSettings?.workforceIdentityPoolProvider ? widgetConfig.name.split('/').pop() : 'cid-placeholder'}&cid_location=${config.appLocation}&idp=${encodeURIComponent(customIdp)}&tenant_id=${customTenantId}&client_id=${customClientId}&project_id=${config.projectId || 'project-placeholder'}`;
+                                                            navigator.clipboard.writeText(url);
+                                                        }}
+                                                        className="px-2 py-1 bg-gray-850 text-white rounded text-xs border border-gray-600"
+                                                    >
+                                                        Copy
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col items-center justify-center p-4 bg-white rounded-lg border border-gray-700 w-fit mx-auto">
+                                                <img 
+                                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`https://vertexaisearch.cloud.google.com/mobile?cid=${widgetConfig?.accessSettings?.workforceIdentityPoolProvider ? widgetConfig.name.split('/').pop() : 'cid-placeholder'}&cid_location=${config.appLocation}&idp=${encodeURIComponent(customIdp)}&tenant_id=${customTenantId}&client_id=${customClientId}&project_id=${config.projectId || 'project-placeholder'}`)}`} 
+                                                    alt="Mobile Login QR Code Preview" 
+                                                    className="mb-2" 
+                                                />
+                                                <span className="text-[10px] text-gray-500 font-medium">Scan to login (Preview Code)</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </CollapsibleSection>
 
@@ -551,9 +856,6 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                     <h4 className="text-md font-medium text-gray-200 mb-2">Attached Providers</h4>
                                     <p className="text-sm text-gray-400 mb-4">Select the default provider that the Gemini Web App should use for authentication.</p>
                                     
-
-
-
                                     {idpProviders.map((provider: any, idx) => {
                                         const isSelected = widgetConfig?.accessSettings?.workforceIdentityPoolProvider === provider.name;
                                         return (
@@ -642,7 +944,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                             <ScimTenantsList providerName={provider.name} config={config} />
 
                                         </div>
-                                    )})}
+                                        )})}
                                 </div>
                             )}
                         </>
@@ -650,44 +952,27 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                     </div>
                 </CollapsibleSection>
 
-                <CollapsibleSection title="Feature Management">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-900/30 rounded-md">
-                        {FEATURE_DEFS.map(feature => (
-                            <label key={feature.key} className="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-800 rounded transition-colors">
-                                <input
-                                    type="checkbox"
-                                    checked={features[feature.key] || false}
-                                    onChange={() => handleFeatureChange(feature.key)}
-                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0"
-                                />
-                                <span className="text-sm text-gray-300 break-words truncate">{feature.displayName}</span>
-                                <InfoTooltip text={feature.description} />
-                            </label>
-                        ))}
-                    </div>
-                </CollapsibleSection>
-
-                <CollapsibleSection title="Model Configuration">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-900/30 rounded-md">
-                        {KNOWN_MODELS.map(model => (
-                            <label key={model} className="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-800 rounded transition-colors">
-                                <input
-                                    type="checkbox"
-                                    checked={modelConfigs[model] || false}
-                                    onChange={() => handleModelChange(model)}
-                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0"
-                                />
-                                <span className="text-sm text-gray-300 break-words truncate">{model}</span>
-                                {/* Generic tooltip for models as we don't have descriptions in api docs for each */}
-                                <InfoTooltip text={`Enable or disable the ${model} model.`} />
-                            </label>
-                        ))}
-                    </div>
-                </CollapsibleSection>
-
                 <CollapsibleSection title="Prompt Chips Administration">
                     <div className="p-4 bg-gray-900/30 rounded-md">
                         <PromptChipsTable engineName={engine.name} />
+                    </div>
+                </CollapsibleSection>
+
+                <CollapsibleSection title="Raw GE App Configuration JSON">
+                    <div className="bg-gray-950 p-4 rounded-md border border-gray-800 relative group overflow-hidden">
+                        <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap break-all overflow-y-auto max-h-[400px] p-2">
+                            {JSON.stringify(engine, null, 2)}
+                        </pre>
+                        <button
+                            type="button"
+                            onClick={() => navigator.clipboard.writeText(JSON.stringify(engine, null, 2))}
+                            className="absolute top-2 right-2 p-1.5 bg-gray-800 text-gray-400 rounded hover:text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Copy JSON"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </button>
                     </div>
                 </CollapsibleSection>
 

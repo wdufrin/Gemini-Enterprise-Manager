@@ -28,7 +28,6 @@ import AuditLoggingModal from '../components/assistants/AuditLoggingModal';
 import ChatWindow from '../components/agents/ChatWindow';
 import ChatHistoryViewer from '../components/assistants/ChatHistoryViewer';
 import NotebookListViewer from '../components/assistants/NotebookListViewer';
-import AgentEngineMetricsViewer from '../components/assistants/AgentEngineMetricsViewer';
 import VanityUrlDeploymentForm from '../components/assistants/VanityUrlDeploymentForm';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 
@@ -599,7 +598,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                             <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
                         </svg>
-                        Audit Logging
+                        Backup Usage Logging
                     </button>
                     <button
                         onClick={() => setIsExportModalOpen(true)}
@@ -649,10 +648,6 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                                               onUpdateSuccess={handleUpdateSuccess}
                                           />
                                       </div>
-                                      <AgentEngineMetricsViewer
-                                          config={currentConfig}
-                                          engineId={selectedRow.engine.name.split('/').pop() || ''}
-                                      />
                                   </>
                               )}
 

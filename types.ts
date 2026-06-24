@@ -74,6 +74,10 @@ export interface WidgetConfig {
     enableWebApp?: boolean;
     workforceIdentityPoolProvider?: string;
   };
+  uiSettings?: {
+    enableAutocomplete?: boolean;
+    enableQualityFeedback?: boolean;
+  };
 }
 
 export interface StarterPrompt {
@@ -206,6 +210,7 @@ export interface AppEngine { // Renamed from Engine to avoid conflict with Reaso
     };
   features?: Record<string, string>; // Map of feature name to 'FEATURE_STATE_ON'|'FEATURE_STATE_OFF'
   modelConfigs?: Record<string, string>; // Map of model name to 'MODEL_ENABLED'|'MODEL_DISABLED'
+  mobileDeeplinkUrl?: string;
 }
 
 export interface AclConfig {
@@ -222,7 +227,6 @@ export interface VertexAiAgentConfig {
     displayName: string;
     name: string;
     toolDescription: string;
-    starterPrompts?: StarterPrompt[];
 }
 
 export interface EnabledAction {

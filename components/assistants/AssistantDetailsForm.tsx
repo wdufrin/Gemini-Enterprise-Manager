@@ -134,91 +134,16 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         fetchIamPolicy();
     }, [config.appId, config]);
 
-    useEffect(() => {
-        const fetchEngines = async () => {
-            if (!config.projectId) return;
-            setIsLoadingEngines(true);
-            setEngineError(null);
-            try {
-                const enginePromises = ALL_REASONING_ENGINE_LOCATIONS.map(loc =>
-                    api.listReasoningEngines({ ...config, reasoningEngineLocation: loc })
-                        .then(res => res.reasoningEngines || [])
-                        .catch(e => {
-                            console.warn(`Could not fetch engines from ${loc}: ${e instanceof Error ? e.message : String(e)}`);
-                            return [];
-                        })
-                );
-                const allEngines = (await Promise.all(enginePromises)).flat();
-                setAvailableEngines(allEngines);
-            } catch (err: any) {
-                setEngineError('Failed to load available agent engines.');
-            } finally {
-                setIsLoadingEngines(false);
-            }
-        };
-        fetchEngines();
-    }, [config.projectId]);
-
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;
         setFormData({ ...formData, [e.target.name]: value });
-    };
-
-    const handleAgentConfigChange = (index: number, field: keyof VertexAiAgentConfig, value: string) => {
-        const newConfigs = [...agentConfigs];
-        const updatedConfig = { ...newConfigs[index], [field]: value };
-
-        // Auto-populate display name and description if they are empty when a new engine is selected
-        if (field === 'name' && value) {
-            const selectedEngine = availableEngines.find(e => e.name === value);
-            if (selectedEngine) {
-                if (!updatedConfig.displayName) {
-                    updatedConfig.displayName = selectedEngine.displayName;
-                }
-                if (!updatedConfig.toolDescription) {
-                    updatedConfig.toolDescription = `Use this tool to interact with the ${selectedEngine.displayName} agent.`;
-                }
-            }
-        }
-        newConfigs[index] = updatedConfig;
-        setAgentConfigs(newConfigs);
-    };
-
-    const handleAddAgentConfig = () => {
-        setAgentConfigs([...agentConfigs, { name: '', displayName: '', toolDescription: '' }]);
     };
 
     const handleRemoveAgentConfig = (index: number) => {
         setAgentConfigs(agentConfigs.filter((_, i) => i !== index));
     };
 
-    const handlePromptChange = (agentIndex: number, promptIndex: number, value: string) => {
-        const newConfigs = [...agentConfigs];
-        const cfg = { ...newConfigs[agentIndex] };
-        const prompts = [...(cfg.starterPrompts || [])];
-        prompts[promptIndex] = { text: value };
-        cfg.starterPrompts = prompts;
-        newConfigs[agentIndex] = cfg;
-        setAgentConfigs(newConfigs);
-    };
 
-    const handleAddPrompt = (agentIndex: number) => {
-        const newConfigs = [...agentConfigs];
-        const cfg = { ...newConfigs[agentIndex] };
-        const prompts = [...(cfg.starterPrompts || []), { text: '' }];
-        cfg.starterPrompts = prompts;
-        newConfigs[agentIndex] = cfg;
-        setAgentConfigs(newConfigs);
-    };
-
-    const handleRemovePrompt = (agentIndex: number, promptIndex: number) => {
-        const newConfigs = [...agentConfigs];
-        const cfg = { ...newConfigs[agentIndex] };
-        const prompts = (cfg.starterPrompts || []).filter((_, i) => i !== promptIndex);
-        cfg.starterPrompts = prompts;
-        newConfigs[agentIndex] = cfg;
-        setAgentConfigs(newConfigs);
-    };
 
     const handleAddIamMember = async () => {
         if (!newMember) return;
@@ -657,37 +582,6 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                     </div>
                 </CollapsibleSection>
 
-                <CollapsibleSection title="Usage Audit Logging">
-                    <div className="space-y-3 p-4 bg-gray-900/30 rounded-md">
-                        <p className="text-xs text-gray-400 mb-2">
-                            Usage audit logging (capturing prompts and grounding) is managed at the Engine level. 
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                            <a 
-                                href={`https://console.cloud.google.com/logs/query;query=logName%3D%22projects%2F${config.projectId}%2Flogs%2Fdiscoveryengine.googleapis.com%252Fgemini_enterprise_user_activity%22%20OR%20logName%3D~%22projects%2F${config.projectId}%2Flogs%2Fdiscoveryengine.googleapis.com%252Fgen_ai.*%22?project=${config.projectId}`}
-                                target="_blank" 
-                                rel="noreferrer" 
-                                className="inline-flex items-center px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded border border-gray-600 gap-1 transition-colors"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5l5 5v11a2 2 0 01-2 2z" />
-                                </svg>
-                                View Logs
-                            </a>
-                            <a 
-                                href={`https://console.cloud.google.com/iam-admin/audit?project=${config.projectId}`}
-                                target="_blank" 
-                                rel="noreferrer" 
-                                className="inline-flex items-center px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded border border-gray-600 gap-1 transition-colors"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                </svg>
-                                Configure IAM
-                            </a>
-                        </div>
-                    </div>
-                </CollapsibleSection>
 
                 <CollapsibleSection title="App-level IAM Permissions">
                     <div className="space-y-3 p-4 bg-gray-900/30 rounded-md">
@@ -775,92 +669,44 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                     </div>
                 </CollapsibleSection>
 
-                {/* Editable Vertex AI Agent Configs */}
+                {/* Attached Vertex AI Agent Configs */}
                 <div className="border-t border-gray-700 pt-4">
-                    <h3 className="text-md font-semibold text-white mb-2">Vertex AI Agent Configs</h3>
-                    <div className="space-y-4">
-                        {agentConfigs.map((cfg, index) => (
-                            <div key={index} className="bg-gray-900/50 p-4 rounded-lg border border-gray-700 space-y-3">
-                                <div className="flex justify-between items-center">
-                                    <h4 className="font-semibold text-gray-300">Agent #{index + 1}</h4>
-                                    <button type="button" onClick={() => handleRemoveAgentConfig(index)} className="text-sm text-red-400 hover:text-red-300">Remove</button>
-                                </div>
-                                <div>
-                                    <label className="flex items-center text-xs font-medium text-gray-400">
-                                        Agent Engine
-                                        <InfoTooltip text="The underlying reasoning engine for this agent." />
-                                    </label>
-                                    <select
-                                        value={cfg.name}
-                                        onChange={(e) => handleAgentConfigChange(index, 'name', e.target.value)}
-                                        className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm"
-                                        required
-                                    >
-                                        <option value="">{isLoadingEngines ? 'Loading engines...' : '-- Select an Engine --'}</option>
-                                        {availableEngines.map(engine => (
-                                            <option key={engine.name} value={engine.name}>
-                                                {engine.displayName} ({engine.name.split('/')[3]})
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {engineError && <p className="text-xs text-red-400 mt-1">{engineError}</p>}
-                                </div>
-                                <div>
-                                    <label className="flex items-center text-xs font-medium text-gray-400">
-                                        Display Name
-                                        <InfoTooltip text="Name of the agent tool as exposed to the model." />
-                                    </label>
-                                    <input type="text" value={cfg.displayName} onChange={(e) => handleAgentConfigChange(index, 'displayName', e.target.value)} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" required />
-                                </div>
-                                <div>
-                                    <label className="flex items-center text-xs font-medium text-gray-400">
-                                        Tool Description
-                                        <InfoTooltip text="Description of what this agent tool does, used by the model to decide when to call it." />
-                                    </label>
-                                    <textarea value={cfg.toolDescription} onChange={(e) => handleAgentConfigChange(index, 'toolDescription', e.target.value)} rows={2} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" required />
-                                </div>
-                                <div>
-                                    <label className="flex items-center text-xs font-medium text-gray-400">
-                                        Starter Prompts
-                                        <InfoTooltip text="Suggestions to show the user on the agent's landing page." />
-                                    </label>
-                                    <div className="mt-1 space-y-2">
-                                        {(cfg.starterPrompts || []).map((prompt, pIndex) => (
-                                            <div key={pIndex} className="flex items-center space-x-2">
-                                                <input
-                                                    type="text"
-                                                    value={prompt.text}
-                                                    onChange={(e) => handlePromptChange(index, pIndex, e.target.value)}
-                                                    placeholder={`Prompt #${pIndex + 1}`}
-                                                    className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm"
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleRemovePrompt(index, pIndex)}
-                                                    className="p-1.5 text-gray-400 hover:text-red-400 bg-gray-800 rounded-md border border-gray-600 hover:border-red-500"
-                                                    title="Remove prompt"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                        ))}
+                    <h3 className="text-md font-semibold text-white mb-2">Attached Vertex AI Agent Configs</h3>
+                    {agentConfigs.length === 0 ? (
+                        <p className="text-sm text-gray-500 italic">No attached Vertex AI agents found. Management of Vertex AI agents is handled via the Agent API.</p>
+                    ) : (
+                        <div className="space-y-4">
+                            {agentConfigs.map((cfg, index) => (
+                                <div key={index} className="bg-gray-900/50 p-4 rounded-lg border border-gray-700 space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <h4 className="font-semibold text-gray-300">Agent #{index + 1}</h4>
+                                        <button type="button" onClick={() => handleRemoveAgentConfig(index)} className="text-sm text-red-400 hover:text-red-300">Remove</button>
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleAddPrompt(index)}
-                                        className="mt-2 text-xs font-semibold text-blue-400 hover:text-blue-300"
-                                    >
-                                        + Add Prompt
-                                    </button>
+                                    <div>
+                                        <label className="flex items-center text-xs font-medium text-gray-400">
+                                            Agent Engine ID
+                                            <InfoTooltip text="The unique ID of the attached reasoning engine." />
+                                        </label>
+                                        <input type="text" value={cfg.name.split('/').pop() || cfg.name} className="mt-1 block w-full bg-gray-700/50 border-gray-600 rounded-md shadow-sm text-gray-400 cursor-not-allowed text-xs font-mono" disabled />
+                                    </div>
+                                    <div>
+                                        <label className="flex items-center text-xs font-medium text-gray-400">
+                                            Display Name
+                                            <InfoTooltip text="The name of the agent tool as exposed to the model." />
+                                        </label>
+                                        <input type="text" value={cfg.displayName} className="mt-1 block w-full bg-gray-700/50 border-gray-600 rounded-md shadow-sm text-gray-400 cursor-not-allowed" disabled />
+                                    </div>
+                                    <div>
+                                        <label className="flex items-center text-xs font-medium text-gray-400">
+                                            Tool Description
+                                            <InfoTooltip text="Description of what this agent tool does, used by the model to decide when to call it." />
+                                        </label>
+                                        <textarea value={cfg.toolDescription} rows={2} className="mt-1 block w-full bg-gray-700/50 border-gray-600 rounded-md shadow-sm text-gray-400 cursor-not-allowed" disabled />
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
-                    <button type="button" onClick={handleAddAgentConfig} className="mt-4 text-sm font-semibold text-blue-400 hover:text-blue-300">
-                        + Add Vertex AI Agent Config
-                    </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {error && <p className="text-red-400 text-sm">{error}</p>}
