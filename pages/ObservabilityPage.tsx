@@ -29,9 +29,11 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                 setSinks(allSinks);
 
                 // 2. Find the sink for user logs
-                const userLogFilter = `logName="projects/${projectId}/logs/discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity" OR logName=~"projects/${projectId}/logs/discoveryengine.googleapis.com%2Fgen_ai.*"`;
                 const userLogSink = allSinks.find((sink: any) => 
-                    sink.filter && sink.filter === userLogFilter
+                    sink.filter && (
+                        sink.filter.includes('discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity') ||
+                        sink.filter.includes('discoveryengine.googleapis.com/gemini_enterprise_user_activity')
+                    )
                 );
 
                 if (userLogSink && userLogSink.destination) {
@@ -44,177 +46,270 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     setTables(allTables);
 
                     // 4. Fetch real data for charts
-                    const messageTablePrefix = `${projectId}.${dataset}.v_consolidated_user_messages`;
-                    const activityTablePrefix = `${projectId}.${dataset}.v_consolidated_user_activity`;
+                    const suffixDate = new Date();
+                    suffixDate.setDate(suffixDate.getDate() - timeRange);
+                    const suffixStart = suffixDate.toISOString().slice(0, 10).replace(/-/g, '');
+
+                    const messageTableWildcard = `${projectId}.${dataset}.discoveryengine_googleapis_com_gen_ai_user_message_*`;
+                    const activityTableWildcard = `${projectId}.${dataset}.discoveryengine_googleapis_com_gemini_enterprise_user_activity_*`;
                     
                     // Calculate start time based on timeRange
                     const startTime = new Date();
                     startTime.setDate(startTime.getDate() - timeRange);
                     const startTimeStr = startTime.toISOString();
-                    
-                    // Query 1: Messages by Role (with fix for mixed data types)
-                    const roleQuery = `
+
+                    // Collect matching sharded tables in range
+                    const matchingActivityTables = allTables
+                        .map((t: any) => t.tableReference.tableId)
+                        .filter((id: string) => id.startsWith('discoveryengine_googleapis_com_gemini_enterprise_user_activity_') && id.split('_').pop()! >= suffixStart);
+
+                    // 4. Construct unified dashboard query
+                    let consolidatedQuery = '';
+                    const tableSelects = matchingActivityTables.map((t: string) => `
                         SELECT 
-                          jsonPayload.content.role as role, 
-                          COUNT(*) as count
-                        FROM \`${messageTablePrefix}\`
-                        WHERE jsonPayload.content.role IS NOT NULL
-                          AND timestamp >= TIMESTAMP('${startTimeStr}')
-                        GROUP BY role
-                    `;
-                    
-                    // Query 2: Request Volume
-                    let volumeQuery = '';
-                    if (timeRange === 30) {
-                        volumeQuery = `
-                            SELECT 
-                                FORMAT_TIMESTAMP('%Y-%m-%d', TIMESTAMP_TRUNC(timestamp, DAY)) as event_time, 
+                          jsonPayload.useriamprincipal as user_email,
+                          timestamp as event_time,
+                          JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.agentspaceinfo.agentinfo.name') as agent_name,
+                          JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.agentspaceinfo.agentinfo.agentid') as agent_id,
+                          COALESCE(REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.name'), r'sessions/([^/]+)'), trace) as session_id,
+                          JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodname') as method_name,
+                          insertId
+                        FROM \`${projectId}.${dataset}.${t}\`
+                        WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                          AND (
+                            JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodname') = 'WriteUserEvent' 
+                            OR JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodname') = 'StreamAssist'
+                          )
+                    `);
+
+                    const dashboardData: any = {
+                        volumeData: [],
+                        agentData: [],
+                        totalRequests: 0,
+                        totalSessions: 0,
+                        uniqueUsers: 0,
+                        queries: {}
+                    };
+
+                    if (tableSelects.length > 0) {
+                        const timeFormat = timeRange === 30 ? '%Y-%m-%d' : (timeRange === 7 ? '%m-%d %H:00' : '%H:%M');
+                        const truncUnit = timeRange === 30 ? 'DAY' : 'HOUR';
+                        
+                        let volumeTimeSelect = '';
+                        if (timeRange === 1) {
+                            volumeTimeSelect = `FORMAT_TIMESTAMP('%H:%M', TIMESTAMP_SECONDS(DIV(UNIX_SECONDS(event_time), 900) * 900))`;
+                        } else {
+                            volumeTimeSelect = `FORMAT_TIMESTAMP('${timeFormat}', TIMESTAMP_TRUNC(event_time, ${truncUnit}))`;
+                        }
+
+                        consolidatedQuery = `
+                            WITH base_activity AS (
+                              ${tableSelects.join('\nUNION ALL\n')}
+                            ),
+                            summary_metrics AS (
+                              SELECT 
+                                COUNTIF(method_name = 'StreamAssist') as total_queries,
+                                COUNT(DISTINCT IF(method_name = 'StreamAssist', session_id, NULL)) as total_sessions,
+                                COUNT(DISTINCT IF(method_name = 'StreamAssist' AND user_email IS NOT NULL, user_email, NULL)) as unique_users
+                              FROM base_activity
+                            ),
+                            volume_metrics AS (
+                              SELECT 
+                                ${volumeTimeSelect} as event_time, 
                                 COUNT(*) as requests
-                            FROM (
-                              SELECT timestamp FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                              FROM base_activity
+                              WHERE method_name = 'StreamAssist'
+                              GROUP BY event_time
+                            ),
+                            combined AS (
+                              SELECT 
+                                user_email,
+                                event_time,
+                                agent_name,
+                                agent_id,
+                                CAST(NULL AS STRING) as session_id
+                              FROM base_activity
+                              WHERE method_name = 'WriteUserEvent' AND agent_name IS NOT NULL
+
                               UNION ALL
-                              SELECT timestamp FROM \`${activityTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+
+                              SELECT 
+                                user_email,
+                                event_time,
+                                CAST(NULL AS STRING) as agent_name,
+                                CAST(NULL AS STRING) as agent_id,
+                                session_id
+                              FROM base_activity
+                              WHERE method_name = 'StreamAssist' AND session_id IS NOT NULL
+                            ),
+                            filled AS (
+                              SELECT 
+                                session_id,
+                                LAST_VALUE(agent_name IGNORE NULLS) OVER (
+                                  PARTITION BY user_email 
+                                  ORDER BY event_time 
+                                  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                                ) as resolved_agent_name,
+                                LAST_VALUE(agent_id IGNORE NULLS) OVER (
+                                  PARTITION BY user_email 
+                                  ORDER BY event_time 
+                                  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                                ) as resolved_agent_id
+                              FROM combined
+                            ),
+                            mapped_agents AS (
+                              SELECT 
+                                COALESCE(resolved_agent_name, 'Global Assistant / Default') as agent_name,
+                                COALESCE(resolved_agent_id, 'default') as agent_id
+                              FROM filled
+                              WHERE session_id IS NOT NULL
+                            ),
+                            agent_metrics AS (
+                              SELECT 
+                                agent_name,
+                                agent_id,
+                                COUNT(*) as count
+                              FROM mapped_agents
+                              GROUP BY agent_name, agent_id
                             )
+                            SELECT 'summary' as metric_type, CAST(total_queries AS STRING) as label, CAST(total_sessions AS STRING) as val1, CAST(unique_users AS STRING) as val2 FROM summary_metrics
+                            UNION ALL
+                            SELECT 'volume' as metric_type, event_time as label, CAST(requests AS STRING) as val1, NULL as val2 FROM volume_metrics
+                            UNION ALL
+                            SELECT 'agent' as metric_type, agent_name as label, CAST(count AS STRING) as val1, agent_id as val2 FROM agent_metrics
+                        `;
+
+                        dashboardData.queries.summaryQuery = `
+                            WITH base_activity AS (
+                              ${tableSelects.join('\nUNION ALL\n')}
+                            )
+                            SELECT
+                              COUNTIF(method_name = 'StreamAssist') as total_queries,
+                              COUNT(DISTINCT IF(method_name = 'StreamAssist', session_id, NULL)) as total_sessions,
+                              COUNT(DISTINCT IF(method_name = 'StreamAssist' AND user_email IS NOT NULL, user_email, NULL)) as unique_users
+                            FROM base_activity
+                        `;
+
+                        dashboardData.queries.volumeQuery = `
+                            WITH base_activity AS (
+                              ${tableSelects.join('\nUNION ALL\n')}
+                            )
+                            SELECT 
+                              ${volumeTimeSelect} as event_time, 
+                              COUNT(*) as requests
+                            FROM base_activity
+                            WHERE method_name = 'StreamAssist'
                             GROUP BY event_time
                             ORDER BY event_time
                         `;
-                    } else if (timeRange === 7) {
-                        volumeQuery = `
-                            SELECT 
-                                FORMAT_TIMESTAMP('%m-%d %H:00', TIMESTAMP_TRUNC(timestamp, HOUR)) as event_time, 
-                                COUNT(*) as requests
-                            FROM (
-                              SELECT timestamp FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+
+                        dashboardData.queries.agentQuery = `
+                            WITH base_activity AS (
+                              ${tableSelects.join('\nUNION ALL\n')}
+                            ),
+                            combined AS (
+                              SELECT 
+                                user_email,
+                                event_time,
+                                agent_name,
+                                agent_id,
+                                CAST(NULL AS STRING) as session_id
+                              FROM base_activity
+                              WHERE method_name = 'WriteUserEvent' AND agent_name IS NOT NULL
+
                               UNION ALL
-                              SELECT timestamp FROM \`${activityTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+
+                              SELECT 
+                                user_email,
+                                event_time,
+                                CAST(NULL AS STRING) as agent_name,
+                                CAST(NULL AS STRING) as agent_id,
+                                session_id
+                              FROM base_activity
+                              WHERE method_name = 'StreamAssist' AND session_id IS NOT NULL
+                            ),
+                            filled AS (
+                              SELECT 
+                                session_id,
+                                LAST_VALUE(agent_name IGNORE NULLS) OVER (
+                                  PARTITION BY user_email 
+                                  ORDER BY event_time 
+                                  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                                ) as resolved_agent_name,
+                                LAST_VALUE(agent_id IGNORE NULLS) OVER (
+                                  PARTITION BY user_email 
+                                  ORDER BY event_time 
+                                  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                                ) as resolved_agent_id
+                              FROM combined
+                            ),
+                            mapped_agents AS (
+                              SELECT 
+                                COALESCE(resolved_agent_name, 'Global Assistant / Default') as agent_name,
+                                COALESCE(resolved_agent_id, 'default') as agent_id
+                              FROM filled
+                              WHERE session_id IS NOT NULL
                             )
-                            GROUP BY event_time
-                            ORDER BY event_time
-                        `;
-                    } else { // 1 day
-                        volumeQuery = `
                             SELECT 
-                                FORMAT_TIMESTAMP('%H:%M', TIMESTAMP_SECONDS(DIV(UNIX_SECONDS(timestamp), 900) * 900)) as event_time, 
-                                COUNT(*) as requests
-                            FROM (
-                              SELECT timestamp FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
-                              UNION ALL
-                              SELECT timestamp FROM \`${activityTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
-                            )
-                            GROUP BY event_time
-                            ORDER BY event_time
+                              agent_name,
+                              agent_id,
+                              COUNT(*) as count
+                            FROM mapped_agents
+                            GROUP BY agent_name, agent_id
+                            ORDER BY count DESC
                         `;
-                    }
-                    
-                    // Query 3: Combined Agent Breakdown
-                    const agentQuery = `
-                        WITH all_agents AS (
-                          SELECT 
-                            resource.labels.agent_id as agent_id,
-                            resource.labels.agent_id as agent_name
-                          FROM \`${messageTablePrefix}\`
-                          WHERE resource.labels.agent_id IS NOT NULL AND timestamp >= TIMESTAMP('${startTimeStr}')
-                          UNION ALL
-                          SELECT 
-                            COALESCE(REGEXP_EXTRACT(jsonPayload.request.agent.name, r'agents/([^/]+)'), jsonPayload.request.agent.name) as agent_id,
-                            COALESCE(
-                              jsonPayload.request.agent.displayname,
-                              jsonPayload.request.agent.displayName,
-                              jsonPayload.response.displayname,
-                              jsonPayload.response.displayName,
-                              REGEXP_EXTRACT(jsonPayload.request.agent.name, r'agents/([^/]+)'),
-                              jsonPayload.request.agent.name
-                            ) as agent_name
-                          FROM \`${activityTablePrefix}\`
-                          WHERE (jsonPayload.request.agent.name IS NOT NULL OR jsonPayload.request.agent.displayname IS NOT NULL) AND timestamp >= TIMESTAMP('${startTimeStr}')
-                        ),
-                        agent_real_names AS (
-                          SELECT agent_id, MAX(agent_name) as real_name
-                          FROM all_agents
-                          WHERE agent_name != agent_id
-                          GROUP BY agent_id
-                        )
-                        SELECT 
-                          COALESCE(n.real_name, a.agent_name) as agent_name, 
-                          a.agent_id, 
-                          COUNT(*) as count
-                        FROM all_agents a
-                        LEFT JOIN agent_real_names n ON a.agent_id = n.agent_id
-                        WHERE a.agent_name IS NOT NULL
-                        GROUP BY agent_name, a.agent_id
-                        ORDER BY count DESC
-                    `;
 
-                    // Query 4: Summary Metrics
-                    const summaryQuery = `
-                        WITH all_activity AS (
-                          SELECT trace AS session_id, insertId AS request_id
-                          FROM \`${messageTablePrefix}\`
-                          WHERE timestamp >= TIMESTAMP('${startTimeStr}')
-                          UNION ALL
-                          SELECT COALESCE(jsonPayload.request.userevent.userpseudoid, trace) AS session_id, insertId AS request_id
-                          FROM \`${activityTablePrefix}\`
-                          WHERE timestamp >= TIMESTAMP('${startTimeStr}')
-                        )
-                        SELECT
-                          COUNT(request_id) AS total_requests
-                        FROM all_activity
-                    `;
-
-                    // Query 5: True Unique Users
-                    const userCountQuery = `
-                        SELECT COUNT(DISTINCT jsonPayload.useriamprincipal) as unique_users
-                        FROM \`${activityTablePrefix}\`
-                        WHERE jsonPayload.useriamprincipal IS NOT NULL AND timestamp >= TIMESTAMP('${startTimeStr}')
-                    `;
-
-                    const [roleResult, volumeResult, agentResult, summaryResult, userCountResult] = await Promise.all([
-                        runBigQueryQuery(projectId, roleQuery),
-                        runBigQueryQuery(projectId, volumeQuery),
-                        runBigQueryQuery(projectId, agentQuery),
-                        runBigQueryQuery(projectId, summaryQuery),
-                        runBigQueryQuery(projectId, userCountQuery)
-                    ]);
-
-                    const newData: any = {};
-
-                    if (roleResult && roleResult.rows) {
-                        newData.roleData = roleResult.rows.map((row: any) => ({
-                            name: row.f[0].v,
-                            value: parseInt(row.f[1].v, 10)
-                        }));
+                        dashboardData.queries.userCountQuery = `
+                            WITH base_activity AS (
+                              ${tableSelects.join('\nUNION ALL\n')}
+                            )
+                            SELECT COUNT(DISTINCT IF(method_name = 'StreamAssist' AND user_email IS NOT NULL, user_email, NULL)) as unique_users
+                            FROM base_activity
+                        `;
+                    } else {
+                        consolidatedQuery = `
+                            SELECT 'summary' as metric_type, '0' as label, '0' as val1, '0' as val2
+                            LIMIT 0
+                        `;
+                        dashboardData.queries.summaryQuery = `SELECT 0 as total_queries, 0 as total_sessions, 0 as unique_users`;
+                        dashboardData.queries.volumeQuery = `SELECT CAST(NULL as STRING) as event_time, 0 as requests LIMIT 0`;
+                        dashboardData.queries.agentQuery = `SELECT CAST(NULL as STRING) as agent_name, CAST(NULL as STRING) as agent_id, 0 as count LIMIT 0`;
+                        dashboardData.queries.userCountQuery = `SELECT 0 as unique_users`;
                     }
 
-                    if (volumeResult && volumeResult.rows) {
-                        newData.volumeData = volumeResult.rows.map((row: any) => ({
-                            time: row.f[0].v,
-                            requests: parseInt(row.f[1].v, 10),
-                            errors: 0
-                        }));
-                    }
+                    if (tableSelects.length > 0) {
+                        const result = await runBigQueryQuery(projectId, consolidatedQuery);
+                        const rows = result?.rows || [];
 
-                    if (agentResult && agentResult.rows) {
-                        newData.agentData = agentResult.rows.map((row: any) => {
-                            const name = row.f[0].v;
-                            const id = row.f[1].v;
-                            const truncatedName = name.length > 20 ? name.substring(0, 20) + '...' : name;
-                            return {
-                                name: `${truncatedName}|${id}`,
-                                count: parseInt(row.f[2].v, 10)
-                            };
+                        rows.forEach((row: any) => {
+                            const type = row.f[0].v;
+                            const label = row.f[1].v;
+                            const val1 = row.f[2].v;
+                            const val2 = row.f[3].v;
+
+                            if (type === 'summary') {
+                                dashboardData.totalRequests = parseInt(label, 10);
+                                dashboardData.totalSessions = parseInt(val1, 10);
+                                dashboardData.uniqueUsers = parseInt(val2, 10);
+                            } else if (type === 'volume') {
+                                dashboardData.volumeData.push({
+                                    time: label,
+                                    requests: parseInt(val1, 10),
+                                    errors: 0
+                                });
+                            } else if (type === 'agent') {
+                                dashboardData.agentData.push({
+                                    name: label,
+                                    id: val2,
+                                    count: parseInt(val1, 10)
+                                });
+                            }
                         });
-                    }
 
-                    if (summaryResult && summaryResult.rows && summaryResult.rows[0]) {
-                        newData.totalRequests = parseInt(summaryResult.rows[0].f[0].v, 10);
+                        dashboardData.uniqueAgents = dashboardData.agentData.length;
                     }
-
-                    if (userCountResult && userCountResult.rows && userCountResult.rows[0]) {
-                        newData.uniqueUsers = parseInt(userCountResult.rows[0].f[0].v, 10);
-                    }
-
-                    newData.queries = { roleQuery, volumeQuery, agentQuery, summaryQuery, userCountQuery };
-                    setDashboardData(newData);
+                    
+                    setDashboardData(dashboardData);
                 }
             } catch (err: any) {
                 setError(err.message || 'Failed to fetch data');
@@ -228,9 +323,11 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
 
     const bqSinks = sinks.filter(sink => sink.destination && sink.destination.startsWith('bigquery.googleapis.com/'));
     
-    const userLogFilter = `logName="projects/${projectId}/logs/discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity" OR logName=~"projects/${projectId}/logs/discoveryengine.googleapis.com%2Fgen_ai.*"`;
     const userLogSink = sinks.find((sink: any) => 
-        sink.filter && sink.filter === userLogFilter
+        sink.filter && (
+            sink.filter.includes('discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity') ||
+            sink.filter.includes('discoveryengine.googleapis.com/gemini_enterprise_user_activity')
+        )
     );
     const datasetId = userLogSink ? userLogSink.destination.split('/').pop() : undefined;
 

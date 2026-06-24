@@ -107,12 +107,49 @@ const ScimTenantsList: React.FC<{ providerName: string, config: Config }> = ({ p
     );
 };
 
+interface FeatureDefinition {
+    key: string;
+    displayName: string;
+    description: string;
+    isInverted: boolean;
+}
+
+const FEATURE_DEFS: FeatureDefinition[] = [
+    { key: 'agent-gallery', displayName: 'Enable Agent Gallery', description: 'Enables the Agent Gallery for discovering and using agents.', isInverted: false },
+    { key: 'no-code-agent-builder', displayName: 'Enable No-Code Agent Builder', description: 'Allows users to build agents without writing code.', isInverted: false },
+    { key: 'prompt-gallery', displayName: 'Enable Prompt Gallery', description: 'Provides a library of example prompts.', isInverted: false },
+    { key: 'model-selector', displayName: 'Enable Model Selector', description: 'Lets users switch between different AI models.', isInverted: false },
+    { key: 'notebook-lm', displayName: 'Enable NotebookLM features', description: 'Enables NotebookLM features for document analysis.', isInverted: false },
+    { key: 'people-search', displayName: 'Enable People Search', description: 'Allows searching for people within the organization.', isInverted: false },
+    { key: 'people-search-org-chart', displayName: 'Enable Org Chart in People Search', description: 'Displays organizational charts in people search results.', isInverted: false },
+    { key: 'bi-directional-audio', displayName: 'Enable Bi-directional Audio', description: 'Enables two-way audio interaction.', isInverted: false },
+    { key: 'feedback', displayName: 'Enable Quality Feedback', description: 'Allows users to provide feedback on responses.', isInverted: false },
+    { key: 'session-sharing', displayName: 'Enable Session Sharing', description: 'Enables users to share their chat sessions.', isInverted: false },
+    { key: 'personalization-memory', displayName: 'Enable Personalization Memory', description: 'Allows the AI to remember user preferences and context.', isInverted: false },
+    { key: 'personalization-suggested-highlights', displayName: 'Enable Suggested Highlights', description: 'Provides AI-suggested personalized highlights.', isInverted: false },
+    { key: 'disable-agent-sharing', displayName: 'Enable Agent Sharing', description: 'Allows team members to share and use agents within the team.', isInverted: true },
+    { key: 'disable-image-generation', displayName: 'Enable Image Generation', description: 'Allows users to generate images in the web app.', isInverted: true },
+    { key: 'disable-video-generation', displayName: 'Enable Video Generation', description: 'Allows users to generate videos in the web app.', isInverted: true },
+    { key: 'disable-onedrive-upload', displayName: 'Enable OneDrive upload', description: 'Allows users to upload files from OneDrive as a data source.', isInverted: true },
+    { key: 'disable-talk-to-content', displayName: 'Enable Talk to Content', description: 'Allows users to chat with and ask questions on specific content.', isInverted: true },
+    { key: 'disable-google-drive-upload', displayName: 'Enable Google Drive upload', description: 'Allows users to upload files from Google Drive as a data source.', isInverted: true },
+    { key: 'disable-welcome-emails', displayName: 'Enable Welcome Emails', description: 'Sends welcome emails to new users when they are added.', isInverted: true },
+    { key: 'disable-skills', displayName: 'Enable specialized skills', description: 'Allows the assistant to use specialized developer skills.', isInverted: true },
+    { key: 'disable-canvas', displayName: 'Enable Canvas', description: 'Enables side-by-side interactive document and slide generation.', isInverted: true },
+    { key: 'disable-canvas-workspace', displayName: 'Enable Canvas Workspace', description: 'Allows users to interact with Canvas workspace views.', isInverted: true },
+    { key: 'disable-mobile-app-access', displayName: 'Enable Mobile App Access', description: 'Shows a QR code to download and sign in via the mobile app.', isInverted: false },
+    { key: 'agent-sharing-without-admin-approval', displayName: 'Enable agent sharing without admin approval', description: 'Allows sharing agents with other team members without admin approval.', isInverted: false },
+    { key: 'enable-end-user-sharing-with-groups', displayName: 'Enable sharing custom agents with Groups', description: 'Allows sharing custom agents with Google Groups.', isInverted: false },
+    { key: 'cross-product-intelligence', displayName: 'Enable Cross-product Intelligence', description: 'Integrates contextual insights across workspace apps.', isInverted: false }
+];
+
 const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, onUpdateSuccess, onLaunchWizard }) => {
     const [formData, setFormData] = useState({
         displayName: '',
         disableAnalytics: false,
         observabilityEnabled: false,
         sensitiveLoggingEnabled: false,
+        marketplaceAgentVisibility: 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED',
     });
     const [features, setFeatures] = useState<Record<string, boolean>>({});
     const [modelConfigs, setModelConfigs] = useState<Record<string, boolean>>({});
@@ -132,36 +169,6 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
 
-    // Known features list from API docs
-    // Mapped to descriptive tooltips
-    const FEATURE_INFO: Record<string, string> = {
-        'agent-gallery': 'Enables the Agent Gallery for discovering and using agents.',
-        'no-code-agent-builder': 'Allows users to build agents without writing code.',
-        'prompt-gallery': 'Provides a library of example prompts.',
-        'model-selector': 'Lets users switch between different AI models.',
-        'notebook-lm': 'Enables NotebookLM features for document analysis.',
-        'people-search': 'Allows searching for people within the organization.',
-        'people-search-org-chart': 'Displays organizational charts in people search results.',
-        'bi-directional-audio': 'Enables two-way audio interaction.',
-        'feedback': 'Allows users to provide feedback on responses.',
-        'session-sharing': 'Enables users to share their chat sessions.',
-        'personalization-memory': 'Allows the AI to remember user preferences and context.',
-        'personalization-suggested-highlights': 'Provides AI-suggested personalized highlights.',
-        'disable-agent-sharing': 'Prevents users from sharing custom agents.',
-        'agent-sharing-without-admin-approval': 'Allows users to share custom agents without needing explicit admin approval.',
-        'disable-image-generation': 'Disables image generation capabilities.',
-        'disable-video-generation': 'Disables video generation capabilities.',
-        'disable-onedrive-upload': 'Prevents uploading files from OneDrive.',
-        'disable-talk-to-content': 'Disables Q&A on specific content.',
-        'disable-google-drive-upload': 'Prevents uploading files from Google Drive.',
-        'disable-welcome-emails': 'Prevents sending welcome emails to new users.',
-        'disable-canvas': 'Disables the canvas feature.',
-        'disable-canvas-workspace': 'Disables the canvas workspace.',
-        'disable-skills': 'Disables the use of specialized skills.'
-    };
-
-    const KNOWN_FEATURES = Object.keys(FEATURE_INFO);
-
     // Known model configs list
     const KNOWN_MODELS = [
         'gemini-3.1-pro',
@@ -179,19 +186,21 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             disableAnalytics: (engine as any).disableAnalytics || false,
             observabilityEnabled: engine.observabilityConfig?.observabilityEnabled || false,
             sensitiveLoggingEnabled: engine.observabilityConfig?.sensitiveLoggingEnabled || false,
+            marketplaceAgentVisibility: (engine as any).marketplaceAgentVisibility || 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED',
         });
 
         const currentFeatures: Record<string, boolean> = {};
-        // Initialize all known features to false/off unless present in engine
-        KNOWN_FEATURES.forEach(f => {
-            currentFeatures[f] = engine.features?.[f] === 'FEATURE_STATE_ON';
+        // Initialize based on FEATURE_DEFS mapping logic
+        FEATURE_DEFS.forEach(f => {
+            const apiVal = engine.features?.[f.key];
+            if (f.isInverted) {
+                // Inverted: if API is not FEATURE_STATE_ON (i.e. is OFF or undefined), then it is enabled (true).
+                currentFeatures[f.key] = apiVal !== 'FEATURE_STATE_ON';
+            } else {
+                // Direct: if API is FEATURE_STATE_ON, it is enabled (true).
+                currentFeatures[f.key] = apiVal === 'FEATURE_STATE_ON';
+            }
         });
-        // Also capture any other features present in the engine
-        if (engine.features) {
-            Object.keys(engine.features).forEach(key => {
-                currentFeatures[key] = engine.features![key] === 'FEATURE_STATE_ON';
-            });
-        }
         setFeatures(currentFeatures);
 
         const currentModels: Record<string, boolean> = {};
@@ -251,8 +260,8 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
 
 
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;
         setFormData({ ...formData, [e.target.name]: value });
     };
 
@@ -294,6 +303,11 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                 updateMask.push('disableAnalytics');
             }
 
+            if (formData.marketplaceAgentVisibility !== ((engine as any).marketplaceAgentVisibility || 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED')) {
+                payload.marketplaceAgentVisibility = formData.marketplaceAgentVisibility;
+                updateMask.push('marketplaceAgentVisibility');
+            }
+
             const currentObservability = engine.observabilityConfig?.observabilityEnabled || false;
             const currentSensitive = engine.observabilityConfig?.sensitiveLoggingEnabled || false;
 
@@ -316,8 +330,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                 if (idpData.idpType === 'THIRD_PARTY') {
                     aclPayload.idpConfig.externalIdpConfig = { workforcePoolName: idpData.workforcePoolName };
                 }
-                const aclUpdateMask = ['idpConfig'];
-                await api.updateAclConfig(aclPayload, aclUpdateMask, config);
+                await api.updateAclConfig(aclPayload, config);
                 idpChanged = true;
             }
 
@@ -336,10 +349,17 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             const newFeaturesMap: Record<string, string> = { ...engine.features };
             let featuresChanged = false;
 
-            Object.entries(features).forEach(([key, isEnabled]) => {
-                const newState = isEnabled ? 'FEATURE_STATE_ON' : 'FEATURE_STATE_OFF';
-                if (newFeaturesMap[key] !== newState) {
-                    newFeaturesMap[key] = newState;
+            FEATURE_DEFS.forEach(f => {
+                const isEnabled = features[f.key];
+                let apiState: string;
+                if (f.isInverted) {
+                    apiState = isEnabled ? 'FEATURE_STATE_OFF' : 'FEATURE_STATE_ON';
+                } else {
+                    apiState = isEnabled ? 'FEATURE_STATE_ON' : 'FEATURE_STATE_OFF';
+                }
+
+                if (newFeaturesMap[f.key] !== apiState) {
+                    newFeaturesMap[f.key] = apiState;
                     featuresChanged = true;
                 }
             });
@@ -403,6 +423,24 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                 <div>
                     <label htmlFor="displayName" className="block text-sm font-medium text-gray-300">Display Name</label>
                     <input type="text" name="displayName" value={formData.displayName} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-gray-200" />
+                </div>
+
+                <div>
+                    <label htmlFor="marketplaceAgentVisibility" className="block text-sm font-medium text-gray-300 mb-1">
+                        Marketplace Agent Visibility <InfoTooltip text="Configures which marketplace agents are visible to end-users in the agent gallery." />
+                    </label>
+                    <select
+                        name="marketplaceAgentVisibility"
+                        value={formData.marketplaceAgentVisibility}
+                        onChange={handleChange}
+                        className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-gray-200 focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 h-[42px]"
+                    >
+                        <option value="MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED">Default / Unspecified</option>
+                        <option value="SHOW_AVAILABLE_AGENTS_ONLY">Only Available Agents</option>
+                        <option value="SHOW_AGENTS_ALREADY_INTEGRATED">Agents Already Integrated</option>
+                        <option value="SHOW_AGENTS_ALREADY_PURCHASED">Agents Already Purchased</option>
+                        <option value="SHOW_ALL_AGENTS">Show All Marketplace Agents</option>
+                    </select>
                 </div>
 
                 <div className="flex items-center space-x-3">
@@ -614,16 +652,16 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
 
                 <CollapsibleSection title="Feature Management">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-900/30 rounded-md">
-                        {KNOWN_FEATURES.map(feature => (
-                            <label key={feature} className="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-800 rounded transition-colors">
+                        {FEATURE_DEFS.map(feature => (
+                            <label key={feature.key} className="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-800 rounded transition-colors">
                                 <input
                                     type="checkbox"
-                                    checked={features[feature] || false}
-                                    onChange={() => handleFeatureChange(feature)}
+                                    checked={features[feature.key] || false}
+                                    onChange={() => handleFeatureChange(feature.key)}
                                     className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0"
                                 />
-                                <span className="text-sm text-gray-300 break-words truncate">{feature}</span>
-                                <InfoTooltip text={FEATURE_INFO[feature] || feature} />
+                                <span className="text-sm text-gray-300 break-words truncate">{feature.displayName}</span>
+                                <InfoTooltip text={feature.description} />
                             </label>
                         ))}
                     </div>

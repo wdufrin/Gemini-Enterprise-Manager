@@ -191,7 +191,7 @@ describe('apiService', () => {
       });
 
       const result = await createDiscoverySession(
-        { userPseudoId: 'test@example.com' },
+        { name: '', userPseudoId: 'test@example.com' },
         { projectId: 'p', appLocation: 'l', collectionId: 'c', appId: 'a' } as any,
         'custom-token'
       );

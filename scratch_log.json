@@ -1,0 +1,55 @@
+[
+  {
+    "insertId": "tyt51ee552c1",
+    "jsonPayload": {
+      "logMetadata": {
+        "methodName": "StreamAssist",
+        "name": "projects/180054373655/locations/global/collections/default_collection/engines/cosmere-1756136513915_1756136523768/assistants/default_assistant",
+        "serviceLabel": "GEMINI_ENTERPRISE",
+        "serviceName": "google.cloud.discoveryengine.v1main.AssistantService",
+        "timestamp": "2026-06-24T17:27:37.274548167Z"
+      },
+      "request": {
+        "name": "projects/180054373655/locations/global/collections/default_collection/engines/cosmere-1756136513915_1756136523768/assistants/default_assistant",
+        "query": {
+          "parts": [
+            {
+              "text": "Who is Captain Crow?"
+            }
+          ]
+        }
+      },
+      "response": {
+        "answer": {
+          "name": "projects/180054373655/locations/global/collections/default_collection/engines/cosmere-1756136513915_1756136523768/sessions/17136645621778320678/assistAnswers/16904330385670424547",
+          "replies": [
+            {
+              "groundedContent": {}
+            }
+          ],
+          "state": "SUCCEEDED"
+        },
+        "assistToken": "NMwKDAijpvDRBhCT04zFARIkNmEzYzQyMzYtMDAwMC0yMTgxLTk1OGUtMzRjN2U5MjA4NjUz"
+      },
+      "serviceTextReply": "Captain Crow is the captain of the pirate ship, the *Crow's Song* [3](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf), [10](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). She is described as having a harsh face, tan skin, and a scowl as deep as the ocean, a person seemingly crafted without humor or mercy [10](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\nA key aspect of Captain Crow is her nature as a \"spore eater,\" a gestator for the verdant aether. This means she hosts an aggressive strain of a verdant parasite [2](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). This gives her the ability to have vines erupt from her skin, which can even catch bullets. Dr. Ulaam observes that she has more control over this \"ailment\" than most realize, keeping the vines within her at will [2](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). Her crew fears the spores in her blood, which is a source of her authority [5](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\nCrow is a ruthless pirate captain who seeks to turn her crew into \"deadrunners\"—unfailingly obedient followers—by sinking ships [6](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). She is a keen observer of human nature and uses this to her advantage [7](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). She is not one to second-guess her decisions and is known for her cruelty, such as kicking Tress in the stomach simply because Tress's happiness displeased her [7](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\nHer crew includes a cannonmaster named Laggart, and members named Ann and Fort [4](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf), [10](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). She uses deck scrubbing as punishment and expects everyone on her ship to have a designated role [4](httpshttps://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). She has a history of making threats and giving ultimatums to maintain control [4](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\nInterestingly, a rat named Huck is capable of a surprisingly accurate imitation of Captain Crow's aristocratic accent [1](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\nDespite her harsh exterior, there are moments that show a more complex character. She once gave Tress a chance to flee the ship [9](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf), and later laughed when Tress, instead of running, asked to join her crew [9](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\n📚 Sources\n[1] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 145](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[2] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 214](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[3] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 213](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[4] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 165](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[5] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 385](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[6] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 246](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[7] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 233](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[8] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 151](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[9] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 163](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[10] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 98](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n",
+      "userIamPrincipal": "admin@wdufrin.altostrat.com"
+    },
+    "logName": "projects/ancient-sandbox-322523/logs/discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity",
+    "receiveTimestamp": "2026-06-24T17:27:38.059546363Z",
+    "resource": {
+      "labels": {
+        "credential_id": "",
+        "location": "global",
+        "method": "StreamAssist",
+        "project_id": "ancient-sandbox-322523",
+        "service": "google.cloud.discoveryengine.v1main.AssistantService",
+        "version": "v1"
+      },
+      "type": "consumed_api"
+    },
+    "severity": "INFO",
+    "spanId": "ab3e82678621ff4c",
+    "timestamp": "2026-06-24T17:27:37.274548167Z",
+    "trace": "1a79235f5fe4cc74915a665217454233"
+  }
+]

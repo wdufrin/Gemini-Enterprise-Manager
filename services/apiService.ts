@@ -314,7 +314,7 @@ export const listLoggingSinks = async (projectId: string): Promise<any> => {
 
 // --- Discovery Engine Resources ---
 
-export const listResources = async (resourceType: 'agents' | 'engines' | 'dataStores' | 'collections' | 'assistants', config: Config, pageToken?: string, pageSize: number = 200): Promise<any> => {
+export const listResources = async (resourceType: 'agents' | 'engines' | 'dataStores' | 'collections' | 'assistants', config: Config, pageToken?: string, pageSize: number = 200, suppressErrorLog?: boolean): Promise<any> => {
     const { projectId, appLocation, collectionId, appId, assistantId } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
     let url = '';
@@ -340,7 +340,7 @@ export const listResources = async (resourceType: 'agents' | 'engines' | 'dataSt
     url += `?pageSize=${pageSize}`;
     if (pageToken) url += `&pageToken=${pageToken}`;
 
-    return gapiRequest(url, 'GET', projectId);
+    return gapiRequest(url, 'GET', projectId, undefined, undefined, undefined, suppressErrorLog);
 };
 
 // FIX: Added missing createCollection function.
@@ -380,7 +380,7 @@ export const listOperations = async (config: Config, filter?: string) => {
     return gapiRequest<any>(url, 'GET', config.projectId);
 };
 
-export const listDiscoverySessions = async (config: Config, pageToken?: string, pageSize: number = 50) => {
+export const listDiscoverySessions = async (config: Config, pageToken?: string, pageSize: number = 50, suppressErrorLog?: boolean) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
     // Logic: Sessions are usually under a Data Store for "Search" or an App for "Chat".
     // For "Chat" / "Gemini Enterprise" (Conversational), they are under `projects/.../conversations` OR `projects/.../collections/.../engines/.../sessions`.
@@ -393,7 +393,7 @@ export const listDiscoverySessions = async (config: Config, pageToken?: string, 
     if (pageToken) {
         url += `&pageToken=${pageToken}`;
     }
-    return gapiRequest<{ sessions: DiscoverySession[], nextPageToken?: string }>(url, 'GET', config.projectId);
+    return gapiRequest<{ sessions: DiscoverySession[], nextPageToken?: string }>(url, 'GET', config.projectId, undefined, undefined, undefined, suppressErrorLog);
 };
 
 export const getDiscoveryAnswer = async (name: string, config: Config) => {
@@ -545,10 +545,10 @@ export const getAclConfig = async (config: Config) => {
     return gapiRequest<any>(url, 'GET', projectId); // Type will be AclConfig
 };
 
-export const updateAclConfig = async (payload: any, updateMask: string[], config: Config) => {
+export const updateAclConfig = async (payload: any, config: Config) => {
     const { projectId, appLocation } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/aclConfig?updateMask=${updateMask.join(',')}`;
+    const url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/aclConfig`;
     return gapiRequest<any>(url, 'PATCH', projectId, undefined, payload); // Type will be AclConfig
 };
 
@@ -1531,7 +1531,7 @@ export const createBigQueryDataset = async (projectId: string, datasetId: string
 };
 
 export const listBigQueryTables = async (projectId: string, datasetId: string) => {
-    return gapiRequest<any>(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables`, 'GET', projectId);
+    return gapiRequest<any>(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables?maxResults=1000`, 'GET', projectId);
 };
 
 export const createBigQueryTable = async (projectId: string, datasetId: string, tableId: string) => {

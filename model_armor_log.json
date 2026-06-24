@@ -1,0 +1,97 @@
+[
+  {
+    "insertId": "7c4b0d02-a28e-42dc-a91d-a731cd030cb1",
+    "jsonPayload": {
+      "@type": "type.googleapis.com/google.cloud.modelarmor.logging.v1.SanitizeOperationLogEntry",
+      "filterConfig": {},
+      "operationType": "SANITIZE_MODEL_RESPONSE",
+      "sanitizationInput": {
+        "text": "Captain Crow is the captain of the pirate ship, the *Crow's Song* [3](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf), [10](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). She is described as having a harsh face, tan skin, and a scowl as deep as the ocean, a person seemingly crafted without humor or mercy [10](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\nA key aspect of Captain Crow is her nature as a \"spore eater,\" a gestator for the verdant aether. This means she hosts an aggressive strain of a verdant parasite [2](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). This gives her the ability to have vines erupt from her skin, which can even catch bullets. Dr. Ulaam observes that she has more control over this \"ailment\" than most realize, keeping the vines within her at will [2](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). Her crew fears the spores in her blood, which is a source of her authority [5](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\nCrow is a ruthless pirate captain who seeks to turn her crew into \"deadrunners\"—unfailingly obedient followers—by sinking ships [6](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). She is a keen observer of human nature and uses this to her advantage [7](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). She is not one to second-guess her decisions and is known for her cruelty, such as kicking Tress in the stomach simply because Tress's happiness displeased her [7](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\nHer crew includes a cannonmaster named Laggart, and members named Ann and Fort [4](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf), [10](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). She uses deck scrubbing as punishment and expects everyone on her ship to have a designated role [4](httpshttps://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf). She has a history of making threats and giving ultimatums to maintain control [4](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\nInterestingly, a rat named Huck is capable of a surprisingly accurate imitation of Captain Crow's aristocratic accent [1](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\nDespite her harsh exterior, there are moments that show a more complex character. She once gave Tress a chance to flee the ship [9](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf), and later laughed when Tress, instead of running, asked to join her crew [9](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf).\n\n📚 Sources\n[1] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 145](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[2] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 214](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[3] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 213](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[4] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 165](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[5] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 385](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[6] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 246](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[7] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 233](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[8] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 151](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[9] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 163](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)\n[10] [Tress_of_the_Emerald_Sea_by_Brandon_Sanderson, p. 98](https://storage.cloud.google.com/cosmere_ai/Tress_of_the_Emerald_Sea_by_Brandon_Sanderson.pdf)"
+      },
+      "sanitizationResult": {
+        "filterMatchState": "NO_MATCH_FOUND",
+        "filterResults": {
+          "csam": {
+            "csamFilterFilterResult": {
+              "executionState": "EXECUTION_SUCCESS",
+              "matchState": "NO_MATCH_FOUND"
+            }
+          },
+          "malicious_uris": {
+            "maliciousUriFilterResult": {
+              "executionState": "EXECUTION_SUCCESS",
+              "matchState": "NO_MATCH_FOUND"
+            }
+          },
+          "pi_and_jailbreak": {
+            "piAndJailbreakFilterResult": {
+              "executionState": "EXECUTION_SUCCESS",
+              "matchState": "NO_MATCH_FOUND"
+            }
+          },
+          "rai": {
+            "raiFilterResult": {
+              "executionState": "EXECUTION_SUCCESS",
+              "matchState": "NO_MATCH_FOUND",
+              "raiFilterTypeResults": {
+                "dangerous": {
+                  "matchState": "NO_MATCH_FOUND"
+                },
+                "harassment": {
+                  "matchState": "NO_MATCH_FOUND"
+                },
+                "hate_speech": {
+                  "matchState": "NO_MATCH_FOUND"
+                },
+                "sexually_explicit": {
+                  "matchState": "NO_MATCH_FOUND"
+                }
+              }
+            }
+          },
+          "sdp": {
+            "sdpFilterResult": {
+              "inspectResult": {
+                "executionState": "EXECUTION_SUCCESS",
+                "matchState": "NO_MATCH_FOUND"
+              }
+            }
+          }
+        },
+        "invocationResult": "SUCCESS",
+        "sanitizationMetadata": {
+          "filterVersionConfig": {
+            "filterVersion": "v1",
+            "filterVersionAlias": "FILTER_VERSION_ALIAS_STABLE",
+            "projectedDeprecationDate": {},
+            "releaseDate": {
+              "day": 30,
+              "month": 1,
+              "year": 2025
+            }
+          }
+        },
+        "sanitizationVerdict": "MODEL_ARMOR_SANITIZATION_VERDICT_ALLOW",
+        "sanitizationVerdictReason": "The model response did not violate any safety settings."
+      }
+    },
+    "labels": {
+      "modelarmor.googleapis.com/api_version": "",
+      "modelarmor.googleapis.com/client_correlation_id": "AS|projects/180054373655/locations/global/collections/default_collection/engines/cosmere-1756136513915_1756136523768/assistants/default_assistant|NMwKDAijpvDRBhCT04zFARIkNmEzYzQyMzYtMDAwMC0yMTgxLTk1OGUtMzRjN2U5MjA4NjUz",
+      "modelarmor.googleapis.com/client_name": "GEMINI_ENTERPRISE_NON_BUSINESS",
+      "modelarmor.googleapis.com/operation_type": "SANITIZE_MODEL_RESPONSE"
+    },
+    "logName": "projects/ancient-sandbox-322523/logs/modelarmor.googleapis.com%2Fsanitize_operations",
+    "receiveTimestamp": "2026-06-24T17:27:37.443066934Z",
+    "resource": {
+      "labels": {
+        "location": "us",
+        "resource_container": "projects/180054373655",
+        "template_id": "Test_Template"
+      },
+      "type": "modelarmor.googleapis.com/SanitizeOperation"
+    },
+    "severity": "INFO",
+    "timestamp": "2026-06-24T17:27:37.443066934Z"
+  }
+]
