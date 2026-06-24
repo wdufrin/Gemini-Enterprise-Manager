@@ -211,6 +211,7 @@ export interface AppEngine { // Renamed from Engine to avoid conflict with Reaso
   features?: Record<string, string>; // Map of feature name to 'FEATURE_STATE_ON'|'FEATURE_STATE_OFF'
   modelConfigs?: Record<string, string>; // Map of model name to 'MODEL_ENABLED'|'MODEL_DISABLED'
   mobileDeeplinkUrl?: string;
+  widgetConfigConfigId?: string;
 }
 
 export interface AclConfig {

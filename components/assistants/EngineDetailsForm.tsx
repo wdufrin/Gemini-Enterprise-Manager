@@ -177,6 +177,36 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
     const [customTenantId, setCustomTenantId] = useState('');
     const [customClientId, setCustomClientId] = useState('');
 
+    const computedDeeplinkUrl = (() => {
+        if (engine.mobileDeeplinkUrl) return engine.mobileDeeplinkUrl;
+
+        const widgetId = engine.widgetConfigConfigId || (widgetConfig?.name ? widgetConfig.name.split('/').pop() : 'default_search_widget_config');
+        const projectNumber = engine.name?.split('/')[1] || config.projectId;
+
+        if (idpData.idpType === 'GSUITE') {
+            return `https://vertexaisearch.cloud.google.com/mobile?cid=${widgetId}&cid_location=${config.appLocation}`;
+        }
+
+        if (idpData.idpType === 'THIRD_PARTY' && widgetConfig?.accessSettings?.workforceIdentityPoolProvider) {
+            const providerName = widgetConfig.accessSettings.workforceIdentityPoolProvider;
+            const activeProvider = idpProviders.find(p => p.name === providerName);
+            
+            let url = `https://vertexaisearch.cloud.google.com/mobile?cid=${widgetId}&cid_location=${config.appLocation}&idp=${encodeURIComponent(providerName)}&project_id=${projectNumber}`;
+            
+            if (activeProvider?.oidc) {
+                const clientId = activeProvider.oidc.clientId || '';
+                const tenantIdMatch = activeProvider.oidc.issuerUri?.match(/microsoftonline\.com\/([a-zA-Z0-9-]+)/);
+                const tenantId = tenantIdMatch ? tenantIdMatch[1] : '';
+                
+                if (clientId) url += `&client_id=${clientId}`;
+                if (tenantId) url += `&tenant_id=${tenantId}`;
+            }
+            return url;
+        }
+
+        return '';
+    })();
+
     // Known model configs list
     const KNOWN_MODELS = [
         'gemini-3.1-pro',
@@ -223,7 +253,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         const qrCodeVal = engine.features?.['mobile-app-access'];
         currentFeatures['mobile-app-access'] = qrCodeVal !== undefined
             ? qrCodeVal === 'FEATURE_STATE_ON'
-            : !!engine.mobileDeeplinkUrl;
+            : !!(engine.mobileDeeplinkUrl || computedDeeplinkUrl);
 
         setFeatures(currentFeatures);
 
@@ -238,7 +268,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             });
         }
         setModelConfigs(currentModels);
-    }, [engine, widgetConfig]);
+    }, [engine, widgetConfig, idpData, idpProviders]);
 
     useEffect(() => {
         const fetchConfigs = async () => {
@@ -480,6 +510,13 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                 updateMask.push('modelConfigs');
             }
 
+            // Calculate changed mobileDeeplinkUrl
+            const expectedUrl = qrCodeEnabled ? computedDeeplinkUrl : '';
+            if ((engine.mobileDeeplinkUrl || '') !== expectedUrl) {
+                payload.mobileDeeplinkUrl = expectedUrl;
+                updateMask.push('mobileDeeplinkUrl');
+            }
+
             if (updateMask.length === 0 && !idpChanged && !widgetChanged) {
                 setSuccess("No changes detected.");
                 setTimeout(() => setSuccess(null), 3000);
@@ -698,18 +735,18 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                             </label>
                         </div>
 
-                        {engine.mobileDeeplinkUrl ? (
+                        {computedDeeplinkUrl ? (
                             <div className="space-y-4">
                                 <div className="p-3 bg-blue-900/20 border border-blue-700/50 rounded-md text-sm text-blue-200">
-                                    <strong>Mobile Deep Link Active:</strong> Google Cloud has generated the mobile app configuration link for this engine.
+                                    <strong>Mobile Deep Link Active:</strong> Generated mobile app configuration link for this engine.
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-medium text-gray-400 mb-1">Generated Mobile URL</label>
+                                    <label className="block text-xs font-medium text-gray-400 mb-1">Mobile URL</label>
                                     <div className="flex gap-2">
-                                        <input type="text" value={engine.mobileDeeplinkUrl} className="flex-1 bg-gray-700 border-gray-600 rounded px-3 py-1.5 text-xs text-gray-300 font-mono" readOnly />
+                                        <input type="text" value={computedDeeplinkUrl} className="flex-1 bg-gray-700 border-gray-600 rounded px-3 py-1.5 text-xs text-gray-300 font-mono" readOnly />
                                         <button
                                             type="button"
-                                            onClick={() => navigator.clipboard.writeText(engine.mobileDeeplinkUrl || '')}
+                                            onClick={() => navigator.clipboard.writeText(computedDeeplinkUrl)}
                                             className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded text-xs border border-gray-600 transition-colors"
                                         >
                                             Copy
@@ -718,7 +755,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-6 bg-white rounded-lg border border-gray-700 w-fit mx-auto">
                                     <img 
-                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(engine.mobileDeeplinkUrl)}`} 
+                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(computedDeeplinkUrl)}`} 
                                         alt="Mobile Login QR Code" 
                                         className="mb-2" 
                                     />
