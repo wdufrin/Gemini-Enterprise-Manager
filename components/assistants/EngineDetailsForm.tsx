@@ -173,39 +173,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
-    const [customIdp, setCustomIdp] = useState('');
-    const [customTenantId, setCustomTenantId] = useState('');
-    const [customClientId, setCustomClientId] = useState('');
 
-    const computedDeeplinkUrl = (() => {
-        if (engine.mobileDeeplinkUrl) return engine.mobileDeeplinkUrl;
-
-        const widgetId = engine.widgetConfigConfigId || (widgetConfig?.name ? widgetConfig.name.split('/').pop() : 'default_search_widget_config');
-        const projectNumber = engine.name?.split('/')[1] || config.projectId;
-
-        if (idpData.idpType === 'GSUITE') {
-            return `https://vertexaisearch.cloud.google.com/mobile?cid=${widgetId}&cid_location=${config.appLocation}`;
-        }
-
-        if (idpData.idpType === 'THIRD_PARTY' && widgetConfig?.accessSettings?.workforceIdentityPoolProvider) {
-            const providerName = widgetConfig.accessSettings.workforceIdentityPoolProvider;
-            const activeProvider = idpProviders.find(p => p.name === providerName);
-            
-            let url = `https://vertexaisearch.cloud.google.com/mobile?cid=${widgetId}&cid_location=${config.appLocation}&idp=${encodeURIComponent(providerName)}&project_id=${projectNumber}`;
-            
-            if (activeProvider?.oidc) {
-                const clientId = activeProvider.oidc.clientId || '';
-                const tenantIdMatch = activeProvider.oidc.issuerUri?.match(/microsoftonline\.com\/([a-zA-Z0-9-]+)/);
-                const tenantId = tenantIdMatch ? tenantIdMatch[1] : '';
-                
-                if (clientId) url += `&client_id=${clientId}`;
-                if (tenantId) url += `&tenant_id=${tenantId}`;
-            }
-            return url;
-        }
-
-        return '';
-    })();
 
     // Known model configs list
     const KNOWN_MODELS = [
@@ -253,7 +221,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         const qrCodeVal = engine.features?.['mobile-app-access'];
         currentFeatures['mobile-app-access'] = qrCodeVal !== undefined
             ? qrCodeVal === 'FEATURE_STATE_ON'
-            : !!(engine.mobileDeeplinkUrl || computedDeeplinkUrl);
+            : !!engine.mobileDeeplinkUrl;
 
         setFeatures(currentFeatures);
 
@@ -268,7 +236,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             });
         }
         setModelConfigs(currentModels);
-    }, [engine, widgetConfig, idpData, idpProviders]);
+    }, [engine, widgetConfig]);
 
     useEffect(() => {
         const fetchConfigs = async () => {
@@ -510,10 +478,9 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                 updateMask.push('modelConfigs');
             }
 
-            // Calculate changed mobileDeeplinkUrl
-            const expectedUrl = qrCodeEnabled ? computedDeeplinkUrl : '';
-            if ((engine.mobileDeeplinkUrl || '') !== expectedUrl) {
-                payload.mobileDeeplinkUrl = expectedUrl;
+            // Calculate changed mobileDeeplinkUrl (clear it if disabled)
+            if (!qrCodeEnabled && engine.mobileDeeplinkUrl) {
+                payload.mobileDeeplinkUrl = '';
                 updateMask.push('mobileDeeplinkUrl');
             }
 
@@ -735,18 +702,18 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                             </label>
                         </div>
 
-                        {computedDeeplinkUrl ? (
+                        {engine.mobileDeeplinkUrl ? (
                             <div className="space-y-4">
                                 <div className="p-3 bg-blue-900/20 border border-blue-700/50 rounded-md text-sm text-blue-200">
-                                    <strong>Mobile Deep Link Active:</strong> Generated mobile app configuration link for this engine.
+                                    <strong>Mobile Deep Link Active:</strong> Google Cloud has generated the mobile app configuration link for this engine.
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-medium text-gray-400 mb-1">Mobile URL</label>
+                                    <label className="block text-xs font-medium text-gray-400 mb-1">Generated Mobile URL</label>
                                     <div className="flex gap-2">
-                                        <input type="text" value={computedDeeplinkUrl} className="flex-1 bg-gray-700 border-gray-600 rounded px-3 py-1.5 text-xs text-gray-300 font-mono" readOnly />
+                                        <input type="text" value={engine.mobileDeeplinkUrl} className="flex-1 bg-gray-700 border-gray-600 rounded px-3 py-1.5 text-xs text-gray-300 font-mono" readOnly />
                                         <button
                                             type="button"
-                                            onClick={() => navigator.clipboard.writeText(computedDeeplinkUrl)}
+                                            onClick={() => navigator.clipboard.writeText(engine.mobileDeeplinkUrl || '')}
                                             className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded text-xs border border-gray-600 transition-colors"
                                         >
                                             Copy
@@ -755,7 +722,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-6 bg-white rounded-lg border border-gray-700 w-fit mx-auto">
                                     <img 
-                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(computedDeeplinkUrl)}`} 
+                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(engine.mobileDeeplinkUrl)}`} 
                                         alt="Mobile Login QR Code" 
                                         className="mb-2" 
                                     />
@@ -766,77 +733,6 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                             <div className="space-y-4">
                                 <div className="p-3 bg-yellow-900/20 border border-yellow-800 rounded-md text-sm text-yellow-200">
                                     <strong>No Live Mobile Link Found:</strong> Ensure you have configured a workforce identity pool provider under the IDP Configuration section below. 
-                                </div>
-                                <div className="border-t border-gray-700 pt-4 space-y-3">
-                                    <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">Preview / Manual Link Generator</h4>
-                                    <p className="text-xs text-gray-400">If you want to construct or preview the QR code manually for this client app before it is provisioned on Google Cloud, fill in the parameters below:</p>
-                                    
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="block text-[10px] font-medium text-gray-400">Identity Provider (IDP)</label>
-                                            <input 
-                                                type="text" 
-                                                value={customIdp} 
-                                                onChange={(e) => setCustomIdp(e.target.value)} 
-                                                placeholder="locations/global/workforcePools/my-pool/providers/my-provider" 
-                                                className="mt-1 block w-full bg-gray-800 border-gray-600 rounded px-2 py-1 text-xs text-gray-200" 
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] font-medium text-gray-400">Entra Tenant ID</label>
-                                            <input 
-                                                type="text" 
-                                                value={customTenantId} 
-                                                onChange={(e) => setCustomTenantId(e.target.value)} 
-                                                placeholder="5ae87d26-ea67..." 
-                                                className="mt-1 block w-full bg-gray-800 border-gray-600 rounded px-2 py-1 text-xs text-gray-200" 
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] font-medium text-gray-400">Client ID (Workforce Pool Client)</label>
-                                            <input 
-                                                type="text" 
-                                                value={customClientId} 
-                                                onChange={(e) => setCustomClientId(e.target.value)} 
-                                                placeholder="b56052a7-6ac1..." 
-                                                className="mt-1 block w-full bg-gray-800 border-gray-600 rounded px-2 py-1 text-xs text-gray-200" 
-                                            />
-                                        </div>
-                                    </div>
-                                    
-                                    {customIdp && customTenantId && customClientId && (
-                                        <div className="pt-4 border-t border-gray-800 space-y-3 animate-fadeIn">
-                                            <div>
-                                                <label className="block text-[10px] font-medium text-gray-400 mb-1">Generated Preview URL</label>
-                                                <div className="flex gap-2">
-                                                    <input 
-                                                        type="text" 
-                                                        value={`https://vertexaisearch.cloud.google.com/mobile?cid=${widgetConfig?.accessSettings?.workforceIdentityPoolProvider ? widgetConfig.name.split('/').pop() : 'cid-placeholder'}&cid_location=${config.appLocation}&idp=${encodeURIComponent(customIdp)}&tenant_id=${customTenantId}&client_id=${customClientId}&project_id=${config.projectId || 'project-placeholder'}`} 
-                                                        className="flex-1 bg-gray-700 border-gray-600 rounded px-2 py-1 text-xs text-gray-300 font-mono" 
-                                                        readOnly 
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const url = `https://vertexaisearch.cloud.google.com/mobile?cid=${widgetConfig?.accessSettings?.workforceIdentityPoolProvider ? widgetConfig.name.split('/').pop() : 'cid-placeholder'}&cid_location=${config.appLocation}&idp=${encodeURIComponent(customIdp)}&tenant_id=${customTenantId}&client_id=${customClientId}&project_id=${config.projectId || 'project-placeholder'}`;
-                                                            navigator.clipboard.writeText(url);
-                                                        }}
-                                                        className="px-2 py-1 bg-gray-850 text-white rounded text-xs border border-gray-600"
-                                                    >
-                                                        Copy
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-col items-center justify-center p-4 bg-white rounded-lg border border-gray-700 w-fit mx-auto">
-                                                <img 
-                                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`https://vertexaisearch.cloud.google.com/mobile?cid=${widgetConfig?.accessSettings?.workforceIdentityPoolProvider ? widgetConfig.name.split('/').pop() : 'cid-placeholder'}&cid_location=${config.appLocation}&idp=${encodeURIComponent(customIdp)}&tenant_id=${customTenantId}&client_id=${customClientId}&project_id=${config.projectId || 'project-placeholder'}`)}`} 
-                                                    alt="Mobile Login QR Code Preview" 
-                                                    className="mb-2" 
-                                                />
-                                                <span className="text-[10px] text-gray-500 font-medium">Scan to login (Preview Code)</span>
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         )}
