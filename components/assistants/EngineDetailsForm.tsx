@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AppEngine, Config } from '../../types';
 import * as api from '../../services/apiService';
 import InfoTooltip from '../InfoTooltip';
@@ -186,6 +186,57 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         'gemini-2.5-flash'
     ];
 
+    const getConstructedDeeplinkUrl = useCallback((): string | null => {
+        const providerName = widgetConfig?.accessSettings?.workforceIdentityPoolProvider;
+        if (!providerName) return null;
+
+        const provider = idpProviders.find(p => p.name === providerName);
+        if (!provider) return null;
+
+        const widgetId = widgetConfig.configId || engine.widgetConfigConfigId;
+        if (!widgetId) return null;
+
+        const clientId = provider.oidc?.clientId || provider.saml?.entityId;
+        if (!clientId) return null;
+
+        let tenantId = '';
+        const issuer = provider.oidc?.issuerUri || '';
+        if (issuer.includes('login.microsoftonline.com')) {
+            const matches = issuer.match(/login\.microsoftonline\.com\/([^\/]+)/);
+            if (matches && matches[1]) {
+                tenantId = matches[1];
+            }
+        }
+
+        const projectNumber = engine.name.split('/')[1] || config.projectId;
+        const location = engine.name.split('/')[3] || config.appLocation;
+
+        let url = `https://vertexaisearch.cloud.google.com/mobile?cid=${widgetId}&cid_location=${location}&idp=${encodeURIComponent(providerName)}&client_id=${clientId}&project_id=${projectNumber}`;
+        if (tenantId) {
+            url += `&tenant_id=${tenantId}`;
+        }
+        return url;
+    }, [widgetConfig, idpProviders, engine.name, engine.widgetConfigConfigId, config.projectId, config.appLocation]);
+
+    const isSupportedIdpForQrCode = useCallback((): boolean => {
+        if (idpData.idpType === 'GSUITE') return true;
+
+        if (idpData.idpType === 'THIRD_PARTY') {
+            const providerName = widgetConfig?.accessSettings?.workforceIdentityPoolProvider;
+            if (!providerName) return false;
+            
+            const provider = idpProviders.find(p => p.name === providerName);
+            if (!provider) return false;
+
+            const issuer = provider.oidc?.issuerUri || '';
+            if (issuer.includes('login.microsoftonline.com')) {
+                return true;
+            }
+        }
+
+        return false;
+    }, [idpData.idpType, widgetConfig, idpProviders]);
+
     useEffect(() => {
         setFormData({
             displayName: engine.displayName || '',
@@ -213,15 +264,26 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             }
         });
 
-        // Explicitly read mobile app access (legacy key, inverted)
+        // Explicitly read mobile app access state (combining legacy and new keys)
         const disableMobileVal = engine.features?.['disable-mobile-app-access'];
-        currentFeatures['disable-mobile-app-access'] = disableMobileVal !== 'FEATURE_STATE_ON';
-
-        // Explicitly read QR code login (new key, direct)
         const qrCodeVal = engine.features?.['mobile-app-access'];
-        currentFeatures['mobile-app-access'] = qrCodeVal !== undefined
+        const mobileAppAccessEnabled = qrCodeVal !== undefined
             ? qrCodeVal === 'FEATURE_STATE_ON'
-            : !!engine.mobileDeeplinkUrl;
+            : disableMobileVal !== 'FEATURE_STATE_ON';
+            
+        currentFeatures['mobile-app-access'] = mobileAppAccessEnabled;
+
+        // QR code login widget aligns with virtual key or deep link presence (if IDP is supported)
+        if (isSupportedIdpForQrCode()) {
+            if (engine.mobileDeeplinkUrl) {
+                currentFeatures['qr-code-widget'] = true;
+            } else {
+                const qrFeatureVal = engine.features?.['enable-qr-code-widget'];
+                currentFeatures['qr-code-widget'] = qrFeatureVal === 'FEATURE_STATE_ON';
+            }
+        } else {
+            currentFeatures['qr-code-widget'] = false;
+        }
 
         setFeatures(currentFeatures);
 
@@ -236,7 +298,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             });
         }
         setModelConfigs(currentModels);
-    }, [engine, widgetConfig]);
+    }, [engine, widgetConfig, getConstructedDeeplinkUrl, isSupportedIdpForQrCode]);
 
     useEffect(() => {
         const fetchConfigs = async () => {
@@ -434,26 +496,26 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             });
 
             // Explicitly set both mobile app access keys independently
-            const mobileEnabled = features['disable-mobile-app-access'];
+            const mobileEnabled = features['mobile-app-access'];
             const disableMobileState = mobileEnabled ? 'FEATURE_STATE_OFF' : 'FEATURE_STATE_ON';
-
-            const qrCodeEnabled = features['mobile-app-access'];
+            const mobileState = mobileEnabled ? 'FEATURE_STATE_ON' : 'FEATURE_STATE_OFF';
 
             if (newFeaturesMap['disable-mobile-app-access'] !== disableMobileState) {
                 newFeaturesMap['disable-mobile-app-access'] = disableMobileState;
                 featuresChanged = true;
             }
 
-            if (qrCodeEnabled) {
-                if (newFeaturesMap['mobile-app-access'] !== 'FEATURE_STATE_ON') {
-                    newFeaturesMap['mobile-app-access'] = 'FEATURE_STATE_ON';
-                    featuresChanged = true;
-                }
-            } else {
-                if (newFeaturesMap['mobile-app-access'] !== undefined) {
-                    delete newFeaturesMap['mobile-app-access'];
-                    featuresChanged = true;
-                }
+            if (newFeaturesMap['mobile-app-access'] !== mobileState) {
+                newFeaturesMap['mobile-app-access'] = mobileState;
+                featuresChanged = true;
+            }
+
+            // QR Code Login widget virtual flag
+            const qrCodeEnabled = features['qr-code-widget'];
+            const qrState = qrCodeEnabled ? 'FEATURE_STATE_ON' : 'FEATURE_STATE_OFF';
+            if (newFeaturesMap['enable-qr-code-widget'] !== qrState) {
+                newFeaturesMap['enable-qr-code-widget'] = qrState;
+                featuresChanged = true;
             }
 
             if (featuresChanged) {
@@ -513,6 +575,8 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             setIsSubmitting(false);
         }
     };
+
+    const activeMobileLink = engine.mobileDeeplinkUrl || getConstructedDeeplinkUrl();
 
     return (
         <div className="bg-gray-800 shadow-xl rounded-lg p-6 mb-6 border border-gray-700">
@@ -671,10 +735,10 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                 <input
                                     type="checkbox"
                                     id="mobileAppAccessToggle"
-                                    checked={features['disable-mobile-app-access'] || false}
+                                    checked={features['mobile-app-access'] || false}
                                     onChange={() => setFeatures(prev => ({
                                         ...prev,
-                                        'disable-mobile-app-access': !prev['disable-mobile-app-access']
+                                        'mobile-app-access': !prev['mobile-app-access']
                                     }))}
                                     className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
                                 />
@@ -684,36 +748,50 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                 <InfoTooltip text="Allows users to connect to this app from their mobile devices." />
                             </label>
 
-                            <label className="flex items-center space-x-2 cursor-pointer">
+                            <label className={`flex items-center space-x-2 ${isSupportedIdpForQrCode() ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
                                 <input
                                     type="checkbox"
                                     id="qrCodeLoginToggle"
-                                    checked={features['mobile-app-access'] || false}
-                                    onChange={() => setFeatures(prev => ({
-                                        ...prev,
-                                        'mobile-app-access': !prev['mobile-app-access']
-                                    }))}
-                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+                                    checked={features['qr-code-widget'] || false}
+                                    onChange={() => {
+                                        if (isSupportedIdpForQrCode()) {
+                                            setFeatures(prev => ({
+                                                ...prev,
+                                                'qr-code-widget': !prev['qr-code-widget']
+                                            }));
+                                        }
+                                    }}
+                                    disabled={!isSupportedIdpForQrCode()}
+                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 disabled:bg-gray-800 disabled:border-gray-700"
                                 />
                                 <span className="text-sm font-semibold text-white">
                                     Enable QR Code Login widget
                                 </span>
                                 <InfoTooltip text="Displays the login QR code widget on the user's web app homepage." />
+                                {!isSupportedIdpForQrCode() && (
+                                    <span className="text-xs text-yellow-400 font-medium ml-2">
+                                        *(Supported for Google Workspace and Entra ID only)*
+                                    </span>
+                                )}
                             </label>
                         </div>
 
-                        {engine.mobileDeeplinkUrl ? (
+                        {!isSupportedIdpForQrCode() ? (
+                            <div className="p-3 bg-yellow-900/20 border border-yellow-800 rounded-md text-sm text-yellow-300">
+                                <strong>QR Code Login Disabled:</strong> The configured Identity Provider is not supported for QR code login. This feature is only available when using Google Workspace (GSuite) or Microsoft Entra ID.
+                            </div>
+                        ) : activeMobileLink && features['qr-code-widget'] ? (
                             <div className="space-y-4">
                                 <div className="p-3 bg-blue-900/20 border border-blue-700/50 rounded-md text-sm text-blue-200">
-                                    <strong>Mobile Deep Link Active:</strong> Google Cloud has generated the mobile app configuration link for this engine.
+                                    <strong>Mobile Deep Link Active:</strong> Google Cloud mobile app configuration link is ready.
                                 </div>
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 mb-1">Generated Mobile URL</label>
                                     <div className="flex gap-2">
-                                        <input type="text" value={engine.mobileDeeplinkUrl} className="flex-1 bg-gray-700 border-gray-600 rounded px-3 py-1.5 text-xs text-gray-300 font-mono" readOnly />
+                                        <input type="text" value={activeMobileLink} className="flex-1 bg-gray-700 border-gray-600 rounded px-3 py-1.5 text-xs text-gray-300 font-mono" readOnly />
                                         <button
                                             type="button"
-                                            onClick={() => navigator.clipboard.writeText(engine.mobileDeeplinkUrl || '')}
+                                            onClick={() => navigator.clipboard.writeText(activeMobileLink || '')}
                                             className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded text-xs border border-gray-600 transition-colors"
                                         >
                                             Copy
@@ -722,7 +800,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-6 bg-white rounded-lg border border-gray-700 w-fit mx-auto">
                                     <img 
-                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(engine.mobileDeeplinkUrl)}`} 
+                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(activeMobileLink)}`} 
                                         alt="Mobile Login QR Code" 
                                         className="mb-2" 
                                     />
