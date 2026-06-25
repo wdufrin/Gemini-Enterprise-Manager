@@ -27,35 +27,34 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
   const [inputValue, setInputValue] = useState(projectId || projectNumber);
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Prefer ID for input value defaults, but support number fallback
     setInputValue(projectId || projectNumber);
   }, [projectId, projectNumber]);
 
   const handleResolve = async () => {
     const trimmedValue = inputValue.trim();
+    setError(null);
     if (!trimmedValue) {
       onChange('');
       setIsEditing(false);
       return;
     }
 
-    // If user typed a number, we can just pass it through
     if (/^\d+$/.test(trimmedValue)) {
       onChange(trimmedValue);
       setIsEditing(false);
       return;
     }
 
-    // If user typed an ID, resolve it
     setIsLoading(true);
     try {
       const projectNum = await api.getProjectNumber(trimmedValue);
-      onChange(projectNum); // Parent will handle the rest
+      onChange(projectNum);
       setIsEditing(false);
     } catch (err: any) {
-      alert(`Failed to resolve Project ID: ${err.message}`);
+      setError(err.message || 'Failed to resolve Project ID');
     } finally {
       setIsLoading(false);
     }
@@ -70,24 +69,42 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
 
   if (isEditing) {
     return (
-      <div className="flex items-center space-x-2">
+      <div className="relative flex items-center space-x-2">
         <input
           type="text"
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          onChange={(e) => {
+            setInputValue(e.target.value);
+            if (error) setError(null);
+          }}
           onKeyDown={handleKeyDown}
           placeholder="Project ID or Number"
-          className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-48"
+          className={`bg-gray-700 border ${error ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-600 focus:border-blue-500 focus:ring-blue-500/20'} rounded-md px-2 py-1 text-sm text-gray-200 focus:ring-2 outline-none w-48 transition-colors`}
           autoFocus
-          onBlur={() => { if (!isLoading) setIsEditing(false); }}
+          onBlur={() => { 
+            setTimeout(() => {
+              if (!isLoading) {
+                setIsEditing(false);
+                setError(null);
+              }
+            }, 150);
+          }}
         />
         <button
-          onMouseDown={handleResolve} // Use onMouseDown to fire before onBlur
+          onMouseDown={(e) => {
+            e.preventDefault();
+            handleResolve();
+          }}
           disabled={isLoading}
-          className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-500"
+          className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded transition-colors"
         >
           {isLoading ? '...' : 'Set'}
         </button>
+        {error && (
+          <div className="absolute top-full left-0 mt-1 bg-red-950/90 border border-red-900/50 text-red-200 text-xs px-2.5 py-1.5 rounded-lg shadow-lg z-50 font-medium animate-fade-in whitespace-nowrap">
+            {error}
+          </div>
+        )}
       </div>
     );
   }

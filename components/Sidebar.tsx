@@ -42,7 +42,7 @@ const NavItem: React.FC<{
         className={`flex items-center flex-grow pl-4 pr-2 py-2 text-sm font-medium rounded-l-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
           isCurrent
             ? 'bg-blue-600 text-white'
-          : 'text-gray-400 hover:bg-gray-700 hover:text-white'
+            : 'text-gray-400 hover:bg-gray-700 hover:text-white'
         }`}
       >
         <span className="w-5 h-5 flex-shrink-0">{icon}</span>
@@ -55,8 +55,8 @@ const NavItem: React.FC<{
         }}
         className={`px-2 py-2 h-full rounded-r-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
           isCurrent
-            ? 'bg-blue-600 text-blue-200 hover:bg-blue-500 hover:text-white'
-          : 'text-gray-500 hover:bg-gray-700 hover:text-white'
+            ? 'bg-purple-600 text-purple-200 hover:bg-purple-500 hover:text-white'
+            : 'text-gray-500 hover:bg-gray-700 hover:text-white'
         }`}
         title={`Show API commands for ${page}`}
       >
@@ -133,7 +133,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
         </svg>
         <div className="flex flex-col ml-3 justify-center">
             <span className="text-lg font-bold text-gray-100 tracking-tight leading-none">Gemini Enterprise</span>
-            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0625.287</span>
+            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0625.288</span>
         </div>
       </div>
       
@@ -217,8 +217,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
                     onClick={() => setSelectedHistoryItem(item)}
                     className="w-full text-left p-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 transition-colors group"
                   >
-
-
                     <div className="flex justify-between items-start">
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${item.method === 'GET' ? 'bg-blue-900 text-blue-200' :
                         item.method === 'POST' ? 'bg-green-900 text-green-200' :
@@ -241,7 +239,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
             </div>
           )}
         </div>
-
 
         {/* Footer padding to ensure last items are clickable */}
         <div className="h-4"></div>
