@@ -407,7 +407,33 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                             <span className={log.severity === 'ERROR' ? 'text-red-500' : 'text-yellow-500'}>{log.severity}</span>
                           </div>
                           <div className="whitespace-pre-wrap text-gray-300">
-                            {log.textPayload || JSON.stringify(log.jsonPayload || log.protoPayload, null, 2)}
+                            {log.httpRequest ? (
+                              <div className="flex flex-col gap-1 text-[11px]">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-red-400 bg-red-950/40 border border-red-900/50 px-1 py-0.5 rounded text-[9px] uppercase">
+                                    {log.httpRequest.requestMethod}
+                                  </span>
+                                  <span className="font-semibold text-gray-200">
+                                    Status {log.httpRequest.status}
+                                  </span>
+                                  {log.httpRequest.latency && (
+                                    <span className="text-gray-500 text-[10px]">
+                                      ({log.httpRequest.latency})
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-gray-400 break-all select-all hover:text-gray-300 transition-colors">
+                                  {log.httpRequest.requestUrl}
+                                </div>
+                                {log.httpRequest.userAgent && (
+                                  <div className="text-[10px] text-gray-600 line-clamp-1 truncate" title={log.httpRequest.userAgent}>
+                                    User-Agent: {log.httpRequest.userAgent}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              log.textPayload || JSON.stringify(log.jsonPayload || log.protoPayload || log, null, 2)
+                            )}
                           </div>
                         </div>
                       ))}

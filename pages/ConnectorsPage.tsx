@@ -204,20 +204,53 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
             }
 
             // Analyze recent operations for failures
-            const failures = recentOps.filter((op: any) => op.error && new Date(op.metadata?.createTime).getTime() > Date.now() - 86400000); // Last 24h
+            const failures = recentOps.filter((op: any) => {
+                const hasError = op.error || op.response?.errorConfig;
+                const isRecent = new Date(op.metadata?.createTime || op.metadata?.updateTime || Date.now()).getTime() > Date.now() - 86400000;
+                return hasError && isRecent;
+            });
+
             if (failures.length > 0) {
-                diagnostics.warnings.push(`Found ${failures.length} failed operations in the last 24h.`);
+                status = 'error';
+                message = `Sync Failures Detected: ${failures.length} failed operations in the last 24h.`;
+                diagnostics.errors.push(`Found ${failures.length} failed operations in the last 24h.`);
                 failures.forEach((op: any) => {
-                    addStep(`Operation Failed: ${op.name}`, 'fail', op.error);
+                    const errMsg = op.error?.message || (op.response?.errorConfig ? `Import errors written to GCS prefix: ${op.response.errorConfig.gcsPrefix}` : 'Operation failed');
+                    addStep(`Operation Failed: ${op.name}`, 'fail', op.error || op.response?.errorConfig);
                 });
+            }
+
+            // 4.5. Live MCP Endpoint Connectivity Verification
+            if (connector && connector.dataSource === 'custom_mcp') {
+                const mcpEndpointUrl = connector.params?.instance_uri || connector.actionConfig?.actionParams?.instance_uri;
+                if (mcpEndpointUrl) {
+                    addStep('Verify MCP Connectivity', 'info', { url: mcpEndpointUrl });
+                    try {
+                        const parts = connector.name.split('/');
+                        const projId = parts[parts.indexOf('projects') + 1];
+                        const tools = await api.listMcpTools(projId, mcpEndpointUrl);
+                        if (!tools || tools.length === 0) {
+                            addStep('Verify MCP Connectivity', 'fail', 'No tools returned by MCP server.');
+                            status = 'error';
+                            message = 'MCP Server returned empty tools list';
+                        } else {
+                            addStep('Verify MCP Connectivity', 'ok', { toolsCount: tools.length });
+                        }
+                    } catch (e: any) {
+                        addStep('Verify MCP Connectivity', 'fail', e.message || 'Failed to connect to MCP endpoint');
+                        status = 'error';
+                        message = `MCP Connectivity Failed: ${e.message || 'Failed to fetch'}`;
+                    }
+                }
             }
 
             // 5. Fetch Recent Error Logs
             const duration = typeof scanDurationHours === 'number' ? scanDurationHours : 2;
-            addStep('Fetch Recent Error Logs', 'info', { filter: `severity>=ERROR AND >= ${duration}h ago` });
+            const mcpEndpointUrl = connector.params?.instance_uri || connector.actionConfig?.actionParams?.instance_uri;
+            addStep('Fetch Recent Error Logs', 'info', { filter: `severity>=ERROR${mcpEndpointUrl ? ' (or Cloud Run severity>=WARNING / status>=400)' : ''} and >= ${duration}h ago` });
             let recentLogs: any[] = [];
             try {
-                const logsResponse = await api.fetchConnectorLogs(collectionConfig, connector.name, duration);
+                const logsResponse = await api.fetchConnectorLogs(collectionConfig, connector.name, duration, mcpEndpointUrl);
                 recentLogs = logsResponse.entries || [];
                 if (recentLogs.length > 0) {
                     addStep('Fetch Recent Error Logs', 'fail', { count: recentLogs.length, latest: recentLogs[0].textPayload || 'See Details' });

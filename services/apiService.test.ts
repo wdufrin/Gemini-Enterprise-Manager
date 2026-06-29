@@ -16,7 +16,7 @@
 
 
 import { describe, it, expect, vi } from 'vitest';
-import { streamChat, createDiscoverySession, listMcpTools } from './apiService';
+import { streamChat, createDiscoverySession, listMcpTools, fetchConnectorLogs } from './apiService';
 import { getGapiClient } from './gapiService';
 
 // Mock gapi
@@ -257,6 +257,88 @@ describe('apiService', () => {
         })
       );
       expect(tools).toEqual(mockResponse.result.tools);
+    });
+  });
+
+  describe('fetchConnectorLogs', () => {
+    const config = { projectId: 'test-project', appLocation: 'global' };
+    const connectorName = 'projects/test-project/locations/global/collections/oracle-mcp-3_1775658369011/dataConnector';
+
+    it('should query vertex_ai_search_connector logs with severity>=ERROR when no instanceUri is provided', async () => {
+      const mockToken = 'mock-access-token';
+      const mockGapiClient = {
+        getToken: () => ({ access_token: mockToken }),
+        request: vi.fn().mockResolvedValue({ result: { entries: [] } })
+      };
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+
+      await fetchConnectorLogs(config as any, connectorName, 2);
+
+      expect(mockGapiClient.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: 'https://logging.googleapis.com/v2/entries:list',
+          method: 'POST'
+        })
+      );
+
+      const callArg = mockGapiClient.request.mock.calls[0][0];
+      const filter = callArg.body.filter;
+      expect(filter).toContain('severity>=ERROR');
+      expect(filter).not.toContain('cloud_run_revision');
+    });
+
+    it('should include cloud_run_revision logs with severity>=WARNING and status>=400 when instanceUri is provided', async () => {
+      const mockToken = 'mock-access-token';
+      const mockGapiClient = {
+        getToken: () => ({ access_token: mockToken }),
+        request: vi.fn().mockResolvedValue({ result: { entries: [] } })
+      };
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+
+      const instanceUri = 'https://oracle-mcp-server-180054373655.us-central1.run.app/mcp';
+      await fetchConnectorLogs(config as any, connectorName, 2, instanceUri);
+
+      expect(mockGapiClient.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: 'https://logging.googleapis.com/v2/entries:list',
+          method: 'POST'
+        })
+      );
+
+      const callArg = mockGapiClient.request.mock.calls[0][0];
+      const filter = callArg.body.filter;
+      
+      expect(filter).toContain('resource.type="vertex_ai_search_connector"');
+      expect(filter).toContain('resource.type="cloud_run_revision"');
+      expect(filter).toContain('resource.labels.service_name="oracle-mcp-server"');
+      expect(filter).toContain('severity>=WARNING OR httpRequest.status>=400');
+    });
+
+    it('should include cloud_run_revision logs for new Cloud Run URL format (with hash and region)', async () => {
+      const mockToken = 'mock-access-token';
+      const mockGapiClient = {
+        getToken: () => ({ access_token: mockToken }),
+        request: vi.fn().mockResolvedValue({ result: { entries: [] } })
+      };
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+
+      const instanceUri = 'https://multi-mcp-vpaohjgvxq-uc.a.run.app/';
+      await fetchConnectorLogs(config as any, connectorName, 2, instanceUri);
+
+      expect(mockGapiClient.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: 'https://logging.googleapis.com/v2/entries:list',
+          method: 'POST'
+        })
+      );
+
+      const callArg = mockGapiClient.request.mock.calls[0][0];
+      const filter = callArg.body.filter;
+      
+      expect(filter).toContain('resource.type="vertex_ai_search_connector"');
+      expect(filter).toContain('resource.type="cloud_run_revision"');
+      expect(filter).toContain('resource.labels.service_name="multi-mcp"');
+      expect(filter).toContain('severity>=WARNING OR httpRequest.status>=400');
     });
   });
 });

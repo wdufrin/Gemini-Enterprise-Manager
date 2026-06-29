@@ -1582,14 +1582,53 @@ export const fetchViolationLogs = async (config: Config, customFilter: string = 
     });
 };
 
-export const fetchConnectorLogs = async (config: Config, connectorName: string, hoursAgo: number = 24) => {
+const extractCloudRunServiceName = (url: string): string | null => {
+    try {
+        const parsed = new URL(url);
+        if (!parsed.hostname.endsWith('.run.app')) return null;
+        const subdomains = parsed.hostname.split('.');
+        const firstPart = subdomains[0]; // e.g., "oracle-mcp-server-180054373655" or "multi-mcp-vpaohjgvxq-uc"
+        const parts = firstPart.split('-');
+        
+        if (parts.length <= 1) return firstPart;
+
+        // Check new format: ends with -[10-char-hash]-[region-abbr]
+        // e.g. parts = ['multi', 'mcp', 'vpaohjgvxq', 'uc']
+        if (parts.length >= 3) {
+            const secondToLast = parts[parts.length - 2];
+            const lastPart = parts[parts.length - 1];
+            const isNewFormat = /^[a-z0-9]{10}$/.test(secondToLast) && lastPart.length <= 4;
+            if (isNewFormat) {
+                parts.splice(-2, 2);
+                return parts.join('-');
+            }
+        }
+
+        // Check old format: ends with -[numeric-project-id-or-hash]
+        const lastPart = parts[parts.length - 1];
+        if (/^\d+$/.test(lastPart) || lastPart.length >= 8) {
+            parts.pop();
+        }
+        return parts.join('-');
+    } catch {
+        return null;
+    }
+};
+
+export const fetchConnectorLogs = async (config: Config, connectorName: string, hoursAgo: number = 24, instanceUri?: string) => {
     const connectorId = connectorName.split('/').pop();
     const startTime = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
 
-    // Combined filter: Control Plane (resource) OR Data Plane (jsonPayload)
-    // AND severity >= ERROR AND timestamp >= 24h ago
-    const baseFilter = `(resource.type="vertex_ai_search_connector" AND resource.labels.connector_id="${connectorId}") OR (jsonPayload.connectorRunPayload.dataConnector="${connectorName}")`;
-    const filter = `(${baseFilter}) AND severity>=ERROR AND timestamp>="${startTime}"`;
+    let filter = `((resource.type="vertex_ai_search_connector" AND resource.labels.connector_id="${connectorId}") OR (jsonPayload.connectorRunPayload.dataConnector="${connectorName}")) AND severity>=ERROR`;
+
+    if (instanceUri) {
+        const serviceName = extractCloudRunServiceName(instanceUri);
+        if (serviceName) {
+            filter = `(${filter}) OR (resource.type="cloud_run_revision" AND resource.labels.service_name="${serviceName}" AND (severity>=WARNING OR httpRequest.status>=400))`;
+        }
+    }
+
+    filter = `(${filter}) AND timestamp>="${startTime}"`;
 
     return gapiRequest<any>(`https://logging.googleapis.com/v2/entries:list`, 'POST', config.projectId, undefined, {
         resourceNames: [`projects/${config.projectId}`],
