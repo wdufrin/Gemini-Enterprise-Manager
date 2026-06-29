@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ConnectorVerificationTab from './connectors/ConnectorVerificationTab';
 import * as api from '../services/apiService';
+import { Config } from '../types';
 
 
 interface ConnectorDetailsModalProps {
@@ -25,6 +26,8 @@ interface ConnectorDetailsModalProps {
   title: string;
   data: any;
   status: 'success' | 'error';
+  config: Config;
+  onRefreshSuccess?: () => void;
 }
 
 const escapeHtml = (text: string): string => {
@@ -42,8 +45,82 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
   title,
   data,
   status,
+  config,
+  onRefreshSuccess,
 }) => {
   const [activeTab, setActiveTab] = React.useState<'diagnostics' | 'verification' | 'config'>('diagnostics');
+  const [connector, setConnector] = useState<any>(null);
+  const [isRefreshingTools, setIsRefreshingTools] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshSuccess, setRefreshSuccess] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (data && data.connectorState) {
+      setConnector(data.connectorState);
+    } else {
+      setConnector(null);
+    }
+    setRefreshError(null);
+    setRefreshSuccess(false);
+  }, [data, isOpen]);
+
+  const handleRefreshMcpTools = async () => {
+    if (!connector || !connector.name) return;
+    setIsRefreshingTools(true);
+    setRefreshError(null);
+    setRefreshSuccess(false);
+
+    try {
+      const mcpEndpointUrl = connector.params?.instance_uri || connector.actionConfig?.actionParams?.instance_uri;
+      if (!mcpEndpointUrl) {
+        throw new Error("No MCP instance URI found in connector configuration.");
+      }
+
+      const parts = connector.name.split('/');
+      const projId = parts[parts.indexOf('projects') + 1];
+      const loc = parts[parts.indexOf('locations') + 1];
+      const collId = parts[parts.indexOf('collections') + 1];
+
+      const newTools = await api.listMcpTools(projId, mcpEndpointUrl);
+      if (!newTools || newTools.length === 0) {
+        throw new Error("No tools returned by the MCP server at the specified URI.");
+      }
+
+      const dynamicTools = newTools.map((tool: any) => ({
+        name: tool.name,
+        description: tool.description || '',
+        enabled: true,
+        displayName: tool.name
+      }));
+
+      const enabledActions = newTools.map((tool: any) => tool.name);
+
+      const updatedConnectorPayload = {
+        dynamicTools,
+        bapConfig: {
+          enabledActions
+        }
+      };
+
+      const response = await api.updateDataConnector(
+        connector.name,
+        updatedConnectorPayload,
+        ['dynamic_tools', 'bap_config'],
+        { ...config, projectId: projId, appLocation: loc, collectionId: collId }
+      );
+
+      setConnector(response);
+      setRefreshSuccess(true);
+      if (onRefreshSuccess) {
+        onRefreshSuccess();
+      }
+    } catch (err: any) {
+      console.error("Failed to refresh MCP tools:", err);
+      setRefreshError(err.message || "Failed to refresh MCP tools.");
+    } finally {
+      setIsRefreshingTools(false);
+    }
+  };
 
 
   if (!isOpen) return null;
@@ -52,7 +129,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
 
   const getRecommendation = (data: any): { title: string, message: string } | null => {
     const logs = data.recentLogs || [];
-    const state = data.connectorState || {};
+    const state = connector || data.connectorState || {};
     const allText = JSON.stringify(logs) + JSON.stringify(state);
 
     if (allText.includes('JIRA_INVALID_AUTH_2') || allText.includes('JIRA_INVALID_AUTH')) {
@@ -87,7 +164,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
       const warnings = data.diagnostics.warnings || [];
       const errors = data.diagnostics.errors || [];
       const rawOps = data.rawOperations;
-      const connectorState = data.connectorState || {};
+      const connectorState = connector || data.connectorState || {};
       const recommendation = getRecommendation(data);
 
       return (
@@ -153,6 +230,77 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                     ))}
                   </div>
                 )}
+
+                {connectorState?.dataSource === 'custom_mcp' && (
+                  <div className="mt-4 border-t border-gray-700/60 pt-4 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-gray-400 font-medium">
+                        BYOMCP Server Actions:
+                      </div>
+                      <button
+                        onClick={handleRefreshMcpTools}
+                        disabled={isRefreshingTools}
+                        className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 transition-colors flex items-center gap-1.5 shadow"
+                      >
+                        {isRefreshingTools ? (
+                          <>
+                            <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            Refreshing Tools...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3m-3-3v12" /></svg>
+                            Refresh Tools from MCP
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {refreshSuccess && (
+                      <div className="text-xs text-green-400 bg-green-950/30 border border-green-900/50 p-2 rounded flex items-center gap-1.5 animate-fadeIn">
+                        <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        Tools refreshed successfully! Updated dynamicTools and bapConfig.
+                      </div>
+                    )}
+
+                    {refreshError && (
+                      <div className="text-xs text-red-400 bg-red-950/30 border border-red-900/50 p-2 rounded flex items-center gap-1.5 animate-fadeIn">
+                        <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        Failed to refresh tools: {refreshError}
+                      </div>
+                    )}
+
+                    {connectorState?.dynamicTools && connectorState.dynamicTools.length > 0 && (
+                      <div className="mt-2 bg-gray-950/40 border border-gray-800 rounded p-2.5 space-y-2">
+                        <div className="text-[11px] text-gray-400 font-bold uppercase tracking-wider flex items-center justify-between">
+                          <span>Configured Tools ({connectorState.dynamicTools.length})</span>
+                          <span className="text-gray-500 font-normal normal-case font-mono text-[10px]">
+                            Source: {connectorState.params?.instance_uri || 'Unknown'}
+                          </span>
+                        </div>
+                        <ul className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+                          {connectorState.dynamicTools.map((tool: any, idx: number) => (
+                            <li key={idx} className="bg-gray-900/60 p-2 rounded border border-gray-800/80 flex flex-col gap-0.5">
+                              <div className="flex items-center justify-between">
+                                <span className="font-mono text-xs font-semibold text-blue-400">
+                                  {tool.displayName || tool.name}
+                                </span>
+                                <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${tool.enabled ? 'bg-green-950 text-green-400 border border-green-900' : 'bg-gray-800 text-gray-500'}`}>
+                                  {tool.enabled ? 'Enabled' : 'Disabled'}
+                                </span>
+                              </div>
+                              {tool.description && (
+                                <p className="text-[11px] text-gray-400 line-clamp-2" title={tool.description}>
+                                  {tool.description}
+                                </p>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Steps Table */}
@@ -212,7 +360,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                   <div className="text-gray-300 mt-2 group-open:animate-fadeIn">
                     <pre className="text-xs bg-gray-950 p-2 rounded overflow-x-auto border border-gray-800"
                       dangerouslySetInnerHTML={{
-                        __html: escapeHtml(JSON.stringify(data.connectorState, null, 2) || '{}')
+                        __html: escapeHtml(JSON.stringify(connectorState, null, 2) || '{}')
                           .replace(/(&quot;state&quot;: &quot;FAILED&quot;)/g, '<span class="text-red-500 font-bold">$1</span>')
                           .replace(/(&quot;error&quot;:\s*\{[^}]+\})/g, '<span class="text-red-400">$1</span>')
                       }}
@@ -281,6 +429,27 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
               <div className="bg-gray-900/50 p-4 rounded border border-gray-700">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider">Configuration JSON</h3>
+                  {connectorState?.dataSource === 'custom_mcp' && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleRefreshMcpTools}
+                        disabled={isRefreshingTools}
+                        className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 transition-colors flex items-center gap-1.5 shadow"
+                      >
+                        {isRefreshingTools ? (
+                          <>
+                            <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            Refreshing...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3m-3-3v12" /></svg>
+                            Refresh Tools
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                   {connectorState?.dataSource && ['jira', 'confluence', 'sharepoint', 'onedrive', 'ms-onedrive', 'outlook', 'ms-outlook', 'entraid', 'entra'].includes(connectorState.dataSource) && (
                     <div className="flex gap-2">
                       <button

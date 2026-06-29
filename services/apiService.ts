@@ -705,6 +705,13 @@ export const getDataConnector = async (config: Config) => {
     return gapiRequest<any>(url, 'GET', projectId);
 };
 
+export const updateDataConnector = async (name: string, payload: any, updateMask: string[], config: Config) => {
+    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}?updateMask=${updateMask.join(',')}`;
+    return gapiRequest<any>(url, 'PATCH', config.projectId, undefined, payload);
+};
+
+
 export const listDocuments = async (dataStoreName: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
     return gapiRequest<{ documents: Document[] }>(`${baseUrl}/${DISCOVERY_API_BETA}/${dataStoreName}/branches/default_branch/documents`, 'GET', config.projectId);

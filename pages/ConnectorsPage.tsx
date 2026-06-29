@@ -488,6 +488,8 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
                 title={selectedResult?.title || 'Details'}
                 data={selectedResult?.result.details || selectedResult?.result.message}
                 status={selectedResult?.result.status === 'success' ? 'success' : 'error'}
+                config={config}
+                onRefreshSuccess={fetchCollections}
             />
         </div>
     );

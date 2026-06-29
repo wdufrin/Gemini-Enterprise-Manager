@@ -16,7 +16,8 @@
 
 
 import { describe, it, expect, vi } from 'vitest';
-import { streamChat, createDiscoverySession } from './apiService';
+import { streamChat, createDiscoverySession, listMcpTools } from './apiService';
+import { getGapiClient } from './gapiService';
 
 // Mock gapi
 vi.mock('./gapiService', () => ({
@@ -207,6 +208,55 @@ describe('apiService', () => {
         })
       );
       expect(result).toEqual(mockSession);
+    });
+  });
+
+  describe('listMcpTools', () => {
+    it('should return hardcoded tools for bigquery.googleapis.com', async () => {
+      const tools = await listMcpTools('test-project', 'https://bigquery.googleapis.com');
+      expect(tools).toHaveLength(5);
+      expect(tools[0].name).toBe('list_dataset_ids');
+    });
+
+    it('should query custom HTTPS endpoints using standard fetch with auth headers', async () => {
+      const mockToken = 'mock-access-token';
+      const mockGapiClient = {
+        getToken: () => ({ access_token: mockToken })
+      };
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+
+      const mockResponse = {
+        result: {
+          tools: [
+            { name: 'custom_tool', description: 'A custom tool description' }
+          ]
+        }
+      };
+
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => mockResponse
+      });
+
+      const tools = await listMcpTools('test-project', 'https://my-custom-mcp.com/tools');
+      
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://my-custom-mcp.com/tools',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${mockToken}`,
+            'X-Goog-User-Project': 'test-project'
+          }),
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 0,
+            method: "tools/list"
+          })
+        })
+      );
+      expect(tools).toEqual(mockResponse.result.tools);
     });
   });
 });
