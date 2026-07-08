@@ -1714,6 +1714,22 @@ export const listManagedSslCertificates = async (projectId: string) => {
     return gapiRequest<any>(`https://compute.googleapis.com/compute/v1/projects/${projectId}/global/sslCertificates`, 'GET', projectId);
 };
 
+export const listVpcNetworks = async (projectId: string) => {
+    return gapiRequest<any>(`https://compute.googleapis.com/compute/v1/projects/${projectId}/global/networks`, 'GET', projectId);
+};
+
+export const listVpcSubnets = async (projectId: string, region: string) => {
+    return gapiRequest<any>(`https://compute.googleapis.com/compute/v1/projects/${projectId}/regions/${region}/subnetworks`, 'GET', projectId);
+};
+
+export const listAggregatedForwardingRules = async (projectId: string) => {
+    return gapiRequest<any>(`https://compute.googleapis.com/compute/v1/projects/${projectId}/aggregated/forwardingRules`, 'GET', projectId);
+};
+
+export const listDnsZones = async (projectId: string) => {
+    return gapiRequest<any>(`https://dns.googleapis.com/dns/v1/projects/${projectId}/managedZones`, 'GET', projectId);
+};
+
 export const deleteVanityUrl = async (projectId: string, serviceName: string) => {
     const buildConfig = {
         steps: [
@@ -1721,25 +1737,40 @@ export const deleteVanityUrl = async (projectId: string, serviceName: string) =>
                 name: 'gcr.io/google.com/cloudsdktool/cloud-sdk',
                 entrypoint: 'bash',
                 args: ['-c', `
-echo "========== STARTING GLOBAL LOAD BALANCER DISMANTLING =========="
-CERT_NAME="${serviceName}-cert"
-URL_MAP_NAME="${serviceName}-url-map"
-PROXY_NAME="${serviceName}-https-proxy"
-FWD_RULE_NAME="${serviceName}-fwd-rule"
+echo "========== STARTING REDIRECT URL & PRIVATE ROUTING INFRASTRUCTURE DISMANTLING =========="
+CLEAN_SUFFIX=$(echo "${serviceName}" | sed 's/assistant-//' | tr -d '_' | tr '[:upper:]' '[:lower:]' | cut -c1-12)
+ALPHA_SUFFIX=$(echo "${serviceName}" | sed 's/assistant-//' | tr -d '_' | tr -d '-' | tr '[:upper:]' '[:lower:]' | cut -c1-14)
 
-echo "1. Deleting Global Forwarding Rule..."
-gcloud compute forwarding-rules delete $$FWD_RULE_NAME --global --quiet || true
+# 1. Dismantling Public Global Load Balancer (if exists)
+echo "1. Dismantling Global Forwarding Rules and certificates..."
+gcloud compute forwarding-rules delete "${serviceName}-fwd-rule" --global --quiet || true
+gcloud compute target-https-proxies delete "${serviceName}-https-proxy" --global --quiet || true
+gcloud compute url-maps delete "${serviceName}-url-map" --global --quiet || true
+gcloud compute ssl-certificates delete "${serviceName}-cert" --global --quiet || true
 
-echo "2. Deleting Target HTTPS Proxy..."
-gcloud compute target-https-proxies delete $$PROXY_NAME --global --quiet || true
+# 2. Dismantling Regional Internal Load Balancer (if exists)
+echo "2. Dismantling Regional Forwarding Rules and subnets..."
+LOCATION="us-central1"
+gcloud compute forwarding-rules delete "${serviceName}-internal-fwd-rule" --region=$$LOCATION --quiet || true
+gcloud compute target-http-proxies delete "${serviceName}-internal-target-proxy" --region=$$LOCATION --quiet || true
+gcloud compute url-maps delete "${serviceName}-internal-map" --region=$$LOCATION --quiet || true
+gcloud compute networks subnets delete "${serviceName}-proxy-subnet" --region=$$LOCATION --quiet || true
 
-echo "3. Deleting URL Map..."
-gcloud compute url-maps delete $$URL_MAP_NAME --global --quiet || true
+# 3. Dismantling Private Service Connect (PSC) (if exists)
+echo "3. Dismantling Private Service Connect (PSC) endpoints and IPs..."
+gcloud compute forwarding-rules delete "pscrldefa$$ALPHA_SUFFIX" --global --quiet || true
+gcloud compute forwarding-rules delete "pscrltest$$ALPHA_SUFFIX" --global --quiet || true
+gcloud compute addresses delete "psc-ip-default-$$CLEAN_SUFFIX" --global --quiet || true
+gcloud compute addresses delete "psc-ip-testcr-$$CLEAN_SUFFIX" --global --quiet || true
 
-echo "4. Deleting Managed SSL Certificate..."
-gcloud compute ssl-certificates delete $$CERT_NAME --global --quiet || true
+# 4. Dismantling Cloud DNS Zones (if exists)
+echo "4. Dismantling Private DNS Zones..."
+gcloud dns managed-zones delete "${serviceName}-custom-dns" --quiet || true
+gcloud dns managed-zones delete "${serviceName}-apis-dns" --quiet || true
+gcloud dns managed-zones delete "${serviceName}-cloud-dns" --quiet || true
+gcloud dns managed-zones delete "${serviceName}-com-dns" --quiet || true
 
-echo "========== LOAD BALANCER DISMANTLING COMPLETE =========="
+echo "========== INFRASTRUCTURE DISMANTLING COMPLETE =========="
 `]
             }
         ],

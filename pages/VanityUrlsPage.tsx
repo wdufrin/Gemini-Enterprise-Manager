@@ -20,6 +20,7 @@ interface CombinedVanityUrl {
   fwdRuleName: string;
   certName?: string;
   assistantDisplayName?: string;
+  routingMode: 'public' | 'private';
 }
 
 const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProjectNumber, onBuildTriggered }) => {
@@ -50,13 +51,23 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
         setVanityUrls([]);
         
         try {
-            const [fwdRes, certRes] = await Promise.all([
-                api.listGlobalForwardingRules(projectId).catch(() => ({ items: [] })),
-                api.listManagedSslCertificates(projectId).catch(() => ({ items: [] }))
+            const [aggRes, certRes, dnsRes] = await Promise.all([
+                api.listAggregatedForwardingRules(projectId).catch(() => ({ items: {} })),
+                api.listManagedSslCertificates(projectId).catch(() => ({ items: [] })),
+                api.listDnsZones(projectId).catch(() => ({ items: [] }))
             ]);
 
-            const rules: GlobalForwardingRule[] = fwdRes.items || [];
+            const scopes = aggRes.items || {};
+            const rules: any[] = [];
+            Object.keys(scopes).forEach(key => {
+                const scopeData = scopes[key];
+                if (scopeData?.forwardingRules) {
+                    rules.push(...scopeData.forwardingRules);
+                }
+            });
+
             const certs: ManagedSslCertificate[] = certRes.items || [];
+            const zones = dnsRes.managedZones || [];
 
             // Fetch Assistant Display Names
             const assistantNames: Record<string, string> = {};
@@ -78,15 +89,34 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
                 console.warn("Could not fetch assistant display names for Redirect URLs", e);
             }
 
-            // Filter for rules that conform to our deployment naming convention
+            // Filter for rules that conform to our deployment naming conventions (both global and regional private ones)
             const combined: CombinedVanityUrl[] = rules
-                .filter(r => r.name.endsWith('-fwd-rule'))
+                .filter(r => r.name.endsWith('-fwd-rule') || r.name.endsWith('-internal-fwd-rule'))
                 .map(rule => {
-                    // Extract the base service name by stripping the generic suffix
-                    const baseServiceName = rule.name.replace('-fwd-rule', '');
+                    const isPrivate = rule.name.endsWith('-internal-fwd-rule');
+                    const baseServiceName = isPrivate 
+                        ? rule.name.replace('-internal-fwd-rule', '')
+                        : rule.name.replace('-fwd-rule', '');
 
-                    const expectedCertName = `${baseServiceName}-cert`;
-                    const cert = certs.find(c => c.name === expectedCertName);
+                    let domains: string[] = [];
+                    let certStatus = 'UNKNOWN';
+                    let certName: string | undefined = undefined;
+
+                    if (isPrivate) {
+                        certStatus = 'N/A (Private)';
+                        // Find matching custom DNS zone to extract custom domain name
+                        const expectedZoneName = `${baseServiceName}-custom-dns`;
+                        const zone = zones.find((z: any) => z.name === expectedZoneName);
+                        if (zone?.dnsName) {
+                            domains = [zone.dnsName.replace(/\.$/, '')];
+                        }
+                    } else {
+                        const expectedCertName = `${baseServiceName}-cert`;
+                        const cert = certs.find(c => c.name === expectedCertName);
+                        domains = cert?.managed?.domains || [];
+                        certStatus = cert?.managed?.status || 'UNKNOWN';
+                        certName = cert?.name;
+                    }
 
                     // Reconstruct appId if the default 'assistant-' prefix was used
                     let inferredAppId = baseServiceName;
@@ -102,12 +132,13 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
                         name: baseServiceName,
                         serviceName: baseServiceName,
                         ipAddress: rule.IPAddress,
-                        domains: cert?.managed?.domains || [],
-                        certStatus: cert?.managed?.status || 'UNKNOWN',
+                        domains: domains,
+                        certStatus: certStatus,
                         creationTimestamp: rule.creationTimestamp,
                         fwdRuleName: rule.name,
-                        certName: cert?.name,
-                        assistantDisplayName: dName
+                        certName: certName,
+                        assistantDisplayName: dName,
+                        routingMode: isPrivate ? 'private' : 'public'
                     };
                 });
 
@@ -178,8 +209,8 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
 
             <div className="flex-1 bg-gray-800 rounded-lg shadow-md overflow-hidden flex flex-col">
                 <div className="p-4 border-b border-gray-700">
-                    <h3 className="text-md font-semibold text-white">Provisioned Global Load Balancers</h3>
-                    <p className="text-xs text-gray-400 mt-1">Displays forwarding rules created for assistant endpoints along with their managed SSL certificate status.</p>
+                    <h3 className="text-md font-semibold text-white">Provisioned Redirect URLs</h3>
+                    <p className="text-xs text-gray-400 mt-1">Displays public load balancers and private VPC-SC endpoints configured for your assistants.</p>
                 </div>
                 
                 <div className="flex-1 overflow-x-auto">
@@ -187,6 +218,7 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
                         <thead className="bg-gray-900/50">
                             <tr>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Service Name / Instance</th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Routing Mode</th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Domain(s)</th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Redirect IP Address</th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Cert Status</th>
@@ -197,7 +229,7 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
                         <tbody className="bg-gray-800 divide-y divide-gray-700 text-sm">
                             {vanityUrls.length === 0 && !isLoading && (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500 italic">
+                                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500 italic">
                                         No redirect URLs found.
                                     </td>
                                 </tr>
@@ -212,11 +244,20 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
                                             <div className="text-xs text-gray-500 font-mono mt-1">{url.fwdRuleName}</div>
                                         )}
                                     </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-bold rounded-md border ${
+                                            url.routingMode === 'private'
+                                                ? 'bg-purple-900/40 text-purple-300 border-purple-800'
+                                                : 'bg-indigo-900/40 text-indigo-300 border-indigo-800'
+                                        }`}>
+                                            {url.routingMode === 'private' ? 'Private (VPC-SC)' : 'Public (Global LB)'}
+                                        </span>
+                                    </td>
                                     <td className="px-6 py-4">
                                         {url.domains.length > 0 ? (
                                             <div className="flex flex-col gap-1">
                                                 {url.domains.map(domain => (
-                                                    <a key={domain} href={`https://${domain}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 hover:underline">
+                                                    <a key={domain} href={`http://${domain}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 hover:underline">
                                                         {domain}
                                                     </a>
                                                 ))}
