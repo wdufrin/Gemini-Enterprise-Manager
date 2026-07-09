@@ -29,7 +29,11 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
     });
 
     useEffect(() => {
-        sessionStorage.setItem('agentPermissionsData', JSON.stringify(permissionsData));
+        try {
+            sessionStorage.setItem('agentPermissionsData', JSON.stringify(permissionsData));
+        } catch (e) {
+            console.warn('Failed to save agentPermissionsData to sessionStorage (quota exceeded):', e);
+        }
     }, [permissionsData]);
 
     const [isLoading, setIsLoading] = useState(false);
