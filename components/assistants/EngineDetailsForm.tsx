@@ -152,6 +152,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         marketplaceAgentVisibility: 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED',
         searchTier: 'SEARCH_TIER_STANDARD',
         searchAddOnLlm: false,
+        requiredSubscriptionTier: 'SUBSCRIPTION_TIER_UNSPECIFIED',
         enableWebApp: false,
         enableAutocomplete: false,
         enableQualityFeedback: false,
@@ -237,6 +238,67 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         return false;
     }, [idpData.idpType, widgetConfig, idpProviders]);
 
+    const [projectLicenseConfigs, setProjectLicenseConfigs] = useState<any[]>([]);
+    const [isLicenseLoading, setIsLicenseLoading] = useState(false);
+
+    useEffect(() => {
+        const fetchLicenses = async () => {
+            if (!config.projectId) return;
+            setIsLicenseLoading(true);
+            try {
+                const res = await api.listLicenseConfigs(config);
+                const activeConfigs = (res.licenseConfigs || []).filter((cfg: any) => cfg.state === 'ACTIVE');
+                setProjectLicenseConfigs(activeConfigs);
+            } catch (e) {
+                console.error("Failed to fetch license configs in EngineDetailsForm", e);
+            } finally {
+                setIsLicenseLoading(false);
+            }
+        };
+        fetchLicenses();
+    }, [config.projectId, config.appLocation]);
+
+    const isSubscriptionTierActive = (tier: string) => {
+        if (tier === 'SUBSCRIPTION_TIER_UNSPECIFIED' || tier === 'SUBSCRIPTION_TIER_CONSUMPTION_ONLY') {
+            return true;
+        }
+        if (projectLicenseConfigs.length === 0) {
+            return null; // Tiers not verified yet
+        }
+        
+        return projectLicenseConfigs.some(cfg => {
+            // 1. Direct match on API subscriptionTier field
+            if (cfg.subscriptionTier && cfg.subscriptionTier !== 'SUBSCRIPTION_TIER_UNSPECIFIED') {
+                return cfg.subscriptionTier === tier;
+            }
+
+            // 2. Fallback to SKU ID and Display Name heuristics
+            const skuId = (cfg.name.split('/').pop() || '').toLowerCase();
+            const displayName = (cfg.displayName || '').toLowerCase();
+            
+            if (tier === 'SUBSCRIPTION_TIER_SEARCH') {
+                return true; // Baseline search tier
+            }
+            if (tier === 'SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT') {
+                return skuId.includes('enterprise-plus') || displayName.includes('enterprise plus') || skuId.includes('search_and_assistant');
+            }
+            if (tier === 'SUBSCRIPTION_TIER_ENTERPRISE') {
+                return (skuId.includes('enterprise') && !skuId.includes('enterprise-plus')) || 
+                       (displayName.includes('enterprise') && !displayName.includes('enterprise plus'));
+            }
+            if (tier === 'SUBSCRIPTION_TIER_AGENTSPACE_BUSINESS') {
+                return skuId.includes('business') || displayName.includes('business');
+            }
+            if (tier === 'SUBSCRIPTION_TIER_AGENTSPACE_STARTER') {
+                return skuId.includes('starter') || displayName.includes('starter');
+            }
+            if (tier === 'SUBSCRIPTION_TIER_FRONTLINE_WORKER') {
+                return skuId.includes('frontline') || displayName.includes('frontline');
+            }
+            return false;
+        });
+    };
+
     useEffect(() => {
         setFormData({
             displayName: engine.displayName || '',
@@ -246,6 +308,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             marketplaceAgentVisibility: (engine as any).marketplaceAgentVisibility || 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED',
             searchTier: engine.searchEngineConfig?.searchTier || 'SEARCH_TIER_STANDARD',
             searchAddOnLlm: engine.searchEngineConfig?.searchAddOns?.includes('SEARCH_ADD_ON_LLM') || false,
+            requiredSubscriptionTier: engine.searchEngineConfig?.requiredSubscriptionTier || 'SUBSCRIPTION_TIER_UNSPECIFIED',
             enableWebApp: widgetConfig?.accessSettings?.enableWebApp || false,
             enableAutocomplete: widgetConfig?.uiSettings?.enableAutocomplete || false,
             enableQualityFeedback: widgetConfig?.uiSettings?.enableQualityFeedback || false,
@@ -405,15 +468,17 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
 
             const currentSearchTier = engine.searchEngineConfig?.searchTier || 'SEARCH_TIER_STANDARD';
             const currentLlmAddon = engine.searchEngineConfig?.searchAddOns?.includes('SEARCH_ADD_ON_LLM') || false;
+            const currentSubTier = engine.searchEngineConfig?.requiredSubscriptionTier || 'SUBSCRIPTION_TIER_UNSPECIFIED';
 
-            if (formData.searchTier !== currentSearchTier || formData.searchAddOnLlm !== currentLlmAddon) {
+            if (formData.searchTier !== currentSearchTier || formData.searchAddOnLlm !== currentLlmAddon || formData.requiredSubscriptionTier !== currentSubTier) {
                 const addons = [];
                 if (formData.searchAddOnLlm) {
                     addons.push('SEARCH_ADD_ON_LLM');
                 }
                 payload.searchEngineConfig = {
                     searchTier: formData.searchTier,
-                    searchAddOns: addons
+                    searchAddOns: addons,
+                    requiredSubscriptionTier: formData.requiredSubscriptionTier
                 };
                 updateMask.push('searchEngineConfig');
             }
@@ -663,6 +728,51 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                 <option value="SEARCH_TIER_STANDARD">Standard Search Tier</option>
                                 <option value="SEARCH_TIER_ENTERPRISE">Enterprise Search Tier</option>
                             </select>
+                        </div>
+                        <div>
+                            <label htmlFor="requiredSubscriptionTier" className="block text-sm font-medium text-gray-300 mb-1">
+                                Required Subscription Tier <InfoTooltip text="Configures the required subscription tier for this engine. Note: Web grounding requires SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT." />
+                            </label>
+                            <select
+                                name="requiredSubscriptionTier"
+                                value={formData.requiredSubscriptionTier}
+                                onChange={handleChange}
+                                className="block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm text-gray-200 focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 h-[42px]"
+                            >
+                                <option value="SUBSCRIPTION_TIER_UNSPECIFIED">Unspecified</option>
+                                <option value="SUBSCRIPTION_TIER_SEARCH">Search Tier</option>
+                                <option value="SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT">Search and Assistant Tier</option>
+                                <option value="SUBSCRIPTION_TIER_NOTEBOOK_LM">NotebookLM Tier</option>
+                                <option value="SUBSCRIPTION_TIER_FRONTLINE_WORKER">Frontline Worker Tier</option>
+                                <option value="SUBSCRIPTION_TIER_AGENTSPACE_STARTER">Agentspace Starter Tier</option>
+                                <option value="SUBSCRIPTION_TIER_AGENTSPACE_BUSINESS">Agentspace Business Tier</option>
+                                <option value="SUBSCRIPTION_TIER_ENTERPRISE">Gemini Enterprise Plus Tier</option>
+                                <option value="SUBSCRIPTION_TIER_FRONTLINE_STARTER">Gemini Frontline Starter Tier</option>
+                                <option value="SUBSCRIPTION_TIER_CONSUMPTION_ONLY">Consumption Only (PAYG) Tier</option>
+                            </select>
+
+                            {projectLicenseConfigs.length > 0 && (
+                                <div className="mt-2 space-y-1 bg-gray-900/40 p-2.5 rounded border border-gray-800">
+                                    <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block mb-1">Detected Project Licenses:</span>
+                                    {projectLicenseConfigs.map(cfg => {
+                                        const skuId = cfg.name.split('/').pop() || '';
+                                        const tierLabel = cfg.subscriptionTier ? cfg.subscriptionTier.replace('SUBSCRIPTION_TIER_', '') : 'UNSPECIFIED';
+                                        return (
+                                            <div key={cfg.name} className="flex justify-between items-center text-xs text-gray-300">
+                                                <span className="font-medium text-white">{cfg.displayName || skuId}</span>
+                                                <span className="text-gray-500 font-mono text-[10px]">SKU: {skuId} | Tier: {tierLabel}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            {formData.requiredSubscriptionTier !== 'SUBSCRIPTION_TIER_UNSPECIFIED' && 
+                             isSubscriptionTierActive(formData.requiredSubscriptionTier) === false && (
+                                <p className="mt-2 text-xs text-yellow-400 flex items-center gap-1.5 bg-yellow-950/20 border border-yellow-900/40 p-2 rounded">
+                                    <span>⚠️</span> No active license configuration found for {formData.requiredSubscriptionTier.replace('SUBSCRIPTION_TIER_', '')}. Make sure this matches your team's assigned licenses.
+                                </p>
+                            )}
                         </div>
                         <div className="flex items-center space-x-3 cursor-pointer">
                             <input

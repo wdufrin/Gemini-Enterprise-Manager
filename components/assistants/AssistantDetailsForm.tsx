@@ -500,11 +500,12 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                 <div>
                     <label htmlFor="webGroundingType" className="flex items-center text-sm font-medium text-gray-300">
                         Web Grounding Type
-                        <InfoTooltip text="Enables the assistant to use Google Search for grounding its responses." />
+                        <InfoTooltip text="Enables the assistant to use Google Search or Enterprise Web Search for grounding its responses." />
                     </label>
                     <select name="webGroundingType" value={formData.webGroundingType} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm">
                         <option value="WEB_GROUNDING_TYPE_DISABLED">Disabled</option>
-                        <option value="WEB_GROUNDING_TYPE_GOOGLE_SEARCH">Google Search</option>
+                        <option value="WEB_GROUNDING_TYPE_GOOGLE_SEARCH">Google Search (not Data Residency compliant)</option>
+                        <option value="WEB_GROUNDING_TYPE_ENTERPRISE_WEB_SEARCH">Enterprise Web Search (Data Residency compliant)</option>
                     </select>
                 </div>
                 <div>

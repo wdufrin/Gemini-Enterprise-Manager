@@ -185,7 +185,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
           case 'solutionType':
               return determineAppType(row.engine);
           case 'webGrounding':
-              return row.assistant.webGroundingType === 'WEB_GROUNDING_TYPE_GOOGLE_SEARCH';
+              return row.assistant.webGroundingType === 'WEB_GROUNDING_TYPE_GOOGLE_SEARCH' || row.assistant.webGroundingType === 'WEB_GROUNDING_TYPE_ENTERPRISE_WEB_SEARCH';
           case 'instructions':
               return !!row.assistant.generationConfig?.systemInstruction?.additionalSystemInstruction;
           case 'policy':
@@ -464,7 +464,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                           const appType = determineAppType(row.engine);
                           
                           // Check if assistant exists to extract props, otherwise defaults
-                          const hasWebGrounding = assistant?.webGroundingType === 'WEB_GROUNDING_TYPE_GOOGLE_SEARCH';
+                          const hasWebGrounding = assistant?.webGroundingType === 'WEB_GROUNDING_TYPE_GOOGLE_SEARCH' || assistant?.webGroundingType === 'WEB_GROUNDING_TYPE_ENTERPRISE_WEB_SEARCH';
                           const hasInstructions = !!assistant?.generationConfig?.systemInstruction?.additionalSystemInstruction;
                           const hasPolicy = !!(assistant?.customerPolicy && Object.keys(assistant.customerPolicy).length > 0);
                           const vertexAgentsCount = assistant?.vertexAiAgentConfigs?.length || 0;
