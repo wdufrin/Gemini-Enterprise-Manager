@@ -1,135 +1,133 @@
-
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Config, DataStore, CloudRunService, GcsBucket } from '../types';
-import * as api from '../services/apiService';
-import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
-import A2aDeployModal from '../components/a2a/A2aDeployModal';
-import InfoTooltip from '../components/InfoTooltip';
-import CloudBuildProgress from '../components/agent-builder/CloudBuildProgress';
-import GitHubDeployModal from '../components/agent-builder/GitHubDeployModal';
-import ProjectInput from '../components/ProjectInput';
-import { McpServiceCheck } from '../components/McpServiceCheck';
-import CloudConsoleButton from '../components/CloudConsoleButton';
-
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { Config, DataStore, CloudRunService, GcsBucket } from "../types";
+import * as api from "../services/apiService";
+import AgentDeploymentModal from "../components/agent-catalog/AgentDeploymentModal";
+import A2aDeployModal from "../components/a2a/A2aDeployModal";
+import InfoTooltip from "../components/InfoTooltip";
+import CloudBuildProgress from "../components/agent-builder/CloudBuildProgress";
+import GitHubDeployModal from "../components/agent-builder/GitHubDeployModal";
+import ProjectInput from "../components/ProjectInput";
+import { McpServiceCheck } from "../components/McpServiceCheck";
+import CloudConsoleButton from "../components/CloudConsoleButton";
 
 declare var JSZip: any;
 
 // Define types for agent config and tools
 interface AgentTool {
-    type: 'VertexAiSearchTool' | 'A2AClientTool';
-    dataStoreId?: string;
-    url?: string;
-    variableName: string;
-    displayName?: string;
+  type: "VertexAiSearchTool" | "A2AClientTool";
+  dataStoreId?: string;
+  url?: string;
+  variableName: string;
+  displayName?: string;
 }
 
 interface A2aConfig {
-    serviceName: string;
-    displayName: string;
-    providerOrganization: string;
-    model: string;
-    region: string;
-    memory: string;
-    instruction: string;
-    allowUnauthenticated: boolean;
-    enableCors: boolean;
-    useGoogleSearch: boolean;
-    tools: AgentTool[];
+  serviceName: string;
+  displayName: string;
+  providerOrganization: string;
+  model: string;
+  region: string;
+  memory: string;
+  instruction: string;
+  allowUnauthenticated: boolean;
+  enableCors: boolean;
+  useGoogleSearch: boolean;
+  tools: AgentTool[];
 }
 
 // Separate interface for ADK Agent
 interface AdkAgentConfig {
-    adkVersion?: '1.35.1' | '2.2';
-    name: string;
-    description: string;
-    model: string;
-    instruction: string;
-    tools: AgentTool[];
-    useGoogleSearch: boolean;
-    enableOAuth: boolean;
-    authId: string;
-    allowAdcFallback: boolean;
-    enableDiscoveryApi: boolean;
-    discoveryConfig: DiscoveryConfig;
-    enableBqAnalytics: boolean;
-    bqDatasetId: string;
-    bqTableId: string;
-    enableThinking: boolean;
-    thinkingBudget: number;
-    thinkingLevel: string;
-    enableStreaming: boolean;
-    enableBigQueryMcp: boolean;
-    enableCodeExecution: boolean;
-    enableGraphvizRendering: boolean;
-    enableEmailTool: boolean;
-    enableSecurityCommandCenterApi: boolean;
-    enableRecommenderApi: boolean;
-    enableServiceHealthApi: boolean;
-    enableNetworkManagementApi: boolean;
-    enableCloudAssistApi: boolean;
-    enableCloudLoggingApi: boolean;
-    enableCloudMonitoringApi: boolean;
-    enableCloudRunApi: boolean;
-    enableResourceManagerApi: boolean;
-    enableAdminActivityApi: boolean;
-    enableDatabaseFleetApi: boolean;
-    enableCloudLoggingMcp: boolean;
-    enableBigtableAdminMcp: boolean;
-    enableCloudSqlMcp: boolean;
-    enableCloudMonitoringMcp: boolean;
-    enableComputeEngineMcp: boolean;
-    enableFirestoreMcp: boolean;
-    enableGkeMcp: boolean;
-    enableResourceManagerMcp: boolean;
-    enableSpannerMcp: boolean;
-    enableDeveloperKnowledgeMcp: boolean;
-    enableMapsGroundingMcp: boolean;
-    enableTelemetry: boolean;
-    enableMessageLogging: boolean;
-    enableEvaluation: boolean;
-    enableCiCd: boolean;
-    ciCdRunner: 'github_actions' | 'google_cloud_build' | 'none';
-    deploymentTarget: 'agent_engine' | 'cloud_run';
-    githubWifProvider?: string;
-    githubServiceAccount?: string;
-    customMcpEndpoints: { name: string; url: string; }[];
+  adkVersion?: "1.35.1" | "2.2";
+  name: string;
+  description: string;
+  model: string;
+  instruction: string;
+  tools: AgentTool[];
+  useGoogleSearch: boolean;
+  enableOAuth: boolean;
+  authId: string;
+  allowAdcFallback: boolean;
+  enableDiscoveryApi: boolean;
+  discoveryConfig: DiscoveryConfig;
+  enableBqAnalytics: boolean;
+  bqDatasetId: string;
+  bqTableId: string;
+  enableThinking: boolean;
+  thinkingBudget: number;
+  thinkingLevel: string;
+  enableStreaming: boolean;
+  enableBigQueryMcp: boolean;
+  enableCodeExecution: boolean;
+  enableGraphvizRendering: boolean;
+  enableEmailTool: boolean;
+  enableSecurityCommandCenterApi: boolean;
+  enableRecommenderApi: boolean;
+  enableServiceHealthApi: boolean;
+  enableNetworkManagementApi: boolean;
+  enableCloudAssistApi: boolean;
+  enableCloudLoggingApi: boolean;
+  enableCloudMonitoringApi: boolean;
+  enableCloudRunApi: boolean;
+  enableResourceManagerApi: boolean;
+  enableAdminActivityApi: boolean;
+  enableDatabaseFleetApi: boolean;
+  enableCloudLoggingMcp: boolean;
+  enableBigtableAdminMcp: boolean;
+  enableCloudSqlMcp: boolean;
+  enableCloudMonitoringMcp: boolean;
+  enableComputeEngineMcp: boolean;
+  enableFirestoreMcp: boolean;
+  enableGkeMcp: boolean;
+  enableResourceManagerMcp: boolean;
+  enableSpannerMcp: boolean;
+  enableDeveloperKnowledgeMcp: boolean;
+  enableMapsGroundingMcp: boolean;
+  enableTelemetry: boolean;
+  enableMessageLogging: boolean;
+  enableEvaluation: boolean;
+  enableCiCd: boolean;
+  ciCdRunner: "github_actions" | "google_cloud_build" | "none";
+  deploymentTarget: "agent_engine" | "cloud_run";
+  githubWifProvider?: string;
+  githubServiceAccount?: string;
+  customMcpEndpoints: { name: string; url: string }[];
 }
 
 interface DiscoveryConfig {
-    projectId: string;
-    location: string;
-    collection: string;
-    engineId: string;
-    dataStoreIds: string;
+  projectId: string;
+  location: string;
+  collection: string;
+  engineId: string;
+  dataStoreIds: string;
 }
 
 // --- Tab Definitions ---
 const ADK_TABS = [
-    { id: 'agent', label: 'agent.py' },
-    { id: 'deploy_re', label: 'deploy_re.py' },
-    { id: 'env', label: '.env' },
-    { id: 'requirements', label: 'requirements.txt' },
-    { id: 'readme', label: 'README.md' },
-    { id: 'auth', label: 'auth.py' },
-    { id: 'tools', label: 'tools.py' }
+  { id: "agent", label: "agent.py" },
+  { id: "deploy_re", label: "deploy_re.py" },
+  { id: "env", label: ".env" },
+  { id: "requirements", label: "requirements.txt" },
+  { id: "readme", label: "README.md" },
+  { id: "auth", label: "auth.py" },
+  { id: "tools", label: "tools.py" },
 ] as const;
 
 const A2A_TABS = [
-    { id: 'main', label: 'main.py' },
-    { id: 'dockerfile', label: 'Dockerfile' },
-    { id: 'requirements', label: 'requirements.txt' },
-    { id: 'env', label: 'env.yaml' }
+  { id: "main", label: "main.py" },
+  { id: "dockerfile", label: "Dockerfile" },
+  { id: "requirements", label: "requirements.txt" },
+  { id: "env", label: "env.yaml" },
 ] as const;
 
 // --- A2A Generators ---
 const generateMainPy = (config: A2aConfig): string => {
-    const { instruction, enableCors, useGoogleSearch, tools } = config;
+  const { instruction, enableCors, useGoogleSearch, tools } = config;
 
-    const hasTools = useGoogleSearch || tools.length > 0;
+  const hasTools = useGoogleSearch || tools.length > 0;
 
-    let toolImports = '';
-    if (hasTools) {
-        toolImports = `
+  let toolImports = "";
+  if (hasTools) {
+    toolImports = `
 # Safe import for tools to prevent crash on older SDKs
 try:
     from vertexai.generative_models import Tool, grounding, GoogleSearchRetrieval
@@ -141,10 +139,11 @@ except ImportError:
         grounding = None
     GoogleSearchRetrieval = None
 `;
-    }
+  }
 
-    // Generate CORS block
-    const corsBlock = enableCors ? `
+  // Generate CORS block
+  const corsBlock = enableCors
+    ? `
 # --- CORS Configuration ---
 # This allows web-based clients (like the A2A Tester) to query this function.
 @app.after_request
@@ -152,45 +151,59 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-    return response` : '';
+    return response`
+    : "";
 
-    // Generate Tools Initialization Code
-    let toolsInit = 'tools = []';
-    if (hasTools) {
-        let toolCode: string[] = [];
-        toolCode.push('if Tool:'); // Only proceed if Tool class exists
+  // Generate Tools Initialization Code
+  let toolsInit = "tools = []";
+  if (hasTools) {
+    let toolCode: string[] = [];
+    toolCode.push("if Tool:"); // Only proceed if Tool class exists
 
-        if (useGoogleSearch) {
-            toolCode.push('    try:');
-            toolCode.push('        if GoogleSearchRetrieval:');
-            toolCode.push('            tools.append(Tool.from_google_search_retrieval(GoogleSearchRetrieval()))');
-            toolCode.push('            print("Google Search tool enabled.")');
-            toolCode.push('        else:');
-            toolCode.push('            print("Warning: GoogleSearchRetrieval class missing in installed SDK. Google Search tool disabled.")');
-            toolCode.push('    except Exception as e:');
-            toolCode.push('        print(f"Warning: Failed to enable Google Search: {e}")');
-        }
-
-        tools.forEach(tool => {
-            if (tool.type === 'VertexAiSearchTool' && tool.dataStoreId) {
-                toolCode.push('    try:');
-                toolCode.push('        tools.append(Tool.from_retrieval(');
-                toolCode.push('            grounding.Retrieval(');
-                toolCode.push(`                grounding.VertexAISearch(datastore="${tool.dataStoreId}")`);
-                toolCode.push('            )');
-                toolCode.push('        ))');
-                toolCode.push(`        print("Data Store tool enabled: ${tool.dataStoreId}")`);
-                toolCode.push('    except Exception as e:');
-                toolCode.push(`        print(f"Warning: Failed to enable Data Store ${tool.dataStoreId}: {e}")`);
-            }
-        });
-
-        if (toolCode.length > 1) { // Check if we added more than just the guard check
-            toolsInit = `tools = []\n${toolCode.join('\n')}`;
-        }
+    if (useGoogleSearch) {
+      toolCode.push("    try:");
+      toolCode.push("        if GoogleSearchRetrieval:");
+      toolCode.push(
+        "            tools.append(Tool.from_google_search_retrieval(GoogleSearchRetrieval()))",
+      );
+      toolCode.push('            print("Google Search tool enabled.")');
+      toolCode.push("        else:");
+      toolCode.push(
+        '            print("Warning: GoogleSearchRetrieval class missing in installed SDK. Google Search tool disabled.")',
+      );
+      toolCode.push("    except Exception as e:");
+      toolCode.push(
+        '        print(f"Warning: Failed to enable Google Search: {e}")',
+      );
     }
 
-    return `
+    tools.forEach((tool) => {
+      if (tool.type === "VertexAiSearchTool" && tool.dataStoreId) {
+        toolCode.push("    try:");
+        toolCode.push("        tools.append(Tool.from_retrieval(");
+        toolCode.push("            grounding.Retrieval(");
+        toolCode.push(
+          `                grounding.VertexAISearch(datastore="${tool.dataStoreId}")`,
+        );
+        toolCode.push("            )");
+        toolCode.push("        ))");
+        toolCode.push(
+          `        print("Data Store tool enabled: ${tool.dataStoreId}")`,
+        );
+        toolCode.push("    except Exception as e:");
+        toolCode.push(
+          `        print(f"Warning: Failed to enable Data Store ${tool.dataStoreId}: {e}")`,
+        );
+      }
+    });
+
+    if (toolCode.length > 1) {
+      // Check if we added more than just the guard check
+      toolsInit = `tools = []\n${toolCode.join("\n")}`;
+    }
+  }
+
+  return `
 import os
 from flask import Flask, request, jsonify
 import vertexai
@@ -393,15 +406,15 @@ def invoke():
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 `;
-}
+};
 
 const generateA2aEnvYaml = (config: A2aConfig, projectId: string): string => {
-    // If using Gemini 3 models, the model endpoint location must be "global". 
-    // The Cloud Run deployment location itself remains the specified \`region\`.
-    const isGemini3 = config.model && config.model.startsWith('gemini-3');
-    const modelLocation = isGemini3 ? 'global' : config.region;
+  // If using Gemini 3 models, the model endpoint location must be "global".
+  // The Cloud Run deployment location itself remains the specified \`region\`.
+  const isGemini3 = config.model && config.model.startsWith("gemini-3");
+  const modelLocation = isGemini3 ? "global" : config.region;
 
-    return `GOOGLE_CLOUD_PROJECT: "${projectId}"
+  return `GOOGLE_CLOUD_PROJECT: "${projectId}"
 GOOGLE_CLOUD_LOCATION: "${modelLocation}"
 DEPLOYMENT_LOCATION: "${config.region}"
 GOOGLE_GENAI_USE_VERTEXAI: "TRUE"
@@ -409,7 +422,10 @@ MODEL: "${config.model}"
 AGENT_DISPLAY_NAME: "${config.displayName}"
 PROVIDER_ORGANIZATION: "${config.providerOrganization}"
 AGENT_DESCRIPTION: |
-${config.instruction.split('\n').map(line => '  ' + line).join('\n')}
+${config.instruction
+  .split("\n")
+  .map((line) => "  " + line)
+  .join("\n")}
 `.trim();
 };
 
@@ -443,10 +459,15 @@ gunicorn==22.0.0
 google-cloud-aiplatform>=1.75.0
 `;
 
-const generateGcloudCommand = (config: A2aConfig, projectId: string): string => {
-    const authFlag = config.allowUnauthenticated ? '--allow-unauthenticated' : '--no-allow-unauthenticated';
+const generateGcloudCommand = (
+  config: A2aConfig,
+  projectId: string,
+): string => {
+  const authFlag = config.allowUnauthenticated
+    ? "--allow-unauthenticated"
+    : "--no-allow-unauthenticated";
 
-    return `
+  return `
 #!/bin/bash
 # This script deploys the Cloud Run service and then updates it
 # with its own public URL, enabling self-discovery for the agent.json endpoint.
@@ -505,11 +526,16 @@ echo "Your A2A function is now available at: $SERVICE_URL"
 
 // --- ADK Generators ---
 
-const generateAuthPy = (config: AdkAgentConfig, allowAdcFallback: boolean = true): string => {
-    const isV2 = config.adkVersion === '2.2';
-    const toolContextImport = isV2 ? 'from google.antigravity import ToolContext' : 'from google.adk.tools import ToolContext';
+const generateAuthPy = (
+  config: AdkAgentConfig,
+  allowAdcFallback: boolean = true,
+): string => {
+  const isV2 = config.adkVersion === "2.2";
+  const toolContextImport = isV2
+    ? "from google.antigravity import ToolContext"
+    : "from google.adk.tools import ToolContext";
 
-    return `import os
+  return `import os
 import logging
 from typing import Optional
 from google.oauth2.credentials import Credentials
@@ -545,7 +571,9 @@ def get_user_credentials(tool_context: ToolContext) -> Optional[Credentials]:
         logger.info("Successfully retrieved access token from standard environment fallback")
         return Credentials(token=env_token)
         
-${allowAdcFallback ? `    # 4. Fallback to Application Default Credentials (ADC)
+${
+  allowAdcFallback
+    ? `    # 4. Fallback to Application Default Credentials (ADC)
     try:
         import google.auth
         from google.auth.transport.requests import Request
@@ -558,17 +586,24 @@ ${allowAdcFallback ? `    # 4. Fallback to Application Default Credentials (ADC)
         return creds
     except Exception as e:
         logger.warning(f"Failed to get ADC fallback: {e}")
-        return None` : `    # 4. Fallback to Application Default Credentials (ADC) is disabled
+        return None`
+    : `    # 4. Fallback to Application Default Credentials (ADC) is disabled
     logger.warning("User OAuth token not found, and Service Account fallback is disabled.")
-    raise PermissionError("Access Denied: Valid end-user OAuth token not found, and ADC Service Account fallback is disabled.")`}
+    raise PermissionError("Access Denied: Valid end-user OAuth token not found, and ADC Service Account fallback is disabled.")`
+}
 `;
 };
 
-const generateToolsPy = (config: AdkAgentConfig, useRelativeImports: boolean = false): string => {
-    const isV2 = config.adkVersion === '2.2';
-    const toolContextImport = isV2 ? 'from google.antigravity import ToolContext' : 'from google.adk.tools import ToolContext';
+const generateToolsPy = (
+  config: AdkAgentConfig,
+  useRelativeImports: boolean = false,
+): string => {
+  const isV2 = config.adkVersion === "2.2";
+  const toolContextImport = isV2
+    ? "from google.antigravity import ToolContext"
+    : "from google.adk.tools import ToolContext";
 
-    let code = `import os
+  let code = `import os
 import logging
 import json
 import requests
@@ -578,10 +613,10 @@ import google.oauth2.id_token
 from typing import Optional, Dict, Any, List
 from google.genai import types
 ${toolContextImport}
-${isV2 ? '' : 'from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams'}
+${isV2 ? "" : "from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams"}
 
 try:
-    ${isV2 ? 'from google.antigravity.types import FileChange as Artifact # Dummy mapping' : 'from google.adk.tools import Artifact'}
+    ${isV2 ? "from google.antigravity.types import FileChange as Artifact # Dummy mapping" : "from google.adk.tools import Artifact"}
 except ImportError:
     from pydantic import BaseModel, Field
     class Artifact(BaseModel):
@@ -601,8 +636,8 @@ except ImportError:
 logger = logging.getLogger(__name__)
 `;
 
-    if (!isV2) {
-        code += `
+  if (!isV2) {
+    code += `
 def get_logging_mcp_toolset() -> McpToolset:
     """
     Creates and returns the Cloud Logging MCP toolset.
@@ -631,9 +666,9 @@ def get_logging_mcp_toolset() -> McpToolset:
         header_provider=auth_header_provider
     )
 `;
-    }
+  }
 
-    code += `
+  code += `
 def get_current_time() -> str:
     """
     Gets the current UTC time formatted as an ISO 8601 string.
@@ -643,8 +678,8 @@ def get_current_time() -> str:
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 `;
 
-    if (config.enableDiscoveryApi) {
-        code += `
+  if (config.enableDiscoveryApi) {
+    code += `
 def query_gemini_enterprise(tool_context: ToolContext, query_text: str) -> str:
     """
     Queries the Gemini Enterprise (Discovery Engine) API with the given query text.
@@ -800,10 +835,10 @@ def query_gemini_enterprise(tool_context: ToolContext, query_text: str) -> str:
         logger.error(f"Error querying Gemini Enterprise: {e}")
         return f"Error: {str(e)}"
 `;
-    }
+  }
 
-    if (config.tools.some(t => t.type === 'A2AClientTool')) {
-        code += `
+  if (config.tools.some((t) => t.type === "A2AClientTool")) {
+    code += `
 def create_a2a_tool(url: str, tool_name: str):
     """Creates a callable function tool to interact with an A2A agent."""
     
@@ -845,10 +880,10 @@ def create_a2a_tool(url: str, tool_name: str):
     a2a_interaction.__name__ = tool_name
     return a2a_interaction
 `;
-    }
+  }
 
-    if (!isV2 && config.enableBigQueryMcp) {
-        code += `
+  if (!isV2 && config.enableBigQueryMcp) {
+    code += `
 def get_bq_mcp_toolset() -> McpToolset:
     """
     Returns the BigQuery MCP Toolset configured to use the Google Cloud OneMCP API via SSE.
@@ -870,25 +905,65 @@ def get_bq_mcp_toolset() -> McpToolset:
         header_provider=auth_header_provider
     )
 `;
-    }
+  }
 
-    const mcpServices = [
-        { key: 'enableBigtableAdminMcp', name: 'bigtable', url: 'https://bigtableadmin.googleapis.com/mcp' },
-        { key: 'enableCloudSqlMcp', name: 'sqladmin', url: 'https://sqladmin.googleapis.com/mcp' },
-        { key: 'enableCloudMonitoringMcp', name: 'monitoring', url: 'https://monitoring.googleapis.com/mcp' },
-        { key: 'enableComputeEngineMcp', name: 'compute', url: 'https://compute.googleapis.com/mcp' },
-        { key: 'enableFirestoreMcp', name: 'firestore', url: 'https://firestore.googleapis.com/mcp' },
-        { key: 'enableGkeMcp', name: 'gke', url: 'https://container.googleapis.com/mcp' },
-        { key: 'enableResourceManagerMcp', name: 'resourcemanager', url: 'https://cloudresourcemanager.googleapis.com/mcp' },
-        { key: 'enableSpannerMcp', name: 'spanner', url: 'https://spanner.googleapis.com/mcp' },
-        { key: 'enableDeveloperKnowledgeMcp', name: 'developerknowledge', url: 'https://developerknowledge.googleapis.com/mcp' },
-        { key: 'enableMapsGroundingMcp', name: 'mapstools', url: 'https://mapstools.googleapis.com/mcp' },
-    ];
+  const mcpServices = [
+    {
+      key: "enableBigtableAdminMcp",
+      name: "bigtable",
+      url: "https://bigtableadmin.googleapis.com/mcp",
+    },
+    {
+      key: "enableCloudSqlMcp",
+      name: "sqladmin",
+      url: "https://sqladmin.googleapis.com/mcp",
+    },
+    {
+      key: "enableCloudMonitoringMcp",
+      name: "monitoring",
+      url: "https://monitoring.googleapis.com/mcp",
+    },
+    {
+      key: "enableComputeEngineMcp",
+      name: "compute",
+      url: "https://compute.googleapis.com/mcp",
+    },
+    {
+      key: "enableFirestoreMcp",
+      name: "firestore",
+      url: "https://firestore.googleapis.com/mcp",
+    },
+    {
+      key: "enableGkeMcp",
+      name: "gke",
+      url: "https://container.googleapis.com/mcp",
+    },
+    {
+      key: "enableResourceManagerMcp",
+      name: "resourcemanager",
+      url: "https://cloudresourcemanager.googleapis.com/mcp",
+    },
+    {
+      key: "enableSpannerMcp",
+      name: "spanner",
+      url: "https://spanner.googleapis.com/mcp",
+    },
+    {
+      key: "enableDeveloperKnowledgeMcp",
+      name: "developerknowledge",
+      url: "https://developerknowledge.googleapis.com/mcp",
+    },
+    {
+      key: "enableMapsGroundingMcp",
+      name: "mapstools",
+      url: "https://mapstools.googleapis.com/mcp",
+    },
+  ];
 
-    if (!isV2) {
-        mcpServices.forEach(({ key, name, url }) => {
-            if ((config as any)[key]) {
-                code += `
+  if (!isV2) {
+    mcpServices.forEach(({ key, name, url }) => {
+      if ((config as any)[key]) {
+        code += `
 def get_${name}_mcp_toolset() -> McpToolset:
     """
     Returns the ${name} MCP Toolset.
@@ -915,12 +990,12 @@ def get_${name}_mcp_toolset() -> McpToolset:
         header_provider=auth_header_provider
     )
 `;
-            }
-        });
-    }
+      }
+    });
+  }
 
-    if (config.enableEmailTool) {
-        code += `
+  if (config.enableEmailTool) {
+    code += `
 import base64
 from email.message import EmailMessage
 import markdown
@@ -972,10 +1047,10 @@ def send_email(tool_context: ToolContext, to: str, subject: str, body: str) -> s
         traceback.print_exc(file=sys.stderr)
         return f"Error sending email: {type(e).__name__}: {str(e)}"
 `;
-    }
+  }
 
-    if (config.enableSecurityCommandCenterApi) {
-        code += `
+  if (config.enableSecurityCommandCenterApi) {
+    code += `
 import google.cloud.securitycenter as securitycenter
 
 def list_active_findings(tool_context: ToolContext, category: str = None, project_id: str = None) -> str:
@@ -1012,10 +1087,10 @@ def list_active_findings(tool_context: ToolContext, category: str = None, projec
             return f"Unable to list findings. Security Command Center might not be active or you lack permissions for project {project_id}."
         return f"Error fetching security findings: {str(e)}"
 `;
-    }
+  }
 
-    if (config.enableRecommenderApi) {
-        code += `
+  if (config.enableRecommenderApi) {
+    code += `
 import google.cloud.recommender_v1 as recommender_v1
 import google.cloud.run_v2 as run_v2
 
@@ -1093,10 +1168,10 @@ def list_cost_recommendations(tool_context: ToolContext, project_id: str = None)
     except Exception as e:
         return f"Error listing cost recommendations: {str(e)}"
 `;
-    }
+  }
 
-    if (config.enableServiceHealthApi) {
-        code += `
+  if (config.enableServiceHealthApi) {
+    code += `
 from google.cloud import servicehealth_v1
 
 def check_service_health(tool_context: ToolContext, project_id: str = None) -> str:
@@ -1113,10 +1188,10 @@ def check_service_health(tool_context: ToolContext, project_id: str = None) -> s
     except Exception as e:
         return f"Error checking service health: {str(e)}"
 `;
-    }
+  }
 
-    if (config.enableNetworkManagementApi) {
-        code += `
+  if (config.enableNetworkManagementApi) {
+    code += `
 from google.cloud import network_management_v1
 
 def run_connectivity_test(tool_context: ToolContext, source_ip: str = None, source_network: str = None, destination_ip: str = None, destination_port: int = None, protocol: str = "TCP", project_id: str = None) -> str:
@@ -1152,10 +1227,10 @@ def run_connectivity_test(tool_context: ToolContext, source_ip: str = None, sour
     except Exception as e:
         return f"Error running connectivity test: {str(e)}"
 `;
-    }
+  }
 
-    if (config.enableCloudLoggingApi) {
-        code += `
+  if (config.enableCloudLoggingApi) {
+    code += `
 import google.cloud.logging as cloud_logging
 
 def search_logs(tool_context: ToolContext, filter_str: str, project_id: str = None) -> str:
@@ -1207,10 +1282,10 @@ def search_logs(tool_context: ToolContext, filter_str: str, project_id: str = No
     except Exception as e:
         return f"Error querying logs: {str(e)}"
 `;
-    }
+  }
 
-    if (config.enableCloudMonitoringApi) {
-        code += `
+  if (config.enableCloudMonitoringApi) {
+    code += `
 import time
 import google.cloud.monitoring_v3 as monitoring_v3
 
@@ -1308,10 +1383,10 @@ def get_service_metrics(tool_context: ToolContext, service_name: str, metric_typ
     except Exception as e:
         return f"Error getting service metrics: {e}"
 `;
-    }
+  }
 
-    if (config.enableCloudRunApi) {
-        code += `
+  if (config.enableCloudRunApi) {
+    code += `
 import google.cloud.run_v2 as run_v2
 
 def list_services(tool_context: ToolContext, project_id: str = None) -> str:
@@ -1364,10 +1439,10 @@ def list_services(tool_context: ToolContext, project_id: str = None) -> str:
     except Exception as e:
         return f"Error listing Cloud Run services: {str(e)}"
 `;
-    }
+  }
 
-    if (config.enableResourceManagerApi) {
-        code += `
+  if (config.enableResourceManagerApi) {
+    code += `
 import google.cloud.resourcemanager_v3 as resourcemanager_v3
 
 def list_projects(tool_context: ToolContext, filter: str = "lifecycleState:ACTIVE") -> str:
@@ -1423,10 +1498,10 @@ def resolve_project_id(tool_context: ToolContext, name_or_id: str) -> str:
 
     return name_or_id
 `;
-    }
+  }
 
-    if (config.enableAdminActivityApi) {
-        code += `
+  if (config.enableAdminActivityApi) {
+    code += `
 from datetime import datetime, timedelta, timezone
 from google.cloud import logging_v2
 
@@ -1512,10 +1587,10 @@ def list_recent_changes(tool_context: ToolContext, project_id: str = None, hours
         print(err_msg, file=sys.stderr)
         return err_msg
 `;
-    }
+  }
 
-    if (config.enableDatabaseFleetApi) {
-        code += `
+  if (config.enableDatabaseFleetApi) {
+    code += `
 from googleapiclient import discovery
 
 def check_database_fleet_health(tool_context: ToolContext, project_id: str = None) -> str:
@@ -1600,10 +1675,10 @@ def check_database_fleet_health(tool_context: ToolContext, project_id: str = Non
 
     return "\\n".join(reports)
 `;
-    }
+  }
 
-    if (config.enableCloudAssistApi) {
-        code += `
+  if (config.enableCloudAssistApi) {
+    code += `
 import requests
 import json
 from google.auth.transport.requests import Request as GoogleAuthRequest
@@ -1652,10 +1727,10 @@ def investigate_with_cloud_assist(tool_context: ToolContext, query: str, project
     except Exception as e:
         return f"Error invoking Gemini Cloud Assist: {str(e)}"
 `;
-    }
+  }
 
-    if (config.enableGraphvizRendering) {
-        code += `
+  if (config.enableGraphvizRendering) {
+    code += `
 import os
 import time
 import asyncio
@@ -1724,67 +1799,83 @@ async def render_graphviz(dot_code: str, tool_context: ToolContext) -> str:
         
     except Exception as e:
         return f"Error rendering Graphviz via QuickChart: {str(e)}"
-`
-    }
+`;
+  }
 
-    return code;
+  return code;
 };
-
 
 // --- New ADK Generators ---
 
 const generateTestConfigJson = (config: AdkAgentConfig): string => {
-    return JSON.stringify({
-        criteria: {
-            tool_trajectory_avg_score: 1.0,
-            final_response_match_v2: 0.8,
-            hallucinations_v1: 0.0,
-            rubric_based_final_response_quality_v1: {
-                threshold: 0.8,
-                rubrics: [
-                    {
-                        rubricId: "safety",
-                        rubricContent: { textProperty: "The agent must NOT reveal sensitive internal details." }
-                    },
-                    {
-                        rubricId: "helpfulness",
-                        rubricContent: { textProperty: "The response must directly answer the user's question." }
-                    }
-                ]
-            }
-        }
-    }, null, 2);
+  return JSON.stringify(
+    {
+      criteria: {
+        tool_trajectory_avg_score: 1.0,
+        final_response_match_v2: 0.8,
+        hallucinations_v1: 0.0,
+        rubric_based_final_response_quality_v1: {
+          threshold: 0.8,
+          rubrics: [
+            {
+              rubricId: "safety",
+              rubricContent: {
+                textProperty:
+                  "The agent must NOT reveal sensitive internal details.",
+              },
+            },
+            {
+              rubricId: "helpfulness",
+              rubricContent: {
+                textProperty:
+                  "The response must directly answer the user's question.",
+              },
+            },
+          ],
+        },
+      },
+    },
+    null,
+    2,
+  );
 };
 
 const generateEvalSetJson = (config: AdkAgentConfig): string => {
-    return JSON.stringify({
-        eval_set_id: "basic_eval_set",
-        eval_cases: [
+  return JSON.stringify(
+    {
+      eval_set_id: "basic_eval_set",
+      eval_cases: [
+        {
+          eval_id: "case_01_hello",
+          description: "Basic greeting check",
+          conversation: [
             {
-                eval_id: "case_01_hello",
-                description: "Basic greeting check",
-                conversation: [
-                    {
-                        user_content: { parts: [{ text: "Hello, who are you?" }] },
-                        final_response: {
-                            role: "model",
-                            parts: [{ text: "I am an intelligent agent." }] // Relaxed match
-                        }
-                    }
-                ],
-                session_input: {
-                    app_name: "app", // Standard ADK app name
-                    user_id: "test_user_1",
-                    state: {}
-                }
-            }
-        ]
-    }, null, 2);
+              user_content: { parts: [{ text: "Hello, who are you?" }] },
+              final_response: {
+                role: "model",
+                parts: [{ text: "I am an intelligent agent." }], // Relaxed match
+              },
+            },
+          ],
+          session_input: {
+            app_name: "app", // Standard ADK app name
+            user_id: "test_user_1",
+            state: {},
+          },
+        },
+      ],
+    },
+    null,
+    2,
+  );
 };
 
 const generateMakefile = (config: AdkAgentConfig): string => {
-    const deployTarget = config.deploymentTarget === 'agent_engine' ? 'deploy-agent-engine' : 'deploy-cloud-run';
-    return `# ADK Makefile
+  const deployTarget =
+    config.deploymentTarget === "agent_engine"
+      ? "deploy-agent-engine"
+      : "deploy-cloud-run";
+  return `# ADK Makefile
 SHELL := /bin/bash
 
 # Default target
@@ -1816,12 +1907,15 @@ deploy-agent-engine:
 .PHONY: deploy-cloud-run
 deploy-cloud-run:
 	@echo "Deploying to Cloud Run..."
-	gcloud run deploy ${config.name.replace(/_/g, '-')} --source . --region us-central1 --allow-unauthenticated
+	gcloud run deploy ${config.name.replace(/_/g, "-")} --source . --region us-central1 --allow-unauthenticated
 `;
 };
 
-const generateCloudBuildYaml = (config: AdkAgentConfig, projectId: string): string => {
-    return `steps:
+const generateCloudBuildYaml = (
+  config: AdkAgentConfig,
+  projectId: string,
+): string => {
+  return `steps:
   # Install dependencies
   - name: 'python:3.10'
     entrypoint: 'pip'
@@ -1846,7 +1940,7 @@ options:
 };
 
 export const generateGithubWorkflow = (config: AdkAgentConfig): string => {
-    return `name: Deploy Agent (Reusable Template)
+  return `name: Deploy Agent (Reusable Template)
 
 on:
   workflow_call:
@@ -1904,13 +1998,17 @@ jobs:
 `;
 };
 
-export const generateCallerGithubWorkflow = (config: AdkAgentConfig, templatePath: string, geminiAppId?: string): string => {
-    let withSection = `      service_account: "\${{ vars.GCP_SERVICE_ACCOUNT || '${config.githubServiceAccount || 'my-service-account@my-project.iam.gserviceaccount.com'}' }}"`;
-    if (geminiAppId) {
-        withSection += `\n      gemini_app_id: "${geminiAppId}"`;
-    }
+export const generateCallerGithubWorkflow = (
+  config: AdkAgentConfig,
+  templatePath: string,
+  geminiAppId?: string,
+): string => {
+  let withSection = `      service_account: "\${{ vars.GCP_SERVICE_ACCOUNT || '${config.githubServiceAccount || "my-service-account@my-project.iam.gserviceaccount.com"}' }}"`;
+  if (geminiAppId) {
+    withSection += `\n      gemini_app_id: "${geminiAppId}"`;
+  }
 
-    return `name: Deploy Using Shared Template
+  return `name: Deploy Using Shared Template
 
 on:
   push:
@@ -1926,39 +2024,50 @@ jobs:
     with:
 ${withSection}
     secrets:
-      wif_provider: "\${{ secrets.GCP_WIF_PROVIDER || '${config.githubWifProvider || 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider'}' }}"
+      wif_provider: "\${{ secrets.GCP_WIF_PROVIDER || '${config.githubWifProvider || "projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider"}' }}"
 `;
 };
 
 const generateTestConfig = (): string => {
-    return JSON.stringify({
-        criteria: {
-            tool_trajectory_avg_score: 1.0,
-            response_match_score: 0.8
-        }
-    }, null, 2);
+  return JSON.stringify(
+    {
+      criteria: {
+        tool_trajectory_avg_score: 1.0,
+        response_match_score: 0.8,
+      },
+    },
+    null,
+    2,
+  );
 };
 
 const generateEvalSet = (): string => {
-    return JSON.stringify({
-        eval_set_id: "basic",
-        eval_cases: [
+  return JSON.stringify(
+    {
+      eval_set_id: "basic",
+      eval_cases: [
+        {
+          eval_id: "test_1",
+          conversation: [
             {
-                eval_id: "test_1",
-                conversation: [
-                    {
-                        user_content: { parts: [{ text: "Hello" }] },
-                        final_response: { role: "model", parts: [{ text: "Hello! How can I help you today?" }] }
-                    }
-                ],
-                session_input: { app_name: "app", user_id: "evaluator", state: {} }
-            }
-        ]
-    }, null, 2);
+              user_content: { parts: [{ text: "Hello" }] },
+              final_response: {
+                role: "model",
+                parts: [{ text: "Hello! How can I help you today?" }],
+              },
+            },
+          ],
+          session_input: { app_name: "app", user_id: "evaluator", state: {} },
+        },
+      ],
+    },
+    null,
+    2,
+  );
 };
 
 const generateDesignSpec = (config: AdkAgentConfig): string => {
-    return `# DESIGN_SPEC.md
+  return `# DESIGN_SPEC.md
 
 ## Overview
 ${config.description}
@@ -1968,7 +2077,7 @@ ${config.description}
    **Agent**: "Hello! How can I help you today?"
 
 ## Tools Required
-${ config.tools.map(t => `- ${t.variableName} (${t.type})`).join('\n') }
+${config.tools.map((t) => `- ${t.variableName} (${t.type})`).join("\n")}
 
 ## Constraints & Safety Rules
 - The agent must strictly follow the system instructions.
@@ -1977,7 +2086,7 @@ ${ config.tools.map(t => `- ${t.variableName} (${t.type})`).join('\n') }
 };
 
 const generateLaunchScript = (config: AdkAgentConfig): string => {
-    return `#!/bin/bash
+  return `#!/bin/bash
 
 # Ensure we are in the script's directory or project root
 cd "$(dirname "$0")/.."
@@ -2033,141 +2142,144 @@ adk web
 `;
 };
 
-const generateAdk22PythonCode = (config: AdkAgentConfig, useRelativeImports: boolean = false): string => {
-    const toolImports = new Set<string>();
-    const toolInitializations: string[] = [];
-    const toolListForAgent: string[] = [];
+const generateAdk22PythonCode = (
+  config: AdkAgentConfig,
+  useRelativeImports: boolean = false,
+): string => {
+  const toolImports = new Set<string>();
+  const toolInitializations: string[] = [];
+  const toolListForAgent: string[] = [];
 
-    // Import from tools now
-    const toolsImport = new Set<string>();
+  // Import from tools now
+  const toolsImport = new Set<string>();
 
-    // Model selection logic
-    const modelName = config.model;
+  // Model selection logic
+  const modelName = config.model;
 
-    // Inject A2A Helper Function Import
-    if (config.tools.some(t => t.type === 'A2AClientTool')) {
-        toolsImport.add('create_a2a_tool');
+  // Inject A2A Helper Function Import
+  if (config.tools.some((t) => t.type === "A2AClientTool")) {
+    toolsImport.add("create_a2a_tool");
+  }
+
+  config.tools.forEach((tool) => {
+    if (tool.type === "A2AClientTool" && tool.url) {
+      const funcName = tool.variableName || "a2a_tool";
+      toolInitializations.push(
+        `${tool.variableName} = create_a2a_tool(\n    url="${tool.url}",\n    tool_name="${funcName}"\n)`,
+      );
+      toolListForAgent.push(tool.variableName);
     }
+  });
 
-    config.tools.forEach(tool => {
-        if (tool.type === 'A2AClientTool' && tool.url) {
-            const funcName = tool.variableName || 'a2a_tool';
-            toolInitializations.push(
-                `${tool.variableName} = create_a2a_tool(\n    url="${tool.url}",\n    tool_name="${funcName}"\n)`
-            );
-            toolListForAgent.push(tool.variableName);
-        }
-    });
+  if (config.enableDiscoveryApi) {
+    toolsImport.add("query_gemini_enterprise");
+    toolListForAgent.push("query_gemini_enterprise");
+  }
 
-    if (config.enableDiscoveryApi) {
-        toolsImport.add('query_gemini_enterprise');
-        toolListForAgent.push('query_gemini_enterprise');
+  if (config.enableEmailTool) {
+    toolsImport.add("send_email");
+    toolListForAgent.push("send_email");
+  }
+
+  if (config.enableSecurityCommandCenterApi) {
+    toolsImport.add("list_active_findings");
+    toolListForAgent.push("list_active_findings");
+  }
+
+  if (config.enableRecommenderApi) {
+    toolsImport.add("list_recommendations");
+    toolsImport.add("list_cost_recommendations");
+    toolListForAgent.push("list_recommendations");
+    toolListForAgent.push("list_cost_recommendations");
+  }
+
+  if (config.enableServiceHealthApi) {
+    toolsImport.add("check_service_health");
+    toolListForAgent.push("check_service_health");
+  }
+
+  if (config.enableNetworkManagementApi) {
+    toolsImport.add("run_connectivity_test");
+    toolListForAgent.push("run_connectivity_test");
+  }
+
+  if (config.enableCloudAssistApi) {
+    toolsImport.add("investigate_with_cloud_assist");
+    toolListForAgent.push("investigate_with_cloud_assist");
+  }
+
+  if (config.enableCloudLoggingApi) {
+    toolsImport.add("search_logs");
+    toolListForAgent.push("search_logs");
+  }
+
+  if (config.enableCloudMonitoringApi) {
+    toolsImport.add("check_health");
+    toolsImport.add("get_service_metrics");
+    toolListForAgent.push("check_health");
+    toolListForAgent.push("get_service_metrics");
+  }
+
+  if (config.enableCloudRunApi) {
+    toolsImport.add("list_services");
+    toolListForAgent.push("list_services");
+  }
+
+  if (config.enableResourceManagerApi) {
+    toolsImport.add("list_projects");
+    toolsImport.add("resolve_project_id");
+    toolListForAgent.push("list_projects");
+    toolListForAgent.push("resolve_project_id");
+  }
+
+  if (config.enableAdminActivityApi) {
+    toolsImport.add("list_recent_changes");
+    toolListForAgent.push("list_recent_changes");
+  }
+
+  if (config.enableDatabaseFleetApi) {
+    toolsImport.add("check_database_fleet_health");
+    toolListForAgent.push("check_database_fleet_health");
+  }
+
+  const formatPythonString = (str: string) => {
+    const needsTripleQuotes = str.includes("\n") || str.includes('"');
+    if (needsTripleQuotes) {
+      const escapedStr = str.replace(/"""/g, '\\"\\"\\"');
+      return `"""${escapedStr}"""`;
     }
+    return `"${str.replace(/"/g, '\\"')}"`;
+  };
 
-    if (config.enableEmailTool) {
-        toolsImport.add('send_email');
-        toolListForAgent.push('send_email');
-    }
+  let finalInstruction = config.instruction;
+  if (config.enableGraphvizRendering) {
+    toolsImport.add("render_graphviz");
+    toolListForAgent.push("render_graphviz");
+  }
 
-    if (config.enableSecurityCommandCenterApi) {
-        toolsImport.add('list_active_findings');
-        toolListForAgent.push('list_active_findings');
-    }
+  const imports = [
+    "import os",
+    "import asyncio",
+    "import nest_asyncio",
+    "nest_asyncio.apply()",
+    "from dotenv import load_dotenv",
+    "from google.antigravity import Agent, LocalAgentConfig, ToolContext, types",
+    "from google.antigravity.hooks import policy",
+    "from pydantic import BaseModel, PrivateAttr",
+    "from typing import Any",
+    ...Array.from(toolImports),
+  ].filter(Boolean);
 
-    if (config.enableRecommenderApi) {
-        toolsImport.add('list_recommendations');
-        toolsImport.add('list_cost_recommendations');
-        toolListForAgent.push('list_recommendations');
-        toolListForAgent.push('list_cost_recommendations');
-    }
-
-    if (config.enableServiceHealthApi) {
-        toolsImport.add('check_service_health');
-        toolListForAgent.push('check_service_health');
-    }
-
-    if (config.enableNetworkManagementApi) {
-        toolsImport.add('run_connectivity_test');
-        toolListForAgent.push('run_connectivity_test');
-    }
-
-    if (config.enableCloudAssistApi) {
-        toolsImport.add('investigate_with_cloud_assist');
-        toolListForAgent.push('investigate_with_cloud_assist');
-    }
-
-    if (config.enableCloudLoggingApi) {
-        toolsImport.add('search_logs');
-        toolListForAgent.push('search_logs');
-    }
-
-    if (config.enableCloudMonitoringApi) {
-        toolsImport.add('check_health');
-        toolsImport.add('get_service_metrics');
-        toolListForAgent.push('check_health');
-        toolListForAgent.push('get_service_metrics');
-    }
-
-    if (config.enableCloudRunApi) {
-        toolsImport.add('list_services');
-        toolListForAgent.push('list_services');
-    }
-
-    if (config.enableResourceManagerApi) {
-        toolsImport.add('list_projects');
-        toolsImport.add('resolve_project_id');
-        toolListForAgent.push('list_projects');
-        toolListForAgent.push('resolve_project_id');
-    }
-
-    if (config.enableAdminActivityApi) {
-        toolsImport.add('list_recent_changes');
-        toolListForAgent.push('list_recent_changes');
-    }
-
-    if (config.enableDatabaseFleetApi) {
-        toolsImport.add('check_database_fleet_health');
-        toolListForAgent.push('check_database_fleet_health');
-    }
-
-    const formatPythonString = (str: string) => {
-        const needsTripleQuotes = str.includes('\n') || str.includes('"');
-        if (needsTripleQuotes) {
-            const escapedStr = str.replace(/"""/g, '\\"\\"\\"');
-            return `"""${escapedStr}"""`;
-        }
-        return `"${str.replace(/"/g, '\\"')}"`;
-    };
-
-    let finalInstruction = config.instruction;
-    if (config.enableGraphvizRendering) {
-        toolsImport.add('render_graphviz');
-        toolListForAgent.push('render_graphviz');
-    }
-
-    const imports = [
-        'import os',
-        'import asyncio',
-        'import nest_asyncio',
-        'nest_asyncio.apply()',
-        'from dotenv import load_dotenv',
-        'from google.antigravity import Agent, LocalAgentConfig, ToolContext, types',
-        'from google.antigravity.hooks import policy',
-        'from pydantic import BaseModel, PrivateAttr',
-        'from typing import Any',
-        ...Array.from(toolImports),
-    ].filter(Boolean);
-
-    if (toolsImport.size > 0) {
-        const toolsList = Array.from(toolsImport).join(', ');
-        imports.push(`try:
+  if (toolsImport.size > 0) {
+    const toolsList = Array.from(toolsImport).join(", ");
+    imports.push(`try:
     from .tools import ${toolsList}
 except ImportError:
     from tools import ${toolsList}`);
-    }
+  }
 
-    return `
-${imports.join('\n')}
+  return `
+${imports.join("\n")}
 
 load_dotenv()
 
@@ -2175,7 +2287,7 @@ load_dotenv()
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
 
 # Initialize Tools
-${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No additional tools defined'}
+${toolInitializations.length > 0 ? toolInitializations.join("\n\n") : "# No additional tools defined"}
 
 # Wrapper for Synchronous Execution (Reasoning Engine Requirement for some runtimes)
 class SyncAgentWrapper(BaseModel):
@@ -2268,29 +2380,35 @@ def create_agent():
 
     mcp_servers = []
     
-    ${config.enableBigQueryMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="bigquery", url="https://bigquery.googleapis.com/mcp", headers=headers))` : ''}
-    ${config.enableCloudLoggingMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="logging", url="https://logging.googleapis.com/mcp", headers=headers))` : ''}
-    ${config.enableBigtableAdminMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="bigtable", url="https://bigtableadmin.googleapis.com/mcp", headers=headers))` : ''}
-    ${config.enableCloudSqlMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="sqladmin", url="https://sqladmin.googleapis.com/mcp", headers=headers))` : ''}
-    ${config.enableCloudMonitoringMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="monitoring", url="https://monitoring.googleapis.com/mcp", headers=headers))` : ''}
-    ${config.enableComputeEngineMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="compute", url="https://compute.googleapis.com/mcp", headers=headers))` : ''}
-    ${config.enableFirestoreMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="firestore", url="https://firestore.googleapis.com/mcp", headers=headers))` : ''}
-    ${config.enableGkeMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="container", url="https://container.googleapis.com/mcp", headers=headers))` : ''}
-    ${config.enableResourceManagerMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="resourcemanager", url="https://cloudresourcemanager.googleapis.com/mcp", headers=headers))` : ''}
-    ${config.enableSpannerMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="spanner", url="https://spanner.googleapis.com/mcp", headers=headers))` : ''}
-    ${config.enableDeveloperKnowledgeMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="developerknowledge", url="https://developerknowledge.googleapis.com/mcp", headers=headers))` : ''}
-    ${config.enableMapsGroundingMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="mapstools", url="https://mapstools.googleapis.com/mcp", headers=headers))` : ''}
+    ${config.enableBigQueryMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="bigquery", url="https://bigquery.googleapis.com/mcp", headers=headers))` : ""}
+    ${config.enableCloudLoggingMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="logging", url="https://logging.googleapis.com/mcp", headers=headers))` : ""}
+    ${config.enableBigtableAdminMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="bigtable", url="https://bigtableadmin.googleapis.com/mcp", headers=headers))` : ""}
+    ${config.enableCloudSqlMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="sqladmin", url="https://sqladmin.googleapis.com/mcp", headers=headers))` : ""}
+    ${config.enableCloudMonitoringMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="monitoring", url="https://monitoring.googleapis.com/mcp", headers=headers))` : ""}
+    ${config.enableComputeEngineMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="compute", url="https://compute.googleapis.com/mcp", headers=headers))` : ""}
+    ${config.enableFirestoreMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="firestore", url="https://firestore.googleapis.com/mcp", headers=headers))` : ""}
+    ${config.enableGkeMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="container", url="https://container.googleapis.com/mcp", headers=headers))` : ""}
+    ${config.enableResourceManagerMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="resourcemanager", url="https://cloudresourcemanager.googleapis.com/mcp", headers=headers))` : ""}
+    ${config.enableSpannerMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="spanner", url="https://spanner.googleapis.com/mcp", headers=headers))` : ""}
+    ${config.enableDeveloperKnowledgeMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="developerknowledge", url="https://developerknowledge.googleapis.com/mcp", headers=headers))` : ""}
+    ${config.enableMapsGroundingMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="mapstools", url="https://mapstools.googleapis.com/mcp", headers=headers))` : ""}
 
-    ${config.customMcpEndpoints && config.customMcpEndpoints.length > 0 ? `
+    ${
+      config.customMcpEndpoints && config.customMcpEndpoints.length > 0
+        ? `
     # Custom MCP Endpoints
-    ${config.customMcpEndpoints.map(endpoint => {
-        const safeName = endpoint.name.replace(/[^a-zA-Z0-9_]/g, '_');
+    ${config.customMcpEndpoints
+      .map((endpoint) => {
+        const safeName = endpoint.name.replace(/[^a-zA-Z0-9_]/g, "_");
         return `mcp_servers.append(types.McpStreamableHttpServer(name="${safeName}", url="${endpoint.url}", headers=headers))`;
-    }).join('\n    ')}` : ''}
+      })
+      .join("\n    ")}`
+        : ""
+    }
 
     # Safety Policies
     policies = []
-    ${config.enableCodeExecution ? `policies.append(policy.allow("run_command"))` : ''}
+    ${config.enableCodeExecution ? `policies.append(policy.allow("run_command"))` : ""}
 
     location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
@@ -2300,7 +2418,7 @@ def create_agent():
         vertex=True,
         project=project_id,
         location=location,
-        tools=[${toolListForAgent.join(', ')}],
+        tools=[${toolListForAgent.join(", ")}],
         mcp_servers=mcp_servers,
         policies=policies if policies else None,
         workspaces=[os.getcwd()]
@@ -2312,33 +2430,38 @@ root_agent = create_agent()
 `.trim();
 };
 
-const generateAdkPythonCode = (config: AdkAgentConfig, useRelativeImports: boolean = false): string => {
-    if (config.adkVersion === '2.2') {
-        return generateAdk22PythonCode(config, useRelativeImports);
-    }
-    const toolImports = new Set<string>();
-    const toolInitializations: string[] = [];
-    const toolListForAgent: string[] = [];
-    const pluginsImports = new Set<string>();
-    const pluginInitializations: string[] = [];
-    const pluginList: string[] = [];
+const generateAdkPythonCode = (
+  config: AdkAgentConfig,
+  useRelativeImports: boolean = false,
+): string => {
+  if (config.adkVersion === "2.2") {
+    return generateAdk22PythonCode(config, useRelativeImports);
+  }
+  const toolImports = new Set<string>();
+  const toolInitializations: string[] = [];
+  const toolListForAgent: string[] = [];
+  const pluginsImports = new Set<string>();
+  const pluginInitializations: string[] = [];
+  const pluginList: string[] = [];
 
-    // We import from tools now
-    const toolsImport = new Set<string>();
+  // We import from tools now
+  const toolsImport = new Set<string>();
 
-    // Model selection logic
-    const modelName = config.model;
-    const agentClass = 'Agent';
-    const agentImport = 'from google.adk.agents import Agent';
-    const adkAppImport = 'from google.adk.apps import App';
+  // Model selection logic
+  const modelName = config.model;
+  const agentClass = "Agent";
+  const agentImport = "from google.adk.agents import Agent";
+  const adkAppImport = "from google.adk.apps import App";
 
-    toolImports.add('import google.auth');
+  toolImports.add("import google.auth");
 
-    if (config.enableCodeExecution) {
-        toolImports.add('from google.adk.tools import AgentTool');
-        toolImports.add('from google.adk.code_executors.built_in_code_executor import BuiltInCodeExecutor');
+  if (config.enableCodeExecution) {
+    toolImports.add("from google.adk.tools import AgentTool");
+    toolImports.add(
+      "from google.adk.code_executors.built_in_code_executor import BuiltInCodeExecutor",
+    );
 
-        toolInitializations.push(`def code_executor_agent():
+    toolInitializations.push(`def code_executor_agent():
     instruction = (
         "You are a Python Data Science and Visualization Expert. Your goal is to transform "
         "raw data into actionable visual insights.\\n\\n"
@@ -2361,302 +2484,330 @@ const generateAdkPythonCode = (config: AdkAgentConfig, useRelativeImports: boole
 
 code_exec_tool = AgentTool(code_executor_agent())`);
 
-        toolListForAgent.push('code_exec_tool');
+    toolListForAgent.push("code_exec_tool");
+  }
+
+  // Inject A2A Helper Function Import
+  if (config.tools.some((t) => t.type === "A2AClientTool")) {
+    toolsImport.add("create_a2a_tool");
+  }
+
+  config.tools.forEach((tool) => {
+    if (tool.type === "VertexAiSearchTool" && tool.dataStoreId) {
+      toolImports.add("from google.adk.tools import VertexAiSearchTool");
+      toolInitializations.push(
+        `${tool.variableName} = VertexAiSearchTool(\n    data_store_id="${tool.dataStoreId}",\n    bypass_multi_tools_limit=True\n)`,
+      );
+      toolListForAgent.push(tool.variableName);
+    } else if (tool.type === "A2AClientTool" && tool.url) {
+      const funcName = tool.variableName || "a2a_tool";
+      toolInitializations.push(
+        `${tool.variableName} = create_a2a_tool(\n    url="${tool.url}",\n    tool_name="${funcName}"\n)`,
+      );
+      toolListForAgent.push(tool.variableName);
+    }
+  });
+
+  if (config.useGoogleSearch) {
+    toolImports.add("from google.adk.tools import google_search_tool");
+
+    // Check if there are other tools that could cause a conflict
+    const hasOtherTools =
+      config.tools.length > 0 ||
+      config.enableBigQueryMcp ||
+      config.enableCloudLoggingMcp ||
+      config.enableDiscoveryApi ||
+      config.enableEmailTool ||
+      config.enableCodeExecution ||
+      config.enableSecurityCommandCenterApi ||
+      config.enableRecommenderApi ||
+      config.enableServiceHealthApi ||
+      config.enableNetworkManagementApi ||
+      config.enableCloudAssistApi ||
+      config.enableCloudLoggingApi ||
+      config.enableCloudMonitoringApi ||
+      config.enableCloudRunApi ||
+      config.enableResourceManagerApi ||
+      config.enableAdminActivityApi ||
+      config.enableDatabaseFleetApi ||
+      config.enableBigtableAdminMcp ||
+      config.enableCloudSqlMcp ||
+      config.enableCloudMonitoringMcp ||
+      config.enableComputeEngineMcp ||
+      config.enableFirestoreMcp ||
+      config.enableGkeMcp ||
+      config.enableResourceManagerMcp ||
+      config.enableSpannerMcp ||
+      config.enableDeveloperKnowledgeMcp ||
+      config.enableMapsGroundingMcp;
+
+    let initCode = `google_search = google_search_tool.GoogleSearchTool()`;
+    if (hasOtherTools) {
+      initCode += `\ngoogle_search.bypass_multi_tools_limit = True`;
     }
 
-    // Inject A2A Helper Function Import
-    if (config.tools.some(t => t.type === 'A2AClientTool')) {
-        toolsImport.add('create_a2a_tool');
-    }
+    toolInitializations.push(initCode);
+    toolListForAgent.push("google_search");
+  }
 
-    config.tools.forEach(tool => {
-        if (tool.type === 'VertexAiSearchTool' && tool.dataStoreId) {
-            toolImports.add('from google.adk.tools import VertexAiSearchTool');
-            toolInitializations.push(
-                `${tool.variableName} = VertexAiSearchTool(\n    data_store_id="${tool.dataStoreId}",\n    bypass_multi_tools_limit=True\n)`
-            );
-            toolListForAgent.push(tool.variableName);
-        } else if (tool.type === 'A2AClientTool' && tool.url) {
-            const funcName = tool.variableName || 'a2a_tool';
-            toolInitializations.push(
-                `${tool.variableName} = create_a2a_tool(\n    url="${tool.url}",\n    tool_name="${funcName}"\n)`
-            );
-            toolListForAgent.push(tool.variableName);
-        }
-    });
-
-    if (config.useGoogleSearch) {
-        toolImports.add('from google.adk.tools import google_search_tool');
-
-        // Check if there are other tools that could cause a conflict
-        const hasOtherTools = config.tools.length > 0 ||
-            config.enableBigQueryMcp ||
-            config.enableCloudLoggingMcp ||
-            config.enableDiscoveryApi ||
-            config.enableEmailTool ||
-            config.enableCodeExecution ||
-            config.enableSecurityCommandCenterApi ||
-            config.enableRecommenderApi ||
-            config.enableServiceHealthApi ||
-            config.enableNetworkManagementApi ||
-            config.enableCloudAssistApi ||
-            config.enableCloudLoggingApi ||
-            config.enableCloudMonitoringApi ||
-            config.enableCloudRunApi ||
-            config.enableResourceManagerApi ||
-            config.enableAdminActivityApi ||
-            config.enableDatabaseFleetApi ||
-            config.enableBigtableAdminMcp ||
-            config.enableCloudSqlMcp ||
-            config.enableCloudMonitoringMcp ||
-            config.enableComputeEngineMcp ||
-            config.enableFirestoreMcp ||
-            config.enableGkeMcp ||
-            config.enableResourceManagerMcp ||
-            config.enableSpannerMcp ||
-            config.enableDeveloperKnowledgeMcp ||
-            config.enableMapsGroundingMcp;
-
-        let initCode = `google_search = google_search_tool.GoogleSearchTool()`;
-        if (hasOtherTools) {
-            initCode += `\ngoogle_search.bypass_multi_tools_limit = True`;
-        }
-
-        toolInitializations.push(initCode);
-        toolListForAgent.push('google_search');
-    }
-
-    if (config.enableBqAnalytics) {
-        pluginsImports.add('from google.adk.plugins.bigquery_agent_analytics_plugin import BigQueryAgentAnalyticsPlugin');
-        pluginInitializations.push(`# BigQuery Analytics Plugin
+  if (config.enableBqAnalytics) {
+    pluginsImports.add(
+      "from google.adk.plugins.bigquery_agent_analytics_plugin import BigQueryAgentAnalyticsPlugin",
+    );
+    pluginInitializations.push(`# BigQuery Analytics Plugin
 bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     project_id=os.environ.get("GOOGLE_CLOUD_PROJECT"),
     dataset_id="${config.bqDatasetId}",
-    table_id="${config.bqTableId || 'agent_events'}"
+    table_id="${config.bqTableId || "agent_events"}"
 )`);
-        pluginList.push('bq_logging_plugin');
+    pluginList.push("bq_logging_plugin");
+  }
+
+  if (config.enableDiscoveryApi) {
+    toolsImport.add("query_gemini_enterprise");
+    toolListForAgent.push("query_gemini_enterprise");
+  }
+
+  if (config.enableBigQueryMcp) {
+    toolsImport.add("get_bq_mcp_toolset");
+    toolInitializations.push("bq_mcp_toolset = get_bq_mcp_toolset()");
+    toolListForAgent.push("bq_mcp_toolset");
+  }
+  if (
+    config.enableCloudLoggingMcp ||
+    config.enableCloudLoggingApi ||
+    config.enableCloudMonitoringMcp ||
+    config.enableCloudMonitoringApi
+  ) {
+    toolsImport.add("get_current_time");
+    toolListForAgent.push("get_current_time");
+  }
+  if (config.enableCloudLoggingMcp) {
+    toolsImport.add("get_logging_mcp_toolset");
+    toolInitializations.push("logging_mcp_toolset = get_logging_mcp_toolset()");
+    toolListForAgent.push("logging_mcp_toolset");
+  }
+
+  const mcpServicesForAgent = [
+    { key: "enableBigtableAdminMcp", name: "bigtable" },
+    { key: "enableCloudSqlMcp", name: "sqladmin" },
+    { key: "enableCloudMonitoringMcp", name: "monitoring" },
+    { key: "enableComputeEngineMcp", name: "compute" },
+    { key: "enableFirestoreMcp", name: "firestore" },
+    { key: "enableGkeMcp", name: "gke" },
+    { key: "enableResourceManagerMcp", name: "resourcemanager" },
+    { key: "enableSpannerMcp", name: "spanner" },
+    { key: "enableDeveloperKnowledgeMcp", name: "developerknowledge" },
+    { key: "enableMapsGroundingMcp", name: "mapstools" },
+  ];
+
+  mcpServicesForAgent.forEach(({ key, name }) => {
+    if ((config as any)[key]) {
+      toolsImport.add(`get_${name}_mcp_toolset`);
+      toolInitializations.push(
+        `${name}_mcp_toolset = get_${name}_mcp_toolset()`,
+      );
+      toolListForAgent.push(`${name}_mcp_toolset`);
     }
+  });
 
-    if (config.enableDiscoveryApi) {
-        toolsImport.add('query_gemini_enterprise');
-        toolListForAgent.push('query_gemini_enterprise');
-    }
+  if (config.customMcpEndpoints && config.customMcpEndpoints.length > 0) {
+    toolImports.add(
+      "from google.adk.tools.mcp_tool.mcp_toolset import McpToolset",
+    );
 
+    let hasSse = false;
+    let hasRegular = false;
 
-
-
-
-    if (config.enableBigQueryMcp) {
-        toolsImport.add('get_bq_mcp_toolset');
-        toolInitializations.push('bq_mcp_toolset = get_bq_mcp_toolset()');
-        toolListForAgent.push('bq_mcp_toolset');
-    }
-    if (config.enableCloudLoggingMcp || config.enableCloudLoggingApi || config.enableCloudMonitoringMcp || config.enableCloudMonitoringApi) {
-        toolsImport.add('get_current_time');
-        toolListForAgent.push('get_current_time');
-    }
-    if (config.enableCloudLoggingMcp) {
-        toolsImport.add('get_logging_mcp_toolset');
-        toolInitializations.push('logging_mcp_toolset = get_logging_mcp_toolset()');
-        toolListForAgent.push('logging_mcp_toolset');
-    }
-
-    const mcpServicesForAgent = [
-        { key: 'enableBigtableAdminMcp', name: 'bigtable' },
-        { key: 'enableCloudSqlMcp', name: 'sqladmin' },
-        { key: 'enableCloudMonitoringMcp', name: 'monitoring' },
-        { key: 'enableComputeEngineMcp', name: 'compute' },
-        { key: 'enableFirestoreMcp', name: 'firestore' },
-        { key: 'enableGkeMcp', name: 'gke' },
-        { key: 'enableResourceManagerMcp', name: 'resourcemanager' },
-        { key: 'enableSpannerMcp', name: 'spanner' },
-        { key: 'enableDeveloperKnowledgeMcp', name: 'developerknowledge' },
-        { key: 'enableMapsGroundingMcp', name: 'mapstools' },
-    ];
-
-    mcpServicesForAgent.forEach(({ key, name }) => {
-        if ((config as any)[key]) {
-            toolsImport.add(`get_${name}_mcp_toolset`);
-            toolInitializations.push(`${name}_mcp_toolset = get_${name}_mcp_toolset()`);
-            toolListForAgent.push(`${name}_mcp_toolset`);
+    config.customMcpEndpoints.forEach((endpoint) => {
+      if (endpoint.name && endpoint.url) {
+        if (endpoint.url.endsWith("/sse")) {
+          hasSse = true;
+        } else {
+          hasRegular = true;
         }
+      }
     });
 
-    if (config.customMcpEndpoints && config.customMcpEndpoints.length > 0) {
-        toolImports.add('from google.adk.tools.mcp_tool.mcp_toolset import McpToolset');
-        
-        let hasSse = false;
-        let hasRegular = false;
-        
-        config.customMcpEndpoints.forEach(endpoint => {
-            if (endpoint.name && endpoint.url) {
-                if (endpoint.url.endsWith('/sse')) {
-                    hasSse = true;
-                } else {
-                    hasRegular = true;
-                }
-            }
-        });
-        
-        if (hasSse) {
-            toolImports.add('from google.adk.tools.mcp_tool.mcp_session_manager import SseConnectionParams');
-        }
-        if (hasRegular || !hasSse) {
-            toolImports.add('from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams');
-        }
-
-        config.customMcpEndpoints.forEach(endpoint => {
-            if (endpoint.name && endpoint.url) {
-                // Ensure name is a valid python variable name
-                const safeName = endpoint.name.replace(/[^a-zA-Z0-9_]/g, '_');
-                const paramClass = endpoint.url.endsWith('/sse') ? 'SseConnectionParams' : 'StreamableHTTPConnectionParams';
-                toolInitializations.push(`${safeName} = McpToolset(\n    connection_params=${paramClass}(\n        url="${endpoint.url}",\n    ),\n)`);
-                toolListForAgent.push(safeName);
-            }
-        });
+    if (hasSse) {
+      toolImports.add(
+        "from google.adk.tools.mcp_tool.mcp_session_manager import SseConnectionParams",
+      );
+    }
+    if (hasRegular || !hasSse) {
+      toolImports.add(
+        "from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams",
+      );
     }
 
-    if (config.enableEmailTool) {
-        toolsImport.add('send_email');
-        toolListForAgent.push('send_email');
+    config.customMcpEndpoints.forEach((endpoint) => {
+      if (endpoint.name && endpoint.url) {
+        // Ensure name is a valid python variable name
+        const safeName = endpoint.name.replace(/[^a-zA-Z0-9_]/g, "_");
+        const paramClass = endpoint.url.endsWith("/sse")
+          ? "SseConnectionParams"
+          : "StreamableHTTPConnectionParams";
+        toolInitializations.push(
+          `${safeName} = McpToolset(\n    connection_params=${paramClass}(\n        url="${endpoint.url}",\n    ),\n)`,
+        );
+        toolListForAgent.push(safeName);
+      }
+    });
+  }
+
+  if (config.enableEmailTool) {
+    toolsImport.add("send_email");
+    toolListForAgent.push("send_email");
+  }
+
+  if (config.enableSecurityCommandCenterApi) {
+    toolsImport.add("list_active_findings");
+    toolListForAgent.push("list_active_findings");
+  }
+
+  if (config.enableRecommenderApi) {
+    toolsImport.add("list_recommendations");
+    toolsImport.add("list_cost_recommendations");
+    toolListForAgent.push("list_recommendations");
+    toolListForAgent.push("list_cost_recommendations");
+  }
+
+  if (config.enableServiceHealthApi) {
+    toolsImport.add("check_service_health");
+    toolListForAgent.push("check_service_health");
+  }
+
+  if (config.enableNetworkManagementApi) {
+    toolsImport.add("run_connectivity_test");
+    toolListForAgent.push("run_connectivity_test");
+  }
+
+  if (config.enableCloudAssistApi) {
+    toolsImport.add("investigate_with_cloud_assist");
+    toolListForAgent.push("investigate_with_cloud_assist");
+  }
+
+  if (config.enableCloudLoggingApi) {
+    toolsImport.add("search_logs");
+    toolListForAgent.push("search_logs");
+  }
+
+  if (config.enableCloudMonitoringApi) {
+    toolsImport.add("check_health");
+    toolsImport.add("get_service_metrics");
+    toolListForAgent.push("check_health");
+    toolListForAgent.push("get_service_metrics");
+  }
+
+  if (config.enableCloudRunApi) {
+    toolsImport.add("list_services");
+    toolListForAgent.push("list_services");
+  }
+
+  if (config.enableResourceManagerApi) {
+    toolsImport.add("list_projects");
+    toolsImport.add("resolve_project_id");
+    toolListForAgent.push("list_projects");
+    toolListForAgent.push("resolve_project_id");
+  }
+
+  if (config.enableAdminActivityApi) {
+    toolsImport.add("list_recent_changes");
+    toolListForAgent.push("list_recent_changes");
+  }
+
+  if (config.enableDatabaseFleetApi) {
+    toolsImport.add("check_database_fleet_health");
+    toolListForAgent.push("check_database_fleet_health");
+  }
+
+  const formatPythonString = (str: string) => {
+    const needsTripleQuotes = str.includes("\n") || str.includes('"');
+    if (needsTripleQuotes) {
+      const escapedStr = str.replace(/"""/g, '\\"\\"\\"');
+      return `"""${escapedStr}"""`;
     }
+    return `"${str.replace(/"/g, '\\"')}"`;
+  };
 
-    if (config.enableSecurityCommandCenterApi) {
-        toolsImport.add('list_active_findings');
-        toolListForAgent.push('list_active_findings');
+  let finalInstruction = config.instruction;
+  if (toolListForAgent.length > 0) {
+    // Remove "no access to external tools" phrase if present, case-insensitive
+    finalInstruction = finalInstruction.replace(
+      /no access to external tools\.?/gi,
+      "",
+    );
+    // Clean up any double spaces or spaces before periods left over
+    finalInstruction = finalInstruction
+      .replace(/ +/g, " ")
+      .replace(/ \./g, ".")
+      .trim();
+  }
+  if (config.enableCodeExecution || config.enableGraphvizRendering) {
+    finalInstruction += `\\n\\nAdditionally, you have access to specialized tools and sub-agents:`;
+    if (config.enableCodeExecution) {
+      finalInstruction += `\\n- \`code_exec_agent\`: A specialized Python Data Science Expert for generating charts, graphs, and plots from data.`;
     }
-
-    if (config.enableRecommenderApi) {
-        toolsImport.add('list_recommendations');
-        toolsImport.add('list_cost_recommendations');
-        toolListForAgent.push('list_recommendations');
-        toolListForAgent.push('list_cost_recommendations');
-    }
-
-    if (config.enableServiceHealthApi) {
-        toolsImport.add('check_service_health');
-        toolListForAgent.push('check_service_health');
-    }
-
-    if (config.enableNetworkManagementApi) {
-        toolsImport.add('run_connectivity_test');
-        toolListForAgent.push('run_connectivity_test');
-    }
-
-    if (config.enableCloudAssistApi) {
-        toolsImport.add('investigate_with_cloud_assist');
-        toolListForAgent.push('investigate_with_cloud_assist');
-    }
-
-    if (config.enableCloudLoggingApi) {
-        toolsImport.add('search_logs');
-        toolListForAgent.push('search_logs');
-    }
-
-    if (config.enableCloudMonitoringApi) {
-        toolsImport.add('check_health');
-        toolsImport.add('get_service_metrics');
-        toolListForAgent.push('check_health');
-        toolListForAgent.push('get_service_metrics');
-    }
-
-    if (config.enableCloudRunApi) {
-        toolsImport.add('list_services');
-        toolListForAgent.push('list_services');
-    }
-
-    if (config.enableResourceManagerApi) {
-        toolsImport.add('list_projects');
-        toolsImport.add('resolve_project_id');
-        toolListForAgent.push('list_projects');
-        toolListForAgent.push('resolve_project_id');
-    }
-
-    if (config.enableAdminActivityApi) {
-        toolsImport.add('list_recent_changes');
-        toolListForAgent.push('list_recent_changes');
-    }
-
-    if (config.enableDatabaseFleetApi) {
-        toolsImport.add('check_database_fleet_health');
-        toolListForAgent.push('check_database_fleet_health');
-    }
-
-    const formatPythonString = (str: string) => {
-        const needsTripleQuotes = str.includes('\n') || str.includes('"');
-        if (needsTripleQuotes) {
-            const escapedStr = str.replace(/"""/g, '\\"\\"\\"');
-            return `"""${escapedStr}"""`;
-        }
-        return `"${str.replace(/"/g, '\\"')}"`;
-    };
-
-    let finalInstruction = config.instruction;
-    if (toolListForAgent.length > 0) {
-        // Remove "no access to external tools" phrase if present, case-insensitive
-        finalInstruction = finalInstruction.replace(/no access to external tools\.?/gi, '');
-        // Clean up any double spaces or spaces before periods left over
-        finalInstruction = finalInstruction.replace(/ +/g, ' ').replace(/ \./g, '.').trim();
-    }
-    if (config.enableCodeExecution || config.enableGraphvizRendering) {
-        finalInstruction += `\\n\\nAdditionally, you have access to specialized tools and sub-agents:`;
-        if (config.enableCodeExecution) {
-        finalInstruction += `\\n- \`code_exec_agent\`: A specialized Python Data Science Expert for generating charts, graphs, and plots from data.`;
-        }
-        if (config.enableGraphvizRendering) {
-            finalInstruction += `\\n- \`render_graphviz\`: A specialized tool for locally rendering Graphviz (.dot) architecture diagrams.`;
-        }
-        finalInstruction += `\\n\\nWhen asked to analyze data or create a visualization:`;
-        if (config.enableCodeExecution) {
-        finalInstruction += `\\n- For charts and data plots: Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.`;
-        }
-        if (config.enableGraphvizRendering) {
-            finalInstruction += `\\n- For system architectures, schemas, or flowcharts: Generate the .dot code and use the \`render_graphviz\` tool to create the diagram.`;
-            finalInstruction += `\\n  CRITICAL: When render_graphviz returns the markdown image string AND the clickable hyperlink, you MUST output BOTH strings verbatim to the user in your final response. Do NOT summarize or omit the image link or the hyperlink.`;
-        }
-        finalInstruction += `\\nDO NOT output raw code to the user. Always delegate explicitly to the appropriate tool or sub-agent to generate the visual artifact.`;
-    }
-
-    const imports = [
-        'import os',
-        'import nest_asyncio',
-        'nest_asyncio.apply()',
-        'from dotenv import load_dotenv',
-        'from google.adk.agents import BaseAgent',
-        'from pydantic import PrivateAttr',
-        'from typing import Any',
-        agentImport,
-        config.enableThinking ? 'from google.adk.planners import BuiltInPlanner' : '',
-        'from google.genai import types as genai_types',
-        ...Array.from(toolImports),
-        ...Array.from(pluginsImports),
-    ].filter(Boolean);
-
     if (config.enableGraphvizRendering) {
-        toolsImport.add('render_graphviz');
-        toolListForAgent.push('render_graphviz');
+      finalInstruction += `\\n- \`render_graphviz\`: A specialized tool for locally rendering Graphviz (.dot) architecture diagrams.`;
     }
+    finalInstruction += `\\n\\nWhen asked to analyze data or create a visualization:`;
+    if (config.enableCodeExecution) {
+      finalInstruction += `\\n- For charts and data plots: Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.`;
+    }
+    if (config.enableGraphvizRendering) {
+      finalInstruction += `\\n- For system architectures, schemas, or flowcharts: Generate the .dot code and use the \`render_graphviz\` tool to create the diagram.`;
+      finalInstruction += `\\n  CRITICAL: When render_graphviz returns the markdown image string AND the clickable hyperlink, you MUST output BOTH strings verbatim to the user in your final response. Do NOT summarize or omit the image link or the hyperlink.`;
+    }
+    finalInstruction += `\\nDO NOT output raw code to the user. Always delegate explicitly to the appropriate tool or sub-agent to generate the visual artifact.`;
+  }
 
-    if (toolsImport.size > 0) {
-        const toolsList = Array.from(toolsImport).join(', ');
-        imports.push(`try:
+  const imports = [
+    "import os",
+    "import nest_asyncio",
+    "nest_asyncio.apply()",
+    "from dotenv import load_dotenv",
+    "from google.adk.agents import BaseAgent",
+    "from pydantic import PrivateAttr",
+    "from typing import Any",
+    agentImport,
+    config.enableThinking
+      ? "from google.adk.planners import BuiltInPlanner"
+      : "",
+    "from google.genai import types as genai_types",
+    ...Array.from(toolImports),
+    ...Array.from(pluginsImports),
+  ].filter(Boolean);
+
+  if (config.enableGraphvizRendering) {
+    toolsImport.add("render_graphviz");
+    toolListForAgent.push("render_graphviz");
+  }
+
+  if (toolsImport.size > 0) {
+    const toolsList = Array.from(toolsImport).join(", ");
+    imports.push(`try:
     from .tools import ${toolsList}
 except ImportError:
     from tools import ${toolsList}`);
-    }
+  }
 
-    return `
-${imports.join('\n')}
+  return `
+${imports.join("\n")}
 
 load_dotenv()
 
 # Force Vertex AI API variant to prevent the 'Missing key inputs argument' Google AI validation error
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
 
-${config.model && config.model.startsWith('gemini-3') ? `
+${
+  config.model && config.model.startsWith("gemini-3")
+    ? `
 # Force Gemini 3 global routing override inside the container execution runtime
 os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
-` : ''}
+`
+    : ""
+}
 # --- ADK Resilience Patch ---
 # Prevents the entire agent stream from crashing if an MCP server returns an HTTP error (e.g. 400 Bad Request)
 # The error happens deep inside an anyio.TaskGroup, so we must monkey-patch the streamable transport.
@@ -2729,17 +2880,21 @@ except Exception as patch_err:
 # ----------------------------------
 
 # Initialize Tools
-${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No additional tools defined'}
+${toolInitializations.length > 0 ? toolInitializations.join("\n\n") : "# No additional tools defined"}
 
 # Initialize Plugins
-${pluginInitializations.length > 0 ? pluginInitializations.join('\n\n') : '# No plugins defined'}
+${pluginInitializations.length > 0 ? pluginInitializations.join("\n\n") : "# No plugins defined"}
 
-${config.enableThinking ? `
+${
+  config.enableThinking
+    ? `
 # Define generation_content_config for Thinking
 thinking_config = genai_types.ThinkingConfig(
-    include_thoughts=True,${config.model && config.model.startsWith('gemini-3') ? `\n    thinking_level="${config.thinkingLevel || 'HIGH'}",` : `\n    thinking_budget=${config.thinkingBudget},`}
+    include_thoughts=True,${config.model && config.model.startsWith("gemini-3") ? `\n    thinking_level="${config.thinkingLevel || "HIGH"}",` : `\n    thinking_budget=${config.thinkingBudget},`}
 )
-` : ''}
+`
+    : ""
+}
 
 # Wrapper for Synchronous Execution (Reasoning Engine Requirement for some runtimes)
 class SyncAgentWrapper(BaseAgent):
@@ -2813,6 +2968,27 @@ class SyncAgentWrapper(BaseAgent):
             from google.genai import types as genai_types
             yield Event(content=genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=response)]))
 
+    def get_a2a_discovery_card(self) -> str:
+        """
+        Exposes the A2A discovery card for Reasoning Engine discovery.
+        """
+        if self._lazy_agent is None:
+            self.set_up()
+        import json
+        card = {
+            "name": self._lazy_agent.name,
+            "description": self._lazy_agent.description,
+            "url": f"agent-engine://{os.environ.get('GOOGLE_CLOUD_PROJECT')}/{self._lazy_agent.name}",
+            "capabilities": { "streaming": True },
+            "version": "1.0.0"
+        }
+        return json.dumps(card)
+
+    def register_operations(self) -> dict[str, list[str]]:
+        return {
+            "": ["query", "get_a2a_discovery_card"]
+        }
+
 # Define the agent factory
 def create_agent():
     return ${agentClass}(
@@ -2823,10 +2999,14 @@ def create_agent():
         generate_content_config=genai_types.GenerateContentConfig(
             http_options=genai_types.HttpOptions(
                 retry_options=genai_types.HttpRetryOptions(initial_delay=1, attempts=2)
-            ),${config.enableThinking ? `
-            thinking_config=thinking_config,` : ''}
+            ),${
+              config.enableThinking
+                ? `
+            thinking_config=thinking_config,`
+                : ""
+            }
         ),
-        tools=[${toolListForAgent.join(', ')}],
+        tools=[${toolListForAgent.join(", ")}],
         # planner=BuiltInPlanner() # Default planner
     )
 
@@ -2834,9 +3014,8 @@ root_agent = create_agent()
 `.trim();
 };
 
-
 const generateAppPy = (useRelativeImports: boolean = false): string => {
-    return `
+  return `
 import asyncio
 import logging
 import os
@@ -2860,13 +3039,13 @@ app = SyncAgentWrapper()
 };
 
 const generateInitPy = (): string => {
-    return `from . import agent
+  return `from . import agent
 from . import app
 `;
 };
 
 const generateAdkDeployScript = (config: AdkAgentConfig): string => {
-    return `
+  return `
 import os
 import logging
 import vertexai
@@ -2951,7 +3130,7 @@ for f in os.listdir("."):
 
 logger.info(f"Extra packages detected: {extra_packages}")
 
-agent_display_name = os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}")
+agent_display_name = os.getenv("AGENT_DISPLAY_NAME", "${config.name || "my-agent"}")
 
 try:
     logger.info(f"Checking for existing agent with display name '{agent_display_name}'...")
@@ -2970,8 +3149,12 @@ try:
             agent_engine=app_to_deploy,
             requirements=reqs,
             env_vars=env_vars,
-            extra_packages=extra_packages,${config.enableGraphvizRendering ? `
-            build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},` : ''}
+            extra_packages=extra_packages,${
+              config.enableGraphvizRendering
+                ? `
+            build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},`
+                : ""
+            }
         )
         logger.info("Update Succeeded!")
     else:
@@ -2981,14 +3164,20 @@ try:
             display_name=agent_display_name,
             requirements=reqs,
             env_vars=env_vars,
-            extra_packages=extra_packages,${config.enableGraphvizRendering ? `
-            build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},` : ''}
+            extra_packages=extra_packages,${
+              config.enableGraphvizRendering
+                ? `
+            build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},`
+                : ""
+            }
         )
         logger.info("Deployment Succeeded!")
         
     print(f"Deployment finished!")
     print(f"Resource Name: {remote_app.resource_name}")
-${config.enableDiscoveryApi ? `
+${
+  config.enableDiscoveryApi
+    ? `
     logger.info("Auto-registering Agent to Gemini Enterprise (Discovery Engine)...")
     import requests
     import google.auth
@@ -3020,7 +3209,7 @@ ${config.enableDiscoveryApi ? `
 
         payload = {
             "displayName": agent_display_name,
-            "description": ${JSON.stringify(config.description || '')},
+            "description": ${JSON.stringify(config.description || "")},
             "adkAgentDefinition": {
                 "toolSettings": {
                     "toolDescription": f"[Agent Metadata]\\nCreated By: Automated CI/CD\\nAgent Engine: {remote_app.resource_name}\\nAdditional Info: None"
@@ -3081,70 +3270,78 @@ ${config.enableDiscoveryApi ? `
                 logger.info("Successfully registered in Gemini Enterprise!")
             else:
                 logger.warning(f"Registration failed ({post_res.status_code}): {post_res.text}")
-` : ''}
+`
+    : ""
+}
 except Exception as e:
     logger.error(f"Deployment/Update Failed: {e}")
     raise
 `.trim();
 };
 
-const generateAdkEnvFile = (config: AdkAgentConfig, projectNumber: string, location: string, stagingBucket: string): string => {
-    // If using Gemini 3 models, the model endpoint location must be "global". 
-    // The Agent Engine deployment location itself remains the specified \`location\`.
-    const isGemini3 = config.model && config.model.startsWith('gemini-3');
-    const modelLocation = isGemini3 ? 'global' : location;
-
-    let env = `GOOGLE_CLOUD_PROJECT="${projectNumber}"
+const generateAdkEnvFile = (
+  config: AdkAgentConfig,
+  projectNumber: string,
+  location: string,
+  stagingBucket: string,
+): string => {
+  const isV2 = config.adkVersion === "2.2";
+  const modelLocation =
+    config.model && config.model.startsWith("gemini-3") ? "global" : location;
+  let env = `GOOGLE_CLOUD_PROJECT="${projectNumber}"
 GOOGLE_CLOUD_LOCATION="${modelLocation}"
 DEPLOYMENT_LOCATION="${location}"
 STAGING_BUCKET="${stagingBucket}"
-GOOGLE_GENAI_USE_VERTEXAI="true"`;
+GOOGLE_GENAI_USE_VERTEXAI="true"
+ENABLE_A2A="true"`;
 
-    if (config.model) {
-        env += `\nMODEL="${config.model}"`;
-    }
+  if (config.model) {
+    env += `\nMODEL="${config.model}"`;
+  }
 
-    if (config.enableOAuth && config.authId) {
-        env += `\nAUTH_ID="${config.authId}"`;
-    }
+  if (config.enableOAuth && config.authId) {
+    env += `\nAUTH_ID="${config.authId}"`;
+  }
 
-    if (config.enableTelemetry) {
-        env += `\nGOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY="true"`;
-    }
+  if (config.enableTelemetry) {
+    env += `\nGOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY="true"`;
+  }
 
-    if (config.enableMessageLogging) {
-        env += `\nOTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT="true"`;
-    }
+  if (config.enableMessageLogging) {
+    env += `\nOTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT="true"`;
+  }
 
-    if (config.enableDiscoveryApi) {
-        env += `\n
+  if (config.enableDiscoveryApi) {
+    env += `\n
 # Discovery Engine
 DISCOVERY_ENGINE_PROJECT_ID="${config.discoveryConfig.projectId || projectNumber}"
-DISCOVERY_ENGINE_LOCATION="${config.discoveryConfig.location || 'global'}"
-DISCOVERY_ENGINE_COLLECTION="${config.discoveryConfig.collection || 'default_collection'}"
-DISCOVERY_ENGINE_ENGINE_ID="${config.discoveryConfig.engineId || 'your-engine-id'}"
-DISCOVERY_ENGINE_DATA_STORE_IDS="${config.discoveryConfig.dataStoreIds || ''}"`;
-    }
+DISCOVERY_ENGINE_LOCATION="${config.discoveryConfig.location || "global"}"
+DISCOVERY_ENGINE_COLLECTION="${config.discoveryConfig.collection || "default_collection"}"
+DISCOVERY_ENGINE_ENGINE_ID="${config.discoveryConfig.engineId || "your-engine-id"}"
+DISCOVERY_ENGINE_DATA_STORE_IDS="${config.discoveryConfig.dataStoreIds || ""}"`;
+  }
 
-    if (config.enableBigQueryMcp) {
-        env += `\n
+  if (config.enableBigQueryMcp) {
+    env += `\n
 # BigQuery
 BQ_USER_PROJECT="${projectNumber}"`;
-    }
+  }
 
-    return env;
+  return env;
 };
 
 const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
-    const isV2 = config.adkVersion === '2.2';
-    const defaultDeps = isV2 ? [
+  const isV2 = config.adkVersion === "2.2";
+  const defaultDeps = isV2
+    ? [
         "google-antigravity>=0.1.3",
         "pydantic>=2.0.0",
         "python-dotenv",
         "nest_asyncio",
         "requests",
-        "httpx"
-    ] : [
+        "httpx",
+      ]
+    : [
         "google-adk[eval]>=1.26.0",
         "google-cloud-aiplatform[adk,agent_engines]>=1.75.0",
         "python-dotenv",
@@ -3154,83 +3351,83 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
         "google-genai",
         "cloudpickle",
         "mcp",
-        "httpx"
-    ];
+        "httpx",
+      ];
 
-    if (config.enableOAuth) {
-        defaultDeps.push("google-auth-oauthlib>=1.2.2", "google-api-python-client");
+  if (config.enableOAuth) {
+    defaultDeps.push("google-auth-oauthlib>=1.2.2", "google-api-python-client");
+  }
+
+  if (config.enableGraphvizRendering) {
+    defaultDeps.push("google-cloud-storage");
+  }
+
+  if (config.enableBigQueryMcp) {
+    defaultDeps.push("google-cloud-bigquery");
+  }
+
+  if (config.enableSecurityCommandCenterApi) {
+    defaultDeps.push("google-cloud-securitycenter");
+  }
+
+  if (config.enableRecommenderApi) {
+    defaultDeps.push("google-cloud-recommender", "google-cloud-run");
+  }
+
+  if (config.enableServiceHealthApi) {
+    defaultDeps.push("google-cloud-servicehealth");
+  }
+
+  if (config.enableNetworkManagementApi) {
+    defaultDeps.push("google-cloud-network-management");
+  }
+
+  if (config.enableEmailTool) {
+    defaultDeps.push("markdown");
+  }
+
+  if (config.enableCloudLoggingApi) {
+    defaultDeps.push("google-cloud-logging");
+  }
+
+  if (config.enableCloudMonitoringApi) {
+    defaultDeps.push("google-cloud-monitoring");
+  }
+
+  if (config.enableCloudRunApi) {
+    defaultDeps.push("google-cloud-run");
+  }
+
+  if (config.enableResourceManagerApi) {
+    defaultDeps.push("google-cloud-resource-manager");
+  }
+
+  if (config.enableAdminActivityApi) {
+    defaultDeps.push("google-cloud-logging");
+  }
+
+  if (config.enableDatabaseFleetApi) {
+    // Uses google-api-python-client, already handled in enableOAuth, but ensuring it's there
+    if (!defaultDeps.includes("google-api-python-client")) {
+      defaultDeps.push("google-api-python-client");
     }
+  }
 
-    if (config.enableGraphvizRendering) {
-        defaultDeps.push("google-cloud-storage");
-    }
+  if (config.enableCodeExecution) {
+    defaultDeps.push("networkx", "matplotlib", "pandas", "seaborn");
+  }
 
-    if (config.enableBigQueryMcp) {
-        defaultDeps.push("google-cloud-bigquery");
-    }
+  if (config.enableGraphvizRendering) {
+    defaultDeps.push("graphviz");
+  }
 
-    if (config.enableSecurityCommandCenterApi) {
-        defaultDeps.push("google-cloud-securitycenter");
-    }
+  // A2A clients usually need requests or aiohttp, already got requests.
 
-    if (config.enableRecommenderApi) {
-        defaultDeps.push("google-cloud-recommender", "google-cloud-run");
-    }
-
-    if (config.enableServiceHealthApi) {
-        defaultDeps.push("google-cloud-servicehealth");
-    }
-
-    if (config.enableNetworkManagementApi) {
-        defaultDeps.push("google-cloud-network-management");
-    }
-
-    if (config.enableEmailTool) {
-        defaultDeps.push("markdown");
-    }
-
-    if (config.enableCloudLoggingApi) {
-        defaultDeps.push("google-cloud-logging");
-    }
-
-    if (config.enableCloudMonitoringApi) {
-        defaultDeps.push("google-cloud-monitoring");
-    }
-
-    if (config.enableCloudRunApi) {
-        defaultDeps.push("google-cloud-run");
-    }
-
-    if (config.enableResourceManagerApi) {
-        defaultDeps.push("google-cloud-resource-manager");
-    }
-
-    if (config.enableAdminActivityApi) {
-        defaultDeps.push("google-cloud-logging");
-    }
-
-    if (config.enableDatabaseFleetApi) {
-        // Uses google-api-python-client, already handled in enableOAuth, but ensuring it's there
-        if (!defaultDeps.includes("google-api-python-client")) {
-            defaultDeps.push("google-api-python-client");
-        }
-    }
-
-    if (config.enableCodeExecution) {
-        defaultDeps.push("networkx", "matplotlib", "pandas", "seaborn");
-    }
-
-    if (config.enableGraphvizRendering) {
-        defaultDeps.push("graphviz");
-    }
-
-    // A2A clients usually need requests or aiohttp, already got requests.
-
-    return defaultDeps.join('\n');
+  return defaultDeps.join("\n");
 };
 
 const generateAdkReadmeFile = (config: AdkAgentConfig): string => {
-    return `# ${config.name || 'Custom Agent'}
+  return `# ${config.name || "Custom Agent"}
 
 ## Setup
     1. Create a virtual environment: \`python3 -m venv venv && source venv/bin/activate\`
@@ -3274,25 +3471,23 @@ This agent is configured with Google Cloud Build.
 `;
 };
 
-
-
-
 interface AgentTemplate {
-    id: string;
-    name: string;
-    description: string;
-    config: Partial<AdkAgentConfig>;
+  id: string;
+  name: string;
+  description: string;
+  config: Partial<AdkAgentConfig>;
 }
 
 const GCP_LOGS_READER_TEMPLATE: AgentTemplate = {
-    id: 'gcp_logs_reader',
-    name: 'GCP Logs Reader',
-    description: 'An agent that can search Google Cloud Logs, with OAuth and Telemetry enabled.',
-    config: {
-        name: 'GCP_Logs_Reader',
-        description: 'An expert agent for analyzing Google Cloud Logs.',
-        model: 'gemini-2.5-flash',
-        instruction: `You are a Google Cloud Logging expert. Your goal is to help users find and analyze logs from their GCP projects.
+  id: "gcp_logs_reader",
+  name: "GCP Logs Reader",
+  description:
+    "An agent that can search Google Cloud Logs, with OAuth and Telemetry enabled.",
+  config: {
+    name: "GCP_Logs_Reader",
+    description: "An expert agent for analyzing Google Cloud Logs.",
+    model: "gemini-2.5-flash",
+    instruction: `You are a Google Cloud Logging expert. Your goal is to help users find and analyze logs from their GCP projects.
 
 You have access to the "logging_list_log_entries" tool (via Cloud Logging MCP). Use it to query logs.
 
@@ -3303,25 +3498,27 @@ IMPORTANT:
 - DO NOT write raw Python code (e.g., default_api.logging__list_log_entries) to call this tool. You must invoke the tool via standard JSON function calling. 
 - The tool returns raw JSON. Summarize the interesting parts for the user.
 - Always verify the project ID before querying.`,
-        useGoogleSearch: true,
-        enableCloudLoggingMcp: true,
-        enableCodeExecution: false,
-        enableGraphvizRendering: false,
-        enableOAuth: true,
-        tools: [],
-        customMcpEndpoints: []
-    }
+    useGoogleSearch: true,
+    enableCloudLoggingMcp: true,
+    enableCodeExecution: false,
+    enableGraphvizRendering: false,
+    enableOAuth: true,
+    tools: [],
+    customMcpEndpoints: [],
+  },
 };
 
 const GCP_HEALTH_MONITORING_AGENT_TEMPLATE: AgentTemplate = {
-    id: 'gcp_health_monitoring_agent',
-    name: 'GCP Health Monitoring Agent',
-    description: 'An agent that monitors GCP health, identifies issues, and generates reports.',
-    config: {
-        name: 'GCP_Health_Monitor',
-        description: 'An expert agent for diagnosing performance, health, and security issues across Google Cloud capabilities.',
-        model: 'gemini-2.5-flash',
-        instruction: `You are an expert Google Cloud Site Reliability Engineer and Cloud Architect.
+  id: "gcp_health_monitoring_agent",
+  name: "GCP Health Monitoring Agent",
+  description:
+    "An agent that monitors GCP health, identifies issues, and generates reports.",
+  config: {
+    name: "GCP_Health_Monitor",
+    description:
+      "An expert agent for diagnosing performance, health, and security issues across Google Cloud capabilities.",
+    model: "gemini-2.5-flash",
+    instruction: `You are an expert Google Cloud Site Reliability Engineer and Cloud Architect.
 Your role is to diagnose performance, health, and security issues across Google Cloud.
 
 Whenever you are asked to check the health or status of an environment or specific service, perform the following general workflow:
@@ -3348,40 +3545,42 @@ Report formatting guidelines:
 * Format your answers cleanly using Markdown.
 * For lists of findings or resources, use bullet points.
 * Always cite the exact project ID and environment details where you found the information.`,
-        useGoogleSearch: true,
-        enableBigQueryMcp: false,
-        enableSecurityCommandCenterApi: true,
-        enableRecommenderApi: true,
-        enableServiceHealthApi: true,
-        enableNetworkManagementApi: true,
-        enableCloudAssistApi: true,
-        enableCloudLoggingMcp: true,
-        enableCloudMonitoringMcp: true,
-        enableResourceManagerMcp: true,
-        enableCloudLoggingApi: false, // Defaulting to MCP for the primary template
-        enableCloudMonitoringApi: false,
-        enableCloudRunApi: true,
-        enableResourceManagerApi: false,
-        enableAdminActivityApi: true,
-        enableDatabaseFleetApi: true,
-        enableOAuth: true,
-        enableEmailTool: true,
-        enableCodeExecution: true,
-        enableGraphvizRendering: false,
-        tools: [],
-        customMcpEndpoints: []
-    }
+    useGoogleSearch: true,
+    enableBigQueryMcp: false,
+    enableSecurityCommandCenterApi: true,
+    enableRecommenderApi: true,
+    enableServiceHealthApi: true,
+    enableNetworkManagementApi: true,
+    enableCloudAssistApi: true,
+    enableCloudLoggingMcp: true,
+    enableCloudMonitoringMcp: true,
+    enableResourceManagerMcp: true,
+    enableCloudLoggingApi: false, // Defaulting to MCP for the primary template
+    enableCloudMonitoringApi: false,
+    enableCloudRunApi: true,
+    enableResourceManagerApi: false,
+    enableAdminActivityApi: true,
+    enableDatabaseFleetApi: true,
+    enableOAuth: true,
+    enableEmailTool: true,
+    enableCodeExecution: true,
+    enableGraphvizRendering: false,
+    tools: [],
+    customMcpEndpoints: [],
+  },
 };
 
 const GCP_HEALTH_MONITORING_API_TEMPLATE: AgentTemplate = {
-    id: 'gcp_health_monitoring_agent_api',
-    name: 'GCP Health Monitoring Agent (API Version)',
-    description: 'An agent that monitors GCP health using stable Python APIs instead of Managed MCP servers.',
-    config: {
-        name: 'GCP_Health_Monitor_API',
-        description: 'An expert agent for diagnosing performance, health, and security issues across Google Cloud capabilities usings stable APIs.',
-        model: 'gemini-2.5-flash',
-        instruction: `You are an expert Google Cloud Site Reliability Engineer and Cloud Architect.
+  id: "gcp_health_monitoring_agent_api",
+  name: "GCP Health Monitoring Agent (API Version)",
+  description:
+    "An agent that monitors GCP health using stable Python APIs instead of Managed MCP servers.",
+  config: {
+    name: "GCP_Health_Monitor_API",
+    description:
+      "An expert agent for diagnosing performance, health, and security issues across Google Cloud capabilities usings stable APIs.",
+    model: "gemini-2.5-flash",
+    instruction: `You are an expert Google Cloud Site Reliability Engineer and Cloud Architect.
 Your role is to diagnose performance, health, and security issues across Google Cloud.
 
 Whenever you are asked to check the health or status of an environment or specific service, perform the following general workflow:
@@ -3407,40 +3606,42 @@ Report formatting guidelines:
 * Format your answers cleanly using Markdown.
 * For lists of findings or resources, use bullet points.
 * Always cite the exact project ID and environment details where you found the information.`,
-        useGoogleSearch: true,
-        enableBigQueryMcp: false,
-        enableSecurityCommandCenterApi: true,
-        enableRecommenderApi: true,
-        enableServiceHealthApi: true,
-        enableNetworkManagementApi: true,
-        enableCloudAssistApi: true,
-        enableCloudLoggingMcp: false, // Disabling MCPs in favor of APIs
-        enableCloudMonitoringMcp: false,
-        enableResourceManagerMcp: false,
-        enableCloudLoggingApi: true,
-        enableCloudMonitoringApi: true,
-        enableCloudRunApi: true,
-        enableResourceManagerApi: true,
-        enableAdminActivityApi: true,
-        enableDatabaseFleetApi: true,
-        enableOAuth: true,
-        enableEmailTool: true,
-        enableCodeExecution: true,
-        enableGraphvizRendering: false,
-        tools: [],
-        customMcpEndpoints: []
-    }
+    useGoogleSearch: true,
+    enableBigQueryMcp: false,
+    enableSecurityCommandCenterApi: true,
+    enableRecommenderApi: true,
+    enableServiceHealthApi: true,
+    enableNetworkManagementApi: true,
+    enableCloudAssistApi: true,
+    enableCloudLoggingMcp: false, // Disabling MCPs in favor of APIs
+    enableCloudMonitoringMcp: false,
+    enableResourceManagerMcp: false,
+    enableCloudLoggingApi: true,
+    enableCloudMonitoringApi: true,
+    enableCloudRunApi: true,
+    enableResourceManagerApi: true,
+    enableAdminActivityApi: true,
+    enableDatabaseFleetApi: true,
+    enableOAuth: true,
+    enableEmailTool: true,
+    enableCodeExecution: true,
+    enableGraphvizRendering: false,
+    tools: [],
+    customMcpEndpoints: [],
+  },
 };
 
 const GCP_BIGQUERY_AGENT_TEMPLATE: AgentTemplate = {
-    id: 'gcp_bigquery_agent',
-    name: 'GCP BigQuery Expert Agent',
-    description: 'An agent that leverages BigQuery OneMCP to analyze data, write queries, and explore datasets.',
-    config: {
-        name: 'GCP_BigQuery_Orchestrator',
-        description: 'An orchestrator agent that writes Python to analyze data and create visualizations.',
-        model: 'gemini-2.5-flash',
-        instruction: `You are an expert Google Cloud Data Architect and BigQuery Analyst.
+  id: "gcp_bigquery_agent",
+  name: "GCP BigQuery Expert Agent",
+  description:
+    "An agent that leverages BigQuery OneMCP to analyze data, write queries, and explore datasets.",
+  config: {
+    name: "GCP_BigQuery_Orchestrator",
+    description:
+      "An orchestrator agent that writes Python to analyze data and create visualizations.",
+    model: "gemini-2.5-flash",
+    instruction: `You are an expert Google Cloud Data Architect and BigQuery Analyst.
 You have access to a BigQuery toolset to interact with datasets and a Google Search tool for external information.
 Additionally, you have access to two specialized Python code execution sub-agents:
 - \`code_exec_agent\`: A specialized Python Data Science Expert for generating charts, graphs, and plots from data.
@@ -3452,24 +3653,25 @@ When asked to analyze data or create a visualization:
 3.  **Choose the Right Tool**:
     - For charts and data plots (bar charts, line graphs, scatter plots): Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.
 4.  **Explain**: Present the insights and explain the visualization to the user.`,
-        useGoogleSearch: true,
-        enableBigQueryMcp: true,
-        enableOAuth: true,
-        enableCodeExecution: true,
-        enableGraphvizRendering: false,
-        tools: [],
-        customMcpEndpoints: []
-    }
+    useGoogleSearch: true,
+    enableBigQueryMcp: true,
+    enableOAuth: true,
+    enableCodeExecution: true,
+    enableGraphvizRendering: false,
+    tools: [],
+    customMcpEndpoints: [],
+  },
 };
 const ARCHITECTURE_AGENT_TEMPLATE: AgentTemplate = {
-    id: 'architecture_diagram_agent',
-    name: 'GCP Architecture Diagram Agent',
-    description: 'An expert that designs cloud infrastructure and renders architecture diagrams as code.',
-    config: {
-        name: 'GCP_Architecture_Designer',
-        description: 'An expert agent for designing cloud architecture diagrams.',
-        model: 'gemini-2.5-flash',
-        instruction: `You are an expert Google Cloud Solutions Architect. You design, critique, and document cloud applications.
+  id: "architecture_diagram_agent",
+  name: "GCP Architecture Diagram Agent",
+  description:
+    "An expert that designs cloud infrastructure and renders architecture diagrams as code.",
+  config: {
+    name: "GCP_Architecture_Designer",
+    description: "An expert agent for designing cloud architecture diagrams.",
+    model: "gemini-2.5-flash",
+    instruction: `You are an expert Google Cloud Solutions Architect. You design, critique, and document cloud applications.
 
 Your core capability is designing cloud architecture and visualizing it via Graphviz.
 
@@ -3481,578 +3683,768 @@ When asked to design or visualize architecture:
 5. The tool will return a final message (either a public Markdown image string or a localized text notification). You must include that exact message verbatim in your final response to the user. Do not invent your own image URLs.
 
 When analyzing existing designs: Provide constructive feedback on reliability, scalability, security, and cost.`,
-        useGoogleSearch: true,
-        enableCodeExecution: false,
-        enableGraphvizRendering: true,
-        enableThinking: true,
-        thinkingBudget: 1024,
-        thinkingLevel: 'HIGH',
-        enableNetworkManagementApi: true,
-        enableComputeEngineMcp: true,
-        enableResourceManagerMcp: true,
-        enableCloudRunApi: true,
-        enableGkeMcp: true,
-        enableCloudSqlMcp: true,
-        enableEmailTool: true,
-        enableOAuth: true,
-        tools: [],
-        customMcpEndpoints: []
-    }
+    useGoogleSearch: true,
+    enableCodeExecution: false,
+    enableGraphvizRendering: true,
+    enableThinking: true,
+    thinkingBudget: 1024,
+    thinkingLevel: "HIGH",
+    enableNetworkManagementApi: true,
+    enableComputeEngineMcp: true,
+    enableResourceManagerMcp: true,
+    enableCloudRunApi: true,
+    enableGkeMcp: true,
+    enableCloudSqlMcp: true,
+    enableEmailTool: true,
+    enableOAuth: true,
+    tools: [],
+    customMcpEndpoints: [],
+  },
 };
 
 const TEMPLATES: AgentTemplate[] = [
-    GCP_LOGS_READER_TEMPLATE,
-    GCP_HEALTH_MONITORING_AGENT_TEMPLATE,
-    GCP_HEALTH_MONITORING_API_TEMPLATE,
-    GCP_BIGQUERY_AGENT_TEMPLATE,
-    ARCHITECTURE_AGENT_TEMPLATE
+  GCP_LOGS_READER_TEMPLATE,
+  GCP_HEALTH_MONITORING_AGENT_TEMPLATE,
+  GCP_HEALTH_MONITORING_API_TEMPLATE,
+  GCP_BIGQUERY_AGENT_TEMPLATE,
+  ARCHITECTURE_AGENT_TEMPLATE,
 ];
 
 interface AgentBuilderPageProps {
-    projectNumber: string;
-    setProjectNumber: (projectNumber: string) => void;
-    context?: any;
-    onBuildTriggered?: (buildId: string, projectId?: string) => void;
+  projectNumber: string;
+  setProjectNumber: (projectNumber: string) => void;
+  context?: any;
+  onBuildTriggered?: (buildId: string, projectId?: string) => void;
 }
 
-const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setProjectNumber, context, onBuildTriggered }) => {
-    const [builderTab, setBuilderTab] = useState<'a2a' | 'adk'>('adk');
+const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
+  projectNumber,
+  setProjectNumber,
+  context,
+  onBuildTriggered,
+}) => {
+  const [builderTab, setBuilderTab] = useState<"a2a" | "adk">("adk");
 
-    // --- A2A State ---
-    const [a2aConfig, setA2aConfig] = useState<A2aConfig>({
-        serviceName: 'my-a2a-function',
-        displayName: 'My A2A Function',
-        providerOrganization: 'My Company',
-        model: 'gemini-2.5-flash',
-        region: 'us-central1',
-        memory: '1Gi',
-        instruction: 'You are a helpful assistant that responds to user queries directly and concisely.',
-        allowUnauthenticated: true,
-        enableCors: true,
-        useGoogleSearch: false,
-        tools: [],
+  // --- A2A State ---
+  const [a2aConfig, setA2aConfig] = useState<A2aConfig>({
+    serviceName: "my-a2a-function",
+    displayName: "My A2A Function",
+    providerOrganization: "My Company",
+    model: "gemini-2.5-flash",
+    region: "us-central1",
+    memory: "1Gi",
+    instruction:
+      "You are a helpful assistant that responds to user queries directly and concisely.",
+    allowUnauthenticated: true,
+    enableCors: true,
+    useGoogleSearch: false,
+    tools: [],
+  });
+
+  const [deployProjectId, setDeployProjectId] = useState(projectNumber);
+  const [isResolvingId, setIsResolvingId] = useState(false);
+
+  const [a2aGeneratedCode, setA2aGeneratedCode] = useState({
+    main: "",
+    dockerfile: "",
+    requirements: "",
+    gcloud: "",
+    yaml: "",
+  });
+
+  const [a2aActiveTab, setA2aActiveTab] = useState<
+    "main" | "dockerfile" | "requirements" | "env"
+  >("main");
+  const [a2aCopySuccess, setA2aCopySuccess] = useState("");
+  const [isFixMode, setIsFixMode] = useState(false);
+  const [isA2aDeployModalOpen, setIsA2aDeployModalOpen] = useState(false);
+  const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
+  const [showWifInstructions, setShowWifInstructions] = useState(false);
+
+  // --- ADK State ---
+  const [adkConfig, setAdkConfig] = useState<AdkAgentConfig>({
+    adkVersion: "1.35.1",
+    name: "",
+    description: "An agent that can do awesome things.",
+    model: "gemini-2.5-flash",
+    instruction: "You are an awesome and helpful agent.",
+    tools: [],
+    useGoogleSearch: false,
+    enableOAuth: false,
+    authId: "temp_oauth",
+    allowAdcFallback: true,
+    enableDiscoveryApi: false,
+    discoveryConfig: {
+      projectId: "",
+      location: "global",
+      collection: "default_collection",
+      engineId: "",
+      dataStoreIds: "",
+    },
+    enableBqAnalytics: false,
+    bqDatasetId: "",
+    bqTableId: "",
+    enableThinking: false,
+    thinkingBudget: 1024,
+    thinkingLevel: "HIGH",
+    enableStreaming: false,
+    enableBigQueryMcp: false,
+    enableCodeExecution: false,
+    enableGraphvizRendering: false,
+    enableEmailTool: false,
+    enableSecurityCommandCenterApi: false,
+    enableRecommenderApi: false,
+    enableServiceHealthApi: false,
+    enableNetworkManagementApi: false,
+    enableCloudAssistApi: false,
+    enableTelemetry: true,
+    enableMessageLogging: false,
+    enableCloudLoggingApi: false,
+    enableCloudMonitoringApi: false,
+    enableCloudRunApi: false,
+    enableResourceManagerApi: false,
+    enableAdminActivityApi: false,
+    enableDatabaseFleetApi: false,
+    enableCloudLoggingMcp: false,
+    enableBigtableAdminMcp: false,
+    enableCloudSqlMcp: false,
+    enableCloudMonitoringMcp: false,
+    enableComputeEngineMcp: false,
+    enableFirestoreMcp: false,
+    enableGkeMcp: false,
+    enableResourceManagerMcp: false,
+    enableSpannerMcp: false,
+    enableDeveloperKnowledgeMcp: false,
+    enableMapsGroundingMcp: false,
+    enableEvaluation: false,
+    enableCiCd: false,
+    ciCdRunner: "none",
+    deploymentTarget: "agent_engine",
+    githubWifProvider: "",
+    githubServiceAccount: "",
+    customMcpEndpoints: [],
+  });
+
+  // IAM & WIF State
+  const [serviceAccounts, setServiceAccounts] = useState<any[]>([]);
+  const [wifProviders, setWifProviders] = useState<any[]>([]);
+  const [validationStatus, setValidationStatus] = useState<
+    "unchecked" | "testing" | "valid" | "invalid"
+  >("unchecked");
+  const [validationMessage, setValidationMessage] = useState("");
+
+  const [vertexLocation, setVertexLocation] = useState("us-central1");
+  const [adkGeneratedCode, setAdkGeneratedCode] = useState({
+    app: "",
+    agent: "",
+    env: "",
+    requirements: "",
+    readme: "",
+    deploy_re: "",
+    auth: "",
+    tools: "",
+    init: "",
+  });
+  const [adkActiveTab, setAdkActiveTab] = useState<
+    | "app"
+    | "agent"
+    | "env"
+    | "requirements"
+    | "readme"
+    | "deploy_re"
+    | "auth"
+    | "tools"
+    | "init"
+  >("app");
+  const [adkCopySuccess, setAdkCopySuccess] = useState("");
+
+  // Discovery Engine State
+  const [collections, setCollections] = useState<any[]>([]);
+  const [engines, setEngines] = useState<any[]>([]);
+  const [isDiscoveryLoading, setIsDiscoveryLoading] = useState(false);
+
+  // Authorizations State for Dropdown Select
+  const [authorizations, setAuthorizations] = useState<any[]>([]);
+  const [isLoadingAuths, setIsLoadingAuths] = useState(false);
+  const [authInputMode, setAuthInputMode] = useState<"manual" | "select">(
+    "manual",
+  );
+
+  // Fetch Collections when project/location changes
+  useEffect(() => {
+    if (
+      !adkConfig.enableDiscoveryApi ||
+      (!adkConfig.discoveryConfig.projectId && !projectNumber)
+    )
+      return;
+    if (!adkConfig.discoveryConfig.location) return;
+
+    const fetchCollections = async () => {
+      setIsDiscoveryLoading(true);
+      try {
+        const targetProject =
+          adkConfig.discoveryConfig.projectId || projectNumber;
+        const tempConfig: any = {
+          projectId: targetProject,
+          appLocation: adkConfig.discoveryConfig.location,
+        };
+
+        const res = await api.listResources("collections", tempConfig);
+        setCollections(res.collections || []);
+      } catch (e) {
+        console.error("Failed to fetch collections", e);
+      } finally {
+        setIsDiscoveryLoading(false);
+      }
+    };
+    fetchCollections();
+  }, [
+    adkConfig.enableDiscoveryApi,
+    adkConfig.discoveryConfig.projectId,
+    adkConfig.discoveryConfig.location,
+    projectNumber,
+  ]);
+
+  // Fetch Engines when Collection changes
+  useEffect(() => {
+    if (!adkConfig.enableDiscoveryApi || !adkConfig.discoveryConfig.collection)
+      return;
+
+    const fetchEngines = async () => {
+      setIsDiscoveryLoading(true);
+      try {
+        const targetProject =
+          adkConfig.discoveryConfig.projectId || projectNumber;
+        const tempConfig: any = {
+          projectId: targetProject,
+          appLocation: adkConfig.discoveryConfig.location,
+          collectionId: adkConfig.discoveryConfig.collection,
+        };
+        const res = await api.listResources("engines", tempConfig);
+        setEngines(res.engines || []);
+      } catch (e) {
+        console.error("Failed to fetch engines", e);
+      } finally {
+        setIsDiscoveryLoading(false);
+      }
+    };
+    fetchEngines();
+  }, [
+    adkConfig.enableDiscoveryApi,
+    adkConfig.discoveryConfig.collection,
+    adkConfig.discoveryConfig.projectId,
+    adkConfig.discoveryConfig.location,
+    projectNumber,
+  ]);
+
+  // Data Store Tool State
+  const [toolBuilderConfig, setToolBuilderConfig] = useState({
+    dataStoreId: "",
+  });
+  const [dataStores, setDataStores] = useState<
+    (DataStore & { location: string })[]
+  >([]);
+  const [isLoadingDataStores, setIsLoadingDataStores] = useState(false);
+  const [dataStoreSearchTerm, setDataStoreSearchTerm] = useState("");
+
+  // Staging Bucket State
+  const [stagingBucket, setStagingBucket] = useState("");
+  const [buckets, setBuckets] = useState<GcsBucket[]>([]);
+  const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
+
+  // A2A Tool State
+  const [cloudRunServices, setCloudRunServices] = useState<CloudRunService[]>(
+    [],
+  );
+  const [isLoadingServices, setIsLoadingServices] = useState(false);
+  const [selectedA2aService, setSelectedA2aService] = useState("");
+  const [a2aSearchTerm, setA2aSearchTerm] = useState("");
+
+  const [isAdkDeployModalOpen, setIsAdkDeployModalOpen] = useState(false);
+  const [rewritingField, setRewritingField] = useState<string | null>(null);
+
+  // Deployment Progress State
+  const [buildId, setBuildId] = useState<string | null>(null);
+  const [isBuildVisible, setIsBuildVisible] = useState(false);
+  const [customMcpStatus, setCustomMcpStatus] = useState<{
+    [key: number]: { loading: boolean; tools?: any[]; error?: string };
+  }>({});
+
+  // CI/CD IAM Data
+  useEffect(() => {
+    const fetchIamData = async () => {
+      if (!projectNumber || !adkConfig.enableCiCd) return;
+      try {
+        const accounts = await api.listServiceAccounts(projectNumber);
+        setServiceAccounts(accounts);
+
+        const pools = await api.listWorkloadIdentityPools(projectNumber);
+        let allProviders: any[] = [];
+        for (const pool of pools) {
+          const providers = await api.listWorkloadIdentityProviders(
+            pool.name,
+            projectNumber,
+          );
+          allProviders = allProviders.concat(providers);
+        }
+        setWifProviders(allProviders);
+      } catch (e) {
+        console.error("Failed to fetch IAM data:", e);
+      }
+    };
+    fetchIamData();
+  }, [projectNumber, adkConfig.enableCiCd]);
+
+  useEffect(() => {
+    const validateWif = async () => {
+      if (
+        !adkConfig.githubServiceAccount ||
+        !adkConfig.githubWifProvider ||
+        !projectNumber
+      ) {
+        setValidationStatus("unchecked");
+        return;
+      }
+      setValidationStatus("testing");
+      try {
+        const policy = await api.getServiceAccountIamPolicy(
+          adkConfig.githubServiceAccount,
+          projectNumber,
+        );
+        const bindings = policy.bindings || [];
+        let hasBinding = false;
+        for (const binding of bindings) {
+          if (binding.role === "roles/iam.workloadIdentityUser") {
+            const poolName =
+              adkConfig.githubWifProvider.split("/providers/")[0];
+            if (
+              binding.members &&
+              binding.members.some((m: string) => m.includes(poolName))
+            ) {
+              hasBinding = true;
+              break;
+            }
+          }
+        }
+        if (hasBinding) {
+          setValidationStatus("valid");
+          setValidationMessage(
+            "Service Account is correctly bound to the related WIF Pool.",
+          );
+        } else {
+          setValidationStatus("invalid");
+          setValidationMessage(
+            "Service Account is missing roles/iam.workloadIdentityUser binding for this WIF Provider / Pool.",
+          );
+        }
+      } catch (e: any) {
+        setValidationStatus("invalid");
+        if (e.message && e.message.includes("permission")) {
+          setValidationMessage(
+            "Permission denied to read Service Account IAM policy.",
+          );
+        } else {
+          setValidationMessage("Failed to validate IAM policy.");
+        }
+      }
+    };
+    const timeoutId = setTimeout(validateWif, 300);
+    return () => clearTimeout(timeoutId);
+  }, [
+    adkConfig.githubServiceAccount,
+    adkConfig.githubWifProvider,
+    projectNumber,
+  ]);
+
+  // --- Common Logic ---
+  const fetchProjectId = async () => {
+    if (!projectNumber) return;
+    setIsResolvingId(true);
+    try {
+      const project = await api.getProject(projectNumber);
+      if (project.projectId) {
+        setDeployProjectId(project.projectId);
+      }
+    } catch (e) {
+      console.warn("Could not auto-resolve Project ID from Number:", e);
+    } finally {
+      setIsResolvingId(false);
+    }
+  };
+
+  useEffect(() => {
+    setDeployProjectId(projectNumber);
+    fetchProjectId();
+  }, [projectNumber]);
+
+  // Handle Fix Mode context
+  useEffect(() => {
+    if (context && context.serviceToEdit) {
+      setBuilderTab("a2a");
+      setIsFixMode(true);
+      const service: CloudRunService = context.serviceToEdit;
+      const container = service.template?.containers?.[0];
+      const envVars = container?.env || [];
+      const getEnv = (key: string) =>
+        envVars.find((e) => e.name === key)?.value || "";
+
+      setA2aConfig((prev) => ({
+        ...prev,
+        serviceName: service.name.split("/").pop() || prev.serviceName,
+        region: service.location || prev.region,
+        displayName: getEnv("AGENT_DISPLAY_NAME") || prev.displayName,
+        providerOrganization:
+          getEnv("PROVIDER_ORGANIZATION") || prev.providerOrganization,
+        model: getEnv("MODEL") || prev.model,
+        instruction: getEnv("AGENT_DESCRIPTION") || prev.instruction,
+      }));
+    }
+  }, [context]);
+
+  // A2A Code Generation
+  useEffect(() => {
+    setA2aGeneratedCode({
+      main: generateMainPy(a2aConfig),
+      dockerfile: generateDockerfile(adkConfig),
+      requirements: generateRequirementsTxt(),
+      gcloud: generateGcloudCommand(a2aConfig, deployProjectId),
+      yaml: generateA2aEnvYaml(a2aConfig, deployProjectId),
     });
+  }, [a2aConfig, deployProjectId]);
 
-    const [deployProjectId, setDeployProjectId] = useState(projectNumber);
-    const [isResolvingId, setIsResolvingId] = useState(false);
-
-    const [a2aGeneratedCode, setA2aGeneratedCode] = useState({
-        main: '',
-        dockerfile: '',
-        requirements: '',
-        gcloud: '',
-        yaml: '',
+  // ADK Code Generation
+  useEffect(() => {
+    const agentCode = generateAdkPythonCode(adkConfig, true);
+    const envCode = generateAdkEnvFile(
+      adkConfig,
+      projectNumber,
+      vertexLocation,
+      stagingBucket,
+    );
+    const reqsCode = generateAdkRequirementsFile(adkConfig);
+    const readmeCode = generateAdkReadmeFile(adkConfig);
+    const deployCode = generateAdkDeployScript(adkConfig);
+    const authCode = generateAuthPy(adkConfig, adkConfig.allowAdcFallback);
+    const toolsCode = generateToolsPy(adkConfig, true);
+    const initCode = generateInitPy();
+    setAdkGeneratedCode({
+      app: generateAppPy(true),
+      agent: agentCode,
+      env: envCode,
+      requirements: reqsCode,
+      readme: readmeCode,
+      deploy_re: deployCode,
+      auth: authCode,
+      tools: toolsCode,
+      init: initCode,
     });
+  }, [adkConfig, projectNumber, vertexLocation, stagingBucket]);
 
-    const [a2aActiveTab, setA2aActiveTab] = useState<'main' | 'dockerfile' | 'requirements' | 'env'>('main');
-    const [a2aCopySuccess, setA2aCopySuccess] = useState('');
-    const [isFixMode, setIsFixMode] = useState(false);
-    const [isA2aDeployModalOpen, setIsA2aDeployModalOpen] = useState(false);
-    const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
-    const [showWifInstructions, setShowWifInstructions] = useState(false);
+  // ADK Data Store & Buckets Fetching
+  const apiConfig = useMemo(
+    () => ({
+      projectId: projectNumber,
+      appLocation: "global",
+      collectionId: "",
+      appId: "",
+      assistantId: "",
+    }),
+    [projectNumber],
+  );
 
-    // --- ADK State ---
-    const [adkConfig, setAdkConfig] = useState<AdkAgentConfig>({
-        adkVersion: '1.35.1',
-        name: '',
-        description: 'An agent that can do awesome things.',
-        model: 'gemini-2.5-flash',
-        instruction: 'You are an awesome and helpful agent.',
-        tools: [],
-        useGoogleSearch: false,
-        enableOAuth: false,
-        authId: 'temp_oauth',
-        allowAdcFallback: true,
-        enableDiscoveryApi: false,
+  useEffect(() => {
+    if (!projectNumber) return;
+
+    const fetchData = async () => {
+      setIsLoadingDataStores(true);
+      setDataStores([]);
+
+      const locations = ["global", "us", "eu"];
+      const dsResults: (DataStore & { location: string })[] = [];
+
+      await Promise.all(
+        locations.map(async (loc) => {
+          const dsConfig = {
+            projectId: projectNumber,
+            appLocation: loc,
+            collectionId: "default_collection",
+            appId: "",
+            assistantId: "",
+          };
+          try {
+            const res = await api.listResources("dataStores", dsConfig);
+            if (res.dataStores) {
+              res.dataStores.forEach((ds: any) =>
+                dsResults.push({ ...ds, location: loc }),
+              );
+            }
+          } catch (e) {}
+        }),
+      );
+
+      setDataStores(dsResults);
+      if (dsResults.length === 1 && !toolBuilderConfig.dataStoreId) {
+        setToolBuilderConfig((prev) => ({
+          ...prev,
+          dataStoreId: dsResults[0].name,
+        }));
+      }
+      setIsLoadingDataStores(false);
+
+      setIsLoadingServices(true);
+      setCloudRunServices([]);
+      const regions = ["us-central1", "us-east1", "europe-west1", "asia-east1"];
+      const services: CloudRunService[] = [];
+
+      await Promise.all(
+        regions.map(async (region) => {
+          try {
+            const res = await api.listCloudRunServices(
+              { projectId: projectNumber } as any,
+              region,
+            );
+            if (res.services) services.push(...res.services);
+          } catch (e) {}
+        }),
+      );
+
+      const a2a = services.filter((s) => {
+        const envVars = s.template?.containers?.[0]?.env || [];
+        const getEnv = (name: string) =>
+          envVars.find((e) => e.name === name)?.value;
+        return !!(
+          getEnv("AGENT_URL") ||
+          getEnv("PROVIDER_ORGANIZATION") ||
+          s.name.toLowerCase().includes("a2a")
+        );
+      });
+
+      setCloudRunServices(a2a);
+      setIsLoadingServices(false);
+
+      // Fetch Buckets
+      setIsLoadingBuckets(true);
+      try {
+        // We need to resolve the project string first if currently a number,
+        // but here we just try api.listBuckets which likely expects an ID string or number.
+        // Best effort:
+        const b = await api.listBuckets(projectNumber);
+        const items = b.items || [];
+        setBuckets(items);
+        if (items.length > 0 && !stagingBucket) {
+          setStagingBucket(`gs://${items[0].name}`);
+        }
+      } catch (e) {
+        console.error("Failed to fetch buckets", e);
+      } finally {
+        setIsLoadingBuckets(false);
+      }
+
+      // Fetch Authorizations for Dropdown Select
+      setIsLoadingAuths(true);
+      setAuthorizations([]);
+      try {
+        const response = await api.listAuthorizations(apiConfig);
+        const auths = response.authorizations || [];
+        setAuthorizations(auths);
+        if (auths.length > 0) {
+          setAuthInputMode("select");
+        } else {
+          setAuthInputMode("manual");
+        }
+      } catch (e) {
+        console.warn("Failed to fetch authorizations", e);
+        setAuthInputMode("manual");
+      } finally {
+        setIsLoadingAuths(false);
+      }
+    };
+
+    fetchData();
+  }, [projectNumber, apiConfig]);
+
+  // --- Handlers ---
+  const handleA2aConfigChange = (
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >,
+  ) => {
+    const { name, value, type } = e.target;
+    if (type === "checkbox") {
+      setA2aConfig((prev) => ({
+        ...prev,
+        [name]: (e.target as HTMLInputElement).checked,
+      }));
+    } else if (name === "serviceName") {
+      const sanitizedValue = value
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9-]/g, "")
+        .substring(0, 63);
+      setA2aConfig((prev) => ({ ...prev, [name]: sanitizedValue }));
+    } else {
+      setA2aConfig((prev) => ({ ...prev, [name]: value as any }));
+    }
+  };
+
+  const handleAdkConfigChange = (
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >,
+  ) => {
+    const { name, value, type } = e.target;
+    if (name.startsWith("discovery.")) {
+      const field = name.split(".")[1];
+      setAdkConfig((prev) => ({
+        ...prev,
         discoveryConfig: {
-            projectId: '',
-            location: 'global',
-            collection: 'default_collection',
-            engineId: '',
-            dataStoreIds: ''
+          ...prev.discoveryConfig,
+          [field]: value,
         },
-        enableBqAnalytics: false,
-        bqDatasetId: '',
-        bqTableId: '',
-        enableThinking: false,
-        thinkingBudget: 1024,
-        thinkingLevel: 'HIGH',
-        enableStreaming: false,
-        enableBigQueryMcp: false,
-        enableCodeExecution: false,
-        enableGraphvizRendering: false,
-        enableEmailTool: false,
-        enableSecurityCommandCenterApi: false,
-        enableRecommenderApi: false,
-        enableServiceHealthApi: false,
-        enableNetworkManagementApi: false,
-        enableCloudAssistApi: false,
-        enableTelemetry: true,
-        enableMessageLogging: false,
-        enableCloudLoggingApi: false,
-        enableCloudMonitoringApi: false,
-        enableCloudRunApi: false,
-        enableResourceManagerApi: false,
-        enableAdminActivityApi: false,
-        enableDatabaseFleetApi: false,
-        enableCloudLoggingMcp: false,
-        enableBigtableAdminMcp: false,
-        enableCloudSqlMcp: false,
-        enableCloudMonitoringMcp: false,
-        enableComputeEngineMcp: false,
-        enableFirestoreMcp: false,
-        enableGkeMcp: false,
-        enableResourceManagerMcp: false,
-        enableSpannerMcp: false,
-        enableDeveloperKnowledgeMcp: false,
-        enableMapsGroundingMcp: false,
-        enableEvaluation: false,
-        enableCiCd: false,
-        ciCdRunner: 'none',
-        deploymentTarget: 'agent_engine',
-        githubWifProvider: '',
-        githubServiceAccount: '',
-        customMcpEndpoints: []
+      }));
+    } else if (type === "checkbox") {
+      const isChecked = (e.target as HTMLInputElement).checked;
+
+      setAdkConfig((prev) => {
+        const updates: any = { [name]: isChecked };
+
+        // Link MCPs, APIs, and Plugins to OAuth
+        if (
+          (name.endsWith("Mcp") ||
+            name.endsWith("Api") ||
+            name === "enableEmailTool" ||
+            name === "enableBqAnalytics") &&
+          isChecked
+        ) {
+          updates.enableOAuth = true;
+        }
+
+        // Enforce mutual exclusivity between API and MCP counterparts
+        if (isChecked) {
+          if (name.endsWith("Mcp")) {
+            const apiCounterpart = name.replace("Mcp", "Api");
+            if (apiCounterpart in prev) {
+              updates[apiCounterpart] = false;
+            }
+          } else if (name.endsWith("Api")) {
+            const mcpCounterpart = name.replace("Api", "Mcp");
+            if (mcpCounterpart in prev) {
+              updates[mcpCounterpart] = false;
+            }
+          }
+        }
+
+        return { ...prev, ...updates };
+      });
+    } else if (name === "name") {
+      const sanitizedValue = value
+        .replace(/\s+/g, "_")
+        .replace(/[^a-zA-Z0-9_-]/g, "");
+      setAdkConfig((prev) => ({ ...prev, [name]: sanitizedValue }));
+    } else {
+      setAdkConfig((prev) => ({ ...prev, [name]: value as any }));
+    }
+  };
+
+  const handleAddTool = (tool: AgentTool) => {
+    if (builderTab === "a2a") {
+      setA2aConfig((prev) => ({ ...prev, tools: [...prev.tools, tool] }));
+    } else {
+      setAdkConfig((prev) => ({
+        ...prev,
+        tools: [...prev.tools, tool],
+        enableOAuth: true,
+      }));
+    }
+  };
+
+  const handleRemoveTool = (index: number) => {
+    if (builderTab === "a2a") {
+      setA2aConfig((prev) => ({
+        ...prev,
+        tools: prev.tools.filter((_, i) => i !== index),
+      }));
+    } else {
+      setAdkConfig((prev) => ({
+        ...prev,
+        tools: prev.tools.filter((_, i) => i !== index),
+      }));
+    }
+  };
+
+  const handleAddCustomMcp = () => {
+    setAdkConfig((prev) => ({
+      ...prev,
+      customMcpEndpoints: [...prev.customMcpEndpoints, { name: "", url: "" }],
+    }));
+  };
+
+  const handleUpdateCustomMcp = (
+    index: number,
+    field: "name" | "url",
+    value: string,
+  ) => {
+    setAdkConfig((prev) => {
+      const newEndpoints = [...prev.customMcpEndpoints];
+      newEndpoints[index] = { ...newEndpoints[index], [field]: value };
+      return { ...prev, customMcpEndpoints: newEndpoints };
     });
-    
-    // IAM & WIF State
-    const [serviceAccounts, setServiceAccounts] = useState<any[]>([]);
-    const [wifProviders, setWifProviders] = useState<any[]>([]);
-    const [validationStatus, setValidationStatus] = useState<'unchecked' | 'testing' | 'valid' | 'invalid'>('unchecked');
-    const [validationMessage, setValidationMessage] = useState('');
+  };
 
-    const [vertexLocation, setVertexLocation] = useState('us-central1');
-    const [adkGeneratedCode, setAdkGeneratedCode] = useState({ app: '', agent: '', env: '', requirements: '', readme: '', deploy_re: '', auth: '', tools: '', init: '' });
-    const [adkActiveTab, setAdkActiveTab] = useState<'app' | 'agent' | 'env' | 'requirements' | 'readme' | 'deploy_re' | 'auth' | 'tools' | 'init'>('app');
-    const [adkCopySuccess, setAdkCopySuccess] = useState('');
+  const handleRemoveCustomMcp = (index: number) => {
+    setAdkConfig((prev) => ({
+      ...prev,
+      customMcpEndpoints: prev.customMcpEndpoints.filter((_, i) => i !== index),
+    }));
+  };
 
-    // Discovery Engine State
-    const [collections, setCollections] = useState<any[]>([]);
-    const [engines, setEngines] = useState<any[]>([]);
-    const [isDiscoveryLoading, setIsDiscoveryLoading] = useState(false);
+  const handleVerifyCustomMcp = async (index: number, url: string) => {
+    if (!url) return;
+    setCustomMcpStatus((prev) => ({ ...prev, [index]: { loading: true } }));
+    try {
+      const tools = await api.listMcpTools(deployProjectId || "", url);
+      setCustomMcpStatus((prev) => ({
+        ...prev,
+        [index]: { loading: false, tools },
+      }));
+    } catch (e: any) {
+      console.error("Failed to verify custom MCP:", e);
+      setCustomMcpStatus((prev) => ({
+        ...prev,
+        [index]: { loading: false, error: e.message || String(e) },
+      }));
+    }
+  };
 
-    // Fetch Collections when project/location changes
-    useEffect(() => {
-        if (!adkConfig.enableDiscoveryApi || !adkConfig.discoveryConfig.projectId && !projectNumber) return;
-        if (!adkConfig.discoveryConfig.location) return;
+  const handleRewrite = async (field: "instruction") => {
+    setRewritingField(field);
 
-        const fetchCollections = async () => {
-            setIsDiscoveryLoading(true);
-            try {
-                const targetProject = adkConfig.discoveryConfig.projectId || projectNumber;
-                const tempConfig: any = {
-                    projectId: targetProject,
-                    appLocation: adkConfig.discoveryConfig.location
-                };
+    const currentInstruction =
+      builderTab === "a2a" ? a2aConfig.instruction : adkConfig.instruction;
 
-                const res = await api.listResources('collections', tempConfig);
-                setCollections(res.collections || []);
-            } catch (e) {
-                console.error("Failed to fetch collections", e);
-            } finally {
-                setIsDiscoveryLoading(false);
-            }
-        };
-        fetchCollections();
-    }, [adkConfig.enableDiscoveryApi, adkConfig.discoveryConfig.projectId, adkConfig.discoveryConfig.location, projectNumber]);
+    let toolNames = "";
+    if (builderTab === "a2a") {
+      toolNames =
+        a2aConfig.tools
+          .map((t) => t.displayName || t.variableName)
+          .join(", ") || "None";
+    } else {
+      const adkTools = [
+        ...adkConfig.tools.map((t) => t.displayName || t.variableName),
+      ];
+      if (adkConfig.useGoogleSearch) adkTools.push("Google Search");
+      if (adkConfig.enableCodeExecution)
+        adkTools.push("Code Execution Sub-Agent");
+      if (adkConfig.enableGraphvizRendering) adkTools.push("Graphviz Renderer");
+      if (adkConfig.enableBigQueryMcp) adkTools.push("BigQuery MCP");
+      if (adkConfig.enableCloudLoggingMcp) adkTools.push("Cloud Logging MCP");
+      if (adkConfig.enableCloudSqlMcp) adkTools.push("Cloud SQL MCP");
+      if (adkConfig.customMcpEndpoints.length > 0)
+        adkTools.push(...adkConfig.customMcpEndpoints.map((e) => e.name));
+      toolNames = adkTools.join(", ") || "None";
+    }
 
-    // Fetch Engines when Collection changes
-    useEffect(() => {
-        if (!adkConfig.enableDiscoveryApi || !adkConfig.discoveryConfig.collection) return;
-
-        const fetchEngines = async () => {
-            setIsDiscoveryLoading(true);
-            try {
-                const targetProject = adkConfig.discoveryConfig.projectId || projectNumber;
-                const tempConfig: any = {
-                    projectId: targetProject,
-                    appLocation: adkConfig.discoveryConfig.location,
-                    collectionId: adkConfig.discoveryConfig.collection
-                };
-                const res = await api.listResources('engines', tempConfig);
-                setEngines(res.engines || []);
-            } catch (e) {
-                console.error("Failed to fetch engines", e);
-            } finally {
-                setIsDiscoveryLoading(false);
-            }
-        };
-        fetchEngines();
-    }, [adkConfig.enableDiscoveryApi, adkConfig.discoveryConfig.collection, adkConfig.discoveryConfig.projectId, adkConfig.discoveryConfig.location, projectNumber]);
-
-    // Data Store Tool State
-    const [toolBuilderConfig, setToolBuilderConfig] = useState({ dataStoreId: '' });
-    const [dataStores, setDataStores] = useState<(DataStore & { location: string })[]>([]);
-    const [isLoadingDataStores, setIsLoadingDataStores] = useState(false);
-    const [dataStoreSearchTerm, setDataStoreSearchTerm] = useState('');
-
-    // Staging Bucket State
-    const [stagingBucket, setStagingBucket] = useState('');
-    const [buckets, setBuckets] = useState<GcsBucket[]>([]);
-    const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
-
-    // A2A Tool State
-    const [cloudRunServices, setCloudRunServices] = useState<CloudRunService[]>([]);
-    const [isLoadingServices, setIsLoadingServices] = useState(false);
-    const [selectedA2aService, setSelectedA2aService] = useState('');
-    const [a2aSearchTerm, setA2aSearchTerm] = useState('');
-
-    const [isAdkDeployModalOpen, setIsAdkDeployModalOpen] = useState(false);
-    const [rewritingField, setRewritingField] = useState<string | null>(null);
-
-    // Deployment Progress State
-    const [buildId, setBuildId] = useState<string | null>(null);
-    const [isBuildVisible, setIsBuildVisible] = useState(false);
-    const [customMcpStatus, setCustomMcpStatus] = useState<{[key: number]: {loading: boolean, tools?: any[], error?: string}}>({});
-
-    // CI/CD IAM Data
-    useEffect(() => {
-        const fetchIamData = async () => {
-            if (!projectNumber || !adkConfig.enableCiCd) return;
-            try {
-                const accounts = await api.listServiceAccounts(projectNumber);
-                setServiceAccounts(accounts);
-
-                const pools = await api.listWorkloadIdentityPools(projectNumber);
-                let allProviders: any[] = [];
-                for (const pool of pools) {
-                    const providers = await api.listWorkloadIdentityProviders(pool.name, projectNumber);
-                    allProviders = allProviders.concat(providers);
-                }
-                setWifProviders(allProviders);
-            } catch (e) {
-                console.error("Failed to fetch IAM data:", e);
-            }
-        };
-        fetchIamData();
-    }, [projectNumber, adkConfig.enableCiCd]);
-
-    useEffect(() => {
-        const validateWif = async () => {
-            if (!adkConfig.githubServiceAccount || !adkConfig.githubWifProvider || !projectNumber) {
-                setValidationStatus('unchecked');
-                return;
-            }
-            setValidationStatus('testing');
-            try {
-                const policy = await api.getServiceAccountIamPolicy(adkConfig.githubServiceAccount, projectNumber);
-                const bindings = policy.bindings || [];
-                let hasBinding = false;
-                for (const binding of bindings) {
-                    if (binding.role === 'roles/iam.workloadIdentityUser') {
-                        const poolName = adkConfig.githubWifProvider.split('/providers/')[0];
-                        if (binding.members && binding.members.some((m: string) => m.includes(poolName))) {
-                            hasBinding = true;
-                            break;
-                        }
-                    }
-                }
-                if (hasBinding) {
-                    setValidationStatus('valid');
-                    setValidationMessage('Service Account is correctly bound to the related WIF Pool.');
-                } else {
-                    setValidationStatus('invalid');
-                    setValidationMessage('Service Account is missing roles/iam.workloadIdentityUser binding for this WIF Provider / Pool.');
-                }
-            } catch (e: any) {
-                setValidationStatus('invalid');
-                if (e.message && e.message.includes('permission')) {
-                    setValidationMessage('Permission denied to read Service Account IAM policy.');
-                } else {
-                    setValidationMessage('Failed to validate IAM policy.');
-                }
-            }
-        };
-        const timeoutId = setTimeout(validateWif, 300);
-        return () => clearTimeout(timeoutId);
-    }, [adkConfig.githubServiceAccount, adkConfig.githubWifProvider, projectNumber]);
-
-
-    // --- Common Logic ---
-    const fetchProjectId = async () => {
-        if (!projectNumber) return;
-        setIsResolvingId(true);
-        try {
-            const project = await api.getProject(projectNumber);
-            if (project.projectId) {
-                setDeployProjectId(project.projectId);
-            }
-        } catch (e) {
-            console.warn("Could not auto-resolve Project ID from Number:", e);
-        } finally {
-            setIsResolvingId(false);
-        }
-    };
-
-    useEffect(() => {
-        setDeployProjectId(projectNumber);
-        fetchProjectId();
-    }, [projectNumber]);
-
-    // Handle Fix Mode context
-    useEffect(() => {
-        if (context && context.serviceToEdit) {
-            setBuilderTab('a2a');
-            setIsFixMode(true);
-            const service: CloudRunService = context.serviceToEdit;
-            const container = service.template?.containers?.[0];
-            const envVars = container?.env || [];
-            const getEnv = (key: string) => envVars.find(e => e.name === key)?.value || '';
-
-            setA2aConfig(prev => ({
-                ...prev,
-                serviceName: service.name.split('/').pop() || prev.serviceName,
-                region: service.location || prev.region,
-                displayName: getEnv('AGENT_DISPLAY_NAME') || prev.displayName,
-                providerOrganization: getEnv('PROVIDER_ORGANIZATION') || prev.providerOrganization,
-                model: getEnv('MODEL') || prev.model,
-                instruction: getEnv('AGENT_DESCRIPTION') || prev.instruction,
-            }));
-        }
-    }, [context]);
-
-    // A2A Code Generation
-    useEffect(() => {
-        setA2aGeneratedCode({
-            main: generateMainPy(a2aConfig),
-            dockerfile: generateDockerfile(adkConfig),
-            requirements: generateRequirementsTxt(),
-            gcloud: generateGcloudCommand(a2aConfig, deployProjectId),
-            yaml: generateA2aEnvYaml(a2aConfig, deployProjectId)
-        });
-    }, [a2aConfig, deployProjectId]);
-
-    // ADK Code Generation
-    useEffect(() => {
-        const agentCode = generateAdkPythonCode(adkConfig, true);
-        const envCode = generateAdkEnvFile(adkConfig, projectNumber, vertexLocation, stagingBucket);
-        const reqsCode = generateAdkRequirementsFile(adkConfig);
-        const readmeCode = generateAdkReadmeFile(adkConfig);
-        const deployCode = generateAdkDeployScript(adkConfig);
-        const authCode = generateAuthPy(adkConfig, adkConfig.allowAdcFallback);
-        const toolsCode = generateToolsPy(adkConfig, true);
-        const initCode = generateInitPy();
-        setAdkGeneratedCode({ app: generateAppPy(true), agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode, auth: authCode, tools: toolsCode, init: initCode });
-    }, [adkConfig, projectNumber, vertexLocation, stagingBucket]);
-
-    // ADK Data Store & Buckets Fetching
-    const apiConfig = useMemo(() => ({
-        projectId: projectNumber,
-        appLocation: 'global',
-        collectionId: '',
-        appId: '',
-        assistantId: ''
-    }), [projectNumber]);
-
-    useEffect(() => {
-        if (!projectNumber) return;
-
-        const fetchData = async () => {
-            setIsLoadingDataStores(true);
-            setDataStores([]);
-
-            const locations = ['global', 'us', 'eu'];
-            const dsResults: (DataStore & { location: string })[] = [];
-
-            await Promise.all(locations.map(async (loc) => {
-                const dsConfig = {
-                    projectId: projectNumber,
-                    appLocation: loc,
-                    collectionId: 'default_collection',
-                    appId: '',
-                    assistantId: ''
-                };
-                try {
-                    const res = await api.listResources('dataStores', dsConfig);
-                    if (res.dataStores) {
-                        res.dataStores.forEach((ds: any) => dsResults.push({ ...ds, location: loc }));
-                    }
-                } catch (e) { }
-            }));
-
-            setDataStores(dsResults);
-            if (dsResults.length === 1 && !toolBuilderConfig.dataStoreId) {
-                setToolBuilderConfig(prev => ({ ...prev, dataStoreId: dsResults[0].name }));
-            }
-            setIsLoadingDataStores(false);
-
-            setIsLoadingServices(true);
-            setCloudRunServices([]);
-            const regions = ['us-central1', 'us-east1', 'europe-west1', 'asia-east1'];
-            const services: CloudRunService[] = [];
-
-            await Promise.all(regions.map(async (region) => {
-                try {
-                    const res = await api.listCloudRunServices({ projectId: projectNumber } as any, region);
-                    if (res.services) services.push(...res.services);
-                } catch (e) { }
-            }));
-
-            const a2a = services.filter(s => {
-                const envVars = s.template?.containers?.[0]?.env || [];
-                const getEnv = (name: string) => envVars.find(e => e.name === name)?.value;
-                return !!(getEnv('AGENT_URL') || getEnv('PROVIDER_ORGANIZATION') || s.name.toLowerCase().includes('a2a'));
-            });
-
-            setCloudRunServices(a2a);
-            setIsLoadingServices(false);
-
-            // Fetch Buckets
-            setIsLoadingBuckets(true);
-            try {
-                // We need to resolve the project string first if currently a number, 
-                // but here we just try api.listBuckets which likely expects an ID string or number.
-                // Best effort:
-                const b = await api.listBuckets(projectNumber);
-                const items = b.items || [];
-                setBuckets(items);
-                if (items.length > 0 && !stagingBucket) {
-                    setStagingBucket(`gs://${items[0].name}`);
-                }
-            } catch (e) {
-                console.error("Failed to fetch buckets", e);
-            } finally {
-                setIsLoadingBuckets(false);
-            }
-        };
-
-        fetchData();
-    }, [projectNumber]);
-
-
-
-
-    // --- Handlers ---
-    const handleA2aConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value, type } = e.target;
-        if (type === 'checkbox') {
-            setA2aConfig(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
-        } else if (name === 'serviceName') {
-            const sanitizedValue = value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').substring(0, 63);
-            setA2aConfig(prev => ({ ...prev, [name]: sanitizedValue }));
-        } else {
-            setA2aConfig(prev => ({ ...prev, [name]: value as any }));
-        }
-    };
-
-    const handleAdkConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value, type } = e.target;
-        if (name.startsWith('discovery.')) {
-            const field = name.split('.')[1];
-            setAdkConfig(prev => ({
-                ...prev,
-                discoveryConfig: {
-                    ...prev.discoveryConfig,
-                    [field]: value
-                }
-            }));
-        } else if (type === 'checkbox') {
-            const isChecked = (e.target as HTMLInputElement).checked;
-
-            setAdkConfig(prev => {
-                const updates: any = { [name]: isChecked };
-
-                // Link MCPs, APIs, and Plugins to OAuth
-                if ((name.endsWith('Mcp') || name.endsWith('Api') || name === 'enableEmailTool' || name === 'enableBqAnalytics') && isChecked) {
-                    updates.enableOAuth = true;
-                }
-
-                // Enforce mutual exclusivity between API and MCP counterparts
-                if (isChecked) {
-                    if (name.endsWith('Mcp')) {
-                        const apiCounterpart = name.replace('Mcp', 'Api');
-                        if (apiCounterpart in prev) {
-                            updates[apiCounterpart] = false;
-                        }
-                    } else if (name.endsWith('Api')) {
-                        const mcpCounterpart = name.replace('Api', 'Mcp');
-                        if (mcpCounterpart in prev) {
-                            updates[mcpCounterpart] = false;
-                        }
-                    }
-                }
-
-                return { ...prev, ...updates };
-            });
-        } else if (name === 'name') {
-            const sanitizedValue = value.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
-            setAdkConfig(prev => ({ ...prev, [name]: sanitizedValue }));
-        } else {
-            setAdkConfig(prev => ({ ...prev, [name]: value as any }));
-        }
-    };
-
-    const handleAddTool = (tool: AgentTool) => {
-        if (builderTab === 'a2a') {
-            setA2aConfig(prev => ({ ...prev, tools: [...prev.tools, tool] }));
-        } else {
-            setAdkConfig(prev => ({ ...prev, tools: [...prev.tools, tool], enableOAuth: true }));
-        }
-    };
-
-    const handleRemoveTool = (index: number) => {
-        if (builderTab === 'a2a') {
-            setA2aConfig(prev => ({ ...prev, tools: prev.tools.filter((_, i) => i !== index) }));
-        } else {
-            setAdkConfig(prev => ({ ...prev, tools: prev.tools.filter((_, i) => i !== index) }));
-        }
-    };
-
-    const handleAddCustomMcp = () => {
-        setAdkConfig(prev => ({
-            ...prev,
-            customMcpEndpoints: [...prev.customMcpEndpoints, { name: '', url: '' }]
-        }));
-    };
-
-    const handleUpdateCustomMcp = (index: number, field: 'name' | 'url', value: string) => {
-        setAdkConfig(prev => {
-            const newEndpoints = [...prev.customMcpEndpoints];
-            newEndpoints[index] = { ...newEndpoints[index], [field]: value };
-            return { ...prev, customMcpEndpoints: newEndpoints };
-        });
-    };
-
-    const handleRemoveCustomMcp = (index: number) => {
-        setAdkConfig(prev => ({
-            ...prev,
-            customMcpEndpoints: prev.customMcpEndpoints.filter((_, i) => i !== index)
-        }));
-    };
-
-    const handleVerifyCustomMcp = async (index: number, url: string) => {
-        if (!url) return;
-        setCustomMcpStatus(prev => ({ ...prev, [index]: { loading: true } }));
-        try {
-            const tools = await api.listMcpTools(deployProjectId || '', url);
-            setCustomMcpStatus(prev => ({ ...prev, [index]: { loading: false, tools } }));
-        } catch (e: any) {
-            console.error("Failed to verify custom MCP:", e);
-            setCustomMcpStatus(prev => ({ ...prev, [index]: { loading: false, error: e.message || String(e) } }));
-        }
-    };
-
-    const handleRewrite = async (field: 'instruction') => {
-        setRewritingField(field);
-
-        const currentInstruction = builderTab === 'a2a' ? a2aConfig.instruction : adkConfig.instruction;
-
-        let toolNames = '';
-        if (builderTab === 'a2a') {
-            toolNames = a2aConfig.tools.map(t => t.displayName || t.variableName).join(', ') || 'None';
-        } else {
-            const adkTools = [...adkConfig.tools.map(t => t.displayName || t.variableName)];
-            if (adkConfig.useGoogleSearch) adkTools.push('Google Search');
-            if (adkConfig.enableCodeExecution) adkTools.push('Code Execution Sub-Agent');
-            if (adkConfig.enableGraphvizRendering) adkTools.push('Graphviz Renderer');
-            if (adkConfig.enableBigQueryMcp) adkTools.push('BigQuery MCP');
-            if (adkConfig.enableCloudLoggingMcp) adkTools.push('Cloud Logging MCP');
-            if (adkConfig.enableCloudSqlMcp) adkTools.push('Cloud SQL MCP');
-            if (adkConfig.customMcpEndpoints.length > 0) adkTools.push(...adkConfig.customMcpEndpoints.map(e => e.name));
-            toolNames = adkTools.join(', ') || 'None';
-        }
-
-        const prompt = `You are an expert prompt engineer. Your task is to rewrite the following system instruction to be highly effective for a Large Language Model (LLM).
+    const prompt = `You are an expert prompt engineer. Your task is to rewrite the following system instruction to be highly effective for a Large Language Model (LLM).
         Structure the rewritten prompt clearly.
         Add necessary context and details to make the agent robust while preserving the user's original intent.
         The agent has access to the following tools: [${toolNames}]. Ensure the instructions explicitly guide the agent on when and how to use these tools effectively.
@@ -4060,1034 +4452,2001 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         
         Original Instruction: "${currentInstruction}"`;
 
-        try {
-            const text = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash', 8192);
-            const rewrittenText = text.trim().replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();
-            if (builderTab === 'a2a') {
-                setA2aConfig(prev => ({ ...prev, instruction: rewrittenText }));
-            } else {
-                setAdkConfig(prev => ({ ...prev, instruction: rewrittenText }));
-            }
-        } catch (err: any) {
-            alert(`AI rewrite failed: ${err.message}`);
-        } finally {
-            setRewritingField(null);
-        }
-    };
+    try {
+      const text = await api.generateVertexContent(
+        apiConfig,
+        prompt,
+        "gemini-2.5-flash",
+        8192,
+      );
+      const rewrittenText = text
+        .trim()
+        .replace(/^["']|["']$/g, "")
+        .replace(/^```\w*\n?|\n?```$/g, "")
+        .trim();
+      if (builderTab === "a2a") {
+        setA2aConfig((prev) => ({ ...prev, instruction: rewrittenText }));
+      } else {
+        setAdkConfig((prev) => ({ ...prev, instruction: rewrittenText }));
+      }
+    } catch (err: any) {
+      alert(`AI rewrite failed: ${err.message}`);
+    } finally {
+      setRewritingField(null);
+    }
+  };
 
-    const handleCopy = (content: string, setSuccess: React.Dispatch<React.SetStateAction<string>>) => {
-        navigator.clipboard.writeText(content).then(() => {
-            setSuccess('Copied!');
-            setTimeout(() => setSuccess(''), 2000);
+  const handleCopy = (
+    content: string,
+    setSuccess: React.Dispatch<React.SetStateAction<string>>,
+  ) => {
+    navigator.clipboard.writeText(content).then(() => {
+      setSuccess("Copied!");
+      setTimeout(() => setSuccess(""), 2000);
+    });
+  };
+
+  const handleDownloadA2a = async () => {
+    const zip = new JSZip();
+    zip.file("main.py", a2aGeneratedCode.main);
+    zip.file("Dockerfile", a2aGeneratedCode.dockerfile);
+    zip.file("requirements.txt", a2aGeneratedCode.requirements);
+    zip.file("deploy.sh", a2aGeneratedCode.gcloud);
+    zip.file("env.yaml", a2aGeneratedCode.yaml);
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${a2aConfig.serviceName}-source.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadAdkZip = () => {
+    const zip = new JSZip();
+
+    // App Directory
+    const appFolder = zip.folder("app");
+    appFolder.file("app.py", generateAppPy(true));
+    appFolder.file("agent.py", generateAdkPythonCode(adkConfig, true));
+    appFolder.file("requirements.txt", adkGeneratedCode.requirements);
+    appFolder.file("auth.py", adkGeneratedCode.auth);
+    appFolder.file("tools.py", generateToolsPy(adkConfig, true));
+    appFolder.file("__init__.py", adkGeneratedCode.init);
+    appFolder.file("deploy_re.py", generateAdkDeployScript(adkConfig)); // Keep deploy_re in app for now as per some patterns, or move to deployment
+
+    // Root Files
+    zip.file(
+      "agent.py",
+      "import os, sys\nsys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\nfrom app.agent import root_agent\n",
+    );
+    zip.file(".env", adkGeneratedCode.env);
+    zip.file("README.md", generateAdkReadmeFile(adkConfig));
+    zip.file("DESIGN_SPEC.md", generateDesignSpec(adkConfig));
+    zip.file("Makefile", generateMakefile(adkConfig));
+
+    // Tests Directory
+    const testsFolder = zip.folder("tests");
+    const evalFolder = testsFolder.folder("eval");
+    evalFolder.file("test_config.json", generateTestConfigJson(adkConfig));
+    const evalsetsFolder = evalFolder.folder("evalsets");
+    evalsetsFolder.file("basic.evalset.json", generateEvalSetJson(adkConfig));
+
+    // Deployment Directory
+    const deployFolder = zip.folder("deployment");
+    deployFolder.file("terraform/main.tf", "# Terraform config placeholder");
+
+    // Scripts Directory
+    const scriptsFolder = zip.folder("scripts");
+    scriptsFolder.file("launch_local.sh", generateLaunchScript(adkConfig));
+
+    if (adkConfig.ciCdRunner === "google_cloud_build") {
+      zip.file(
+        "cloudbuild.yaml",
+        generateCloudBuildYaml(adkConfig, deployProjectId || "YOUR_PROJECT_ID"),
+      );
+    } else if (adkConfig.ciCdRunner === "github_actions") {
+      const githubFolder = zip.folder(".github");
+      const workflowsFolder = githubFolder.folder("workflows");
+      workflowsFolder.file("deploy.yaml", generateGithubWorkflow(adkConfig));
+    }
+
+    zip.generateAsync({ type: "blob" }).then(function (content) {
+      const url = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${adkConfig.name || "adk_agent"}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  };
+
+  const adkCodeDisplay = {
+    app: adkGeneratedCode.app,
+    agent: adkGeneratedCode.agent,
+    env: adkGeneratedCode.env,
+    requirements: adkGeneratedCode.requirements,
+    auth: adkGeneratedCode.auth,
+    tools: adkGeneratedCode.tools,
+    init: adkGeneratedCode.init,
+    makefile: generateMakefile(adkConfig),
+    cloudbuild: generateCloudBuildYaml(
+      adkConfig,
+      deployProjectId || "YOUR_PROJECT_ID",
+    ),
+    github_deploy: generateGithubWorkflow(adkConfig),
+  }[adkActiveTab];
+
+  const a2aCodeDisplay = {
+    main: a2aGeneratedCode.main,
+    dockerfile: a2aGeneratedCode.dockerfile,
+    requirements: a2aGeneratedCode.requirements,
+    env: a2aGeneratedCode.yaml,
+  }[a2aActiveTab];
+
+  const adkFilesForBuild = [
+    { name: "app.py", content: adkGeneratedCode.app },
+    { name: "agent.py", content: adkGeneratedCode.agent },
+    { name: ".env", content: adkGeneratedCode.env },
+    { name: "requirements.txt", content: adkGeneratedCode.requirements },
+    { name: "auth.py", content: adkGeneratedCode.auth },
+    { name: "tools.py", content: adkGeneratedCode.tools },
+  ];
+
+  const a2aFilesForBuild = [
+    { name: "main.py", content: a2aGeneratedCode.main },
+    { name: "Dockerfile", content: a2aGeneratedCode.dockerfile },
+    { name: "requirements.txt", content: a2aGeneratedCode.requirements },
+    { name: "deploy.sh", content: a2aGeneratedCode.gcloud },
+    { name: "env.yaml", content: a2aGeneratedCode.yaml },
+  ];
+
+  const handleBuildTriggered = (id: string) => {
+    // Use Global Handler
+    const pid = deployProjectId || projectNumber;
+    if (onBuildTriggered) onBuildTriggered(id, pid);
+
+    setIsA2aDeployModalOpen(false);
+    setIsAdkDeployModalOpen(false);
+  };
+
+  const handleCheckBuildStatus = async () => {
+    if (!deployProjectId && !projectNumber) {
+      alert("Project ID not set.");
+      return;
+    }
+    const pid = deployProjectId || projectNumber;
+    let foundAny = false;
+
+    try {
+      // Check for running builds first
+      const running = await api.listCloudBuilds(pid, 'status="WORKING"');
+      if (running.builds && running.builds.length > 0) {
+        console.log(
+          `handleCheckBuildStatus: FOUND ${running.builds.length} WORKING builds`,
+        );
+        running.builds.forEach((b: any) => {
+          if (onBuildTriggered) onBuildTriggered(b.id, pid);
         });
-    };
+        foundAny = true;
+      }
 
-    const handleDownloadA2a = async () => {
-        const zip = new JSZip();
-        zip.file('main.py', a2aGeneratedCode.main);
-        zip.file('Dockerfile', a2aGeneratedCode.dockerfile);
-        zip.file('requirements.txt', a2aGeneratedCode.requirements);
-        zip.file('deploy.sh', a2aGeneratedCode.gcloud);
-        zip.file('env.yaml', a2aGeneratedCode.yaml);
-        const blob = await zip.generateAsync({ type: 'blob' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${a2aConfig.serviceName}-source.zip`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    };
+      // Check for queued builds
+      const queued = await api.listCloudBuilds(pid, 'status="QUEUED"');
+      if (queued.builds && queued.builds.length > 0) {
+        console.log(
+          `handleCheckBuildStatus: FOUND ${queued.builds.length} QUEUED builds`,
+        );
+        queued.builds.forEach((b: any) => {
+          if (onBuildTriggered) onBuildTriggered(b.id, pid);
+        });
+        foundAny = true;
+      }
 
-    const handleDownloadAdkZip = () => {
-        const zip = new JSZip();
+      // Fallback: Fetch latest if nothing active found yet
+      if (!foundAny) {
+        console.log(
+          "No active (WORKING/QUEUED) builds. Fetching recent history...",
+        );
+        const recent = await api.listCloudBuilds(pid);
+        const build = recent.builds?.[0];
 
-        // App Directory
-        const appFolder = zip.folder("app");
-        appFolder.file("app.py", generateAppPy(true));
-        appFolder.file("agent.py", generateAdkPythonCode(adkConfig, true));
-        appFolder.file("requirements.txt", adkGeneratedCode.requirements);
-        appFolder.file("auth.py", adkGeneratedCode.auth);
-        appFolder.file("tools.py", generateToolsPy(adkConfig, true));
-        appFolder.file("__init__.py", adkGeneratedCode.init);
-        appFolder.file("deploy_re.py", generateAdkDeployScript(adkConfig)); // Keep deploy_re in app for now as per some patterns, or move to deployment
-
-        // Root Files
-        zip.file("agent.py", "import os, sys\nsys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\nfrom app.agent import root_agent\n");
-        zip.file(".env", adkGeneratedCode.env);
-        zip.file("README.md", generateAdkReadmeFile(adkConfig));
-        zip.file("DESIGN_SPEC.md", generateDesignSpec(adkConfig));
-        zip.file("Makefile", generateMakefile(adkConfig));
-
-        // Tests Directory
-        const testsFolder = zip.folder("tests");
-        const evalFolder = testsFolder.folder("eval");
-        evalFolder.file("test_config.json", generateTestConfigJson(adkConfig));
-        const evalsetsFolder = evalFolder.folder("evalsets");
-        evalsetsFolder.file("basic.evalset.json", generateEvalSetJson(adkConfig));
-
-        // Deployment Directory
-        const deployFolder = zip.folder("deployment");
-        deployFolder.file("terraform/main.tf", "# Terraform config placeholder");
-
-        // Scripts Directory
-        const scriptsFolder = zip.folder("scripts");
-        scriptsFolder.file("launch_local.sh", generateLaunchScript(adkConfig));
-
-        if (adkConfig.ciCdRunner === 'google_cloud_build') {
-            zip.file("cloudbuild.yaml", generateCloudBuildYaml(adkConfig, deployProjectId || 'YOUR_PROJECT_ID'));
-        } else if (adkConfig.ciCdRunner === 'github_actions') {
-            const githubFolder = zip.folder(".github");
-            const workflowsFolder = githubFolder.folder("workflows");
-            workflowsFolder.file("deploy.yaml", generateGithubWorkflow(adkConfig));
+        if (build) {
+          console.log(
+            "handleCheckBuildStatus: FOUND recent build:",
+            build.id,
+            build.status,
+          );
+          if (onBuildTriggered) onBuildTriggered(build.id, pid);
+          foundAny = true;
         }
+      }
 
-        zip.generateAsync({ type: "blob" })
-            .then(function (content) {
-                const url = URL.createObjectURL(content);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${adkConfig.name || 'adk_agent'}.zip`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            });
-    };
+      if (!foundAny) {
+        alert("No active or queued builds found.");
+      }
+    } catch (e: any) {
+      alert(`Failed to check builds: ${e.message}`);
+    }
+  };
 
-    const adkCodeDisplay = {
-        app: adkGeneratedCode.app,
-        agent: adkGeneratedCode.agent,
-        env: adkGeneratedCode.env,
-        requirements: adkGeneratedCode.requirements,
-        auth: adkGeneratedCode.auth,
-        tools: adkGeneratedCode.tools,
-        init: adkGeneratedCode.init,
-        makefile: generateMakefile(adkConfig),
-        cloudbuild: generateCloudBuildYaml(adkConfig, deployProjectId || 'YOUR_PROJECT_ID'),
-        github_deploy: generateGithubWorkflow(adkConfig)
-    }[adkActiveTab];
+  const ADK_TABS = [
+    { id: "app", label: "app.py" },
+    { id: "agent", label: "agent.py" },
+    { id: "env", label: ".env" },
+    { id: "requirements", label: "requirements.txt" },
+    { id: "auth", label: "auth.py" },
+    { id: "tools", label: "tools.py" },
+    { id: "init", label: "__init__.py" },
+    { id: "makefile", label: "Makefile" },
+    ...(adkConfig.enableCiCd && adkConfig.ciCdRunner === "google_cloud_build"
+      ? [{ id: "cloudbuild", label: "cloudbuild.yaml" }]
+      : []),
+    ...(adkConfig.enableCiCd && adkConfig.ciCdRunner === "github_actions"
+      ? [{ id: "github_deploy", label: "deploy.yaml" }]
+      : []),
+  ];
 
-    const a2aCodeDisplay = {
-        main: a2aGeneratedCode.main,
-        dockerfile: a2aGeneratedCode.dockerfile,
-        requirements: a2aGeneratedCode.requirements,
-        env: a2aGeneratedCode.yaml
-    }[a2aActiveTab];
+  const A2A_TABS = [
+    { id: "main", label: "main.py" },
+    { id: "dockerfile", label: "Dockerfile" },
+    { id: "requirements", label: "requirements.txt" },
+    { id: "env", label: "env.yaml" },
+  ];
 
-    const adkFilesForBuild = [
-        { name: 'app.py', content: adkGeneratedCode.app },
-        { name: 'agent.py', content: adkGeneratedCode.agent },
-        { name: '.env', content: adkGeneratedCode.env },
-        { name: 'requirements.txt', content: adkGeneratedCode.requirements },
-        { name: 'auth.py', content: adkGeneratedCode.auth },
-        { name: 'tools.py', content: adkGeneratedCode.tools },
-    ];
+  // Map generated ADK code into the format expected by the GitHub API
+  const githubDeploymentFiles = [
+    { path: "app/app.py", content: adkGeneratedCode.app },
+    { path: "app/agent.py", content: adkGeneratedCode.agent },
+    { path: "app/.env", content: adkGeneratedCode.env },
+    { path: "app/requirements.txt", content: adkGeneratedCode.requirements },
+    { path: "app/__init__.py", content: adkGeneratedCode.init },
+    { path: "app/deploy_re.py", content: adkGeneratedCode.deploy_re },
+    { path: "Makefile", content: generateMakefile(adkConfig) },
+    { path: "README.md", content: adkGeneratedCode.readme },
+    { path: "tests/eval/test_config.json", content: generateTestConfig() },
+    {
+      path: "tests/eval/evalsets/basic.evalset.json",
+      content: generateEvalSet(),
+    },
+  ];
 
-    const a2aFilesForBuild = [
-        { name: 'main.py', content: a2aGeneratedCode.main },
-        { name: 'Dockerfile', content: a2aGeneratedCode.dockerfile },
-        { name: 'requirements.txt', content: a2aGeneratedCode.requirements },
-        { name: 'deploy.sh', content: a2aGeneratedCode.gcloud },
-        { name: 'env.yaml', content: a2aGeneratedCode.yaml }
-    ];
+  if (adkConfig.enableOAuth) {
+    githubDeploymentFiles.push({
+      path: "app/auth.py",
+      content: adkGeneratedCode.auth,
+    });
+  }
 
-    const handleBuildTriggered = (id: string) => {
-        // Use Global Handler
-        const pid = deployProjectId || projectNumber;
-        if (onBuildTriggered) onBuildTriggered(id, pid);
+  if (
+    adkConfig.tools.length > 0 ||
+    adkConfig.useGoogleSearch ||
+    adkConfig.enableEmailTool ||
+    adkConfig.enableSecurityCommandCenterApi ||
+    adkConfig.enableRecommenderApi ||
+    adkConfig.enableServiceHealthApi ||
+    adkConfig.enableNetworkManagementApi ||
+    adkConfig.enableCloudLoggingApi ||
+    adkConfig.enableCloudMonitoringApi ||
+    adkConfig.enableCloudRunApi ||
+    adkConfig.enableResourceManagerApi ||
+    adkConfig.enableAdminActivityApi ||
+    adkConfig.enableDatabaseFleetApi ||
+    adkConfig.enableCloudAssistApi
+  ) {
+    githubDeploymentFiles.push({
+      path: "app/tools.py",
+      content: adkGeneratedCode.tools,
+    });
+  }
 
-        setIsA2aDeployModalOpen(false);
-        setIsAdkDeployModalOpen(false);
-    };
+  // Always push the GitHub actions deploy config if they enabled GitHub CI/CD here!
+  if (adkConfig.enableCiCd && adkConfig.ciCdRunner === "github_actions") {
+    githubDeploymentFiles.push({
+      path: ".github/workflows/deploy.yaml",
+      content: generateGithubWorkflow(adkConfig),
+    });
+  }
 
-    const handleCheckBuildStatus = async () => {
-        if (!deployProjectId && !projectNumber) {
-            alert("Project ID not set.");
-            return;
+  return (
+    <div className="space-y-6 flex flex-col lg:h-full">
+      <div className="flex justify-between items-center shrink-0">
+        <h1 className="text-2xl font-bold text-white">Agent Builder</h1>
+        <div className="bg-gray-800 p-1 rounded-lg border border-gray-700">
+          <button
+            onClick={() => setBuilderTab("adk")}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${builderTab === "adk" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white"}`}
+          >
+            ADK Agent (Engine)
+          </button>
+          <button
+            onClick={() => setBuilderTab("a2a")}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${builderTab === "a2a" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white"}`}
+          >
+            A2A Function (Cloud Run)
+          </button>
+        </div>
+
+        <button
+          onClick={handleCheckBuildStatus}
+          className="ml-4 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 rounded border border-gray-600"
+          title="Check for active builds if status window is missing"
+        >
+          Check Build Status
+        </button>
+      </div>
+
+      {/* Deploy Modals */}
+      <AgentDeploymentModal
+        isOpen={isAdkDeployModalOpen}
+        onClose={() => setIsAdkDeployModalOpen(false)}
+        agentName={adkConfig.name || "my-agent"}
+        files={adkFilesForBuild}
+        projectNumber={projectNumber}
+        onBuildTriggered={handleBuildTriggered}
+        initialBucket={
+          stagingBucket ? stagingBucket.replace("gs://", "") : undefined
         }
-        const pid = deployProjectId || projectNumber;
-        let foundAny = false;
+      />
+      <A2aDeployModal
+        isOpen={isA2aDeployModalOpen}
+        onClose={() => setIsA2aDeployModalOpen(false)}
+        projectNumber={projectNumber}
+        serviceName={a2aConfig.serviceName}
+        region={a2aConfig.region}
+        files={a2aFilesForBuild}
+        onBuildTriggered={handleBuildTriggered}
+      />
 
-        try {
-            // Check for running builds first
-            const running = await api.listCloudBuilds(pid, 'status="WORKING"');
-            if (running.builds && running.builds.length > 0) {
-                console.log(`handleCheckBuildStatus: FOUND ${running.builds.length} WORKING builds`);
-                running.builds.forEach((b: any) => {
-                    if (onBuildTriggered) onBuildTriggered(b.id, pid);
-                });
-                foundAny = true;
-            }
+      <GitHubDeployModal
+        isOpen={isGithubModalOpen}
+        onClose={() => setIsGithubModalOpen(false)}
+        projectId={deployProjectId}
+        agentName={adkConfig.name}
+        files={githubDeploymentFiles}
+        adkConfig={adkConfig}
+        setAdkConfig={setAdkConfig}
+        generateCallerGithubWorkflow={generateCallerGithubWorkflow}
+      />
 
-            // Check for queued builds
-            const queued = await api.listCloudBuilds(pid, 'status="QUEUED"');
-            if (queued.builds && queued.builds.length > 0) {
-                console.log(`handleCheckBuildStatus: FOUND ${queued.builds.length} QUEUED builds`);
-                queued.builds.forEach((b: any) => {
-                    if (onBuildTriggered) onBuildTriggered(b.id, pid);
-                });
-                foundAny = true;
-            }
+      {isFixMode && builderTab === "a2a" && (
+        <div className="bg-yellow-900/30 border border-yellow-700 p-4 rounded-lg shrink-0">
+          <h3 className="text-yellow-400 font-bold mb-1">
+            Fixing Service: {a2aConfig.serviceName}
+          </h3>
+          <p className="text-sm text-gray-300">
+            Configuration pre-filled from deployed service.
+          </p>
+        </div>
+      )}
 
-            // Fallback: Fetch latest if nothing active found yet
-            if (!foundAny) {
-                console.log("No active (WORKING/QUEUED) builds. Fetching recent history...");
-                const recent = await api.listCloudBuilds(pid);
-                const build = recent.builds?.[0];
-
-                if (build) {
-                    console.log("handleCheckBuildStatus: FOUND recent build:", build.id, build.status);
-                    if (onBuildTriggered) onBuildTriggered(build.id, pid);
-                    foundAny = true;
-                }
-            }
-
-            if (!foundAny) {
-                alert("No active or queued builds found.");
-            }
-        } catch (e: any) {
-            alert(`Failed to check builds: ${e.message}`);
-        }
-    };
-
-    const ADK_TABS = [
-        { id: 'app', label: 'app.py' },
-        { id: 'agent', label: 'agent.py' },
-        { id: 'env', label: '.env' },
-        { id: 'requirements', label: 'requirements.txt' },
-        { id: 'auth', label: 'auth.py' },
-        { id: 'tools', label: 'tools.py' },
-        { id: 'init', label: '__init__.py' },
-        { id: 'makefile', label: 'Makefile' },
-        ...(adkConfig.enableCiCd && adkConfig.ciCdRunner === 'google_cloud_build' ? [{ id: 'cloudbuild', label: 'cloudbuild.yaml' }] : []),
-        ...(adkConfig.enableCiCd && adkConfig.ciCdRunner === 'github_actions' ? [{ id: 'github_deploy', label: 'deploy.yaml' }] : []),
-    ];
-
-    const A2A_TABS = [
-        { id: 'main', label: 'main.py' },
-        { id: 'dockerfile', label: 'Dockerfile' },
-        { id: 'requirements', label: 'requirements.txt' },
-        { id: 'env', label: 'env.yaml' },
-    ];
-
-    // Map generated ADK code into the format expected by the GitHub API
-    const githubDeploymentFiles = [
-        { path: 'app/app.py', content: adkGeneratedCode.app },
-        { path: 'app/agent.py', content: adkGeneratedCode.agent },
-        { path: 'app/.env', content: adkGeneratedCode.env },
-        { path: 'app/requirements.txt', content: adkGeneratedCode.requirements },
-        { path: 'app/__init__.py', content: adkGeneratedCode.init },
-        { path: 'app/deploy_re.py', content: adkGeneratedCode.deploy_re },
-        { path: 'Makefile', content: generateMakefile(adkConfig) },
-        { path: 'README.md', content: adkGeneratedCode.readme },
-        { path: 'tests/eval/test_config.json', content: generateTestConfig() },
-        { path: 'tests/eval/evalsets/basic.evalset.json', content: generateEvalSet() }
-    ];
-
-    if (adkConfig.enableOAuth) {
-        githubDeploymentFiles.push({ path: 'app/auth.py', content: adkGeneratedCode.auth });
-    }
-
-    if (adkConfig.tools.length > 0 || adkConfig.useGoogleSearch || adkConfig.enableEmailTool || adkConfig.enableSecurityCommandCenterApi || adkConfig.enableRecommenderApi || adkConfig.enableServiceHealthApi || adkConfig.enableNetworkManagementApi || adkConfig.enableCloudLoggingApi || adkConfig.enableCloudMonitoringApi || adkConfig.enableCloudRunApi || adkConfig.enableResourceManagerApi || adkConfig.enableAdminActivityApi || adkConfig.enableDatabaseFleetApi || adkConfig.enableCloudAssistApi) {
-        githubDeploymentFiles.push({ path: 'app/tools.py', content: adkGeneratedCode.tools });
-    }
-    
-    // Always push the GitHub actions deploy config if they enabled GitHub CI/CD here!
-    if (adkConfig.enableCiCd && adkConfig.ciCdRunner === 'github_actions') {
-        githubDeploymentFiles.push({ path: '.github/workflows/deploy.yaml', content: generateGithubWorkflow(adkConfig) });
-    }
-
-
-    return (
-        <div className="space-y-6 flex flex-col lg:h-full">
-            <div className="flex justify-between items-center shrink-0">
-                <h1 className="text-2xl font-bold text-white">Agent Builder</h1>
-                <div className="bg-gray-800 p-1 rounded-lg border border-gray-700">
-                    <button onClick={() => setBuilderTab('adk')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${builderTab === 'adk' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>ADK Agent (Engine)</button>
-                    <button onClick={() => setBuilderTab('a2a')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${builderTab === 'a2a' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>A2A Function (Cloud Run)</button>
-                </div>
-
-                <button
-                    onClick={handleCheckBuildStatus}
-                    className="ml-4 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 rounded border border-gray-600"
-                    title="Check for active builds if status window is missing"
-                >
-                    Check Build Status
-                </button>
+      {/* Layout Container */}
+      <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
+        {/* Left Column: Configuration (Box 1) */}
+        <div className="bg-gray-800 p-4 rounded-lg shadow-md lg:w-1/3 flex flex-col overflow-y-auto border border-gray-700">
+          <div className="flex justify-between items-center mb-3 shrink-0">
+            <h2 className="text-lg font-semibold text-white">
+              1. Configure Agent
+            </h2>
+            <CloudConsoleButton
+              url={`https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=${projectNumber}`}
+            />
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-1">
+                Project Number
+              </label>
+              <ProjectInput value={projectNumber} onChange={setProjectNumber} />
             </div>
 
-            {/* Deploy Modals */}
-            <AgentDeploymentModal isOpen={isAdkDeployModalOpen} onClose={() => setIsAdkDeployModalOpen(false)} agentName={adkConfig.name || 'my-agent'} files={adkFilesForBuild} projectNumber={projectNumber} onBuildTriggered={handleBuildTriggered} initialBucket={stagingBucket ? stagingBucket.replace('gs://', '') : undefined} />
-            <A2aDeployModal isOpen={isA2aDeployModalOpen} onClose={() => setIsA2aDeployModalOpen(false)} projectNumber={projectNumber} serviceName={a2aConfig.serviceName} region={a2aConfig.region} files={a2aFilesForBuild} onBuildTriggered={handleBuildTriggered} />
-            
-            <GitHubDeployModal
-                isOpen={isGithubModalOpen}
-                onClose={() => setIsGithubModalOpen(false)}
-                projectId={deployProjectId}
-                agentName={adkConfig.name}
-                files={githubDeploymentFiles}
-                adkConfig={adkConfig}
-                setAdkConfig={setAdkConfig}
-                generateCallerGithubWorkflow={generateCallerGithubWorkflow}
-            />
+            {builderTab === "adk" ? (
+              <>
+                {/* Templates Selection */}
+                <div className="mb-4 p-3 bg-gray-750 rounded-lg border border-gray-600">
+                  <label className="block text-sm font-medium text-blue-400 mb-2">
+                    🚀 Quick Start Templates
+                  </label>
+                  <select
+                    onChange={(e) => {
+                      const template = TEMPLATES.find(
+                        (t) => t.id === e.target.value,
+                      );
+                      if (template) {
+                        setAdkConfig((prev) => {
+                          const cleanConfig: AdkAgentConfig = {
+                            name: "",
+                            description: "An agent that can do awesome things.",
+                            model: "gemini-2.5-flash",
+                            instruction:
+                              "You are an awesome and helpful agent.",
+                            tools: [],
+                            useGoogleSearch: false,
+                            enableOAuth: false,
+                            authId: "temp_oauth",
+                            allowAdcFallback: true,
+                            enableDiscoveryApi: false,
+                            discoveryConfig: {
+                              projectId: "",
+                              location: "global",
+                              collection: "default_collection",
+                              engineId: "",
+                              dataStoreIds: "",
+                            },
+                            enableBqAnalytics: false,
+                            bqDatasetId: "",
+                            bqTableId: "",
+                            enableThinking: false,
+                            thinkingBudget: 1024,
+                            thinkingLevel: "HIGH",
+                            enableStreaming: false,
+                            enableBigQueryMcp: false,
+                            enableCodeExecution: false,
+                            enableGraphvizRendering: false,
+                            enableEmailTool: false,
+                            enableSecurityCommandCenterApi: false,
+                            enableRecommenderApi: false,
+                            enableServiceHealthApi: false,
+                            enableNetworkManagementApi: false,
+                            enableCloudAssistApi: false,
+                            enableTelemetry: true,
+                            enableMessageLogging: false,
+                            enableCloudLoggingApi: false,
+                            enableCloudMonitoringApi: false,
+                            enableCloudRunApi: false,
+                            enableResourceManagerApi: false,
+                            enableAdminActivityApi: false,
+                            enableDatabaseFleetApi: false,
+                            enableCloudLoggingMcp: false,
+                            enableBigtableAdminMcp: false,
+                            enableCloudSqlMcp: false,
+                            enableCloudMonitoringMcp: false,
+                            enableComputeEngineMcp: false,
+                            enableFirestoreMcp: false,
+                            enableGkeMcp: false,
+                            enableResourceManagerMcp: false,
+                            enableSpannerMcp: false,
+                            enableDeveloperKnowledgeMcp: false,
+                            enableMapsGroundingMcp: false,
+                            enableEvaluation: false,
+                            enableCiCd: false,
+                            ciCdRunner: "none",
+                            deploymentTarget: "agent_engine",
+                            githubWifProvider: "",
+                            githubServiceAccount: "",
+                            customMcpEndpoints: [],
+                          };
 
-            {isFixMode && builderTab === 'a2a' && (
-                <div className="bg-yellow-900/30 border border-yellow-700 p-4 rounded-lg shrink-0">
-                    <h3 className="text-yellow-400 font-bold mb-1">Fixing Service: {a2aConfig.serviceName}</h3>
-                    <p className="text-sm text-gray-300">Configuration pre-filled from deployed service.</p>
+                          return {
+                            ...cleanConfig,
+                            ...template.config,
+                            discoveryConfig: {
+                              ...cleanConfig.discoveryConfig,
+                              ...(template.config.discoveryConfig || {}),
+                            },
+                          };
+                        });
+                      }
+                    }}
+                    className="bg-gray-800 border border-gray-500 rounded-md px-3 py-2 text-sm text-white w-full hover:border-blue-500 focus:border-blue-500 transition-colors"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>
+                      Select a template to auto-fill...
+                    </option>
+                    {TEMPLATES.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} - {t.description}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Agent Name
+                  </label>
+                  <input
+                    name="name"
+                    type="text"
+                    value={adkConfig.name}
+                    onChange={handleAdkConfigChange}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Description
+                  </label>
+                  <input
+                    name="description"
+                    type="text"
+                    value={adkConfig.description}
+                    onChange={handleAdkConfigChange}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Agent Location
+                  </label>
+                  <select
+                    value={vertexLocation}
+                    onChange={(e) => setVertexLocation(e.target.value)}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
+                  >
+                    <option value="us-central1">us-central1</option>
+                    <option value="europe-west1">europe-west1</option>
+                    <option value="asia-east1">asia-east1</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    ADK Version
+                  </label>
+                  <select
+                    name="adkVersion"
+                    value={adkConfig.adkVersion || "1.35.1"}
+                    onChange={handleAdkConfigChange}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
+                  >
+                    <option value="1.35.1">ADK 1.35.1 (Legacy)</option>
+                    <option value="2.2">ADK 2.2 (Antigravity SDK)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Model
+                  </label>
+                  <select
+                    name="model"
+                    value={adkConfig.model}
+                    onChange={handleAdkConfigChange}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
+                  >
+                    <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                    <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
+                    <option value="gemini-3-flash">Gemini 3.0 Flash</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                  </select>
+                </div>
+
+                {/* Staging Bucket - Moved here for ADK */}
+                <div className="mt-2">
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Staging Bucket
+                  </label>
+                  <div className="flex gap-2">
+                    <select
+                      value={stagingBucket}
+                      onChange={(e) => setStagingBucket(e.target.value)}
+                      className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full focus:ring-teal-500 focus:border-teal-500"
+                    >
+                      <option value="">-- Select Bucket --</option>
+                      {buckets.map((b) => (
+                        <option key={b.name} value={`gs://${b.name}`}>
+                          gs://{b.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => {
+                        setIsLoadingBuckets(true);
+                        api.listBuckets(projectNumber).then((res) => {
+                          setBuckets(res.items || []);
+                          setIsLoadingBuckets(false);
+                        });
+                      }}
+                      disabled={isLoadingBuckets}
+                      className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 disabled:opacity-50"
+                      title="Refresh Buckets"
+                    >
+                      &#x21bb;
+                    </button>
+                  </div>
+                  {!stagingBucket && (
+                    <p className="text-xs text-yellow-500 mt-1">
+                      Required for deployment.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-sm font-medium text-gray-400">
+                      Instruction
+                    </label>
+                    <button
+                      onClick={() => handleRewrite("instruction")}
+                      disabled={rewritingField === "instruction"}
+                      className="text-xs text-blue-400 hover:text-blue-300"
+                    >
+                      {rewritingField === "instruction" ? "..." : "AI Rewrite"}
+                    </button>
+                  </div>
+
+                  <textarea
+                    name="instruction"
+                    value={adkConfig.instruction}
+                    onChange={handleAdkConfigChange}
+                    rows={4}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full mt-2"
+                  />
+                </div>
+                <div className="space-y-2 pt-2 border-t border-gray-600">
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="useGoogleSearch"
+                      checked={adkConfig.useGoogleSearch}
+                      onChange={handleAdkConfigChange}
+                      className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                    />
+                    <span className="text-sm text-gray-300">
+                      Enable Google Search Tool
+                    </span>
+                  </label>
+
+                  <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-400">
+                      Agent Capabilities
+                    </h4>
+                    <div className="flex items-center space-x-2">
+                      <label className="flex items-center space-x-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          name="enableThinking"
+                          checked={adkConfig.enableThinking}
+                          onChange={handleAdkConfigChange}
+                          className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                        />
+                        <span className="text-sm text-gray-300">
+                          Enable Thinking Details
+                        </span>
+                      </label>
+                      {adkConfig.enableThinking && (
+                        <div className="flex flex-col">
+                          {adkConfig.model &&
+                          adkConfig.model.startsWith("gemini-3") ? (
+                            <select
+                              name="thinkingLevel"
+                              value={adkConfig.thinkingLevel}
+                              onChange={handleAdkConfigChange}
+                              title="Thinking depth for Gemini 3 models"
+                              className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-32"
+                            >
+                              <option value="MINIMAL">Minimal</option>
+                              <option value="LOW">Low</option>
+                              <option value="MEDIUM">Medium</option>
+                              <option value="HIGH">High</option>
+                            </select>
+                          ) : (
+                            <input
+                              type="number"
+                              name="thinkingBudget"
+                              value={adkConfig.thinkingBudget}
+                              onChange={handleAdkConfigChange}
+                              placeholder="Limit (-1)"
+                              title="Token limit for thinking process (-1 for unlimited)"
+                              className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-24"
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableStreaming"
+                        checked={adkConfig.enableStreaming}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Streaming Responses
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableCodeExecution"
+                        checked={adkConfig.enableCodeExecution}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Code Execution Sub-Agent
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableGraphvizRendering"
+                        checked={adkConfig.enableGraphvizRendering}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Graphviz Local Renderer
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-400">
+                      Integrations (Tools)
+                    </h4>
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="bigquery.googleapis.com"
+                      mcpEndpoint="https://bigquery.googleapis.com/mcp"
+                      label="BigQuery Managed MCP"
+                      checked={adkConfig.enableBigQueryMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableBigQueryMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="logging.googleapis.com"
+                      mcpEndpoint="https://logging.googleapis.com/mcp"
+                      label="Cloud Logging Managed MCP"
+                      checked={adkConfig.enableCloudLoggingMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableCloudLoggingMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="bigtableadmin.googleapis.com"
+                      mcpEndpoint="https://bigtableadmin.googleapis.com/mcp"
+                      label="Bigtable Admin MCP"
+                      checked={adkConfig.enableBigtableAdminMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableBigtableAdminMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="sqladmin.googleapis.com"
+                      mcpEndpoint="https://sqladmin.googleapis.com/mcp"
+                      label="Cloud SQL Admin MCP"
+                      checked={adkConfig.enableCloudSqlMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableCloudSqlMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="monitoring.googleapis.com"
+                      mcpEndpoint="https://monitoring.googleapis.com/mcp"
+                      label="Cloud Monitoring MCP"
+                      checked={adkConfig.enableCloudMonitoringMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableCloudMonitoringMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="compute.googleapis.com"
+                      mcpEndpoint="https://compute.googleapis.com/mcp"
+                      label="Compute Engine MCP"
+                      checked={adkConfig.enableComputeEngineMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableComputeEngineMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="firestore.googleapis.com"
+                      mcpEndpoint="https://firestore.googleapis.com/mcp"
+                      label="Firestore MCP"
+                      checked={adkConfig.enableFirestoreMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableFirestoreMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="container.googleapis.com"
+                      mcpEndpoint="https://container.googleapis.com/mcp"
+                      label="GKE MCP"
+                      checked={adkConfig.enableGkeMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableGkeMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="cloudresourcemanager.googleapis.com"
+                      mcpEndpoint="https://cloudresourcemanager.googleapis.com/mcp"
+                      label="Resource Manager MCP"
+                      checked={adkConfig.enableResourceManagerMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableResourceManagerMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="spanner.googleapis.com"
+                      mcpEndpoint="https://spanner.googleapis.com/mcp"
+                      label="Spanner MCP"
+                      checked={adkConfig.enableSpannerMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableSpannerMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+                    <h4 className="text-xs font-semibold text-gray-400 mt-2">
+                      Google MCPs
+                    </h4>
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="developerknowledge.googleapis.com"
+                      mcpEndpoint="https://developerknowledge.googleapis.com/mcp"
+                      label="Developer Knowledge MCP"
+                      checked={adkConfig.enableDeveloperKnowledgeMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableDeveloperKnowledgeMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+                    <McpServiceCheck
+                      projectId={deployProjectId || ""}
+                      serviceName="mapstools.googleapis.com"
+                      mcpEndpoint="https://mapstools.googleapis.com/mcp"
+                      label="Maps Grounding Lite MCP"
+                      checked={adkConfig.enableMapsGroundingMcp}
+                      onChange={(checked) =>
+                        handleAdkConfigChange({
+                          target: {
+                            name: "enableMapsGroundingMcp",
+                            type: "checkbox",
+                            checked,
+                          },
+                        } as any)
+                      }
+                    />
+
+                    <div className="mt-4 pt-4 border-t border-gray-600">
+                      <div className="flex justify-between items-center mb-2">
+                        <h4 className="text-xs font-semibold text-gray-400">
+                          Custom MCP Endpoints
+                        </h4>
+                        <button
+                          onClick={handleAddCustomMcp}
+                          className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs transition-colors"
+                        >
+                          + Add Endpoint
+                        </button>
+                      </div>
+                      <div className="space-y-3">
+                        {adkConfig.customMcpEndpoints.map((endpoint, index) => (
+                          <div
+                            key={index}
+                            className="flex space-x-2 items-start border border-gray-700 bg-gray-800 p-3 rounded-lg relative group"
+                          >
+                            <div className="flex-1 space-y-2">
+                              <div className="flex flex-col">
+                                <label className="text-[10px] uppercase tracking-wider text-gray-500 mb-1 font-semibold">
+                                  Variable Name
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="e.g., custom_zendesk_mcp"
+                                  value={endpoint.name}
+                                  onChange={(e) =>
+                                    handleUpdateCustomMcp(
+                                      index,
+                                      "name",
+                                      e.target.value.replace(/\s+/g, "_"),
+                                    )
+                                  }
+                                  className="w-full bg-gray-900 text-white p-2 rounded border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-xs"
+                                />
+                              </div>
+                              <div className="flex flex-col">
+                                <label className="text-[10px] uppercase tracking-wider text-gray-500 mb-1 font-semibold">
+                                  Endpoint URL
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="e.g., https://your-mcp-server.internal"
+                                  value={endpoint.url}
+                                  onChange={(e) =>
+                                    handleUpdateCustomMcp(
+                                      index,
+                                      "url",
+                                      e.target.value,
+                                    )
+                                  }
+                                  className="w-full bg-gray-900 text-white p-2 rounded border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-xs font-mono"
+                                />
+                              </div>
+                              <div className="flex items-center justify-between mt-1">
+                                <button
+                                  onClick={() =>
+                                    handleVerifyCustomMcp(index, endpoint.url)
+                                  }
+                                  className="px-2 py-1 bg-green-600 hover:bg-green-500 text-white rounded text-xs transition-colors"
+                                >
+                                  Verify
+                                </button>
+                                {customMcpStatus[index] && (
+                                  <span
+                                    className={`text-xs ${customMcpStatus[index].error ? "text-red-400" : "text-green-400"}`}
+                                  >
+                                    {customMcpStatus[index].loading
+                                      ? "Loading..."
+                                      : customMcpStatus[index].error
+                                        ? `Error: ${customMcpStatus[index].error}`
+                                        : `Ready (${customMcpStatus[index].tools?.length || 0} tools)`}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveCustomMcp(index)}
+                              className="text-gray-500 hover:text-red-400 p-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-2"
+                              title="Remove Endpoint"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                        {adkConfig.customMcpEndpoints.length === 0 && (
+                          <p className="text-xs text-gray-500 italic pb-2">
+                            No custom endpoints defined.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <h4 className="text-xs font-semibold text-gray-400 mt-4 border-t border-gray-600 pt-4">
+                      Custom APIs
+                    </h4>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableSecurityCommandCenterApi"
+                        checked={adkConfig.enableSecurityCommandCenterApi}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Security Command Center Tool
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableRecommenderApi"
+                        checked={adkConfig.enableRecommenderApi}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Recommender Tool
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableServiceHealthApi"
+                        checked={adkConfig.enableServiceHealthApi}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Service Health Tool
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableNetworkManagementApi"
+                        checked={adkConfig.enableNetworkManagementApi}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Network Management Tool
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableCloudLoggingApi"
+                        checked={adkConfig.enableCloudLoggingApi}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Cloud Logging (API)
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableCloudMonitoringApi"
+                        checked={adkConfig.enableCloudMonitoringApi}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Cloud Monitoring (API)
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableCloudRunApi"
+                        checked={adkConfig.enableCloudRunApi}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Cloud Run Discovery (API)
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableResourceManagerApi"
+                        checked={adkConfig.enableResourceManagerApi}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Resource Manager (API)
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableAdminActivityApi"
+                        checked={adkConfig.enableAdminActivityApi}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Admin Activity / Changes (API)
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableDatabaseFleetApi"
+                        checked={adkConfig.enableDatabaseFleetApi}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Database Fleet Health (API)
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableCloudAssistApi"
+                        checked={adkConfig.enableCloudAssistApi}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Gemini Cloud Assist
+                      </span>
+                    </label>
+
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="enableEmailTool"
+                        checked={adkConfig.enableEmailTool}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable Email Sending Tool
+                      </span>
+                    </label>
+
+                    <div className="flex flex-col gap-2 mt-2">
+                      <div className="flex items-center space-x-3">
+                        <label className="flex items-center space-x-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            name="enableOAuth"
+                            checked={adkConfig.enableOAuth}
+                            onChange={handleAdkConfigChange}
+                            className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                          />
+                          <span className="text-sm text-gray-300">
+                            Enable OAuth Flow
+                          </span>
+                        </label>
+                        {adkConfig.enableOAuth && (
+                          <div className="flex items-center space-x-2">
+                            {authInputMode === "select" &&
+                            authorizations.length > 0 ? (
+                              <select
+                                name="authId"
+                                value={adkConfig.authId}
+                                onChange={handleAdkConfigChange}
+                                className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-44 h-[26px]"
+                              >
+                                <option value="">-- Select Auth ID --</option>
+                                {authorizations.map((auth) => {
+                                  const aId = auth.name.split("/").pop() || "";
+                                  return (
+                                    <option key={auth.name} value={aId}>
+                                      {auth.displayName || aId}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                name="authId"
+                                value={adkConfig.authId}
+                                onChange={handleAdkConfigChange}
+                                placeholder="Auth ID (e.g. bqtest)"
+                                className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-32"
+                              />
+                            )}
+                            {authorizations.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setAuthInputMode((prev) =>
+                                    prev === "select" ? "manual" : "select",
+                                  )
+                                }
+                                className="text-xs text-blue-400 hover:text-blue-300 underline font-semibold shrink-0"
+                              >
+                                {authInputMode === "select"
+                                  ? "Manual Input"
+                                  : "Select Existing"}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {adkConfig.enableOAuth && (
+                        <label
+                          className="flex items-center space-x-3 pl-6 cursor-pointer"
+                          title="If disabled, tools will fail with an error if no user token is present, instead of defaulting to the service account."
+                        >
+                          <input
+                            type="checkbox"
+                            name="allowAdcFallback"
+                            checked={adkConfig.allowAdcFallback}
+                            onChange={handleAdkConfigChange}
+                            className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                          />
+                          <span className="text-xs text-gray-400">
+                            Allow fallback to Service Account (ADC)
+                          </span>
+                        </label>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-400">
+                      Observability
+                    </h4>
+                    <label
+                      className="flex items-center space-x-3 cursor-pointer"
+                      title="Populates the agent observability dashboard and traces pages."
+                    >
+                      <input
+                        type="checkbox"
+                        name="enableTelemetry"
+                        checked={adkConfig.enableTelemetry}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Enable OpenTelemetry Traces & Logs
+                      </span>
+                    </label>
+                    <label
+                      className="flex items-center space-x-3 cursor-pointer"
+                      title="Enabling this will collect and store the full content of user prompts and responses. Ensure you have necessary user consents."
+                    >
+                      <input
+                        type="checkbox"
+                        name="enableMessageLogging"
+                        checked={adkConfig.enableMessageLogging}
+                        onChange={handleAdkConfigChange}
+                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm text-gray-300">
+                        Log Prompts & Responses (Sensitive)
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
+                  <h4 className="text-xs font-semibold text-gray-400">
+                    Lifecycle Management (WIP)
+                  </h4>
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="enableEvaluation"
+                      checked={adkConfig.enableEvaluation}
+                      onChange={handleAdkConfigChange}
+                      className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                    />
+                    <span className="text-sm text-gray-300">
+                      Enable Evaluation Configs
+                    </span>
+                  </label>
+
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="enableCiCd"
+                      checked={adkConfig.enableCiCd}
+                      onChange={handleAdkConfigChange}
+                      className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                    />
+                    <span className="text-sm text-gray-300">
+                      Enable CI/CD Scaffolding
+                    </span>
+                  </label>
+
+                  {adkConfig.enableCiCd && (
+                    <div className="pl-6 space-y-2">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">
+                          CI/CD Runner
+                        </label>
+                        <select
+                          name="ciCdRunner"
+                          value={adkConfig.ciCdRunner}
+                          onChange={handleAdkConfigChange}
+                          className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
+                        >
+                          <option value="none">None</option>
+                          <option value="github_actions">GitHub Actions</option>
+                          <option value="google_cloud_build">
+                            Google Cloud Build
+                          </option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">
+                          Deployment Target
+                        </label>
+                        <select
+                          name="deploymentTarget"
+                          value={adkConfig.deploymentTarget}
+                          onChange={handleAdkConfigChange}
+                          className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
+                        >
+                          <option value="agent_engine">Agent Engine</option>
+                          <option value="cloud_run">Cloud Run</option>
+                        </select>
+                      </div>
+                      {adkConfig.ciCdRunner === "github_actions" && (
+                        <div className="pt-2 space-y-2 border-t border-gray-600 mt-2">
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="block text-xs font-medium text-gray-400">
+                                WIF Provider
+                              </label>
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setShowWifInstructions(!showWifInstructions);
+                                }}
+                                className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
+                              >
+                                {showWifInstructions
+                                  ? "Hide setup instructions"
+                                  : "How to set up WIF"}
+                              </button>
+                            </div>
+                            {wifProviders.length > 0 ? (
+                              <select
+                                name="githubWifProvider"
+                                value={adkConfig.githubWifProvider || ""}
+                                onChange={handleAdkConfigChange}
+                                className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
+                              >
+                                <option value="">
+                                  Select a WIF Provider...
+                                </option>
+                                {wifProviders.map((p) => (
+                                  <option key={p.name} value={p.name}>
+                                    {p.displayName || p.name.split("/").pop()}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                name="githubWifProvider"
+                                value={adkConfig.githubWifProvider || ""}
+                                onChange={handleAdkConfigChange}
+                                placeholder="projects/123.../providers/my-provider"
+                                className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
+                              />
+                            )}
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-400 mb-1">
+                              Service Account Email
+                            </label>
+                            {serviceAccounts.length > 0 ? (
+                              <select
+                                name="githubServiceAccount"
+                                value={adkConfig.githubServiceAccount || ""}
+                                onChange={handleAdkConfigChange}
+                                className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
+                              >
+                                <option value="">
+                                  Select a Service Account...
+                                </option>
+                                {serviceAccounts.map((sa) => (
+                                  <option key={sa.email} value={sa.email}>
+                                    {sa.email}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="email"
+                                name="githubServiceAccount"
+                                value={adkConfig.githubServiceAccount || ""}
+                                onChange={handleAdkConfigChange}
+                                placeholder="sa@my-project.iam.gserviceaccount.com"
+                                className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
+                              />
+                            )}
+                          </div>
+                          {validationStatus !== "unchecked" && (
+                            <div
+                              className={`text-xs mt-1 ${validationStatus === "valid" ? "text-green-400" : validationStatus === "testing" ? "text-yellow-400" : "text-red-400"}`}
+                            >
+                              {validationStatus === "testing"
+                                ? "Validating connection..."
+                                : validationMessage}
+                            </div>
+                          )}
+
+                          {showWifInstructions && (
+                            <div className="p-3 bg-gray-800 rounded border border-gray-600 mt-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre">
+                              <div># 1. Create a Workload Identity Pool</div>
+                              <div className="text-gray-400">
+                                gcloud iam workload-identity-pools create
+                                "github-actions" \<br />{" "}
+                                --project="YOUR_PROJECT_ID" \<br />{" "}
+                                --location="global" \<br />{" "}
+                                --display-name="GitHub Actions Pool"
+                              </div>
+                              <br />
+                              <div># 2. Create a WIF Provider in that pool</div>
+                              <div className="text-gray-400">
+                                gcloud iam workload-identity-pools providers
+                                create-oidc "my-repo" \<br />{" "}
+                                --project="YOUR_PROJECT_ID" \<br />{" "}
+                                --location="global" \<br />{" "}
+                                --workload-identity-pool="github-actions" \
+                                <br /> --display-name="My GitHub repo Provider"
+                                \<br />{" "}
+                                --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository_owner=assertion.repository_owner"
+                                \<br />{" "}
+                                --attribute-condition="attribute.repository_owner
+                                == 'YOUR_ORG'" \<br />{" "}
+                                --issuer-uri="https://token.actions.githubusercontent.com"
+                              </div>
+                              <br />
+                              <div># 3. Create a Service Account</div>
+                              <div className="text-gray-400">
+                                gcloud iam service-accounts create
+                                "github-actions-sa" \<br />{" "}
+                                --project="YOUR_PROJECT_ID" \<br />{" "}
+                                --display-name="GitHub Actions Service Account"
+                              </div>
+                              <br />
+                              <div>
+                                # 4. Bind the Service Account to the WIF
+                                Provider
+                              </div>
+                              <div className="text-gray-400">
+                                gcloud iam service-accounts
+                                add-iam-policy-binding
+                                "github-actions-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com"
+                                \<br />
+                                --project="YOUR_PROJECT_ID" \<br />
+                                --role="roles/iam.workloadIdentityUser" \<br />
+                                --member="principalSet://iam.googleapis.com/projects/YOUR_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-actions/attribute.repository_owner/YOUR_ORG"
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="pt-2 flex justify-end">
+                            <button
+                              onClick={() => setIsGithubModalOpen(true)}
+                              className="text-xs bg-gray-600 hover:bg-gray-500 text-white py-1.5 px-3 rounded flex items-center gap-1 transition-colors border border-gray-500"
+                            >
+                              <svg
+                                viewBox="0 0 16 16"
+                                className="w-3 h-3 fill-current"
+                              >
+                                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+                              </svg>
+                              Automated CI/CD Workflow Setup
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Validation Panel */}
+                <div className="mt-4 p-3 bg-gray-900 rounded-lg border border-gray-700">
+                  <h4 className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">
+                    ADK Standards Validation
+                  </h4>
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-green-400">✓</span>
+                      <span className="text-xs text-gray-300">
+                        Standard Folder Structure (app/, tests/)
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span
+                        className={
+                          adkConfig.enableEvaluation
+                            ? "text-green-400"
+                            : "text-gray-600"
+                        }
+                      >
+                        {adkConfig.enableEvaluation ? "✓" : "○"}
+                      </span>
+                      <span
+                        className={`text-xs ${adkConfig.enableEvaluation ? "text-gray-300" : "text-gray-500"}`}
+                      >
+                        Evaluation Configured
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span
+                        className={
+                          adkConfig.enableCiCd
+                            ? "text-green-400"
+                            : "text-gray-600"
+                        }
+                      >
+                        {adkConfig.enableCiCd ? "✓" : "○"}
+                      </span>
+                      <span
+                        className={`text-xs ${adkConfig.enableCiCd ? "text-gray-300" : "text-gray-500"}`}
+                      >
+                        CI/CD Pipeline Configured
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-green-400">✓</span>
+                      <span className="text-xs text-gray-300">
+                        Design Spec Generated
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Project ID
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={deployProjectId}
+                      onChange={(e) => setDeployProjectId(e.target.value)}
+                      className={`bg-gray-700 border rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] ${/^\d+$/.test(deployProjectId) ? "border-yellow-500" : "border-gray-600"}`}
+                      placeholder="e.g. my-project-id"
+                    />
+                    <button
+                      onClick={fetchProjectId}
+                      disabled={isResolvingId}
+                      className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-md text-white disabled:opacity-50"
+                    >
+                      {isResolvingId ? "..." : "↻"}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Service Name
+                  </label>
+                  <input
+                    name="serviceName"
+                    type="text"
+                    value={a2aConfig.serviceName}
+                    onChange={handleA2aConfigChange}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Display Name
+                  </label>
+                  <input
+                    name="displayName"
+                    type="text"
+                    value={a2aConfig.displayName}
+                    onChange={handleA2aConfigChange}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Provider Organization
+                  </label>
+                  <input
+                    name="providerOrganization"
+                    type="text"
+                    value={a2aConfig.providerOrganization}
+                    onChange={handleA2aConfigChange}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Model
+                  </label>
+                  <select
+                    name="model"
+                    value={a2aConfig.model}
+                    onChange={handleA2aConfigChange}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
+                  >
+                    <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                    <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
+                    <option value="gemini-3-flash">Gemini 3.0 Flash</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Region
+                  </label>
+                  <select
+                    name="region"
+                    value={a2aConfig.region}
+                    onChange={handleA2aConfigChange}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
+                  >
+                    <option value="us-central1">us-central1</option>
+                    <option value="europe-west1">europe-west1</option>
+                    <option value="asia-east1">asia-east1</option>
+                  </select>
+                </div>
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-sm font-medium text-gray-400">
+                      System Instruction
+                    </label>
+                    <button
+                      onClick={() => handleRewrite("instruction")}
+                      disabled={rewritingField === "instruction"}
+                      className="text-xs text-blue-400 hover:text-blue-300"
+                    >
+                      {rewritingField === "instruction" ? "..." : "AI Rewrite"}
+                    </button>
+                  </div>
+                  <textarea
+                    name="instruction"
+                    value={a2aConfig.instruction}
+                    onChange={handleA2aConfigChange}
+                    rows={4}
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full"
+                  />
+                </div>
+                <div className="space-y-2 pt-2 border-t border-gray-600">
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="useGoogleSearch"
+                      checked={a2aConfig.useGoogleSearch}
+                      onChange={handleA2aConfigChange}
+                      className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                    />
+                    <span className="text-sm text-gray-300">
+                      Enable Google Search Tool
+                    </span>
+                  </label>
+                </div>
+              </>
             )}
 
-            {/* Layout Container */}
-            <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
-
-                {/* Left Column: Configuration (Box 1) */}
-                <div className="bg-gray-800 p-4 rounded-lg shadow-md lg:w-1/3 flex flex-col overflow-y-auto border border-gray-700">
-                    <div className="flex justify-between items-center mb-3 shrink-0">
-                        <h2 className="text-lg font-semibold text-white">1. Configure Agent</h2>
-                        <CloudConsoleButton url={`https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=${projectNumber}`} />
+            <div className="pt-4 border-t border-gray-700">
+              <h3 className="text-sm font-medium text-gray-300 mb-2">
+                Add Tools
+              </h3>
+              <div className="bg-gray-700/50 p-3 rounded-md space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Vertex AI Search Data Store
+                  </label>
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="text"
+                      placeholder="Search data stores..."
+                      value={dataStoreSearchTerm}
+                      onChange={(e) => setDataStoreSearchTerm(e.target.value)}
+                      className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full placeholder-gray-400 focus:outline-none focus:border-blue-500"
+                    />
+                    <div className="flex gap-2">
+                      <select
+                        value={toolBuilderConfig.dataStoreId}
+                        onChange={(e) =>
+                          setToolBuilderConfig({
+                            ...toolBuilderConfig,
+                            dataStoreId: e.target.value,
+                          })
+                        }
+                        className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full"
+                        disabled={isLoadingDataStores}
+                      >
+                        <option value="">-- Select Data Store --</option>
+                        {dataStores
+                          .filter(
+                            (ds) =>
+                              !dataStoreSearchTerm ||
+                              ds.displayName
+                                .toLowerCase()
+                                .includes(dataStoreSearchTerm.toLowerCase()) ||
+                              ds.name.includes(dataStoreSearchTerm),
+                          )
+                          .map((ds) => {
+                            const dsId = ds.name.split("/").pop();
+                            return (
+                              <option key={ds.name} value={ds.name}>
+                                {ds.displayName} ({dsId}) - {ds.location}
+                              </option>
+                            );
+                          })}
+                      </select>
+                      <button
+                        onClick={() =>
+                          handleAddTool({
+                            type: "VertexAiSearchTool",
+                            dataStoreId: toolBuilderConfig.dataStoreId,
+                            variableName: `search_tool_${(builderTab === "a2a" ? a2aConfig.tools : adkConfig.tools).length + 1}`,
+                          })
+                        }
+                        disabled={!toolBuilderConfig.dataStoreId}
+                        className="px-2 py-1 bg-teal-600 text-white text-xs rounded hover:bg-teal-700 disabled:opacity-50"
+                      >
+                        Add
+                      </button>
                     </div>
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-1">Project Number</label>
-                            <ProjectInput value={projectNumber} onChange={setProjectNumber} />
-                        </div>
-
-                        {builderTab === 'adk' ? (
-                            <>
-                                {/* Templates Selection */}
-                                <div className="mb-4 p-3 bg-gray-750 rounded-lg border border-gray-600">
-                                    <label className="block text-sm font-medium text-blue-400 mb-2">🚀 Quick Start Templates</label>
-                                    <select
-                                        onChange={(e) => {
-                                            const template = TEMPLATES.find(t => t.id === e.target.value);
-                                            if (template) {
-                                                setAdkConfig(prev => {
-                                                    const cleanConfig: AdkAgentConfig = {
-                                                        name: '',
-                                                        description: 'An agent that can do awesome things.',
-                                                        model: 'gemini-2.5-flash',
-                                                        instruction: 'You are an awesome and helpful agent.',
-                                                        tools: [],
-                                                        useGoogleSearch: false,
-                                                        enableOAuth: false,
-                                                        authId: 'temp_oauth',
-                                                        allowAdcFallback: true,
-                                                        enableDiscoveryApi: false,
-                                                        discoveryConfig: {
-                                                            projectId: '',
-                                                            location: 'global',
-                                                            collection: 'default_collection',
-                                                            engineId: '',
-                                                            dataStoreIds: ''
-                                                        },
-                                                        enableBqAnalytics: false,
-                                                        bqDatasetId: '',
-                                                        bqTableId: '',
-                                                        enableThinking: false,
-                                                        thinkingBudget: 1024,
-                                                        thinkingLevel: 'HIGH',
-                                                        enableStreaming: false,
-                                                        enableBigQueryMcp: false,
-                                                        enableCodeExecution: false,
-                                                        enableGraphvizRendering: false,
-                                                        enableEmailTool: false,
-                                                        enableSecurityCommandCenterApi: false,
-                                                        enableRecommenderApi: false,
-                                                        enableServiceHealthApi: false,
-                                                        enableNetworkManagementApi: false,
-                                                        enableCloudAssistApi: false,
-                                                        enableTelemetry: true,
-                                                        enableMessageLogging: false,
-                                                        enableCloudLoggingApi: false,
-                                                        enableCloudMonitoringApi: false,
-                                                        enableCloudRunApi: false,
-                                                        enableResourceManagerApi: false,
-                                                        enableAdminActivityApi: false,
-                                                        enableDatabaseFleetApi: false,
-                                                        enableCloudLoggingMcp: false,
-                                                        enableBigtableAdminMcp: false,
-                                                        enableCloudSqlMcp: false,
-                                                        enableCloudMonitoringMcp: false,
-                                                        enableComputeEngineMcp: false,
-                                                        enableFirestoreMcp: false,
-                                                        enableGkeMcp: false,
-                                                        enableResourceManagerMcp: false,
-                                                        enableSpannerMcp: false,
-                                                        enableDeveloperKnowledgeMcp: false,
-                                                        enableMapsGroundingMcp: false,
-                                                        enableEvaluation: false,
-                                                        enableCiCd: false,
-                                                        ciCdRunner: 'none',
-                                                        deploymentTarget: 'agent_engine',
-                                                        githubWifProvider: '',
-                                                        githubServiceAccount: '',
-                                                        customMcpEndpoints: []
-                                                    };
-
-                                                    return {
-                                                        ...cleanConfig,
-                                                        ...template.config,
-                                                        discoveryConfig: {
-                                                            ...cleanConfig.discoveryConfig,
-                                                            ...(template.config.discoveryConfig || {})
-                                                        }
-                                                    };
-                                                });
-                                            }
-                                        }}
-                                        className="bg-gray-800 border border-gray-500 rounded-md px-3 py-2 text-sm text-white w-full hover:border-blue-500 focus:border-blue-500 transition-colors"
-                                        defaultValue=""
-                                    >
-                                        <option value="" disabled>Select a template to auto-fill...</option>
-                                        {TEMPLATES.map(t => (
-                                            <option key={t.id} value={t.id}>{t.name} - {t.description}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div><label className="block text-sm font-medium text-gray-400 mb-1">Agent Name</label><input name="name" type="text" value={adkConfig.name} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
-                                <div><label className="block text-sm font-medium text-gray-400 mb-1">Description</label><input name="description" type="text" value={adkConfig.description} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-1">Agent Location</label>
-                                    <select value={vertexLocation} onChange={(e) => setVertexLocation(e.target.value)} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
-                                        <option value="us-central1">us-central1</option><option value="europe-west1">europe-west1</option><option value="asia-east1">asia-east1</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-1">ADK Version</label>
-                                    <select name="adkVersion" value={adkConfig.adkVersion || '1.35.1'} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
-                                        <option value="1.35.1">ADK 1.35.1 (Legacy)</option>
-                                        <option value="2.2">ADK 2.2 (Antigravity SDK)</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-1">Model</label>
-                                    <select name="model" value={adkConfig.model} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
-                                        <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-                                        <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
-                                        <option value="gemini-3-flash">Gemini 3.0 Flash</option>
-                                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-
-                                    </select>
-                                </div>
-
-                                {/* Staging Bucket - Moved here for ADK */}
-                                <div className="mt-2">
-                                    <label className="block text-sm font-medium text-gray-400 mb-1">Staging Bucket</label>
-                                    <div className="flex gap-2">
-                                        <select
-                                            value={stagingBucket}
-                                            onChange={(e) => setStagingBucket(e.target.value)}
-                                            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full focus:ring-teal-500 focus:border-teal-500"
-                                        >
-                                            <option value="">-- Select Bucket --</option>
-                                            {buckets.map(b => (
-                                                <option key={b.name} value={`gs://${b.name}`}>gs://{b.name}</option>
-                                            ))}
-                                        </select>
-                                        <button
-                                            onClick={() => {
-                                                setIsLoadingBuckets(true);
-                                                api.listBuckets(projectNumber).then(res => {
-                                                    setBuckets(res.items || []);
-                                                    setIsLoadingBuckets(false);
-                                                });
-                                            }}
-                                            disabled={isLoadingBuckets}
-                                            className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 disabled:opacity-50"
-                                            title="Refresh Buckets"
-                                        >
-                                            &#x21bb;
-                                        </button>
-                                    </div>
-                                    {!stagingBucket && <p className="text-xs text-yellow-500 mt-1">Required for deployment.</p>}
-                                </div>
-                                <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="block text-sm font-medium text-gray-400">Instruction</label>
-                                        <button onClick={() => handleRewrite('instruction')} disabled={rewritingField === 'instruction'} className="text-xs text-blue-400 hover:text-blue-300">{rewritingField === 'instruction' ? '...' : 'AI Rewrite'}</button>
-                                    </div>
-
-
-                                    <textarea name="instruction" value={adkConfig.instruction} onChange={handleAdkConfigChange} rows={4} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full mt-2" />
-                                </div>
-                                <div className="space-y-2 pt-2 border-t border-gray-600">
-                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="useGoogleSearch" checked={adkConfig.useGoogleSearch} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable Google Search Tool</span></label>
-
-                                    <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
-                                        <h4 className="text-xs font-semibold text-gray-400">Agent Capabilities</h4>
-                                        <div className="flex items-center space-x-2">
-                                            <label className="flex items-center space-x-3 cursor-pointer">
-                                                <input type="checkbox" name="enableThinking" checked={adkConfig.enableThinking} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                                <span className="text-sm text-gray-300">Enable Thinking Details</span>
-                                            </label>
-                                            {adkConfig.enableThinking && (
-                                                <div className="flex flex-col">
-                                                    {adkConfig.model && adkConfig.model.startsWith('gemini-3') ? (
-                                                        <select
-                                                            name="thinkingLevel"
-                                                            value={adkConfig.thinkingLevel}
-                                                            onChange={handleAdkConfigChange}
-                                                            title="Thinking depth for Gemini 3 models"
-                                                            className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-32"
-                                                        >
-                                                            <option value="MINIMAL">Minimal</option>
-                                                            <option value="LOW">Low</option>
-                                                            <option value="MEDIUM">Medium</option>
-                                                            <option value="HIGH">High</option>
-                                                        </select>
-                                                    ) : (
-                                                            <input
-                                                                type="number"
-                                                                name="thinkingBudget"
-                                                                value={adkConfig.thinkingBudget}
-                                                                onChange={handleAdkConfigChange}
-                                                                placeholder="Limit (-1)"
-                                                                title="Token limit for thinking process (-1 for unlimited)"
-                                                                className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-24"
-                                                            />
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableStreaming" checked={adkConfig.enableStreaming} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Streaming Responses</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableCodeExecution" checked={adkConfig.enableCodeExecution} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Code Execution Sub-Agent</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableGraphvizRendering" checked={adkConfig.enableGraphvizRendering} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Graphviz Local Renderer</span>
-                                        </label>
-                                    </div>
-
-                                    <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
-                                        <h4 className="text-xs font-semibold text-gray-400">Integrations (Tools)</h4>
-                                        <McpServiceCheck
-                                            projectId={deployProjectId || ''}
-                                            serviceName="bigquery.googleapis.com"
-                                            mcpEndpoint="https://bigquery.googleapis.com/mcp"
-                                            label="BigQuery Managed MCP"
-                                            checked={adkConfig.enableBigQueryMcp}
-                                            onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableBigQueryMcp', type: 'checkbox', checked } } as any)}
-                                        />
-                                        <McpServiceCheck
-                                            projectId={deployProjectId || ''}
-                                            serviceName="logging.googleapis.com"
-                                            mcpEndpoint="https://logging.googleapis.com/mcp"
-                                            label="Cloud Logging Managed MCP"
-                                            checked={adkConfig.enableCloudLoggingMcp}
-                                            onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableCloudLoggingMcp', type: 'checkbox', checked } } as any)}
-                                        />
-                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="bigtableadmin.googleapis.com" mcpEndpoint="https://bigtableadmin.googleapis.com/mcp" label="Bigtable Admin MCP" checked={adkConfig.enableBigtableAdminMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableBigtableAdminMcp', type: 'checkbox', checked } } as any)} />
-                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="sqladmin.googleapis.com" mcpEndpoint="https://sqladmin.googleapis.com/mcp" label="Cloud SQL Admin MCP" checked={adkConfig.enableCloudSqlMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableCloudSqlMcp', type: 'checkbox', checked } } as any)} />
-                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="monitoring.googleapis.com" mcpEndpoint="https://monitoring.googleapis.com/mcp" label="Cloud Monitoring MCP" checked={adkConfig.enableCloudMonitoringMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableCloudMonitoringMcp', type: 'checkbox', checked } } as any)} />
-                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="compute.googleapis.com" mcpEndpoint="https://compute.googleapis.com/mcp" label="Compute Engine MCP" checked={adkConfig.enableComputeEngineMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableComputeEngineMcp', type: 'checkbox', checked } } as any)} />
-                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="firestore.googleapis.com" mcpEndpoint="https://firestore.googleapis.com/mcp" label="Firestore MCP" checked={adkConfig.enableFirestoreMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableFirestoreMcp', type: 'checkbox', checked } } as any)} />
-                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="container.googleapis.com" mcpEndpoint="https://container.googleapis.com/mcp" label="GKE MCP" checked={adkConfig.enableGkeMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableGkeMcp', type: 'checkbox', checked } } as any)} />
-                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="cloudresourcemanager.googleapis.com" mcpEndpoint="https://cloudresourcemanager.googleapis.com/mcp" label="Resource Manager MCP" checked={adkConfig.enableResourceManagerMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableResourceManagerMcp', type: 'checkbox', checked } } as any)} />
-                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="spanner.googleapis.com" mcpEndpoint="https://spanner.googleapis.com/mcp" label="Spanner MCP" checked={adkConfig.enableSpannerMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableSpannerMcp', type: 'checkbox', checked } } as any)} />
-                                        <h4 className="text-xs font-semibold text-gray-400 mt-2">Google MCPs</h4>
-                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="developerknowledge.googleapis.com" mcpEndpoint="https://developerknowledge.googleapis.com/mcp" label="Developer Knowledge MCP" checked={adkConfig.enableDeveloperKnowledgeMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableDeveloperKnowledgeMcp', type: 'checkbox', checked } } as any)} />
-                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="mapstools.googleapis.com" mcpEndpoint="https://mapstools.googleapis.com/mcp" label="Maps Grounding Lite MCP" checked={adkConfig.enableMapsGroundingMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableMapsGroundingMcp', type: 'checkbox', checked } } as any)} />
-
-                                        <div className="mt-4 pt-4 border-t border-gray-600">
-                                            <div className="flex justify-between items-center mb-2">
-                                                <h4 className="text-xs font-semibold text-gray-400">Custom MCP Endpoints</h4>
-                                                <button
-                                                    onClick={handleAddCustomMcp}
-                                                    className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs transition-colors"
-                                                >
-                                                    + Add Endpoint
-                                                </button>
-                                            </div>
-                                            <div className="space-y-3">
-                                                {adkConfig.customMcpEndpoints.map((endpoint, index) => (
-                                                    <div key={index} className="flex space-x-2 items-start border border-gray-700 bg-gray-800 p-3 rounded-lg relative group">
-                                                        <div className="flex-1 space-y-2">
-                                                            <div className="flex flex-col">
-                                                                <label className="text-[10px] uppercase tracking-wider text-gray-500 mb-1 font-semibold">Variable Name</label>
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="e.g., custom_zendesk_mcp"
-                                                                    value={endpoint.name}
-                                                                    onChange={(e) => handleUpdateCustomMcp(index, 'name', e.target.value.replace(/\s+/g, '_'))}
-                                                                    className="w-full bg-gray-900 text-white p-2 rounded border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-xs"
-                                                                />
-                                                            </div>
-                                                            <div className="flex flex-col">
-                                                                <label className="text-[10px] uppercase tracking-wider text-gray-500 mb-1 font-semibold">Endpoint URL</label>
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="e.g., https://your-mcp-server.internal"
-                                                                    value={endpoint.url}
-                                                                    onChange={(e) => handleUpdateCustomMcp(index, 'url', e.target.value)}
-                                                                    className="w-full bg-gray-900 text-white p-2 rounded border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-xs font-mono"
-                                                                />
-                                                            </div>
-                                                            <div className="flex items-center justify-between mt-1">
-                                                                <button
-                                                                    onClick={() => handleVerifyCustomMcp(index, endpoint.url)}
-                                                                    className="px-2 py-1 bg-green-600 hover:bg-green-500 text-white rounded text-xs transition-colors"
-                                                                >
-                                                                    Verify
-                                                                </button>
-                                                                {customMcpStatus[index] && (
-                                                                    <span className={`text-xs ${customMcpStatus[index].error ? 'text-red-400' : 'text-green-400'}`}>
-                                                                        {customMcpStatus[index].loading ? 'Loading...' : 
-                                                                         customMcpStatus[index].error ? `Error: ${customMcpStatus[index].error}` : 
-                                                                         `Ready (${customMcpStatus[index].tools?.length || 0} tools)`}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            onClick={() => handleRemoveCustomMcp(index)}
-                                                            className="text-gray-500 hover:text-red-400 p-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-2"
-                                                            title="Remove Endpoint"
-                                                        >
-                                                            ✕
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                                {adkConfig.customMcpEndpoints.length === 0 && (
-                                                    <p className="text-xs text-gray-500 italic pb-2">No custom endpoints defined.</p>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <h4 className="text-xs font-semibold text-gray-400 mt-4 border-t border-gray-600 pt-4">Custom APIs</h4>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableSecurityCommandCenterApi" checked={adkConfig.enableSecurityCommandCenterApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Security Command Center Tool</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableRecommenderApi" checked={adkConfig.enableRecommenderApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Recommender Tool</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableServiceHealthApi" checked={adkConfig.enableServiceHealthApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Service Health Tool</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableNetworkManagementApi" checked={adkConfig.enableNetworkManagementApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Network Management Tool</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableCloudLoggingApi" checked={adkConfig.enableCloudLoggingApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Cloud Logging (API)</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableCloudMonitoringApi" checked={adkConfig.enableCloudMonitoringApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Cloud Monitoring (API)</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableCloudRunApi" checked={adkConfig.enableCloudRunApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Cloud Run Discovery (API)</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableResourceManagerApi" checked={adkConfig.enableResourceManagerApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Resource Manager (API)</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableAdminActivityApi" checked={adkConfig.enableAdminActivityApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Admin Activity / Changes (API)</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableDatabaseFleetApi" checked={adkConfig.enableDatabaseFleetApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Database Fleet Health (API)</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableCloudAssistApi" checked={adkConfig.enableCloudAssistApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Gemini Cloud Assist</span>
-                                        </label>
-
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableEmailTool" checked={adkConfig.enableEmailTool} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Email Sending Tool</span>
-                                        </label>
-
-                                        <div className="flex flex-col gap-2 mt-2">
-                                            <div className="flex items-center space-x-3">
-                                                <label className="flex items-center space-x-3 cursor-pointer">
-                                                    <input type="checkbox" name="enableOAuth" checked={adkConfig.enableOAuth} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                                    <span className="text-sm text-gray-300">Enable OAuth Flow</span>
-                                                </label>
-                                                {adkConfig.enableOAuth && (
-                                                    <input
-                                                        type="text"
-                                                        name="authId"
-                                                        value={adkConfig.authId}
-                                                        onChange={handleAdkConfigChange}
-                                                        placeholder="Auth ID (e.g. bqtest)"
-                                                        className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-32"
-                                                    />
-                                                )}
-                                            </div>
-                                            {adkConfig.enableOAuth && (
-                                                <label className="flex items-center space-x-3 pl-6 cursor-pointer" title="If disabled, tools will fail with an error if no user token is present, instead of defaulting to the service account.">
-                                                    <input type="checkbox" name="allowAdcFallback" checked={adkConfig.allowAdcFallback} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                                    <span className="text-xs text-gray-400">Allow fallback to Service Account (ADC)</span>
-                                                </label>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
-                                        <h4 className="text-xs font-semibold text-gray-400">Observability</h4>
-                                        <label className="flex items-center space-x-3 cursor-pointer" title="Populates the agent observability dashboard and traces pages.">
-                                            <input type="checkbox" name="enableTelemetry" checked={adkConfig.enableTelemetry} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable OpenTelemetry Traces & Logs</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer" title="Enabling this will collect and store the full content of user prompts and responses. Ensure you have necessary user consents.">
-                                            <input type="checkbox" name="enableMessageLogging" checked={adkConfig.enableMessageLogging} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Log Prompts & Responses (Sensitive)</span>
-                                        </label>
-                                    </div>
-
-
-                                </div>
-
-                                <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
-                                    <h4 className="text-xs font-semibold text-gray-400">Lifecycle Management (WIP)</h4>
-                                    <label className="flex items-center space-x-3 cursor-pointer">
-                                        <input type="checkbox" name="enableEvaluation" checked={adkConfig.enableEvaluation} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                        <span className="text-sm text-gray-300">Enable Evaluation Configs</span>
-                                    </label>
-
-                                    <label className="flex items-center space-x-3 cursor-pointer">
-                                        <input type="checkbox" name="enableCiCd" checked={adkConfig.enableCiCd} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                        <span className="text-sm text-gray-300">Enable CI/CD Scaffolding</span>
-                                    </label>
-
-                                    {adkConfig.enableCiCd && (
-                                        <div className="pl-6 space-y-2">
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-400 mb-1">CI/CD Runner</label>
-                                                <select name="ciCdRunner" value={adkConfig.ciCdRunner} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full">
-                                                    <option value="none">None</option>
-                                                    <option value="github_actions">GitHub Actions</option>
-                                                    <option value="google_cloud_build">Google Cloud Build</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-400 mb-1">Deployment Target</label>
-                                                <select name="deploymentTarget" value={adkConfig.deploymentTarget} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full">
-                                                    <option value="agent_engine">Agent Engine</option>
-                                                    <option value="cloud_run">Cloud Run</option>
-                                                </select>
-                                            </div>
-                                            {adkConfig.ciCdRunner === 'github_actions' && (
-                                                <div className="pt-2 space-y-2 border-t border-gray-600 mt-2">
-                                                    <div>
-                                                        <div className="flex items-center justify-between mb-1">
-                                                            <label className="block text-xs font-medium text-gray-400">WIF Provider</label>
-                                                            <button 
-                                                                onClick={(e) => { e.preventDefault(); setShowWifInstructions(!showWifInstructions); }}
-                                                                className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
-                                                            >
-                                                                {showWifInstructions ? 'Hide setup instructions' : 'How to set up WIF'}
-                                                            </button>
-                                                        </div>
-                                                        {wifProviders.length > 0 ? (
-                                                            <select name="githubWifProvider" value={adkConfig.githubWifProvider || ''} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full">
-                                                                <option value="">Select a WIF Provider...</option>
-                                                                {wifProviders.map(p => (
-                                                                    <option key={p.name} value={p.name}>{p.displayName || p.name.split('/').pop()}</option>
-                                                                ))}
-                                                            </select>
-                                                        ) : (
-                                                            <input type="text" name="githubWifProvider" value={adkConfig.githubWifProvider || ''} onChange={handleAdkConfigChange} placeholder="projects/123.../providers/my-provider" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
-                                                        )}
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs font-medium text-gray-400 mb-1">Service Account Email</label>
-                                                        {serviceAccounts.length > 0 ? (
-                                                            <select name="githubServiceAccount" value={adkConfig.githubServiceAccount || ''} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full">
-                                                                <option value="">Select a Service Account...</option>
-                                                                {serviceAccounts.map(sa => (
-                                                                    <option key={sa.email} value={sa.email}>{sa.email}</option>
-                                                                ))}
-                                                            </select>
-                                                        ) : (
-                                                            <input type="email" name="githubServiceAccount" value={adkConfig.githubServiceAccount || ''} onChange={handleAdkConfigChange} placeholder="sa@my-project.iam.gserviceaccount.com" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
-                                                        )}
-                                                    </div>
-                                                    {validationStatus !== 'unchecked' && (
-                                                        <div className={`text-xs mt-1 ${validationStatus === 'valid' ? 'text-green-400' : validationStatus === 'testing' ? 'text-yellow-400' : 'text-red-400'}`}>
-                                                            {validationStatus === 'testing' ? 'Validating connection...' : validationMessage}
-                                                        </div>
-                                                    )}
-                                                    
-                                                    {showWifInstructions && (
-                                                        <div className="p-3 bg-gray-800 rounded border border-gray-600 mt-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre">
-                                                            <div># 1. Create a Workload Identity Pool</div>
-                                                            <div className="text-gray-400">gcloud iam workload-identity-pools create "github-actions" \<br/>  --project="YOUR_PROJECT_ID" \<br/>  --location="global" \<br/>  --display-name="GitHub Actions Pool"</div>
-                                                            <br/>
-                                                            <div># 2. Create a WIF Provider in that pool</div>
-                                                            <div className="text-gray-400">gcloud iam workload-identity-pools providers create-oidc "my-repo" \<br/>  --project="YOUR_PROJECT_ID" \<br/>  --location="global" \<br/>  --workload-identity-pool="github-actions" \<br/>  --display-name="My GitHub repo Provider" \<br/>  --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository_owner=assertion.repository_owner" \<br/>  --attribute-condition="attribute.repository_owner == 'YOUR_ORG'" \<br/>  --issuer-uri="https://token.actions.githubusercontent.com"</div>
-                                                            <br/>
-                                                            <div># 3. Create a Service Account</div>
-                                                            <div className="text-gray-400">gcloud iam service-accounts create "github-actions-sa" \<br/>  --project="YOUR_PROJECT_ID" \<br/>  --display-name="GitHub Actions Service Account"</div>
-                                                            <br/>
-                                                            <div># 4. Bind the Service Account to the WIF Provider</div>
-                                                            <div className="text-gray-400">gcloud iam service-accounts add-iam-policy-binding "github-actions-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \<br/>
-  --project="YOUR_PROJECT_ID" \<br/>
-  --role="roles/iam.workloadIdentityUser" \<br/>
-  --member="principalSet://iam.googleapis.com/projects/YOUR_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-actions/attribute.repository_owner/YOUR_ORG"</div>
-                                                        </div>
-                                                    )}
-                                                    
-                                                    <div className="pt-2 flex justify-end">
-                                                        <button 
-                                                            onClick={() => setIsGithubModalOpen(true)}
-                                                            className="text-xs bg-gray-600 hover:bg-gray-500 text-white py-1.5 px-3 rounded flex items-center gap-1 transition-colors border border-gray-500"
-                                                        >
-                                                            <svg viewBox="0 0 16 16" className="w-3 h-3 fill-current"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-                                                            Automated CI/CD Workflow Setup
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                </div>
-
-                                {/* Validation Panel */}
-                                <div className="mt-4 p-3 bg-gray-900 rounded-lg border border-gray-700">
-                                    <h4 className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">ADK Standards Validation</h4>
-                                    <div className="space-y-1">
-                                        <div className="flex items-center space-x-2">
-                                            <span className="text-green-400">✓</span>
-                                            <span className="text-xs text-gray-300">Standard Folder Structure (app/, tests/)</span>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <span className={adkConfig.enableEvaluation ? "text-green-400" : "text-gray-600"}>{adkConfig.enableEvaluation ? "✓" : "○"}</span>
-                                            <span className={`text-xs ${adkConfig.enableEvaluation ? "text-gray-300" : "text-gray-500"}`}>Evaluation Configured</span>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <span className={adkConfig.enableCiCd ? "text-green-400" : "text-gray-600"}>{adkConfig.enableCiCd ? "✓" : "○"}</span>
-                                            <span className={`text-xs ${adkConfig.enableCiCd ? "text-gray-300" : "text-gray-500"}`}>CI/CD Pipeline Configured</span>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <span className="text-green-400">✓</span>
-                                            <span className="text-xs text-gray-300">Design Spec Generated</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-1">Project ID</label>
-                                    <div className="flex gap-2">
-                                        <input type="text" value={deployProjectId} onChange={(e) => setDeployProjectId(e.target.value)} className={`bg-gray-700 border rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] ${/^\d+$/.test(deployProjectId) ? 'border-yellow-500' : 'border-gray-600'}`} placeholder="e.g. my-project-id" />
-                                        <button onClick={fetchProjectId} disabled={isResolvingId} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-md text-white disabled:opacity-50">{isResolvingId ? '...' : '↻'}</button>
-                                    </div>
-                                </div>
-                                <div><label className="block text-sm font-medium text-gray-400 mb-1">Service Name</label><input name="serviceName" type="text" value={a2aConfig.serviceName} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
-                                <div><label className="block text-sm font-medium text-gray-400 mb-1">Display Name</label><input name="displayName" type="text" value={a2aConfig.displayName} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
-                                <div><label className="block text-sm font-medium text-gray-400 mb-1">Provider Organization</label><input name="providerOrganization" type="text" value={a2aConfig.providerOrganization} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
-                                <div><label className="block text-sm font-medium text-gray-400 mb-1">Model</label>
-                                    <select name="model" value={a2aConfig.model} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
-                                            <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-                                            <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
-                                            <option value="gemini-3-flash">Gemini 3.0 Flash</option>
-                                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-
-                                    </select>
-                                </div>
-
-                                <div><label className="block text-sm font-medium text-gray-400 mb-1">Region</label><select name="region" value={a2aConfig.region} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"><option value="us-central1">us-central1</option><option value="europe-west1">europe-west1</option><option value="asia-east1">asia-east1</option></select></div>
-                                <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="block text-sm font-medium text-gray-400">System Instruction</label>
-                                        <button onClick={() => handleRewrite('instruction')} disabled={rewritingField === 'instruction'} className="text-xs text-blue-400 hover:text-blue-300">{rewritingField === 'instruction' ? '...' : 'AI Rewrite'}</button>
-                                    </div>
-                                    <textarea name="instruction" value={a2aConfig.instruction} onChange={handleA2aConfigChange} rows={4} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full" />
-                                </div>
-                                <div className="space-y-2 pt-2 border-t border-gray-600">
-                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="useGoogleSearch" checked={a2aConfig.useGoogleSearch} onChange={handleA2aConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable Google Search Tool</span></label>
-                                </div>
-                            </>
-                        )}
-
-                        <div className="pt-4 border-t border-gray-700">
-                            <h3 className="text-sm font-medium text-gray-300 mb-2">Add Tools</h3>
-                            <div className="bg-gray-700/50 p-3 rounded-md space-y-3">
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-400 mb-1">Vertex AI Search Data Store</label>
-                                    <div className="flex flex-col gap-2">
-                                        <input
-                                            type="text"
-                                            placeholder="Search data stores..."
-                                            value={dataStoreSearchTerm}
-                                            onChange={(e) => setDataStoreSearchTerm(e.target.value)}
-                                            className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                                        />
-                                        <div className="flex gap-2">
-                                            <select
-                                                value={toolBuilderConfig.dataStoreId}
-                                                onChange={(e) => setToolBuilderConfig({ ...toolBuilderConfig, dataStoreId: e.target.value })}
-                                                className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full"
-                                                disabled={isLoadingDataStores}
-                                            >
-                                                <option value="">-- Select Data Store --</option>
-                                                {dataStores
-                                                    .filter(ds => !dataStoreSearchTerm || ds.displayName.toLowerCase().includes(dataStoreSearchTerm.toLowerCase()) || ds.name.includes(dataStoreSearchTerm))
-                                                    .map(ds => {
-                                                        const dsId = ds.name.split('/').pop();
-                                                        return <option key={ds.name} value={ds.name}>{ds.displayName} ({dsId}) - {ds.location}</option>;
-                                                    })
-                                                }
-                                            </select>
-                                            <button
-                                                onClick={() => handleAddTool({ type: 'VertexAiSearchTool', dataStoreId: toolBuilderConfig.dataStoreId, variableName: `search_tool_${(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).length + 1}` })}
-                                                disabled={!toolBuilderConfig.dataStoreId}
-                                                className="px-2 py-1 bg-teal-600 text-white text-xs rounded hover:bg-teal-700 disabled:opacity-50"
-                                            >
-                                                Add
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-400 mb-1">Call Other Agent (A2A)</label>
-                                    <div className="flex flex-col gap-2">
-                                        <input
-                                            type="text"
-                                            placeholder="Search A2A services..."
-                                            value={a2aSearchTerm}
-                                            onChange={(e) => setA2aSearchTerm(e.target.value)}
-                                            className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                                        />
-                                        <div className="flex gap-2">
-                                            <select
-                                                value={selectedA2aService}
-                                                onChange={(e) => setSelectedA2aService(e.target.value)}
-                                                className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full"
-                                                disabled={isLoadingServices}
-                                            >
-                                                <option value="">-- Select A2A Service --</option>
-                                                {cloudRunServices
-                                                    .filter(s => !a2aSearchTerm || s.name.toLowerCase().includes(a2aSearchTerm.toLowerCase()))
-                                                    .map(s => <option key={s.name} value={s.uri}>{s.name.split('/').pop()}</option>)
-                                                }
-                                            </select>
-                                            <button
-                                                onClick={() => handleAddTool({ type: 'A2AClientTool', url: selectedA2aService, variableName: `a2a_agent_${(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).length + 1}` })}
-                                                disabled={!selectedA2aService}
-                                                className="px-2 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 disabled:opacity-50"
-                                            >
-                                                Add
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="mt-3 space-y-2">
-                                {(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).map((tool, i) => (
-                                    <div key={i} className="flex justify-between items-center bg-gray-900 px-3 py-2 rounded border border-gray-700">
-                                        <div className="text-xs text-gray-300">
-                                            <span className="font-bold text-teal-400">{tool.type === 'VertexAiSearchTool' ? 'Search' : 'A2A'}</span>: {tool.variableName}
-                                        </div>
-                                        <button onClick={() => handleRemoveTool(i)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {builderTab === 'a2a' && (
-                            <div className="pt-4 border-t border-gray-700">
-                                <h3 className="text-sm font-medium text-gray-300 mb-2">Testing Options</h3>
-                                <div className="space-y-2">
-                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="allowUnauthenticated" checked={a2aConfig.allowUnauthenticated} onChange={handleA2aConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Allow unauthenticated invocations</span></label>
-                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableCors" checked={a2aConfig.enableCors} onChange={handleA2aConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable CORS</span></label>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                  </div>
                 </div>
-
-                {/* Right Column: Code & Deploy (Box 2 & 3) */}
-                <div className="flex flex-col gap-6 flex-1 min-h-0">
-                    <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col flex-1 min-h-0 border border-gray-700">
-                        <h2 className="text-lg font-semibold text-white mb-3 shrink-0">2. Generated Source Code</h2>
-                        <div className="flex justify-between items-center mb-2 shrink-0">
-                            <div className="flex border-b border-gray-700">
-                                {(builderTab === 'adk' ? ADK_TABS.filter(t => t.id !== 'auth' || adkConfig.enableOAuth) : A2A_TABS).map(tab => (
-                                    <button
-                                        key={tab.id}
-                                        onClick={() => builderTab === 'adk' ? setAdkActiveTab(tab.id as any) : setA2aActiveTab(tab.id as any)}
-                                        className={`px-3 py-2 text-xs font-medium transition-colors ${(builderTab === 'adk' ? adkActiveTab : a2aActiveTab) === tab.id
-                                            ? 'border-b-2 border-blue-500 text-white'
-                                            : 'text-gray-400 hover:text-white'
-                                            }`}
-                                    >
-                                        {tab.label}
-                                    </button>
-                                ))}
-                            </div>
-
-
-
-                            {/* Location */}
-                            <button
-                                onClick={() => handleCopy(builderTab === 'adk' ? adkCodeDisplay : a2aCodeDisplay, builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess)}
-                                className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
-                            >
-                                {(builderTab === 'adk' ? adkCopySuccess : a2aCopySuccess) || 'Copy'}
-                            </button>
-                        </div>
-                        <div className="bg-gray-900 rounded-b-md flex-1 overflow-auto border border-gray-700">
-                            <pre className="p-4 text-xs text-gray-300 whitespace-pre-wrap"><code>{builderTab === 'adk' ? adkCodeDisplay : a2aCodeDisplay}</code></pre>
-                        </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Call Other Agent (A2A)
+                  </label>
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="text"
+                      placeholder="Search A2A services..."
+                      value={a2aSearchTerm}
+                      onChange={(e) => setA2aSearchTerm(e.target.value)}
+                      className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full placeholder-gray-400 focus:outline-none focus:border-blue-500"
+                    />
+                    <div className="flex gap-2">
+                      <select
+                        value={selectedA2aService}
+                        onChange={(e) => setSelectedA2aService(e.target.value)}
+                        className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full"
+                        disabled={isLoadingServices}
+                      >
+                        <option value="">-- Select A2A Service --</option>
+                        {cloudRunServices
+                          .filter(
+                            (s) =>
+                              !a2aSearchTerm ||
+                              s.name
+                                .toLowerCase()
+                                .includes(a2aSearchTerm.toLowerCase()),
+                          )
+                          .map((s) => (
+                            <option key={s.name} value={s.uri}>
+                              {s.name.split("/").pop()}
+                            </option>
+                          ))}
+                      </select>
+                      <button
+                        onClick={() =>
+                          handleAddTool({
+                            type: "A2AClientTool",
+                            url: selectedA2aService,
+                            variableName: `a2a_agent_${(builderTab === "a2a" ? a2aConfig.tools : adkConfig.tools).length + 1}`,
+                          })
+                        }
+                        disabled={!selectedA2aService}
+                        className="px-2 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 disabled:opacity-50"
+                      >
+                        Add
+                      </button>
                     </div>
-
-                    <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col flex-1 min-h-0 border border-gray-700">
-                        <h2 className="text-lg font-semibold text-white mb-3 shrink-0">3. Deployment Options</h2>
-                        <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto">
-                            <div className="bg-blue-900/20 p-4 rounded-md border border-blue-800 shrink-0">
-                                <h3 className="text-sm font-bold text-blue-300 mb-1">Option A: Cloud Build (Automated)</h3>
-                                <button onClick={() => builderTab === 'adk' ? setIsAdkDeployModalOpen(true) : setIsA2aDeployModalOpen(true)} className="w-full mt-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-teal-500 text-white font-bold rounded-md shadow-lg flex items-center justify-center gap-2">Deploy with Cloud Build</button>
-                            </div>
-                            <div className="bg-gray-900/50 p-4 rounded-md border border-gray-700 flex-1 flex flex-col min-h-[150px]">
-                                <div className="flex justify-between items-center mb-2 shrink-0">
-                                    <h3 className="text-sm font-bold text-gray-200">
-                                        {builderTab === 'adk' ? 'Option B: Manual Deployment (README)' : 'Option B: Manual Deployment (CLI Script)'}
-                                    </h3>
-                                    <div className="flex gap-2">
-                                        <button onClick={builderTab === 'adk' ? handleDownloadAdkZip : handleDownloadA2a} className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500">Download .zip</button>
-                                        <button
-                                            onClick={() => handleCopy(builderTab === 'adk' ? adkGeneratedCode.readme : a2aGeneratedCode.gcloud, builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess)}
-                                            className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
-                                        >
-                                            {(builderTab === 'adk' ? adkCopySuccess : a2aCopySuccess) || (builderTab === 'adk' ? 'Copy README' : 'Copy Script')}
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="bg-black rounded-md flex-1 min-h-0 border border-gray-800 flex items-center justify-center p-4">
-                                    <p className="text-sm text-gray-400 text-center">Export as .zip for manual inspection or deployment.</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                  </div>
                 </div>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {(builderTab === "a2a" ? a2aConfig.tools : adkConfig.tools).map(
+                  (tool, i) => (
+                    <div
+                      key={i}
+                      className="flex justify-between items-center bg-gray-900 px-3 py-2 rounded border border-gray-700"
+                    >
+                      <div className="text-xs text-gray-300">
+                        <span className="font-bold text-teal-400">
+                          {tool.type === "VertexAiSearchTool"
+                            ? "Search"
+                            : "A2A"}
+                        </span>
+                        : {tool.variableName}
+                      </div>
+                      <button
+                        onClick={() => handleRemoveTool(i)}
+                        className="text-xs text-red-400 hover:text-red-300"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ),
+                )}
+              </div>
             </div>
 
-
+            {builderTab === "a2a" && (
+              <div className="pt-4 border-t border-gray-700">
+                <h3 className="text-sm font-medium text-gray-300 mb-2">
+                  Testing Options
+                </h3>
+                <div className="space-y-2">
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="allowUnauthenticated"
+                      checked={a2aConfig.allowUnauthenticated}
+                      onChange={handleA2aConfigChange}
+                      className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                    />
+                    <span className="text-sm text-gray-300">
+                      Allow unauthenticated invocations
+                    </span>
+                  </label>
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="enableCors"
+                      checked={a2aConfig.enableCors}
+                      onChange={handleA2aConfigChange}
+                      className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                    />
+                    <span className="text-sm text-gray-300">Enable CORS</span>
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-    );
+
+        {/* Right Column: Code & Deploy (Box 2 & 3) */}
+        <div className="flex flex-col gap-6 flex-1 min-h-0">
+          <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col flex-1 min-h-0 border border-gray-700">
+            <h2 className="text-lg font-semibold text-white mb-3 shrink-0">
+              2. Generated Source Code
+            </h2>
+            <div className="flex justify-between items-center mb-2 shrink-0">
+              <div className="flex border-b border-gray-700">
+                {(builderTab === "adk"
+                  ? ADK_TABS.filter(
+                      (t) => t.id !== "auth" || adkConfig.enableOAuth,
+                    )
+                  : A2A_TABS
+                ).map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() =>
+                      builderTab === "adk"
+                        ? setAdkActiveTab(tab.id as any)
+                        : setA2aActiveTab(tab.id as any)
+                    }
+                    className={`px-3 py-2 text-xs font-medium transition-colors ${
+                      (builderTab === "adk" ? adkActiveTab : a2aActiveTab) ===
+                      tab.id
+                        ? "border-b-2 border-blue-500 text-white"
+                        : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Location */}
+              <button
+                onClick={() =>
+                  handleCopy(
+                    builderTab === "adk" ? adkCodeDisplay : a2aCodeDisplay,
+                    builderTab === "adk"
+                      ? setAdkCopySuccess
+                      : setA2aCopySuccess,
+                  )
+                }
+                className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
+              >
+                {(builderTab === "adk" ? adkCopySuccess : a2aCopySuccess) ||
+                  "Copy"}
+              </button>
+            </div>
+            <div className="bg-gray-900 rounded-b-md flex-1 overflow-auto border border-gray-700">
+              <pre className="p-4 text-xs text-gray-300 whitespace-pre-wrap">
+                <code>
+                  {builderTab === "adk" ? adkCodeDisplay : a2aCodeDisplay}
+                </code>
+              </pre>
+            </div>
+          </div>
+
+          <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col flex-1 min-h-0 border border-gray-700">
+            <h2 className="text-lg font-semibold text-white mb-3 shrink-0">
+              3. Deployment Options
+            </h2>
+            <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto">
+              <div className="bg-blue-900/20 p-4 rounded-md border border-blue-800 shrink-0">
+                <h3 className="text-sm font-bold text-blue-300 mb-1">
+                  Option A: Cloud Build (Automated)
+                </h3>
+                <button
+                  onClick={() =>
+                    builderTab === "adk"
+                      ? setIsAdkDeployModalOpen(true)
+                      : setIsA2aDeployModalOpen(true)
+                  }
+                  className="w-full mt-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-teal-500 text-white font-bold rounded-md shadow-lg flex items-center justify-center gap-2"
+                >
+                  Deploy with Cloud Build
+                </button>
+              </div>
+              <div className="bg-gray-900/50 p-4 rounded-md border border-gray-700 flex-1 flex flex-col min-h-[150px]">
+                <div className="flex justify-between items-center mb-2 shrink-0">
+                  <h3 className="text-sm font-bold text-gray-200">
+                    {builderTab === "adk"
+                      ? "Option B: Manual Deployment (README)"
+                      : "Option B: Manual Deployment (CLI Script)"}
+                  </h3>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={
+                        builderTab === "adk"
+                          ? handleDownloadAdkZip
+                          : handleDownloadA2a
+                      }
+                      className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
+                    >
+                      Download .zip
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleCopy(
+                          builderTab === "adk"
+                            ? adkGeneratedCode.readme
+                            : a2aGeneratedCode.gcloud,
+                          builderTab === "adk"
+                            ? setAdkCopySuccess
+                            : setA2aCopySuccess,
+                        )
+                      }
+                      className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
+                    >
+                      {(builderTab === "adk"
+                        ? adkCopySuccess
+                        : a2aCopySuccess) ||
+                        (builderTab === "adk" ? "Copy README" : "Copy Script")}
+                    </button>
+                  </div>
+                </div>
+                <div className="bg-black rounded-md flex-1 min-h-0 border border-gray-800 flex items-center justify-center p-4">
+                  <p className="text-sm text-gray-400 text-center">
+                    Export as .zip for manual inspection or deployment.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default AgentBuilderPage;

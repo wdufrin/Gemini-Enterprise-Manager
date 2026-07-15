@@ -63,3 +63,6 @@ build/
 .vite/
 test_adk_gen.js
 test_adk_gen.ts
+
+# Scratch files
+scratch/
