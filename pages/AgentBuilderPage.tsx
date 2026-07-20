@@ -13,7 +13,7 @@ import CloudConsoleButton from "../components/CloudConsoleButton";
 declare var JSZip: any;
 
 // Define types for agent config and tools
-interface AgentTool {
+export interface AgentTool {
   type: "VertexAiSearchTool" | "A2AClientTool";
   dataStoreId?: string;
   url?: string;
@@ -21,7 +21,7 @@ interface AgentTool {
   displayName?: string;
 }
 
-interface A2aConfig {
+export interface A2aConfig {
   serviceName: string;
   displayName: string;
   providerOrganization: string;
@@ -36,7 +36,7 @@ interface A2aConfig {
 }
 
 // Separate interface for ADK Agent
-interface AdkAgentConfig {
+export interface AdkAgentConfig {
   adkVersion?: "1.35.1" | "2.2";
   name: string;
   description: string;
@@ -408,10 +408,10 @@ if __name__ == "__main__":
 `;
 };
 
-const generateA2aEnvYaml = (config: A2aConfig, projectId: string): string => {
+export const generateA2aEnvYaml = (config: A2aConfig, projectId: string): string => {
   // If using Gemini 3 models, the model endpoint location must be "global".
   // The Cloud Run deployment location itself remains the specified \`region\`.
-  const isGemini3 = config.model && config.model.startsWith("gemini-3");
+  const isGemini3 = config.model?.startsWith("gemini-3");
   const modelLocation = isGemini3 ? "global" : config.region;
 
   return `GOOGLE_CLOUD_PROJECT: "${projectId}"
@@ -546,30 +546,51 @@ logger = logging.getLogger(__name__)
 
 def get_user_credentials(tool_context: ToolContext) -> Optional[Credentials]:
     """
-    Extracts user OAuth2 credentials from the ToolContext state using the configured AUTH_ID.
+    Extracts user OAuth2 credentials from the ToolContext state using the configured AUTH_ID,
+    with robust support for all platform-injected key schemas.
     Falls back to environment variables or Application Default Credentials (ADC).
     """
+    # 1. Check direct user_token attribute if available (newer ADK versions)
+    if hasattr(tool_context, "user_token") and tool_context.user_token:
+        logger.info("Successfully retrieved access token from user_token attribute")
+        return Credentials(token=tool_context.user_token)
+
     auth_id = os.getenv("AUTH_ID")
-    
-    # 1. Try to get the token from ToolContext state
-    if auth_id and tool_context.state:
-        access_token = tool_context.state.get(auth_id)
-        if access_token:
-            logger.info(f"Successfully retrieved access token from ToolContext using AUTH_ID: {auth_id}")
-            return Credentials(token=access_token)
-            
-    # 2. Check environment variable matching AUTH_ID (for local testing)
-    if auth_id:
-        env_token_specific = os.getenv(auth_id)
-        if env_token_specific:
-            logger.info(f"Successfully retrieved access token from environment variable: {auth_id}")
-            return Credentials(token=env_token_specific)
-            
-    # 3. Check general fallback environment variables
+    access_token = None
+
+    if tool_context.state:
+        # 2. Check for agent_association (current robust platform pattern)
+        agent_association = tool_context.state.get("agent_association")
+        if agent_association and isinstance(agent_association, dict):
+            access_token = agent_association.get("access_token") or agent_association.get("token")
+            if access_token:
+                logger.info("Successfully retrieved access token from agent_association")
+
+        # 3. Check multiple possible keys for robustness (Gemini Enterprise platform variations)
+        if not access_token and auth_id:
+            possible_keys = [f"temp:{auth_id}", f"token_{auth_id}", auth_id]
+            for key in possible_keys:
+                token = tool_context.state.get(key)
+                if token:
+                    logger.info(f"Successfully retrieved access token using key: '{key}'")
+                    access_token = token
+                    break
+
+    if access_token:
+        return Credentials(token=access_token)
+
+    # 4. Check general fallback environment variables (local testing)
     env_token = os.getenv("GCP_ACCESS_TOKEN") or os.getenv("USER_ACCESS_TOKEN")
     if env_token:
         logger.info("Successfully retrieved access token from standard environment fallback")
         return Credentials(token=env_token)
+        
+    # 5. Check environment variable matching AUTH_ID
+    if auth_id:
+        env_token_specific = os.getenv(auth_id)
+        if env_token_specific:
+            logger.info(f"Successfully retrieved access token from environment variable matching AUTH_ID: {auth_id}")
+            return Credentials(token=env_token_specific)
         
 ${
   allowAdcFallback
@@ -1538,9 +1559,13 @@ def list_recent_changes(tool_context: ToolContext, project_id: str = None, hours
                 if hasattr(entry, 'payload') and entry.payload:
                     payload = entry.payload
                 elif hasattr(entry, 'proto_payload') and entry.proto_payload:
-                    payload = entry.proto_payload
+                    try:
+                        from google.protobuf.json_format import MessageToDict
+                        payload = MessageToDict(entry.proto_payload)
+                    except Exception as parse_e:
+                        payload = entry.proto_payload
 
-                if not payload:
+                if not payload or not isinstance(payload, dict):
                     try:
                         api_repr = entry.to_api_repr()
                         payload = api_repr.get("jsonPayload") or api_repr.get("protoPayload")
@@ -1557,17 +1582,26 @@ def list_recent_changes(tool_context: ToolContext, project_id: str = None, hours
             if not payload:
                 continue
 
-            method_name = payload.get("methodName", "UnknownMethod")
-
+            method_name = "UnknownMethod"
             principal = "UnknownUser"
-            auth_info = payload.get("authenticationInfo", {})
-            if "principalEmail" in auth_info:
-                principal = auth_info["principalEmail"]
-
             resource_name = "UnknownResource"
-            if "resourceName" in payload:
-                resource_name = payload["resourceName"]
-            elif entry.resource and entry.resource.labels:
+
+            if hasattr(payload, "get"):
+                method_name = payload.get("methodName", "UnknownMethod")
+                auth_info = payload.get("authenticationInfo", {})
+                if "principalEmail" in auth_info:
+                    principal = auth_info["principalEmail"]
+                if "resourceName" in payload:
+                    resource_name = payload["resourceName"]
+            else:
+                method_name = getattr(payload, "methodName", "UnknownMethod")
+                auth_info = getattr(payload, "authenticationInfo", None)
+                if auth_info and hasattr(auth_info, "principalEmail"):
+                    principal = auth_info.principalEmail
+                if hasattr(payload, "resourceName"):
+                    resource_name = payload.resourceName
+
+            if resource_name == "UnknownResource" and entry.resource and entry.resource.labels:
                  resource_name = str(entry.resource.labels)
 
             timestamp = entry.timestamp.isoformat() if entry.timestamp else "UnknownTime"
@@ -2317,15 +2351,38 @@ class SyncAgentWrapper(BaseModel):
         if self._lazy_agent is None:
             self._lazy_agent = create_agent()
 
-    async def _run_async_impl(self, input: str = "", message: str = "", **kwargs):
+    async def stream_query(self, input: str = "", message: str = "", **kwargs):
         if self._lazy_agent is None:
             self.set_up()
 
-        prompt = input or message
+        prompt = ""
+        if hasattr(input, "query") or hasattr(input, "message") or hasattr(input, "new_message"):
+            prompt = getattr(input, "query", "") or getattr(input, "message", "") or ""
+            if not prompt and hasattr(input, "new_message") and input.new_message:
+                if hasattr(input.new_message, "parts") and input.new_message.parts:
+                    prompt = "".join([getattr(p, "text", "") for p in input.new_message.parts if getattr(p, "text", None)])
+        if not prompt:
+            prompt = (input if isinstance(input, str) else "") or (message if isinstance(message, str) else "")
+
         async with self._lazy_agent as agent:
             response = await agent.chat(prompt)
             async for chunk in response:
-                yield chunk
+                txt = getattr(chunk, "text", "") or str(chunk)
+                if txt:
+                    yield {
+                        "candidates": [
+                            {
+                                "content": {
+                                    "parts": [{"text": txt}],
+                                    "role": "model"
+                                }
+                            }
+                        ]
+                    }
+
+    async def _run_async_impl(self, input: str = "", message: str = "", **kwargs):
+        async for chunk in self.stream_query(input, message, **kwargs):
+            yield chunk
 
     async def run_async(self, ctx):
         """
@@ -2768,7 +2825,7 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     "nest_asyncio.apply()",
     "from dotenv import load_dotenv",
     "from google.adk.agents import BaseAgent",
-    "from pydantic import PrivateAttr",
+    "from pydantic import BaseModel, PrivateAttr",
     "from typing import Any",
     agentImport,
     config.enableThinking
@@ -2800,14 +2857,7 @@ load_dotenv()
 # Force Vertex AI API variant to prevent the 'Missing key inputs argument' Google AI validation error
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
 
-${
-  config.model && config.model.startsWith("gemini-3")
-    ? `
-# Force Gemini 3 global routing override inside the container execution runtime
-os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
-`
-    : ""
-}
+
 # --- ADK Resilience Patch ---
 # Prevents the entire agent stream from crashing if an MCP server returns an HTTP error (e.g. 400 Bad Request)
 # The error happens deep inside an anyio.TaskGroup, so we must monkey-patch the streamable transport.
@@ -2838,8 +2888,10 @@ async def _safe_handle_post_request(self, ctx):
             )
             try:
                 await ctx.read_stream_writer.send(SessionMessage(JSONRPCMessage(jsonrpc_error)))
+                return
             except Exception as send_err:
                 logging.error(f"Failed to send synthetic error back to stream: {send_err}")
+        raise e
 
 StreamableHTTPTransport._handle_post_request = _safe_handle_post_request
 # ----------------------------
@@ -2889,15 +2941,24 @@ ${
   config.enableThinking
     ? `
 # Define generation_content_config for Thinking
-thinking_config = genai_types.ThinkingConfig(
-    include_thoughts=True,${config.model && config.model.startsWith("gemini-3") ? `\n    thinking_level="${config.thinkingLevel || "HIGH"}",` : `\n    thinking_budget=${config.thinkingBudget},`}
-)
+model_name = os.getenv("MODEL", "${config.model || "gemini-3.1-pro"}")
+thinking_config = None
+if model_name.startswith("gemini-3"):
+    thinking_config = genai_types.ThinkingConfig(
+        include_thoughts=True,
+        thinking_level="${config.thinkingLevel || "HIGH"}",
+    )
+elif "thinking" in model_name:
+    thinking_config = genai_types.ThinkingConfig(
+        include_thoughts=True,
+        thinking_budget=${config.thinkingBudget || 1024},
+    )
 `
     : ""
 }
 
 # Wrapper for Synchronous Execution (Reasoning Engine Requirement for some runtimes)
-class SyncAgentWrapper(BaseAgent):
+class SyncAgentWrapper(BaseModel):
     """
     Wraps an async agent (or standard agent) to provide a synchronous query interface
     compatible with Vertex AI Reasoning Engine's strict expectations.
@@ -2905,13 +2966,49 @@ class SyncAgentWrapper(BaseAgent):
     """
     _lazy_agent: Any = PrivateAttr(default=None)
 
+    def _extract_prompt(self, input_val: Any, message_val: str) -> str:
+        if not input_val:
+            return message_val
+        if isinstance(input_val, str):
+            return input_val
+        if isinstance(input_val, dict):
+            p = input_val.get("query") or input_val.get("message")
+            if p:
+                return p
+            new_msg = input_val.get("new_message") or input_val.get("user_content")
+            if new_msg:
+                if isinstance(new_msg, dict):
+                    parts = new_msg.get("parts", [])
+                    return "".join([part.get("text", "") for part in parts if part.get("text")])
+                elif hasattr(new_msg, "parts") and new_msg.parts:
+                    return "".join([getattr(part, "text", "") for part in new_msg.parts if getattr(part, "text", None)])
+            return ""
+        
+        user_content = getattr(input_val, "user_content", None)
+        if user_content is not None:
+            if hasattr(user_content, "parts") and user_content.parts:
+                return "".join([getattr(part, "text", "") for part in user_content.parts if getattr(part, "text", None)])
+
+        p = getattr(input_val, "query", None) or getattr(input_val, "message", None)
+        if p:
+            return p
+        new_msg = getattr(input_val, "new_message", None)
+        if new_msg:
+            if hasattr(new_msg, "parts") and new_msg.parts:
+                return "".join([getattr(part, "text", "") for part in new_msg.parts if getattr(part, "text", None)])
+        return ""
+
     def query(self, input: str = "", message: str = "", **kwargs) -> str:
         if self._lazy_agent is None:
             self.set_up()
 
-        # Handle both 'input' (RE) and 'message' (legacy/other)
-        prompt = input or message
+        prompt = self._extract_prompt(input, message)
         
+        # Extract state/tokens from kwargs or input
+        state = kwargs.get("state")
+        if not state and isinstance(input, dict):
+            state = input.get("state")
+            
         import asyncio
         import uuid
         from google.adk.runners import Runner
@@ -2922,7 +3019,7 @@ class SyncAgentWrapper(BaseAgent):
             session_id = str(uuid.uuid4())
             session_service = InMemorySessionService()
             await session_service.create_session(
-                app_name="deployed_app", user_id="default_user", session_id=session_id
+                app_name="deployed_app", user_id="default_user", session_id=session_id, state=state
             )
             runner = Runner(agent=self._lazy_agent, app_name="deployed_app", session_service=session_service)
 
@@ -2934,6 +3031,7 @@ class SyncAgentWrapper(BaseAgent):
                     role="user",
                     parts=[genai_types.Part.from_text(text=prompt)]
                 ),
+                state_delta=state,
             ):
                 if event.content and getattr(event.content, "parts", None):
                     for part in event.content.parts:
@@ -2952,21 +3050,114 @@ class SyncAgentWrapper(BaseAgent):
         if self._lazy_agent is None:
             self._lazy_agent = create_agent()
 
-    async def _run_async_impl(self, input: str = "", message: str = "", **kwargs):
+    async def stream_query(self, input: str = "", message: str = "", **kwargs):
         if self._lazy_agent is None:
             self.set_up()
 
-        prompt = input or message
-        # Delegate to the lazy agent's async implementation if available
-        if hasattr(self._lazy_agent, "run_async"):
-            async for event in self._lazy_agent.run_async(prompt, **kwargs):
-                yield event
-        else:
-            # Fallback for sync-only agents
-            response = await asyncio.to_thread(self.query, prompt, **kwargs)
-            from google.adk.events import Event
-            from google.genai import types as genai_types
-            yield Event(content=genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=response)]))
+        prompt = self._extract_prompt(input, message)
+        
+        # Extract state/tokens from kwargs or input
+        state = kwargs.get("state")
+        if not state and isinstance(input, dict):
+            state = input.get("state")
+            
+        import asyncio
+        import uuid
+        from google.adk.runners import Runner
+        from google.adk.sessions import InMemorySessionService
+        from google.genai import types as genai_types
+        
+        session_id = str(uuid.uuid4())
+        session_service = InMemorySessionService()
+        await session_service.create_session(
+            app_name="deployed_app", user_id="default_user", session_id=session_id, state=state
+        )
+        runner = Runner(agent=self._lazy_agent, app_name="deployed_app", session_service=session_service)
+
+        async for event in runner.run_async(
+            user_id="default_user",
+            session_id=session_id,
+            new_message=genai_types.Content(
+                role="user",
+                parts=[genai_types.Part.from_text(text=prompt)]
+            ),
+            state_delta=state,
+        ):
+            if event.content and getattr(event.content, "parts", None):
+                text = "".join([part.text for part in event.content.parts if getattr(part, "text", None)])
+                if text:
+                    yield {
+                        "candidates": [
+                            {
+                                "content": {
+                                    "parts": [{"text": text}],
+                                    "role": "model"
+                                }
+                            }
+                        ]
+                    }
+
+    async def _run_async_impl(self, input: str = "", message: str = "", **kwargs):
+        async for chunk in self.stream_query(input, message, **kwargs):
+            yield chunk
+
+    async def streaming_agent_run_with_events(self, request_json: str):
+        """Streams responses asynchronously from the ADK application (AgentSpace/A2A entrypoint)."""
+        if self._lazy_agent is None:
+            self.set_up()
+
+        import json
+        from google.genai import types as genai_types
+        
+        req = json.loads(request_json)
+        msg_dict = req.get("message")
+        prompt = ""
+        if msg_dict:
+            parts = msg_dict.get("parts", [])
+            prompt = "".join([part.get("text", "") for part in parts if part.get("text")])
+
+        # Extract authorizations to build state
+        state = {}
+        authorizations = req.get("authorizations")
+        if authorizations:
+            for auth_id, auth_data in authorizations.items():
+                access_token = auth_data.get("access_token") or auth_data.get("token")
+                if access_token:
+                    state[auth_id] = access_token
+                    
+        # Fallback extraction
+        if not state:
+            state = req.get("state") or {}
+
+        user_id = req.get("user_id") or req.get("userId") or "default_user"
+        session_id = req.get("session_id") or req.get("sessionId") or str(uuid.uuid4())
+
+        import asyncio
+        import uuid
+        from google.adk.runners import Runner
+        from google.adk.sessions import InMemorySessionService
+        
+        session_service = InMemorySessionService()
+        await session_service.create_session(
+            app_name="deployed_app", user_id=user_id, session_id=session_id, state=state
+        )
+        runner = Runner(agent=self._lazy_agent, app_name="deployed_app", session_service=session_service)
+
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=genai_types.Content(
+                role="user",
+                parts=[genai_types.Part.from_text(text=prompt)]
+            ),
+            state_delta=state,
+        ):
+            event_dict = json.loads(event.model_dump_json(exclude_none=True))
+            yield {
+                "events": [event_dict],
+                "artifacts": [],
+                "session_id": session_id
+            }
 
     def get_a2a_discovery_card(self) -> str:
         """
@@ -2986,7 +3177,8 @@ class SyncAgentWrapper(BaseAgent):
 
     def register_operations(self) -> dict[str, list[str]]:
         return {
-            "": ["query", "get_a2a_discovery_card"]
+            "": ["query", "get_a2a_discovery_card"],
+            "stream": ["stream_query", "streaming_agent_run_with_events"]
         }
 
 # Define the agent factory
@@ -3002,7 +3194,7 @@ def create_agent():
             ),${
               config.enableThinking
                 ? `
-            thinking_config=thinking_config,`
+            **({"thinking_config": thinking_config} if thinking_config else {}),`
                 : ""
             }
         ),
@@ -3034,7 +3226,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Wrap for deployment (lazy)
-app = SyncAgentWrapper()
+app = SyncAgentWrapper(name="deployed_agent")
 `.trim();
 };
 
@@ -3279,15 +3471,15 @@ except Exception as e:
 `.trim();
 };
 
-const generateAdkEnvFile = (
+export const generateAdkEnvFile = (
   config: AdkAgentConfig,
   projectNumber: string,
   location: string,
   stagingBucket: string,
 ): string => {
   const isV2 = config.adkVersion === "2.2";
-  const modelLocation =
-    config.model && config.model.startsWith("gemini-3") ? "global" : location;
+  const isGemini3 = config.model?.startsWith("gemini-3");
+  const modelLocation = isGemini3 ? "global" : location;
   let env = `GOOGLE_CLOUD_PROJECT="${projectNumber}"
 GOOGLE_CLOUD_LOCATION="${modelLocation}"
 DEPLOYMENT_LOCATION="${location}"
@@ -3306,6 +3498,9 @@ ENABLE_A2A="true"`;
   if (config.enableTelemetry) {
     env += `\nGOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY="true"`;
   }
+
+  // Always disable JSON schema serialization for function declarations to keep prompt token size minimal and prevent API crashes.
+  env += `\nADK_DISABLE_JSON_SCHEMA_FOR_FUNC_DECL="1"`;
 
   if (config.enableMessageLogging) {
     env += `\nOTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT="true"`;
@@ -5009,8 +5204,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                     className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
                   >
                     <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-                    <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
-                    <option value="gemini-3-flash">Gemini 3.0 Flash</option>
+                    <option value="gemini-3.1-pro-preview">
+                      Gemini 3.1 Pro
+                    </option>
+                    <option value="gemini-3-flash-preview">
+                      Gemini 3.0 Flash
+                    </option>
                     <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                   </select>
@@ -6082,8 +6281,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                     className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
                   >
                     <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-                    <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
-                    <option value="gemini-3-flash">Gemini 3.0 Flash</option>
+                    <option value="gemini-3.1-pro-preview">
+                      Gemini 3.1 Pro
+                    </option>
+                    <option value="gemini-3-flash-preview">
+                      Gemini 3.0 Flash
+                    </option>
                     <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                   </select>
