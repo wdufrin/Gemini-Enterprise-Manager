@@ -423,9 +423,9 @@ AGENT_DISPLAY_NAME: "${config.displayName}"
 PROVIDER_ORGANIZATION: "${config.providerOrganization}"
 AGENT_DESCRIPTION: |
 ${config.instruction
-  .split("\n")
-  .map((line) => "  " + line)
-  .join("\n")}
+      .split("\n")
+      .map((line) => "  " + line)
+      .join("\n")}
 `.trim();
 };
 
@@ -592,9 +592,8 @@ def get_user_credentials(tool_context: ToolContext) -> Optional[Credentials]:
             logger.info(f"Successfully retrieved access token from environment variable matching AUTH_ID: {auth_id}")
             return Credentials(token=env_token_specific)
         
-${
-  allowAdcFallback
-    ? `    # 4. Fallback to Application Default Credentials (ADC)
+${allowAdcFallback
+      ? `    # 4. Fallback to Application Default Credentials (ADC)
     try:
         import google.auth
         from google.auth.transport.requests import Request
@@ -608,10 +607,10 @@ ${
     except Exception as e:
         logger.warning(f"Failed to get ADC fallback: {e}")
         return None`
-    : `    # 4. Fallback to Application Default Credentials (ADC) is disabled
+      : `    # 4. Fallback to Application Default Credentials (ADC) is disabled
     logger.warning("User OAuth token not found, and Service Account fallback is disabled.")
     raise PermissionError("Access Denied: Valid end-user OAuth token not found, and ADC Service Account fallback is disabled.")`
-}
+    }
 `;
 };
 
@@ -2450,27 +2449,29 @@ def create_agent():
     ${config.enableDeveloperKnowledgeMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="developerknowledge", url="https://developerknowledge.googleapis.com/mcp", headers=headers))` : ""}
     ${config.enableMapsGroundingMcp ? `mcp_servers.append(types.McpStreamableHttpServer(name="mapstools", url="https://mapstools.googleapis.com/mcp", headers=headers))` : ""}
 
-    ${
-      config.customMcpEndpoints && config.customMcpEndpoints.length > 0
-        ? `
+    ${config.customMcpEndpoints && config.customMcpEndpoints.length > 0
+      ? `
     # Custom MCP Endpoints
     ${config.customMcpEndpoints
-      .map((endpoint) => {
-        const safeName = endpoint.name.replace(/[^a-zA-Z0-9_]/g, "_");
-        return `mcp_servers.append(types.McpStreamableHttpServer(name="${safeName}", url="${endpoint.url}", headers=headers))`;
-      })
-      .join("\n    ")}`
-        : ""
+        .map((endpoint) => {
+          const safeName = endpoint.name.replace(/[^a-zA-Z0-9_]/g, "_");
+          return `mcp_servers.append(types.McpStreamableHttpServer(name="${safeName}", url="${endpoint.url}", headers=headers))`;
+        })
+        .join("\n    ")}`
+      : ""
     }
 
     # Safety Policies
     policies = []
     ${config.enableCodeExecution ? `policies.append(policy.allow("run_command"))` : ""}
 
+    model_name = os.getenv("MODEL", ${formatPythonString(modelName)})
     location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+    if model_name.startswith("gemini-3") or "3.5" in model_name:
+        location = "global"
 
     config = LocalAgentConfig(
-        model=os.getenv("MODEL", ${formatPythonString(modelName)}),
+        model=model_name,
         system_instructions=${formatPythonString(finalInstruction)},
         vertex=True,
         project=project_id,
@@ -2857,6 +2858,11 @@ load_dotenv()
 # Force Vertex AI API variant to prevent the 'Missing key inputs argument' Google AI validation error
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
 
+# Route Gemini 3/3.5 models to global region since they are not regionalized in us-central1
+model_name = os.getenv("MODEL", "${config.model || "gemini-3.1-pro"}")
+if model_name.startswith("gemini-3") or "3.5" in model_name:
+    os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
+
 
 # --- ADK Resilience Patch ---
 # Prevents the entire agent stream from crashing if an MCP server returns an HTTP error (e.g. 400 Bad Request)
@@ -2937,9 +2943,8 @@ ${toolInitializations.length > 0 ? toolInitializations.join("\n\n") : "# No addi
 # Initialize Plugins
 ${pluginInitializations.length > 0 ? pluginInitializations.join("\n\n") : "# No plugins defined"}
 
-${
-  config.enableThinking
-    ? `
+${config.enableThinking
+      ? `
 # Define generation_content_config for Thinking
 model_name = os.getenv("MODEL", "${config.model || "gemini-3.1-pro"}")
 thinking_config = None
@@ -2954,8 +2959,8 @@ elif "thinking" in model_name:
         thinking_budget=${config.thinkingBudget || 1024},
     )
 `
-    : ""
-}
+      : ""
+    }
 
 # Wrapper for Synchronous Execution (Reasoning Engine Requirement for some runtimes)
 class SyncAgentWrapper(BaseModel):
@@ -3191,12 +3196,11 @@ def create_agent():
         generate_content_config=genai_types.GenerateContentConfig(
             http_options=genai_types.HttpOptions(
                 retry_options=genai_types.HttpRetryOptions(initial_delay=1, attempts=2)
-            ),${
-              config.enableThinking
-                ? `
+            ),${config.enableThinking
+      ? `
             **({"thinking_config": thinking_config} if thinking_config else {}),`
-                : ""
-            }
+      : ""
+    }
         ),
         tools=[${toolListForAgent.join(", ")}],
         # planner=BuiltInPlanner() # Default planner
@@ -3336,42 +3340,18 @@ try:
             
     if target_agent:
         logger.info(f"Found existing agent: {target_agent.name}. Updating...")
-        try:
-            remote_app = agent_engines.update(
-                target_agent.name,
-                agent_engine=app_to_deploy,
-                requirements=reqs,
-                env_vars=env_vars,
-                extra_packages=extra_packages,${
-                  config.enableGraphvizRendering
-                    ? `
-                build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},`
-                    : ""
-                }
-            )
-            logger.info("Update Succeeded!")
-        except Exception as update_err:
-            logger.warning(f"Update failed: {update_err}. Re-creating by deleting first...")
-            try:
-                target_agent.delete()
-                logger.info(f"Successfully deleted existing agent: {target_agent.name}")
-            except Exception as del_err:
-                logger.error(f"Failed to delete existing agent: {del_err}")
-            
-            logger.info("Creating new agent engine...")
-            remote_app = agent_engines.create(
-                agent_engine=app_to_deploy,
-                display_name=agent_display_name,
-                requirements=reqs,
-                env_vars=env_vars,
-                extra_packages=extra_packages,${
-                  config.enableGraphvizRendering
-                    ? `
-                build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},`
-                    : ""
-                }
-            )
-            logger.info("Deployment Succeeded!")
+        remote_app = agent_engines.update(
+            target_agent.name,
+            agent_engine=app_to_deploy,
+            requirements=reqs,
+            env_vars=env_vars,
+            extra_packages=extra_packages,${config.enableGraphvizRendering
+      ? `
+            build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},`
+      : ""
+    }
+        )
+        logger.info("Update Succeeded!")
     else:
         logger.info("No existing agent found. Creating new...")
         remote_app = agent_engines.create(
@@ -3379,20 +3359,18 @@ try:
             display_name=agent_display_name,
             requirements=reqs,
             env_vars=env_vars,
-            extra_packages=extra_packages,${
-              config.enableGraphvizRendering
-                ? `
+            extra_packages=extra_packages,${config.enableGraphvizRendering
+      ? `
             build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},`
-                : ""
-            }
+      : ""
+    }
         )
         logger.info("Deployment Succeeded!")
         
     print(f"Deployment finished!")
     print(f"Resource Name: {remote_app.resource_name}")
-${
-  config.enableDiscoveryApi
-    ? `
+${config.enableDiscoveryApi
+      ? `
     logger.info("Auto-registering Agent to Gemini Enterprise (Discovery Engine)...")
     import requests
     import google.auth
@@ -3486,8 +3464,8 @@ ${
             else:
                 logger.warning(f"Registration failed ({post_res.status_code}): {post_res.text}")
 `
-    : ""
-}
+      : ""
+    }
 except Exception as e:
     logger.error(f"Deployment/Update Failed: {e}")
     raise
@@ -3552,25 +3530,25 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
   const isV2 = config.adkVersion === "2.2";
   const defaultDeps = isV2
     ? [
-        "google-antigravity>=0.1.3",
-        "pydantic>=2.0.0",
-        "python-dotenv",
-        "nest_asyncio",
-        "requests",
-        "httpx",
-      ]
+      "google-antigravity>=0.1.3",
+      "pydantic>=2.0.0",
+      "python-dotenv",
+      "nest_asyncio",
+      "requests",
+      "httpx",
+    ]
     : [
-        "google-adk[eval]>=1.26.0",
-        "google-cloud-aiplatform[adk,agent_engines]>=1.75.0",
-        "python-dotenv",
-        "nest_asyncio",
-        "google-auth",
-        "requests",
-        "google-genai",
-        "cloudpickle",
-        "mcp",
-        "httpx",
-      ];
+      "google-adk[eval]>=1.26.0",
+      "google-cloud-aiplatform[adk,agent_engines]>=1.75.0",
+      "python-dotenv",
+      "nest_asyncio",
+      "google-auth",
+      "requests",
+      "google-genai",
+      "cloudpickle",
+      "mcp",
+      "httpx",
+    ];
 
   if (config.enableOAuth) {
     defaultDeps.push("google-auth-oauthlib>=1.2.2", "google-api-python-client");
@@ -4396,7 +4374,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                 dsResults.push({ ...ds, location: loc }),
               );
             }
-          } catch (e) {}
+          } catch (e) { }
         }),
       );
 
@@ -4422,7 +4400,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
               region,
             );
             if (res.services) services.push(...res.services);
-          } catch (e) {}
+          } catch (e) { }
         }),
       );
 
@@ -5333,7 +5311,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       {adkConfig.enableThinking && (
                         <div className="flex flex-col">
                           {adkConfig.model &&
-                          adkConfig.model.startsWith("gemini-3") ? (
+                            adkConfig.model.startsWith("gemini-3") ? (
                             <select
                               name="thinkingLevel"
                               value={adkConfig.thinkingLevel}
@@ -5858,7 +5836,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         {adkConfig.enableOAuth && (
                           <div className="flex items-center space-x-2">
                             {authInputMode === "select" &&
-                            authorizations.length > 0 ? (
+                              authorizations.length > 0 ? (
                               <select
                                 name="authId"
                                 value={adkConfig.authId}
@@ -6555,8 +6533,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
               <div className="flex border-b border-gray-700">
                 {(builderTab === "adk"
                   ? ADK_TABS.filter(
-                      (t) => t.id !== "auth" || adkConfig.enableOAuth,
-                    )
+                    (t) => t.id !== "auth" || adkConfig.enableOAuth,
+                  )
                   : A2A_TABS
                 ).map((tab) => (
                   <button
@@ -6566,12 +6544,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         ? setAdkActiveTab(tab.id as any)
                         : setA2aActiveTab(tab.id as any)
                     }
-                    className={`px-3 py-2 text-xs font-medium transition-colors ${
-                      (builderTab === "adk" ? adkActiveTab : a2aActiveTab) ===
-                      tab.id
+                    className={`px-3 py-2 text-xs font-medium transition-colors ${(builderTab === "adk" ? adkActiveTab : a2aActiveTab) ===
+                        tab.id
                         ? "border-b-2 border-blue-500 text-white"
                         : "text-gray-400 hover:text-white"
-                    }`}
+                      }`}
                   >
                     {tab.label}
                   </button>
