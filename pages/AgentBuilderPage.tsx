@@ -3336,19 +3336,42 @@ try:
             
     if target_agent:
         logger.info(f"Found existing agent: {target_agent.name}. Updating...")
-        remote_app = agent_engines.update(
-            target_agent.name,
-            agent_engine=app_to_deploy,
-            requirements=reqs,
-            env_vars=env_vars,
-            extra_packages=extra_packages,${
-              config.enableGraphvizRendering
-                ? `
-            build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},`
-                : ""
-            }
-        )
-        logger.info("Update Succeeded!")
+        try:
+            remote_app = agent_engines.update(
+                target_agent.name,
+                agent_engine=app_to_deploy,
+                requirements=reqs,
+                env_vars=env_vars,
+                extra_packages=extra_packages,${
+                  config.enableGraphvizRendering
+                    ? `
+                build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},`
+                    : ""
+                }
+            )
+            logger.info("Update Succeeded!")
+        except Exception as update_err:
+            logger.warning(f"Update failed: {update_err}. Re-creating by deleting first...")
+            try:
+                target_agent.delete()
+                logger.info(f"Successfully deleted existing agent: {target_agent.name}")
+            except Exception as del_err:
+                logger.error(f"Failed to delete existing agent: {del_err}")
+            
+            logger.info("Creating new agent engine...")
+            remote_app = agent_engines.create(
+                agent_engine=app_to_deploy,
+                display_name=agent_display_name,
+                requirements=reqs,
+                env_vars=env_vars,
+                extra_packages=extra_packages,${
+                  config.enableGraphvizRendering
+                    ? `
+                build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},`
+                    : ""
+                }
+            )
+            logger.info("Deployment Succeeded!")
     else:
         logger.info("No existing agent found. Creating new...")
         remote_app = agent_engines.create(
