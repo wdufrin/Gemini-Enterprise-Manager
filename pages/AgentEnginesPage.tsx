@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect } from "react";
-import { ReasoningEngine, Config, Agent, CloudRunService } from "../types";
+import { ReasoningEngine, Config, Agent, CloudRunService, Page } from "../types";
 import * as api from "../services/apiService";
 import Spinner from "../components/Spinner";
 import ConfirmationModal from "../components/ConfirmationModal";
@@ -29,6 +29,7 @@ interface AgentEnginesPageProps {
   projectNumber: string;
   accessToken: string;
   onDirectQuery: (engine: ReasoningEngine) => void;
+  onNavigate?: (page: Page, context?: any) => void;
 }
 
 type ResourceType =
@@ -76,6 +77,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
   projectNumber,
   accessToken,
   onDirectQuery,
+  onNavigate,
 }) => {
   const [resources, setResources] = useState<UnifiedResource[]>([]);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
@@ -140,12 +142,27 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
           try {
             const card = JSON.parse(agent.a2aAgentDefinition.jsonAgentCard);
             const agentUrl = card.url;
-            const matchingResource = resources.find(
-              (r) => r.uri && agentUrl && agentUrl.startsWith(r.uri),
-            );
-            if (matchingResource) {
-              if (!acc[matchingResource.id]) acc[matchingResource.id] = [];
-              acc[matchingResource.id].push(agent);
+            if (agentUrl) {
+              // 1. Try to match as a Cloud Run A2A URL (URI prefix match)
+              let matchingResource = resources.find(
+                (r) => r.uri && agentUrl.startsWith(r.uri),
+              );
+
+              // 2. Try to match as a Reasoning Engine A2A URL (path matching)
+              if (!matchingResource && agentUrl.includes("/reasoningEngines/")) {
+                const parts = agentUrl.split("/reasoningEngines/");
+                if (parts.length > 1) {
+                  const engineId = parts[1].split("/")[0];
+                  matchingResource = resources.find(
+                    (r) => r.type === "Agent Engine" && r.id.endsWith(`/reasoningEngines/${engineId}`),
+                  );
+                }
+              }
+
+              if (matchingResource) {
+                if (!acc[matchingResource.id]) acc[matchingResource.id] = [];
+                acc[matchingResource.id].push(agent);
+              }
             }
           } catch (e) {}
         }
@@ -305,6 +322,8 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
           }),
         );
         setAllAgents(agentsList);
+        sessionStorage.setItem(`engines_resources_${projectNumber}_${location}`, JSON.stringify(unifiedList));
+        sessionStorage.setItem(`engines_agents_${projectNumber}_${location}`, JSON.stringify(agentsList));
       } catch (e) {
         console.warn("Failed to fetch usage data", e);
       }
@@ -316,8 +335,17 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
   }, [apiConfig, location, projectNumber]);
 
   useEffect(() => {
-    if (projectNumber) fetchResources();
-  }, [projectNumber, location]);
+    if (projectNumber) {
+      const cachedResources = sessionStorage.getItem(`engines_resources_${projectNumber}_${location}`);
+      const cachedAgents = sessionStorage.getItem(`engines_agents_${projectNumber}_${location}`);
+      if (cachedResources && cachedAgents) {
+        setResources(JSON.parse(cachedResources));
+        setAllAgents(JSON.parse(cachedAgents));
+      } else {
+        fetchResources();
+      }
+    }
+  }, [projectNumber, location, fetchResources]);
 
   const handleToggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -652,7 +680,18 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
                                 className="text-xs"
                                 title={agent.name}
                               >
-                                - {agent.displayName}
+                                -{' '}
+                                <button
+                                  onClick={() =>
+                                    onNavigate &&
+                                    onNavigate(Page.AGENTS, {
+                                      agentToEdit: agent,
+                                    })
+                                  }
+                                  className="text-blue-400 hover:text-blue-300 hover:underline text-left"
+                                >
+                                  {agent.displayName}
+                                </button>
                               </li>
                             ))}
                           </ul>

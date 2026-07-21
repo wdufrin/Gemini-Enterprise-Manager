@@ -31,6 +31,7 @@ interface AgentsPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
   accessToken: string;
+  context?: any;
 }
 
 const getInitialConfig = () => {
@@ -56,13 +57,44 @@ const getInitialConfig = () => {
   };
 };
 
-const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber, accessToken }) => {
+const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber, accessToken, context }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [togglingAgentId, setTogglingAgentId] = useState<string | null>(null);
+
+  // Handle navigation context
+  useEffect(() => {
+    if (context && context.agentToEdit) {
+      const targetAgent: Agent = context.agentToEdit;
+      
+      const parseAgentName = (name: string) => {
+        const parts = name.split('/');
+        if (parts.length >= 12) {
+          return {
+            location: parts[3],
+            engineId: parts[7],
+            assistantId: parts[9],
+            agentId: parts[11],
+          };
+        }
+        return null;
+      };
+
+      const parsed = parseAgentName(targetAgent.name);
+      if (parsed) {
+        setConfig(prev => ({
+          ...prev,
+          appLocation: parsed.location,
+          appId: parsed.engineId,
+        }));
+        setSelectedAgent(targetAgent);
+        setViewMode('form');
+      }
+    }
+  }, [context]);
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
   const [deletingAgentIds, setDeletingAgentIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);

@@ -659,6 +659,32 @@ const InnerApp: React.FC = () => {
                                 const reName = agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
                                 if (reName) addEdge(agent.name, reName);
 
+                                if (agent.a2aAgentDefinition?.jsonAgentCard) {
+                                    try {
+                                        const card = JSON.parse(agent.a2aAgentDefinition.jsonAgentCard);
+                                        const agentUrl = card.url;
+                                        if (agentUrl) {
+                                            if (agentUrl.includes("/reasoningEngines/")) {
+                                                const parts = agentUrl.split("/reasoningEngines/");
+                                                if (parts.length > 1) {
+                                                    const engineId = parts[1].split("/")[0];
+                                                    const matchingRe = allReasoningEngines.find(re => re.name.endsWith(`/reasoningEngines/${engineId}`));
+                                                    if (matchingRe) {
+                                                        addEdge(agent.name, matchingRe.name);
+                                                    }
+                                                }
+                                            } else {
+                                                const matchingService = allCloudRunServices.find(s => s.uri && agentUrl.startsWith(s.uri));
+                                                if (matchingService) {
+                                                    addEdge(agent.name, matchingService.name);
+                                                }
+                                            }
+                                        }
+                                    } catch (e: any) {
+                                        addLog(`      - WARNING: Failed to parse A2A agent card JSON for agent '${agent.displayName}': ${e.message}`);
+                                    }
+                                }
+
                                 (agent.authorizationConfig?.toolAuthorizations || agent.authorizations || []).forEach(authName => addEdge(agent.name, authName));
 
                                 try {
@@ -719,7 +745,7 @@ const InnerApp: React.FC = () => {
 
     switch (currentPage) {
       case Page.AGENTS:
-        return <AgentsPage {...projectProps} accessToken={accessToken} />;
+        return <AgentsPage {...projectProps} context={pageContext} accessToken={accessToken} />;
       case Page.ASSISTANT:
             return <AssistantPage projectId={projectId} {...projectProps} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={handleBuildTriggered} />;
       case Page.AUTHORIZATIONS:
@@ -741,7 +767,7 @@ const InnerApp: React.FC = () => {
       case Page.AGENT_PERMISSIONS:
         return <AgentPermissionsPage {...projectProps} />;
       case Page.AGENT_ENGINES:
-        return <AgentEnginesPage {...commonProps} accessToken={accessToken} onDirectQuery={handleDirectQuery} />;
+        return <AgentEnginesPage {...commonProps} onNavigate={handleNavigation} accessToken={accessToken} onDirectQuery={handleDirectQuery} />;
       case Page.A2A_TESTER:
         return <A2aTesterPage {...projectProps} onNavigate={handleNavigation} accessToken={accessToken} />;
       case Page.AGENT_BUILDER:
