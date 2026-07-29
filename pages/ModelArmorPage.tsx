@@ -15,7 +15,7 @@
  */
 
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Config, LogEntry } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
@@ -210,20 +210,82 @@ const LogEntryCard: React.FC<{ log: LogEntry }> = ({ log }) => {
 
 // --- Policy Generator Component ---
 
-const PolicyGenerator: React.FC<{ projectId: string }> = ({ projectId }) => {
-    const [policyName, setPolicyName] = useState('my-safety-policy');
+interface PolicyGeneratorProps {
+    projectId: string;
+    engines: any[];
+}
+
+const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines }) => {
+    const [policyName, setPolicyName] = useState('my-safety-policy-input');
     const [config, setConfig] = useState({
         pii: true,
-        hateSpeech: true,
-        harassment: true,
-        sexuallyExplicit: true,
-        dangerousContent: true,
+        hateSpeech: 'HIGH',
+        harassment: 'HIGH',
+        sexuallyExplicit: 'HIGH',
+        dangerousContent: 'HIGH',
         jailbreak: true,
         maliciousUris: false,
     });
+    const [selectedEngineIndex, setSelectedEngineIndex] = useState(-1);
+    const [policyType, setPolicyType] = useState<'input' | 'output' | 'both'>('input');
     const [copySuccess, setCopySuccess] = useState('');
+    const [copyAttachSuccess, setCopyAttachSuccess] = useState('');
 
-    const toggle = (key: keyof typeof config) => setConfig(prev => ({ ...prev, [key]: !prev[key] }));
+    const toggle = (key: 'pii' | 'jailbreak' | 'maliciousUris') => setConfig(prev => ({ ...prev, [key]: !prev[key] }));
+
+    const toggleRai = (key: 'hateSpeech' | 'harassment' | 'sexuallyExplicit' | 'dangerousContent') => {
+        setConfig(prev => ({
+            ...prev,
+            [key]: prev[key] === 'OFF' ? 'HIGH' : 'OFF'
+        }));
+    };
+
+    const changeRaiLevel = (key: 'hateSpeech' | 'harassment' | 'sexuallyExplicit' | 'dangerousContent', val: string) => {
+        setConfig(prev => ({
+            ...prev,
+            [key]: val
+        }));
+    };
+
+    const applyPreset = (preset: 'bp_input' | 'bp_output' | 'strict') => {
+        if (preset === 'bp_input') {
+            setConfig({
+                pii: true,
+                hateSpeech: 'HIGH',
+                harassment: 'HIGH',
+                sexuallyExplicit: 'HIGH',
+                dangerousContent: 'HIGH',
+                jailbreak: true,
+                maliciousUris: false,
+            });
+            setPolicyName('my-safety-policy-input');
+            setPolicyType('input');
+        } else if (preset === 'bp_output') {
+            setConfig({
+                pii: true,
+                hateSpeech: 'HIGH',
+                harassment: 'HIGH',
+                sexuallyExplicit: 'HIGH',
+                dangerousContent: 'HIGH',
+                jailbreak: false,
+                maliciousUris: true,
+            });
+            setPolicyName('my-safety-policy-output');
+            setPolicyType('output');
+        } else if (preset === 'strict') {
+            setConfig({
+                pii: true,
+                hateSpeech: 'LOW_AND_ABOVE',
+                harassment: 'LOW_AND_ABOVE',
+                sexuallyExplicit: 'LOW_AND_ABOVE',
+                dangerousContent: 'LOW_AND_ABOVE',
+                jailbreak: true,
+                maliciousUris: true,
+            });
+            setPolicyName('my-safety-policy-strict');
+            setPolicyType('both');
+        }
+    };
 
     const generatedJson = useMemo(() => {
         const filters: any[] = [];
@@ -240,10 +302,10 @@ const PolicyGenerator: React.FC<{ projectId: string }> = ({ projectId }) => {
         }
         
         const raiFilters: any[] = [];
-        if (config.hateSpeech) raiFilters.push({ "type": "HATE_SPEECH", "confidence": "MEDIUM_AND_ABOVE" });
-        if (config.harassment) raiFilters.push({ "type": "HARASSMENT", "confidence": "MEDIUM_AND_ABOVE" });
-        if (config.sexuallyExplicit) raiFilters.push({ "type": "SEXUALLY_EXPLICIT", "confidence": "MEDIUM_AND_ABOVE" });
-        if (config.dangerousContent) raiFilters.push({ "type": "DANGEROUS_CONTENT", "confidence": "MEDIUM_AND_ABOVE" });
+        if (config.hateSpeech !== 'OFF') raiFilters.push({ "filterType": "HATE_SPEECH", "confidenceLevel": config.hateSpeech });
+        if (config.harassment !== 'OFF') raiFilters.push({ "filterType": "HARASSMENT", "confidenceLevel": config.harassment });
+        if (config.sexuallyExplicit !== 'OFF') raiFilters.push({ "filterType": "SEXUALLY_EXPLICIT", "confidenceLevel": config.sexuallyExplicit });
+        if (config.dangerousContent !== 'OFF') raiFilters.push({ "filterType": "DANGEROUS_CONTENT", "confidenceLevel": config.dangerousContent });
 
         return {
             "template": {
@@ -255,14 +317,11 @@ const PolicyGenerator: React.FC<{ projectId: string }> = ({ projectId }) => {
                         "sdpFilters": filters
                     },
                     "piAndJailbreakFilterSettings": {
-                        "filterConfig": {
-                            "active": config.jailbreak
-                        }
+                        "filterEnforcement": config.jailbreak ? "ENABLED" : "DISABLED",
+                        "confidenceLevel": "MEDIUM_AND_ABOVE"
                     },
                     "maliciousUriFilterSettings": {
-                        "filterConfig": {
-                            "active": config.maliciousUris
-                        }
+                        "filterEnforcement": config.maliciousUris ? "ENABLED" : "DISABLED"
                     }
                 }
             }
@@ -275,50 +334,186 @@ const PolicyGenerator: React.FC<{ projectId: string }> = ({ projectId }) => {
   -d '${JSON.stringify(generatedJson)}' \\
   "https://modelarmor.googleapis.com/v1/projects/${projectId}/locations/global/templates?templateId=${policyName}"`;
 
+    const attachCommand = useMemo(() => {
+        if (selectedEngineIndex < 0 || !engines[selectedEngineIndex]) return '';
+        const eng = engines[selectedEngineIndex];
+        const engineId = eng.name.split("/").pop();
+        const loc = eng.location;
+        const templateResourceName = `projects/${projectId}/locations/global/templates/${policyName}`;
+        
+        const modelArmorConfig: any = {};
+        if (policyType === 'input' || policyType === 'both') {
+            modelArmorConfig.userPromptTemplate = templateResourceName;
+        }
+        if (policyType === 'output' || policyType === 'both') {
+            modelArmorConfig.responseTemplate = templateResourceName;
+        }
+        
+        const payload = {
+            customerPolicy: {
+                modelArmorConfig
+            }
+        };
+        
+        return `curl -X PATCH \\
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  -H "Content-Type: application/json" \\
+  -d '${JSON.stringify(payload)}' \\
+  "https://${loc === 'global' ? '' : loc + '-'}discoveryengine.googleapis.com/v1alpha/projects/${projectId}/locations/${loc}/collections/default_collection/engines/${engineId}/assistants/default_assistant?updateMask=customerPolicy"`;
+    }, [selectedEngineIndex, engines, policyName, projectId, policyType]);
+
     const handleCopy = () => {
         navigator.clipboard.writeText(generatedCommand);
         setCopySuccess('Copied!');
         setTimeout(() => setCopySuccess(''), 2000);
     };
 
+    const handleCopyAttach = () => {
+        navigator.clipboard.writeText(attachCommand);
+        setCopyAttachSuccess('Copied!');
+        setTimeout(() => setCopyAttachSuccess(''), 2000);
+    };
+
     return (
         <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-md overflow-hidden">
-            <div className="p-6 border-b border-gray-700">
-                <h3 className="text-lg font-bold text-white">Policy Template Generator</h3>
-                <p className="text-sm text-gray-400 mt-1">
-                    Design a Model Armor template to filter harmful content and redact sensitive data.
-                </p>
+            <div className="p-6 border-b border-gray-700 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                <div>
+                    <h3 className="text-lg font-bold text-white">Policy Template Generator</h3>
+                    <p className="text-sm text-gray-400 mt-1">
+                        Design a Model Armor template to filter harmful content and redact sensitive data.
+                    </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 font-semibold uppercase tracking-wider mr-2">Presets:</span>
+                    <button 
+                        onClick={() => applyPreset('bp_input')}
+                        className="px-2.5 py-1 bg-gray-700 hover:bg-gray-650 text-xs font-semibold rounded text-gray-200 border border-gray-650"
+                        title="Decoupled input template: Jailbreak protection and PII redaction"
+                    >
+                        Best Practice: Input Filter
+                    </button>
+                    <button 
+                        onClick={() => applyPreset('bp_output')}
+                        className="px-2.5 py-1 bg-gray-700 hover:bg-gray-650 text-xs font-semibold rounded text-gray-200 border border-gray-650"
+                        title="Decoupled output template: Malicious URI and PII redaction"
+                    >
+                        Best Practice: Output Filter
+                    </button>
+                    <button 
+                        onClick={() => applyPreset('strict')}
+                        className="px-2.5 py-1 bg-indigo-900/60 hover:bg-indigo-850/60 text-xs font-semibold rounded text-indigo-200 border border-indigo-800"
+                        title="Strict Hardened: Low threshold safety filters"
+                    >
+                        Strict Compliance
+                    </button>
+                </div>
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2">
                 {/* Left: Configuration Form */}
                 <div className="p-6 space-y-6 bg-gray-800">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">Template ID</label>
-                        <input 
-                            type="text" 
-                            value={policyName} 
-                            onChange={(e) => setPolicyName(e.target.value)} 
-                            className="w-full bg-gray-900 border border-gray-600 rounded-md px-3 py-2 text-white text-sm focus:ring-blue-500"
-                        />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-2">Template ID</label>
+                            <input 
+                                type="text" 
+                                value={policyName} 
+                                onChange={(e) => setPolicyName(e.target.value)} 
+                                className="w-full bg-gray-900 border border-gray-600 rounded-md px-3 py-2 text-white text-sm focus:ring-blue-500"
+                            />
+                        </div>
+
+                        {engines.length > 0 && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Target App to Associate</label>
+                                <select
+                                    value={selectedEngineIndex}
+                                    onChange={(e) => setSelectedEngineIndex(Number(e.target.value))}
+                                    className="w-full bg-gray-900 border border-gray-600 rounded-md px-3 py-2 text-white text-sm focus:ring-blue-500"
+                                >
+                                    <option value={-1}>-- Do not generate attach command --</option>
+                                    {engines.map((eng, idx) => (
+                                        <option key={eng.name} value={idx}>
+                                            {eng.displayName || eng.name.split("/").pop()} ({eng.location})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {selectedEngineIndex >= 0 && (
+                            <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Bind Template As</label>
+                                <div className="flex gap-6 items-center bg-gray-900/40 p-3 rounded-lg border border-gray-700/60 w-fit">
+                                    <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-gray-300 hover:text-white select-none">
+                                        <input 
+                                            type="radio" 
+                                            name="policyType" 
+                                            checked={policyType === 'input'} 
+                                            onChange={() => setPolicyType('input')}
+                                            className="bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500 w-4 h-4"
+                                        />
+                                        Input Filter (User Prompt)
+                                    </label>
+                                    <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-gray-300 hover:text-white select-none">
+                                        <input 
+                                            type="radio" 
+                                            name="policyType" 
+                                            checked={policyType === 'output'} 
+                                            onChange={() => setPolicyType('output')}
+                                            className="bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500 w-4 h-4"
+                                        />
+                                        Output Filter (Model Response)
+                                    </label>
+                                    <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-gray-300 hover:text-white select-none">
+                                        <input 
+                                            type="radio" 
+                                            name="policyType" 
+                                            checked={policyType === 'both'} 
+                                            onChange={() => setPolicyType('both')}
+                                            className="bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500 w-4 h-4"
+                                        />
+                                        Both (Prompt & Response)
+                                    </label>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="space-y-4">
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Responsible AI Filters</h4>
-                        <div className="grid grid-cols-2 gap-3">
-                            {['hateSpeech', 'harassment', 'sexuallyExplicit', 'dangerousContent'].map((key) => (
-                                <label key={key} className="flex items-center gap-2 cursor-pointer group">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={config[key as keyof typeof config]} 
-                                        onChange={() => toggle(key as keyof typeof config)}
-                                        className="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500"
-                                    />
-                                    <span className="text-sm text-gray-300 group-hover:text-white capitalize">
-                                        {key.replace(/([A-Z])/g, ' $1').trim()}
-                                    </span>
-                                </label>
-                            ))}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {['hateSpeech', 'harassment', 'sexuallyExplicit', 'dangerousContent'].map((key) => {
+                                const filterKey = key as 'hateSpeech' | 'harassment' | 'sexuallyExplicit' | 'dangerousContent';
+                                const isEnabled = config[filterKey] !== 'OFF';
+                                return (
+                                    <div key={key} className="flex items-center justify-between p-3 bg-gray-700/20 rounded-lg border border-gray-700 hover:bg-gray-700/30 transition-colors">
+                                        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={isEnabled} 
+                                                onChange={() => toggleRai(filterKey)}
+                                                className="w-4 h-4 rounded bg-gray-800 border-gray-500 text-blue-500 focus:ring-blue-500"
+                                            />
+                                            <span className="text-sm font-medium text-gray-300 capitalize">
+                                                {key.replace(/([A-Z])/g, ' $1').trim()}
+                                            </span>
+                                        </label>
+                                        
+                                        {isEnabled && (
+                                            <select
+                                                value={config[filterKey]}
+                                                onChange={(e) => changeRaiLevel(filterKey, e.target.value)}
+                                                className="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-white focus:ring-blue-500"
+                                            >
+                                                <option value="LOW_AND_ABOVE">Low & above</option>
+                                                <option value="MEDIUM_AND_ABOVE">Medium & above</option>
+                                                <option value="HIGH">High only</option>
+                                            </select>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
 
@@ -365,30 +560,359 @@ const PolicyGenerator: React.FC<{ projectId: string }> = ({ projectId }) => {
                     </div>
                 </div>
 
-                {/* Right: Code Preview */}
-                <div className="bg-black p-6 border-l border-gray-700 flex flex-col overflow-hidden">
-                    <div className="flex justify-between items-center mb-4">
-                        <h4 className="text-sm font-semibold text-gray-300">Generated Command</h4>
-                        <button 
-                            onClick={handleCopy}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-md transition-colors"
-                        >
-                            <CopyIcon />
-                            {copySuccess || 'Copy Command'}
-                        </button>
+                {/* Right: Code Preview Panel */}
+                <div className="bg-black p-6 border-l border-gray-700 flex flex-col justify-between overflow-y-auto max-h-[600px] custom-scrollbar">
+                    <div className="space-y-6">
+                        <div>
+                            <div className="flex justify-between items-center mb-3">
+                                <h4 className="text-sm font-semibold text-gray-300">1. Create Safety Template Command</h4>
+                                <button 
+                                    onClick={handleCopy}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-md transition-colors"
+                                >
+                                    <CopyIcon />
+                                    {copySuccess || 'Copy Command'}
+                                </button>
+                            </div>
+                            <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-800 font-mono text-xs text-green-400 leading-relaxed whitespace-pre-wrap break-all">
+                                {generatedCommand}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-2">
+                                Run this command in your terminal to create the template. Once created, attach it to your Agent Engine or Chat App.
+                            </p>
+                        </div>
+
+                        {attachCommand && (
+                            <div className="pt-6 border-t border-gray-800">
+                                <div className="flex justify-between items-center mb-3">
+                                    <h4 className="text-sm font-semibold text-gray-300">2. Attach Policy to Selected App</h4>
+                                    <button 
+                                        onClick={handleCopyAttach}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-md transition-colors"
+                                    >
+                                        <CopyIcon />
+                                        {copyAttachSuccess || 'Copy Attach Command'}
+                                    </button>
+                                </div>
+                                <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-800 font-mono text-xs text-green-400 leading-relaxed whitespace-pre-wrap break-all">
+                                    {attachCommand}
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">
+                                    Run this command in your terminal to associate the template with your app's assistant config.
+                                </p>
+                            </div>
+                        )}
                     </div>
-                    <div className="flex-1 overflow-y-auto bg-gray-900/50 p-4 rounded-lg border border-gray-800 font-mono text-xs text-green-400 leading-relaxed whitespace-pre-wrap break-all">
-                        {generatedCommand}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-4">
-                        Run this command in your terminal to create the template. Once created, attach it to your Agent Engine or Chat App.
-                    </p>
                 </div>
             </div>
         </div>
     );
 };
 
+
+const getTemplateFilters = (template: any) => {
+    const fc = template.filterConfig || {};
+    const raiFilters = fc.raiSettings?.raiFilters || [];
+    const activeRai = raiFilters.map((f: any) => ({
+        type: f.filterType,
+        level: f.confidenceLevel
+    }));
+    const sdpActive = fc.sdpSettings?.basicConfig?.filterEnforcement === "ENABLED";
+    const jailbreakActive = fc.piAndJailbreakFilterSettings?.filterEnforcement === "ENABLED";
+    const maliciousUrisActive = fc.maliciousUriFilterSettings?.filterEnforcement === "ENABLED";
+
+    return {
+        rai: activeRai,
+        sdp: sdpActive,
+        jailbreak: jailbreakActive,
+        maliciousUris: maliciousUrisActive
+    };
+};
+
+const formatConfidenceLevel = (level: string) => {
+    if (level === "LOW_AND_ABOVE") return "Low+";
+    if (level === "MEDIUM_AND_ABOVE") return "Med+";
+    if (level === "HIGH") return "High";
+    return level;
+};
+
+interface ActivePoliciesViewerProps {
+    templates: any[];
+    associations: Record<string, string[]>;
+    isLoading: boolean;
+    error: string | null;
+    onRefresh: () => void;
+    onClone: (template: any) => void;
+}
+
+const ActivePoliciesViewer: React.FC<ActivePoliciesViewerProps> = ({ templates, associations, isLoading, error, onRefresh, onClone }) => {
+    return (
+        <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-md p-6 space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-700 pb-3">
+                <div>
+                    <h3 className="text-lg font-bold text-white">Active Protection Policies</h3>
+                    <p className="text-sm text-gray-400 mt-0.5">Existing Model Armor templates registered in the project.</p>
+                </div>
+                <button
+                    onClick={onRefresh}
+                    disabled={isLoading}
+                    className="px-3.5 py-1.5 bg-gray-700 hover:bg-gray-650 text-gray-200 text-xs font-semibold rounded border border-gray-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                    {isLoading && <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />}
+                    Refresh List
+                </button>
+            </div>
+
+            {error && <div className="text-sm text-red-400 p-3 bg-red-950/20 rounded border border-red-900/50">{error}</div>}
+
+            {isLoading && templates.length === 0 ? (
+                <div className="flex items-center justify-center p-12"><Spinner /></div>
+            ) : templates.length === 0 ? (
+                <div className="text-center p-8 text-gray-500 bg-gray-900/30 rounded border border-gray-800">
+                    No active Model Armor templates found in this project.
+                </div>
+            ) : (
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="border-b border-gray-800 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                                <th className="pb-3 pl-3">Template ID</th>
+                                <th className="pb-3">Security Features</th>
+                                <th className="pb-3">RAI Filters</th>
+                                <th className="pb-3">Associated Apps</th>
+                                <th className="pb-3 pr-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-800 text-sm text-gray-300">
+                            {templates.map((temp) => {
+                                const templateId = temp.name.split("/").pop();
+                                const location = temp.name.split("/")[3];
+                                const filters = getTemplateFilters(temp);
+                                const apps = associations[temp.name] || [];
+                                
+                                return (
+                                    <tr key={temp.name} className="hover:bg-gray-800/20 transition-colors">
+                                        <td className="py-4 pl-3 max-w-[200px] truncate">
+                                            <div className="font-mono font-semibold text-white truncate" title={templateId}>{templateId}</div>
+                                            <div className="text-xs text-gray-500 font-mono mt-0.5">{location}</div>
+                                        </td>
+                                        <td className="py-4">
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {filters.jailbreak && (
+                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-900/60 text-blue-200 border border-blue-800/60">
+                                                        Jailbreak Defense
+                                                    </span>
+                                                )}
+                                                {filters.maliciousUris && (
+                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-900/60 text-purple-200 border border-purple-800/60">
+                                                        Malicious URI
+                                                    </span>
+                                                )}
+                                                {filters.sdp && (
+                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-900/60 text-teal-200 border border-teal-800/60">
+                                                        PII Redaction
+                                                    </span>
+                                                )}
+                                                {!filters.jailbreak && !filters.maliciousUris && !filters.sdp && (
+                                                    <span className="text-xs text-gray-500 italic">None</span>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="py-4">
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {filters.rai.length > 0 ? (
+                                                    filters.rai.map((r: { type: string, level: string }) => (
+                                                        <span key={r.type} className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-900/60 text-green-200 border border-green-800/60 flex items-center gap-1.5">
+                                                            <span className="capitalize">{r.type.toLowerCase().replace("_", " ")}</span>
+                                                            <span className="text-green-300 font-mono text-[9px] bg-black/40 px-1 rounded border border-green-800/40">
+                                                                {formatConfidenceLevel(r.level)}
+                                                            </span>
+                                                        </span>
+                                                    ))
+                                                ) : (
+                                                    <span className="text-xs text-gray-500 italic">None</span>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="py-4">
+                                            {apps.length > 0 ? (
+                                                <div className="space-y-1">
+                                                    {apps.map((app: string) => (
+                                                        <span key={app} className="block text-xs bg-gray-900/60 px-2 py-1 rounded text-gray-300 border border-gray-800">
+                                                            {app}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <span className="px-2.5 py-0.5 rounded text-[10px] font-semibold bg-gray-700/60 text-gray-400 border border-gray-650">
+                                                    Unused
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="py-4 pr-3 text-right">
+                                            <button
+                                                onClick={() => onClone(temp)}
+                                                className="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 text-xs font-semibold rounded text-white border border-gray-650 flex items-center justify-center gap-1 ml-auto transition-colors"
+                                                title="Clone this template to another location or project"
+                                            >
+                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                                                </svg>
+                                                Clone
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- Clone Template Modal ---
+
+interface CloneTemplateModalProps {
+    template: any;
+    currentProjectId: string;
+    onClose: () => void;
+    onSuccess: () => void;
+}
+
+const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({ template, currentProjectId, onClose, onSuccess }) => {
+    const sourceTemplateId = template.name.split("/").pop();
+    const sourceLocation = template.name.split("/")[3];
+
+    const [targetProjectId, setTargetProjectId] = useState(currentProjectId);
+    const [targetLocation, setTargetLocation] = useState(sourceLocation);
+    const [targetTemplateId, setTargetTemplateId] = useState(`${sourceTemplateId}-clone`);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!targetProjectId.trim() || !targetTemplateId.trim()) {
+            setError("Project ID and New Template ID are required.");
+            return;
+        }
+        
+        setIsSubmitting(true);
+        setError(null);
+
+        try {
+            const payload = {
+                filterConfig: template.filterConfig,
+                templateMetadata: template.templateMetadata
+            };
+            
+            await api.createModelArmorTemplate(
+                targetProjectId.trim(),
+                targetLocation,
+                targetTemplateId.trim(),
+                payload
+            );
+            
+            onSuccess();
+        } catch (err: any) {
+            setError(err.message || "Failed to clone template.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-gray-800 border border-gray-700 rounded-xl max-w-md w-full shadow-2xl overflow-hidden animate-fade-in-up">
+                <div className="p-6 border-b border-gray-700 flex justify-between items-center bg-gray-800/80">
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                        <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                        </svg>
+                        Clone Protection Policy
+                    </h3>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                    {error && (
+                        <div className="p-3 bg-red-950/20 rounded border border-red-900/50 text-red-400 text-sm">
+                            {error}
+                        </div>
+                    )}
+
+                    <div className="p-3.5 bg-gray-900/40 border border-gray-700/60 rounded-lg space-y-1.5 text-xs">
+                        <div className="text-gray-500 font-semibold uppercase tracking-wider">Source Template</div>
+                        <div className="text-gray-300 font-mono"><span className="text-gray-400">ID:</span> {sourceTemplateId}</div>
+                        <div className="text-gray-300 font-mono"><span className="text-gray-400">Location:</span> {sourceLocation}</div>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-400 mb-1.5">Target GCP Project ID</label>
+                        <input 
+                            type="text" 
+                            value={targetProjectId} 
+                            onChange={(e) => setTargetProjectId(e.target.value)}
+                            placeholder="GCP Project ID or Project Number"
+                            className="w-full bg-gray-900 border border-gray-650 rounded px-3 py-2 text-white text-sm focus:ring-blue-500"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Target Location</label>
+                            <select
+                                value={targetLocation}
+                                onChange={(e) => setTargetLocation(e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-650 rounded px-3 py-2 text-white text-sm focus:ring-blue-500"
+                            >
+                                <option value="global">global</option>
+                                <option value="us">us</option>
+                                <option value="eu">eu</option>
+                                <option value="us-central1">us-central1</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-400 mb-1.5">New Template ID</label>
+                            <input 
+                                type="text" 
+                                value={targetTemplateId} 
+                                onChange={(e) => setTargetTemplateId(e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-650 rounded px-3 py-2 text-white text-sm focus:ring-blue-500 font-mono"
+                            />
+                        </div>
+                        <div className="col-span-2">
+                            <p className="text-[10px] text-gray-500 italic mt-0.5 leading-relaxed">
+                                Note: Location availability depends on the target project's Google Cloud Organization Resource Location Policies (e.g. some projects restrict template writes to the "global" location).
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-gray-700 flex justify-end gap-3">
+                        <button 
+                            type="button" 
+                            onClick={onClose}
+                            className="px-4 py-2 bg-gray-700 hover:bg-gray-650 text-gray-200 text-sm font-semibold rounded"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            type="submit" 
+                            disabled={isSubmitting}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded flex items-center justify-center gap-1.5 disabled:opacity-50"
+                        >
+                            {isSubmitting && <div className="w-3.5 h-3.5 border-2 border-white/50 border-t-white rounded-full animate-spin" />}
+                            Clone Template
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
 
 // --- Main Page Component ---
 
@@ -401,14 +925,96 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
   const [daysFilter, setDaysFilter] = useState(7);
   const [activeTab, setActiveTab] = useState<'logs' | 'policies'>('logs');
 
+  // Policies and Associations state
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [associations, setAssociations] = useState<Record<string, string[]>>({});
+  const [enginesList, setEnginesList] = useState<any[]>([]);
+  const [isPoliciesLoading, setIsPoliciesLoading] = useState(false);
+  const [policiesError, setPoliciesError] = useState<string | null>(null);
+  const [cloningTemplate, setCloningTemplate] = useState<any | null>(null);
+
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
-      // Dummy values, not used for logging API but required by type
       appLocation: 'global',
       collectionId: '',
       appId: '',
       assistantId: '',
   }), [projectNumber]);
+
+  const fetchPoliciesAndAssociations = useCallback(async () => {
+    if (!projectNumber) return;
+    setIsPoliciesLoading(true);
+    setPoliciesError(null);
+    try {
+      // 1. Fetch templates
+      const templatesRes = await api.fetchModelArmorTemplates(apiConfig);
+      const fetchedTemplates = templatesRes.templates || [];
+      setTemplates(fetchedTemplates);
+
+      // 2. Fetch engines across all discovery locations
+      const newAssociations: Record<string, string[]> = {};
+      const allFetchedEngines: any[] = [];
+
+      for (const loc of ["global", "us", "eu"]) {
+        try {
+          const locConfig = { ...apiConfig, appLocation: loc };
+          const enginesRes = await api.listResources("engines", { ...locConfig, appId: "" });
+          const engines = enginesRes.engines || [];
+          
+          for (const engine of engines) {
+            allFetchedEngines.push({ ...engine, location: loc });
+            const engineId = engine.name.split("/").pop();
+            if (!engineId) continue;
+            
+            try {
+              const assistantsRes = await api.listResources("assistants", { ...locConfig, appId: engineId });
+              const assistants = assistantsRes.assistants || [];
+              
+              for (const assistant of assistants) {
+                const assistantId = assistant.name.split("/").pop();
+                const config = assistant.customerPolicy?.modelArmorConfig;
+                if (config) {
+                  const userPrompt = config.userPromptTemplate;
+                  const responseTemp = config.responseTemplate;
+                  
+                  const appLabel = `${engine.displayName || engineId} (${loc.toUpperCase()} / Assistant: ${assistantId})`;
+                  
+                  if (userPrompt) {
+                    newAssociations[userPrompt] = newAssociations[userPrompt] || [];
+                    if (!newAssociations[userPrompt].includes(appLabel)) {
+                      newAssociations[userPrompt].push(appLabel);
+                    }
+                  }
+                  if (responseTemp) {
+                    newAssociations[responseTemp] = newAssociations[responseTemp] || [];
+                    if (!newAssociations[responseTemp].includes(appLabel)) {
+                      newAssociations[responseTemp].push(appLabel);
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn(`Failed to fetch assistants for engine ${engineId} in ${loc}`, err);
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch engines in location ${loc}`, err);
+        }
+      }
+      setEnginesList(allFetchedEngines);
+      setAssociations(newAssociations);
+    } catch (err: any) {
+      setPoliciesError(err.message || "Failed to fetch policies and associations.");
+    } finally {
+      setIsPoliciesLoading(false);
+    }
+  }, [apiConfig, projectNumber]);
+
+  useEffect(() => {
+    if (activeTab === 'policies' && projectNumber) {
+      fetchPoliciesAndAssociations();
+    }
+  }, [activeTab, projectNumber, fetchPoliciesAndAssociations]);
   
   const handleFetchLogs = useCallback(async () => {
     if (!projectNumber) {
@@ -601,8 +1207,30 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
             {activeTab === 'logs' && renderContent()}
             
             {activeTab === 'policies' && (
-                <div className="animate-fade-in-up">
-                    <PolicyGenerator projectId={projectNumber || '[YOUR_PROJECT_ID]'} />
+                <div className="space-y-6 animate-fade-in-up">
+                    <ActivePoliciesViewer
+                        templates={templates}
+                        associations={associations}
+                        isLoading={isPoliciesLoading}
+                        error={policiesError}
+                        onRefresh={fetchPoliciesAndAssociations}
+                        onClone={setCloningTemplate}
+                    />
+                    <PolicyGenerator 
+                        projectId={projectNumber || '[YOUR_PROJECT_ID]'} 
+                        engines={enginesList}
+                    />
+                    {cloningTemplate && (
+                        <CloneTemplateModal
+                            template={cloningTemplate}
+                            currentProjectId={projectNumber || ''}
+                            onClose={() => setCloningTemplate(null)}
+                            onSuccess={() => {
+                                setCloningTemplate(null);
+                                fetchPoliciesAndAssociations();
+                            }}
+                        />
+                    )}
                 </div>
             )}
         </div>

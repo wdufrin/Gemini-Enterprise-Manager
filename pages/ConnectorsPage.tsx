@@ -21,6 +21,8 @@ import ProjectInput from "../components/ProjectInput";
 import Spinner from "../components/Spinner";
 import ConnectorDetailsModal from "../components/ConnectorDetailsModal";
 import CloudConsoleButton from "../components/CloudConsoleButton";
+import DuplicateConnectorModal from "../components/connectors/DuplicateConnectorModal";
+import ConfirmationModal from "../components/ConfirmationModal";
 
 interface ConnectorsPageProps {
   projectNumber: string;
@@ -61,6 +63,18 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
   const [editName, setEditName] = useState("");
   const [isSavingName, setIsSavingName] = useState(false);
 
+  // Duplicate states
+  const [duplicatingCollection, setDuplicatingCollection] = useState<Collection | null>(null);
+  const [duplicatingConnectorState, setDuplicatingConnectorState] = useState<any>(null);
+
+  // Delete states
+  const [deletingCollection, setDeletingCollection] = useState<Collection | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Associations mapping states
+  const [engines, setEngines] = useState<any[]>([]);
+  const [dataStores, setDataStores] = useState<any[]>([]);
+
   useEffect(() => {
     setConfig((prev) => ({ ...prev, projectId: projectNumber }));
   }, [projectNumber]);
@@ -71,14 +85,29 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
     setError(null);
     setCollections([]);
     setValidationResults({});
+    setEngines([]);
+    setDataStores([]);
 
     try {
       const response = await api.listResources("collections", config);
       const cols = response.collections || [];
-
-      // If no collections, we can still show 'default_collection' if the user wants to check it
-      // But usually list collections is accurate.
       setCollections(cols);
+
+      // Fetch engines for associations mapping
+      try {
+        const enginesRes = await api.listResources("engines", { ...config, appId: "" });
+        setEngines(enginesRes.engines || []);
+      } catch (e) {
+        console.error("Failed to fetch engines for associations:", e);
+      }
+
+      // Fetch data stores for associations mapping
+      try {
+        const dataStoresRes = await api.listResources("dataStores", { ...config, collectionId: "default_collection" });
+        setDataStores(dataStoresRes.dataStores || []);
+      } catch (e) {
+        console.error("Failed to fetch data stores for associations:", e);
+      }
     } catch (err: any) {
       console.error("Failed to fetch collections:", err);
       setError(err.message || "Failed to fetch collections.");
@@ -121,6 +150,32 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
       setIsSavingName(false);
       setEditingId(null);
     }
+  };
+
+  const getAssociatedApps = (collectionName: string) => {
+    const collectionId = collectionName.split("/").pop() || "";
+    if (collectionId === "default_collection") {
+      return ["Default Search"];
+    }
+
+    const matchingDsIds = dataStores
+      .map((ds) => ds.name.split("/").pop() || "")
+      .filter(
+        (dsId) =>
+          dsId.startsWith(collectionId) || dsId.includes(collectionId),
+      );
+
+    if (matchingDsIds.length === 0) return [];
+
+    const associatedEngines = engines.filter((engine) =>
+      engine.dataStoreIds?.some((dsId: string) =>
+        matchingDsIds.includes(dsId),
+      ),
+    );
+
+    return associatedEngines.map(
+      (e) => e.displayName || e.name.split("/").pop() || "",
+    );
   };
 
   const [isBulkScanning, setIsBulkScanning] = useState(false);
@@ -411,6 +466,93 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
     }
   };
 
+  const handleDuplicateConnector = async (collection: Collection) => {
+    const collectionId =
+      collection.name.split("/").pop() || "default_collection";
+    const collectionConfig = { ...config, collectionId: collectionId };
+    setIsLoading(true);
+    setError(null);
+    try {
+      const connector = await api.getDataConnector(collectionConfig);
+      const dataSource = connector.dataSource?.toLowerCase();
+      const ALLOWED_DUPLICATE_SOURCES = [
+        "jira",
+        "confluence",
+        "sharepoint",
+        "onedrive",
+        "ms-onedrive",
+        "teams",
+        "ms-teams",
+        "outlook",
+        "ms-outlook",
+      ];
+
+      if (!ALLOWED_DUPLICATE_SOURCES.includes(dataSource)) {
+        setError(
+          `Duplication is currently only supported and validated for Jira, Confluence, and Office 365 (SharePoint, OneDrive, Teams, Outlook) connectors. Duplication of '${connector.dataSource}' is restricted.`
+        );
+        return;
+      }
+
+      if (connector.connectorType !== "THIRD_PARTY_FEDERATED") {
+        setError(
+          `Duplication is currently only supported and validated for Federated connectors. Duplication of ingested connector '${collectionId}' (${connector.connectorType || "THIRD_PARTY"}) is restricted.`
+        );
+        return;
+      }
+
+      setDuplicatingConnectorState(connector);
+      setDuplicatingCollection(collection);
+    } catch (err: any) {
+      console.error("Failed to load connector config for duplication:", err);
+      setError(
+        err.message || "Failed to load connector configuration for duplication."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const pollOperation = async (operation: any) => {
+    let currentOperation = operation;
+    if (!currentOperation || typeof currentOperation !== "object") return;
+    while (!currentOperation.done) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      currentOperation = await api.getDiscoveryOperation(
+        currentOperation.name,
+        config
+      );
+    }
+    if (currentOperation.error) {
+      throw new Error(currentOperation.error.message || "Operation failed.");
+    }
+    return currentOperation.response;
+  };
+
+  const handleRequestDelete = (collection: Collection) => {
+    setDeletingCollection(collection);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingCollection) return;
+    setIsDeleting(true);
+    setError(null);
+    try {
+      const operation: any = await api.deleteResource(
+        deletingCollection.name,
+        config
+      );
+      await pollOperation(operation);
+      setDeletingCollection(null);
+      fetchCollections();
+    } catch (err: any) {
+      console.error("Failed to delete collection:", err);
+      setError(err.message || "Failed to delete collection.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleBulkDiagnostics = async () => {
     setIsBulkScanning(true);
     // We use Promise.all to run them concurrently.
@@ -556,6 +698,12 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
                   </th>
                   <th
                     scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider"
+                  >
+                    Associated App
+                  </th>
+                  <th
+                    scope="col"
                     className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider"
                   >
                     Action
@@ -686,6 +834,30 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
                           </span>
                         )}
                       </td>
+                      <td className="px-6 py-4 whitespace-normal text-sm">
+                        {(() => {
+                          const apps = getAssociatedApps(collection.name);
+                          if (apps.length === 0) {
+                            return (
+                              <span className="text-gray-500 text-xs italic">
+                                None
+                              </span>
+                            );
+                          }
+                          return (
+                            <div className="flex flex-wrap gap-1.5">
+                              {apps.map((app, i) => (
+                                <span
+                                  key={i}
+                                  className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-900/60 text-indigo-300 border border-indigo-700/50"
+                                >
+                                  {app}
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button
                           onClick={() => checkDataConnector(collection)}
@@ -699,6 +871,16 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
                         >
                           Details
                         </button>
+                        {collectionId !== "default_collection" && (
+                          <>
+                            <button
+                              onClick={() => handleRequestDelete(collection)}
+                              className="text-red-400 hover:text-red-300 font-semibold text-xs border border-red-500/30 px-3 py-1.5 rounded hover:bg-red-500/10 transition-colors ml-2"
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   );
@@ -720,6 +902,31 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
         config={config}
         onRefreshSuccess={fetchCollections}
       />
+
+
+      {deletingCollection && (
+        <ConfirmationModal
+          isOpen={!!deletingCollection}
+          onClose={() => setDeletingCollection(null)}
+          onConfirm={handleConfirmDelete}
+          title="Delete Connector"
+          confirmText="Delete"
+          isConfirming={isDeleting}
+        >
+          <p>
+            Are you sure you want to delete the connector{" "}
+            <strong className="text-white">
+              {deletingCollection?.displayName ||
+                deletingCollection?.name.split("/").pop()}
+            </strong>
+            ?
+          </p>
+          <p className="mt-2 text-red-400 text-xs">
+            This will permanently delete the collection, data connector, and
+            all of its associated data stores. This action is irreversible.
+          </p>
+        </ConfirmationModal>
+      )}
     </div>
   );
 };

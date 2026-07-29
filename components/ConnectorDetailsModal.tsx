@@ -476,12 +476,23 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                       </button>
                     </div>
                   )}
-                  {connectorState?.dataSource && ['jira', 'confluence', 'sharepoint', 'onedrive', 'ms-onedrive', 'outlook', 'ms-outlook', 'entraid', 'entra'].includes(connectorState.dataSource) && (
+                  {connectorState?.dataSource && [
+                    'jira', 'confluence', 'sharepoint', 'onedrive', 'ms-onedrive', 'outlook', 'ms-outlook', 
+                    'teams', 'ms-teams', 'entraid', 'entra', 'azure_active_directory', 'salesforce', 
+                    'servicenow', 'slack', 'box', 'dropbox', 'notion', 'zendesk', 'github', 'gitlab', 
+                    'hubspot', 'linear', 'monday', 'shopify', 'asana', 'smartsheet', 'trello', 'workday'
+                  ].includes(connectorState.dataSource.toLowerCase()) && (
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          alert(`To get a refresh token for Jira:
+                          const isAtlassianHelp = ['jira', 'confluence'].includes(connectorState.dataSource.toLowerCase());
+                          alert(isAtlassianHelp ? `To get a refresh token for Atlassian:
 1. Enable 'offline_access' scope in Atlassian Developer Console.
+2. Visit the authorization URL to get a code.
+3. Exchange the code for tokens via curl.
+
+See docs/Connectors_Auth_Guide.md in your workspace for full instructions.` : `To get a refresh token for Microsoft/SaaS connectors:
+1. Ensure the 'offline_access' scope is included in authorization.
 2. Visit the authorization URL to get a code.
 3. Exchange the code for tokens via curl.
 
@@ -502,27 +513,58 @@ See docs/Connectors_Auth_Guide.md in your workspace for full instructions.`);
                             return rest;
                           }) || [];
 
+                          const isMicrosoft = ['sharepoint', 'onedrive', 'ms-onedrive', 'outlook', 'ms-outlook', 'teams', 'ms-teams', 'entraid', 'entra', 'azure_active_directory'].includes(connectorState.dataSource.toLowerCase());
+                          const isAtlassian = ['jira', 'confluence'].includes(connectorState.dataSource.toLowerCase());
+
+                          const cleanParams = { ...connectorState.params };
+                          delete cleanParams.static_ip_enabled;
+                          delete cleanParams.staticIpEnabled;
+
+                          if (cleanParams.client_id !== undefined) {
+                            cleanParams.client_id = "[YOUR_CLIENT_ID]";
+                            cleanParams.client_secret = "[YOUR_CLIENT_SECRET]";
+                          }
+                          if (cleanParams.refresh_token !== undefined) {
+                            cleanParams.refresh_token = "[YOUR_REFRESH_TOKEN]";
+                          }
+                          if (cleanParams.instance_id !== undefined) {
+                            cleanParams.instance_id = isMicrosoft ? "[YOUR_TENANT_ID]" : "[YOUR_INSTANCE_ID]";
+                          }
+                          if (cleanParams.tenant_id !== undefined) {
+                            cleanParams.tenant_id = "[YOUR_TENANT_ID]";
+                          }
+
+                          let cleanActionParams = undefined;
+                          if (connectorState.actionConfig?.actionParams) {
+                            cleanActionParams = { ...connectorState.actionConfig.actionParams };
+                            if (cleanActionParams.client_id !== undefined) {
+                              cleanActionParams.client_id = "[YOUR_CLIENT_ID]";
+                              cleanActionParams.client_secret = "[YOUR_CLIENT_SECRET]";
+                            }
+                            if (cleanActionParams.tenant_id !== undefined) {
+                              cleanActionParams.tenant_id = "[YOUR_TENANT_ID]";
+                            }
+                            if (cleanActionParams.azure_tenant !== undefined) {
+                              cleanActionParams.azure_tenant = "[YOUR_TENANT_ID]";
+                            }
+                            if (cleanActionParams.instance_id !== undefined) {
+                              cleanActionParams.instance_id = isMicrosoft ? "[YOUR_TENANT_ID]" : "[YOUR_INSTANCE_ID]";
+                            }
+                          }
+
                           const dataConnectorTemplate = {
                             dataSource: connectorState.dataSource,
-                            params: {
-                              ...connectorState.params,
-                              client_id: "[YOUR_CLIENT_ID]",
-                              client_secret: "[YOUR_CLIENT_SECRET]",
-                              refresh_token: (connectorState.dataSource === 'sharepoint' || connectorState.dataSource === 'jira') ? "[YOUR_REFRESH_TOKEN]" : undefined
-                            },
+                            staticIpEnabled: connectorState.staticIpEnabled !== undefined 
+                              ? connectorState.staticIpEnabled 
+                              : (connectorState.params?.static_ip_enabled !== undefined ? connectorState.params.static_ip_enabled : undefined),
+                            params: cleanParams,
                             entities: cleanEntities,
                             refreshInterval: connectorState.refreshInterval,
                             connectorType: connectorState.connectorType,
                             connectorModes: connectorState.connectorModes,
                             actionConfig: connectorState.actionConfig ? {
                               ...connectorState.actionConfig,
-                              actionParams: {
-                                ...connectorState.actionConfig.actionParams,
-                                client_id: "[YOUR_CLIENT_ID]",
-                                client_secret: "[YOUR_CLIENT_SECRET]",
-                                tenant_id: connectorState.dataSource === 'sharepoint' ? "[YOUR_TENANT_ID]" : undefined,
-                                instance_id: connectorState.dataSource === 'jira' ? "[YOUR_INSTANCE_ID]" : undefined
-                              }
+                              actionParams: cleanActionParams
                             } : undefined,
                             bapConfig: connectorState.bapConfig,
                             destinationConfigs: connectorState.destinationConfigs

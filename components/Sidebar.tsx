@@ -24,6 +24,8 @@ interface SidebarProps {
   currentPage: Page;
   setCurrentPage: (page: Page) => void;
   onShowInfo: (infoKey: string) => void;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 const NavItem: React.FC<{
@@ -32,8 +34,31 @@ const NavItem: React.FC<{
   setCurrentPage: (page: Page) => void;
   icon: React.ReactElement;
   onShowInfo: (infoKey: string) => void;
-}> = ({ page, currentPage, setCurrentPage, icon, onShowInfo }) => {
+  isCollapsed: boolean;
+}> = ({ page, currentPage, setCurrentPage, icon, onShowInfo, isCollapsed }) => {
   const isCurrent = currentPage === page;
+
+  if (isCollapsed) {
+    return (
+      <div className="flex justify-center w-full mb-1.5 px-2 relative group">
+        <button
+          onClick={() => setCurrentPage(page)}
+          className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors duration-200 focus:outline-none ${
+            isCurrent
+              ? 'bg-blue-600 text-white shadow-md'
+              : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+          }`}
+          title={page}
+        >
+          <span className="w-5 h-5 flex-shrink-0">{icon}</span>
+        </button>
+        {/* Hover Tooltip */}
+        <div className="absolute left-full ml-3 px-2 py-1 bg-gray-850 text-xs text-gray-200 rounded border border-gray-700 shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 z-50 whitespace-nowrap">
+          {page}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center w-full group mb-1">
@@ -68,7 +93,7 @@ const NavItem: React.FC<{
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowInfo }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowInfo, isCollapsed, onToggleCollapse }) => {
   const { showCurlPreview, setShowCurlPreview, apiHistory, clearHistory } = useGlobalDebug();
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<ApiHistoryItem | null>(null);
   const [filterGet, setFilterGet] = useState(false);
@@ -125,25 +150,29 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
   ];
 
   return (
-    <aside className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col h-screen overflow-hidden">
+    <aside className={`${isCollapsed ? 'w-16' : 'w-64'} bg-gray-900 border-r border-gray-800 flex flex-col h-screen overflow-hidden transition-all duration-300 ease-in-out shrink-0`}>
       {/* Header */}
-      <div className="flex items-center p-4 bg-gray-900 border-b border-gray-800 shrink-0 h-16">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'p-4'} bg-gray-900 border-b border-gray-800 shrink-0 h-16 transition-all duration-300`}>
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
         </svg>
-        <div className="flex flex-col ml-3 justify-center">
+        {!isCollapsed && (
+          <div className="flex flex-col ml-3 justify-center animate-fadeIn">
             <span className="text-lg font-bold text-gray-100 tracking-tight leading-none">Gemini Enterprise</span>
-            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0721.299</span>
-        </div>
+            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0729.300</span>
+          </div>
+        )}
       </div>
       
       {/* Scrollable Navigation */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-6">
         {navCategories.map((group, index) => (
           <div key={index} className="space-y-1">
-            <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              {group.title}
-            </h3>
+            {!isCollapsed && (
+              <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 animate-fadeIn">
+                {group.title}
+              </h3>
+            )}
             <div className="space-y-0.5">
               {group.items.map(item => (
                 <NavItem
@@ -153,95 +182,118 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
                   setCurrentPage={setCurrentPage}
                   icon={item.icon}
                   onShowInfo={onShowInfo}
+                  isCollapsed={isCollapsed}
                 />
               ))}
             </div>
           </div>
         ))}
 
-        {/* Debug Settings Section */}
-        <div className="pt-4 border-t border-gray-800 mt-4">
-          <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-            Settings & Debug
-          </h3>
-          <div className="px-3">
-            <label className="flex items-center space-x-3 cursor-pointer group">
-              <div className="relative">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={showCurlPreview}
-                  onChange={(e) => setShowCurlPreview(e.target.checked)}
-                />
-                <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-              </div>
-              <span className="text-sm font-medium text-gray-400 group-hover:text-gray-300">
-                Show Interaction Details
-              </span>
-            </label>
-            <p className="text-[10px] text-gray-600 mt-1 ml-1 mb-2">
-              Intercepts save actions to show cURL commands.
-            </p>
-          </div>
+        {/* Debug Settings Section (Only shown when expanded) */}
+        {!isCollapsed && (
+          <div className="pt-4 border-t border-gray-800 mt-4 animate-fadeIn">
+            <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+              Settings & Debug
+            </h3>
+            <div className="px-3">
+              <label className="flex items-center space-x-3 cursor-pointer group">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={showCurlPreview}
+                    onChange={(e) => setShowCurlPreview(e.target.checked)}
+                  />
+                  <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                </div>
+                <span className="text-sm font-medium text-gray-400 group-hover:text-gray-300">
+                  Show Interaction Details
+                </span>
+              </label>
+              <p className="text-[10px] text-gray-600 mt-1 ml-1 mb-2">
+                Intercepts save actions to show cURL commands.
+              </p>
+            </div>
 
-          {/* API History List */}
-          {showCurlPreview && apiHistory.length > 0 && (
-            <div className="mt-4 px-3">
-              <div className="flex justify-between items-center mb-2">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    History ({filteredHistory.length})
-                  </h4>
+            {/* API History List */}
+            {showCurlPreview && apiHistory.length > 0 && (
+              <div className="mt-4 px-3">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      History ({filteredHistory.length})
+                    </h4>
+                    <button
+                      onClick={() => setFilterGet(!filterGet)}
+                      className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${filterGet
+                        ? 'bg-blue-900/50 text-blue-300 border-blue-800'
+                        : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
+                        }`}
+                      title="Toggle GET requests"
+                    >
+                      {filterGet ? 'No GET' : 'All'}
+                    </button>
+                  </div>
                   <button
-                    onClick={() => setFilterGet(!filterGet)}
-                    className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${filterGet
-                      ? 'bg-blue-900/50 text-blue-300 border-blue-800'
-                      : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
-                      }`}
-                    title="Toggle GET requests"
+                    onClick={clearHistory}
+                    className="text-[10px] text-red-400 hover:text-red-300 uppercase"
                   >
-                    {filterGet ? 'No GET' : 'All'}
+                    Clear
                   </button>
                 </div>
-                <button
-                  onClick={clearHistory}
-                  className="text-[10px] text-red-400 hover:text-red-300 uppercase"
-                >
-                  Clear
-                </button>
+                <div className="space-y-1 max-h-60 overflow-y-auto custom-scrollbar pr-1">
+                  {filteredHistory.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setSelectedHistoryItem(item)}
+                      className="w-full text-left p-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 transition-colors group"
+                    >
+                      <div className="flex justify-between items-start">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${item.method === 'GET' ? 'bg-blue-900 text-blue-200' :
+                          item.method === 'POST' ? 'bg-green-900 text-green-200' :
+                            item.method === 'PATCH' ? 'bg-yellow-900 text-yellow-200' :
+                              item.method === 'DELETE' ? 'bg-red-900 text-red-200' :
+                                'bg-gray-700 text-gray-300'
+                          }`}>
+                          {item.method}
+                        </span>
+                        <span className="text-[10px] text-gray-500">
+                          {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-300 truncate font-mono" title={item.url}>
+                        {item.url.split('/').pop()?.split('?')[0] || item.url}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="space-y-1 max-h-60 overflow-y-auto custom-scrollbar pr-1">
-                {filteredHistory.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setSelectedHistoryItem(item)}
-                    className="w-full text-left p-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 transition-colors group"
-                  >
-                    <div className="flex justify-between items-start">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${item.method === 'GET' ? 'bg-blue-900 text-blue-200' :
-                        item.method === 'POST' ? 'bg-green-900 text-green-200' :
-                          item.method === 'PATCH' ? 'bg-yellow-900 text-yellow-200' :
-                            item.method === 'DELETE' ? 'bg-red-900 text-red-200' :
-                              'bg-gray-700 text-gray-300'
-                        }`}>
-                        {item.method}
-                      </span>
-                      <span className="text-[10px] text-gray-500">
-                        {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </span>
-                    </div>
-                    <div className="mt-1 text-xs text-gray-300 truncate font-mono" title={item.url}>
-                      {item.url.split('/').pop()?.split('?')[0] || item.url}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         {/* Footer padding to ensure last items are clickable */}
         <div className="h-4"></div>
+      </div>
+
+      {/* Collapse/Expand Toggle Chevron Button at the bottom */}
+      <div className="p-3 border-t border-gray-800 shrink-0 bg-gray-900/40">
+        <button
+          onClick={onToggleCollapse}
+          className="w-full flex items-center justify-center py-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-800 hover:border-gray-700"
+          title={isCollapsed ? "Expand Navigation" : "Collapse Navigation"}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className={`h-5 w-5 transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+          </svg>
+          {!isCollapsed && <span className="ml-2 text-xs font-semibold select-none animate-fadeIn">Collapse Navigation</span>}
+        </button>
       </div>
 
       <CurlDetailsModal

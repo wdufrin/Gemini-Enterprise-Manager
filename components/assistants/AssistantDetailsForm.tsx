@@ -80,9 +80,43 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
     const [iamError, setIamError] = useState<string | null>(null);
     const [isIamDirty, setIsIamDirty] = useState(false);
 
+    // Model Armor state variables
+    const [templates, setTemplates] = useState<any[]>([]);
+    const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+    const [selectedInputTemplate, setSelectedInputTemplate] = useState('');
+    const [selectedOutputTemplate, setSelectedOutputTemplate] = useState('');
+    const [failureMode, setFailureMode] = useState('FAIL_OPEN');
+
+    useEffect(() => {
+        const loadTemplates = async () => {
+            if (!config.projectId) return;
+            setIsLoadingTemplates(true);
+            try {
+                const res = await api.fetchModelArmorTemplates({
+                    projectId: config.projectId,
+                    appLocation: 'global',
+                    collectionId: '',
+                    appId: '',
+                    assistantId: '',
+                });
+                setTemplates(res.templates || []);
+            } catch (err) {
+                console.warn("Failed to fetch Model Armor templates for assistant configuration", err);
+            } finally {
+                setIsLoadingTemplates(false);
+            }
+        };
+        loadTemplates();
+    }, [config.projectId]);
+
     useEffect(() => {
         const policyObj = assistant.customerPolicy ? { ...(assistant.customerPolicy as any) } : {};
+        const armorConfig = policyObj.modelArmorConfig || {};
         
+        setSelectedInputTemplate(armorConfig.userPromptTemplate || '');
+        setSelectedOutputTemplate(armorConfig.responseTemplate || '');
+        setFailureMode(armorConfig.failureMode || 'FAIL_OPEN');
+
         // Use sessionTtl from currentEngine if available, otherwise default to empty
         const retention = currentEngine?.sessionConfig?.sessionTtl?.days !== undefined 
             ? String(currentEngine.sessionConfig.sessionTtl.days) 
@@ -102,6 +136,63 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         });
         setAgentConfigs(assistant.vertexAiAgentConfigs ? JSON.parse(JSON.stringify(assistant.vertexAiAgentConfigs)) : []);
     }, [assistant, currentEngine]);
+
+    const updateArmorPolicy = (
+        inputVal: string,
+        outputVal: string,
+        failModeVal: string
+    ) => {
+        let currentPolicy: any = {};
+        try {
+            currentPolicy = JSON.parse(formData.customerPolicy || '{}');
+        } catch (e) {
+            // Keep empty if invalid
+        }
+        
+        if (inputVal || outputVal) {
+            currentPolicy.modelArmorConfig = currentPolicy.modelArmorConfig || {};
+            if (inputVal) {
+                currentPolicy.modelArmorConfig.userPromptTemplate = inputVal;
+            } else {
+                delete currentPolicy.modelArmorConfig.userPromptTemplate;
+            }
+            if (outputVal) {
+                currentPolicy.modelArmorConfig.responseTemplate = outputVal;
+            } else {
+                delete currentPolicy.modelArmorConfig.responseTemplate;
+            }
+            if (inputVal || outputVal) {
+                currentPolicy.modelArmorConfig.failureMode = failModeVal;
+            } else {
+                delete currentPolicy.modelArmorConfig.failureMode;
+            }
+        } else {
+            delete currentPolicy.modelArmorConfig;
+        }
+
+        setFormData(prev => ({
+            ...prev,
+            customerPolicy: JSON.stringify(currentPolicy, null, 2)
+        }));
+    };
+
+    const handleInputTemplateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const val = e.target.value;
+        setSelectedInputTemplate(val);
+        updateArmorPolicy(val, selectedOutputTemplate, failureMode);
+    };
+
+    const handleOutputTemplateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const val = e.target.value;
+        setSelectedOutputTemplate(val);
+        updateArmorPolicy(selectedInputTemplate, val, failureMode);
+    };
+
+    const handleFailureModeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const val = e.target.value;
+        setFailureMode(val);
+        updateArmorPolicy(selectedInputTemplate, selectedOutputTemplate, val);
+    };
 
     useEffect(() => {
         const fetchCurrentEngine = async () => {
@@ -537,12 +628,82 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                         className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" 
                     />
                 </div>
-                <div>
+                <div className="space-y-4 pt-2 border-t border-gray-700">
                     <label htmlFor="customerPolicy" className="flex items-center text-sm font-medium text-gray-300">
-                        Customer Policy (JSON Edit)
-                        <InfoTooltip text="JSON configuration for defining customer-specific policies." />
+                        Customer Policy & Model Armor Settings
+                        <InfoTooltip text="Configure Model Armor protection templates or edit the raw policy JSON configuration directly." />
                     </label>
-                    <textarea name="customerPolicy" value={formData.customerPolicy} onChange={handleChange} rows={5} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm font-mono text-xs" />
+
+                    <div className="bg-gray-800/40 p-4 rounded-lg border border-gray-700/60 space-y-4">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                            <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                            </svg>
+                            Model Armor Configuration
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Input Template (User Prompts)</label>
+                                <select 
+                                    value={selectedInputTemplate} 
+                                    onChange={handleInputTemplateChange}
+                                    className="w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-xs text-white py-2 focus:ring-blue-500 animate-fade-in"
+                                >
+                                    <option value="">-- No prompt filtering --</option>
+                                    {templates.map(t => {
+                                        const tId = t.name.split("/").pop();
+                                        const loc = t.name.split("/")[3];
+                                        return (
+                                            <option key={t.name} value={t.name}>{tId} ({loc})</option>
+                                        );
+                                    })}
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Output Template (Model Responses)</label>
+                                <select 
+                                    value={selectedOutputTemplate} 
+                                    onChange={handleOutputTemplateChange}
+                                    className="w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-xs text-white py-2 focus:ring-blue-500 animate-fade-in"
+                                >
+                                    <option value="">-- No response filtering --</option>
+                                    {templates.map(t => {
+                                        const tId = t.name.split("/").pop();
+                                        const loc = t.name.split("/")[3];
+                                        return (
+                                            <option key={t.name} value={t.name}>{tId} ({loc})</option>
+                                        );
+                                    })}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Failure Mode</label>
+                                <select 
+                                    value={failureMode} 
+                                    onChange={handleFailureModeChange}
+                                    disabled={!selectedInputTemplate && !selectedOutputTemplate}
+                                    className="w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-xs text-white py-2 focus:ring-blue-500 disabled:opacity-50"
+                                >
+                                    <option value="FAIL_OPEN">Fail Open (Continue Chat)</option>
+                                    <option value="FAIL_CLOSED">Fail Closed (Block Chat)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <span className="block text-xs font-semibold text-gray-400 mb-1.5">Customer Policy (JSON Editor)</span>
+                        <textarea 
+                            name="customerPolicy" 
+                            value={formData.customerPolicy} 
+                            onChange={handleChange} 
+                            rows={6} 
+                            className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm font-mono text-xs p-3" 
+                        />
+                    </div>
                 </div>
 
                 <CollapsibleSection title="Feature Management">

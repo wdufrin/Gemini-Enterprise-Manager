@@ -216,6 +216,7 @@ export const validateEnabledApis = async (
     "iam.googleapis.com",
     "serviceusage.googleapis.com",
     "dialogflow.googleapis.com",
+    "modelarmor.googleapis.com",
   ];
 
   const response = await gapiRequest<any>(
@@ -988,6 +989,17 @@ export const updateDataConnector = async (
   const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}?updateMask=${updateMask.join(",")}`;
   return gapiRequest<any>(url, "PATCH", config.projectId, undefined, payload);
 };
+
+export const setUpDataConnector = async (
+  payload: any,
+  config: Config,
+) => {
+  const { projectId, appLocation } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}:setUpDataConnector`;
+  return gapiRequest<any>(url, "POST", projectId, undefined, payload);
+};
+
 
 export const listDocuments = async (dataStoreName: string, config: Config) => {
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
@@ -2140,6 +2152,37 @@ export const fetchViolationLogs = async (
       orderBy: "timestamp desc",
       pageSize: 50,
     },
+  );
+};
+
+export const fetchModelArmorTemplates = async (
+  config: Omit<Config, 'accessToken'>
+): Promise<any> => {
+  const { projectId } = config;
+  const url = `https://modelarmor.googleapis.com/v1/projects/${projectId}/locations/-/templates`;
+  return gapiRequest<any>(
+    url,
+    "GET",
+    projectId
+  );
+};
+
+export const createModelArmorTemplate = async (
+  projectId: string,
+  location: string,
+  templateId: string,
+  payload: any
+): Promise<any> => {
+  const host = !location || location === 'global'
+    ? 'modelarmor.googleapis.com'
+    : `modelarmor.${location}.rep.googleapis.com`;
+  const url = `https://${host}/v1/projects/${projectId}/locations/${location}/templates?templateId=${templateId}`;
+  return gapiRequest<any>(
+    url,
+    "POST",
+    projectId,
+    undefined,
+    payload
   );
 };
 

@@ -75,6 +75,7 @@ const InnerApp: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>(Page.AGENTS);
   const [pageContext, setPageContext] = useState<any>(null);
     const [refreshKey, setRefreshKey] = useState(0);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   
   const [accessToken, setAccessToken] = useState<string>('');
   const [projectNumber, setProjectNumber] = useState<string>(() => sessionStorage.getItem('agentspace-projectNumber') || '');
@@ -1013,7 +1014,13 @@ const InnerApp: React.FC = () => {
   return (
     <>
       <div className="flex h-screen bg-gray-900 text-gray-100 font-sans">
-              <Sidebar currentPage={currentPage} setCurrentPage={handleMenuClick} onShowInfo={handleShowInfo} />
+              <Sidebar
+                currentPage={currentPage}
+                setCurrentPage={handleMenuClick}
+                onShowInfo={handleShowInfo}
+                isCollapsed={isSidebarCollapsed}
+                onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              />
         <main className="flex-1 flex flex-col overflow-hidden">
                   <header className="bg-gray-800 border-b border-gray-700 p-4 flex flex-col gap-4 md:flex-row md:justify-between md:items-center">
                       <div className="flex flex-col gap-1">
