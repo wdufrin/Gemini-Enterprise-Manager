@@ -85,7 +85,14 @@ To use "Sign in with Google", configure an OAuth Client ID:
 1.  Go to **APIs & Services > Credentials** in the Google Cloud Console.
 2.  Create an **OAuth client ID** (Web application).
 3.  Add the URL where this app is running to **Authorized JavaScript origins** (e.g., `http://localhost:3000` or `https://your-app.run.app`).
-4.  Copy the **Client ID** and update `GOOGLE_CLIENT_ID` in `src/App.tsx`.
+4.  Copy the **Client ID** and configure it using one of the options below.
+
+### Configuration Options
+You can configure the application's Google Client ID in several ways:
+*   **Docker Container Environment Variable (Recommended for Deployments):** Set the `GOOGLE_CLIENT_ID` environment variable in your container environment (e.g., on Cloud Run). The entrypoint script will write this value to `config.json` automatically on startup.
+*   **Static Config File:** Update `"GOOGLE_CLIENT_ID"` inside `public/config.json`.
+*   **Local Development Environment:** Copy `.env.example` to `.env` and set `VITE_GOOGLE_CLIENT_ID`.
+*   **UI Settings (Local Override):** Click the settings input field under Google Sign-In on the Welcome screen to paste your client ID directly. It is saved in your browser's `localStorage`.
 
 ### 2. Run Locally
 ```sh
@@ -102,13 +109,22 @@ gcloud run deploy gemini-manager \
   --source . \
   --project [YOUR_PROJECT_ID] \
   --region us-central1 \
-  --allow-unauthenticated
+  --allow-unauthenticated \
+  --set-env-vars GOOGLE_CLIENT_ID="your-client-id"
 ```
 
 **Using Docker:**
 1.  Build the image: `docker build -t gcr.io/[PROJECT_ID]/gemini-manager .`
 2.  Push: `docker push gcr.io/[PROJECT_ID]/gemini-manager`
-3.  Deploy: `gcloud run deploy gemini-manager --image gcr.io/[PROJECT_ID]/gemini-manager ...`
+3.  Deploy:
+    ```sh
+    gcloud run deploy gemini-manager \
+      --image gcr.io/[PROJECT_ID]/gemini-manager \
+      --project [YOUR_PROJECT_ID] \
+      --region us-central1 \
+      --allow-unauthenticated \
+      --set-env-vars GOOGLE_CLIENT_ID="your-client-id"
+    ```
 
 ## Usage Tips
 

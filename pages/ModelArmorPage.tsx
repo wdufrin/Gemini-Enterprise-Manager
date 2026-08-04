@@ -308,21 +308,19 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
         if (config.dangerousContent !== 'OFF') raiFilters.push({ "filterType": "DANGEROUS_CONTENT", "confidenceLevel": config.dangerousContent });
 
         return {
-            "template": {
-                "filterConfig": {
-                    "raiSettings": {
-                        "raiFilters": raiFilters
-                    },
-                    "sdpSettings": {
-                        "sdpFilters": filters
-                    },
-                    "piAndJailbreakFilterSettings": {
-                        "filterEnforcement": config.jailbreak ? "ENABLED" : "DISABLED",
-                        "confidenceLevel": "MEDIUM_AND_ABOVE"
-                    },
-                    "maliciousUriFilterSettings": {
-                        "filterEnforcement": config.maliciousUris ? "ENABLED" : "DISABLED"
-                    }
+            "filterConfig": {
+                "raiSettings": {
+                    "raiFilters": raiFilters
+                },
+                "sdpSettings": {
+                    "sdpFilters": filters
+                },
+                "piAndJailbreakFilterSettings": {
+                    "filterEnforcement": config.jailbreak ? "ENABLED" : "DISABLED",
+                    "confidenceLevel": "MEDIUM_AND_ABOVE"
+                },
+                "maliciousUriFilterSettings": {
+                    "filterEnforcement": config.maliciousUris ? "ENABLED" : "DISABLED"
                 }
             }
         };
