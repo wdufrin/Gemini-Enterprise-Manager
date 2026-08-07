@@ -2419,6 +2419,44 @@ class SyncAgentWrapper(BaseModel):
                 if txt:
                     yield Event(content=genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=txt)]))
 
+    async def streaming_agent_run_with_events(self, request_json: str):
+        """Streams responses asynchronously from the ADK application (AgentSpace/A2A entrypoint)."""
+        if self._lazy_agent is None:
+            self.set_up()
+
+        import json
+        req = json.loads(request_json)
+        msg_dict = req.get("message")
+        prompt = ""
+        if msg_dict:
+            parts = msg_dict.get("parts", [])
+            prompt = "".join([part.get("text", "") for part in parts if part.get("text")])
+
+        session_id = req.get("session_id") or req.get("sessionId") or "default_session"
+
+        async with self._lazy_agent as agent:
+            response = await agent.chat(prompt)
+            async for chunk in response:
+                txt = getattr(chunk, "text", "") or str(chunk)
+                if txt:
+                    event_dict = {
+                        "content": {
+                            "role": "model",
+                            "parts": [{"text": txt}]
+                        }
+                    }
+                    yield {
+                        "events": [event_dict],
+                        "artifacts": [],
+                        "session_id": session_id
+                    }
+
+    def register_operations(self) -> dict[str, list[str]]:
+        return {
+            "": ["query"],
+            "stream": ["stream_query", "streaming_agent_run_with_events"]
+        }
+
 # Define the agent factory
 def create_agent():
     # Resolve static auth headers if AUTH_ID environment variable is provided
@@ -2463,7 +2501,8 @@ def create_agent():
 
     # Safety Policies
     policies = []
-    ${config.enableCodeExecution ? `policies.append(policy.allow("run_command"))` : ""}
+    ${config.enableCodeExecution ? "" : 'policies.append(policy.deny("run_command"))'}
+    policies.append(policy.allow_all())
 
     model_name = os.getenv("MODEL", ${formatPythonString(modelName)})
     location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
@@ -3530,7 +3569,7 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
   const isV2 = config.adkVersion === "2.2";
   const defaultDeps = isV2
     ? [
-      "google-antigravity>=0.1.3",
+      "google-antigravity==0.1.3",
       "pydantic>=2.0.0",
       "python-dotenv",
       "nest_asyncio",
@@ -4538,7 +4577,19 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         .replace(/[^a-zA-Z0-9_-]/g, "");
       setAdkConfig((prev) => ({ ...prev, [name]: sanitizedValue }));
     } else {
-      setAdkConfig((prev) => ({ ...prev, [name]: value as any }));
+      setAdkConfig((prev) => {
+        const updates: any = { [name]: value };
+        if (name === "model" && (value.startsWith("gemini-3") || value.includes("3.5"))) {
+          updates.adkVersion = "2.2";
+        }
+        if (name === "adkVersion" && value === "1.35.1") {
+          if (prev.model?.startsWith("gemini-3") || prev.model?.includes("3.5")) {
+            updates.model = "gemini-2.5-flash";
+            updates.enableThinking = false;
+          }
+        }
+        return { ...prev, ...updates };
+      });
     }
   };
 
