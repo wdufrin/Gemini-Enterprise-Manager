@@ -460,7 +460,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
       });
     } else {
       buildSteps.push({
-        name: "python:3.10",
+        name: "python:3.11",
         entrypoint: "bash",
         args: [
           "-c",
@@ -667,7 +667,7 @@ if __name__ == "__main__":
           zip.file(
             "Dockerfile",
             `
-FROM python:3.10-slim
+FROM python:3.11-slim
 WORKDIR /app
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake && rm -rf /var/lib/apt/lists/*
@@ -900,7 +900,7 @@ print(f"Resource Name: {remote_app.resource_name}")
       } else {
         // Agent Engine (Reasoning Engine API)
         buildConfig.steps.push({
-          name: "python:3.10",
+          name: "python:3.11",
           entrypoint: "bash",
           args: [
             "-c",

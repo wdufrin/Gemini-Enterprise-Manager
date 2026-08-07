@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppEngine, Config } from '../../types';
 import * as api from '../../services/apiService';
 import InfoTooltip from '../InfoTooltip';
@@ -115,31 +115,33 @@ interface FeatureDefinition {
 }
 
 const FEATURE_DEFS: FeatureDefinition[] = [
-    { key: 'agent-gallery', displayName: 'Enable Agent Gallery', description: 'Enables the Agent Gallery for discovering and using agents.', isInverted: false },
-    { key: 'no-code-agent-builder', displayName: 'Enable No-Code Agent Builder', description: 'Allows users to build agents without writing code.', isInverted: false },
-    { key: 'prompt-gallery', displayName: 'Enable Prompt Gallery', description: 'Provides a library of example prompts.', isInverted: false },
-    { key: 'model-selector', displayName: 'Enable Model Selector', description: 'Lets users switch between different AI models.', isInverted: false },
-    { key: 'notebook-lm', displayName: 'Enable NotebookLM features', description: 'Enables NotebookLM features for document analysis.', isInverted: false },
+    { key: 'agent-gallery', displayName: 'Enable agent gallery', description: 'If enabled, the web app will show agent gallery entry point.', isInverted: false },
+    { key: 'no-code-agent-builder', displayName: 'Enable agent designer', description: 'If enabled, end users can build custom agents using the agent designer.', isInverted: false },
+    { key: 'prompt-gallery', displayName: 'Enable prompt gallery', description: 'If enabled, the web app will show prompt gallery entry point.', isInverted: false },
+    { key: 'model-selector', displayName: 'Enable model selector', description: 'If enabled, end users can select the Gemini model used in the web app.', isInverted: false },
+    { key: 'notebook-lm', displayName: 'Enable Gemini Notebook', description: 'If enabled, end users will be able to use Gemini Notebook in the web app.', isInverted: false },
+    { key: 'session-sharing', displayName: 'Enable session sharing', description: 'If enabled, end users will be able to share Gemini Enterprise conversations with other users.', isInverted: false },
+    { key: 'personalization-memory', displayName: 'Enable memory & customization', description: 'Make Gemini Enterprise\'s responses personal and relevant by remembering past conversations and team member information.', isInverted: false },
+    { key: 'disable-canvas', displayName: 'Enable canvas', description: 'Enable users to create, edit, export files in an interactive editor next to their chat conversation.', isInverted: true },
+    { key: 'disable-image-generation', displayName: 'Enable image generation', description: 'Allow end users to generate images in the web app.', isInverted: true },
+    { key: 'disable-video-generation', displayName: 'Enable video generation', description: 'Allow end users to generate videos in the web app.', isInverted: true },
+    { key: 'disable-onedrive-upload', displayName: 'Enable OneDrive upload', description: 'Users will be able to upload files from OneDrive as a data source.', isInverted: true },
+    { key: 'disable-talk-to-content', displayName: 'Enable talk to content', description: 'Users will be able to talk to the content.', isInverted: true },
+    { key: 'disable-google-drive-upload', displayName: 'Enable Google Drive upload', description: 'Users will be able to upload files from Google Drive as a data source.', isInverted: true },
+    { key: 'disable-agent-sharing', displayName: 'Enable agent sharing', description: 'Allows team members to share and use agents within the team.', isInverted: true },
+    { key: 'agent-sharing-without-admin-approval', displayName: 'Enable agent sharing without admin approval', description: 'Allows team members to share and use agents within the team without admin approval. Note: Please review and approve all pending sharing requests before turning this on. Otherwise users will have to redo their share requests.', isInverted: false },
+    { key: 'enable-end-user-sharing-with-groups', displayName: 'Enable End Users to share with Groups', description: 'Allow End Users to share agents with Groups. Google Identity and WIF+SCIM Identity only.', isInverted: false },
+    { key: 'disable-welcome-emails', displayName: 'Enable welcome emails', description: 'If enabled, end users will be able to receive welcome emails.', isInverted: true },
+    { key: 'cross-domain-documents', displayName: 'Include cross-domain documents', description: 'When using Google Drive connectors, allow searching and indexing of documents outside your organization.', isInverted: false },
+    
+    // Developer & Additional Settings
     { key: 'people-search', displayName: 'Enable People Search', description: 'Allows searching for people within the organization.', isInverted: false },
     { key: 'people-search-org-chart', displayName: 'Enable Org Chart in People Search', description: 'Displays organizational charts in people search results.', isInverted: false },
     { key: 'bi-directional-audio', displayName: 'Enable Bi-directional Audio', description: 'Enables two-way audio interaction.', isInverted: false },
     { key: 'feedback', displayName: 'Enable Quality Feedback', description: 'Allows users to provide feedback on responses.', isInverted: false },
-    { key: 'session-sharing', displayName: 'Enable Session Sharing', description: 'Enables users to share their chat sessions.', isInverted: false },
-    { key: 'personalization-memory', displayName: 'Enable Personalization Memory', description: 'Allows the AI to remember user preferences and context.', isInverted: false },
     { key: 'personalization-suggested-highlights', displayName: 'Enable Suggested Highlights', description: 'Provides AI-suggested personalized highlights.', isInverted: false },
-    { key: 'disable-agent-sharing', displayName: 'Enable Agent Sharing', description: 'Allows team members to share and use agents within the team.', isInverted: true },
-    { key: 'disable-image-generation', displayName: 'Enable Image Generation', description: 'Allows users to generate images in the web app.', isInverted: true },
-    { key: 'disable-video-generation', displayName: 'Enable Video Generation', description: 'Allows users to generate videos in the web app.', isInverted: true },
-    { key: 'disable-onedrive-upload', displayName: 'Enable OneDrive upload', description: 'Allows users to upload files from OneDrive as a data source.', isInverted: true },
-    { key: 'disable-talk-to-content', displayName: 'Enable Talk to Content', description: 'Allows users to chat with and ask questions on specific content.', isInverted: true },
-    { key: 'disable-google-drive-upload', displayName: 'Enable Google Drive upload', description: 'Allows users to upload files from Google Drive as a data source.', isInverted: true },
-    { key: 'disable-welcome-emails', displayName: 'Enable Welcome Emails', description: 'Sends welcome emails to new users when they are added.', isInverted: true },
     { key: 'disable-skills', displayName: 'Enable specialized skills', description: 'Allows the assistant to use specialized developer skills.', isInverted: true },
-    { key: 'disable-canvas', displayName: 'Enable Canvas', description: 'Enables side-by-side interactive document and slide generation.', isInverted: true },
     { key: 'disable-canvas-workspace', displayName: 'Enable Canvas Workspace', description: 'Allows users to interact with Canvas workspace views.', isInverted: true },
-
-    { key: 'agent-sharing-without-admin-approval', displayName: 'Enable agent sharing without admin approval', description: 'Allows sharing agents with other team members without admin approval.', isInverted: false },
-    { key: 'enable-end-user-sharing-with-groups', displayName: 'Enable sharing custom agents with Groups', description: 'Allows sharing custom agents with Google Groups.', isInverted: false },
     { key: 'cross-product-intelligence', displayName: 'Enable Cross-product Intelligence', description: 'Integrates contextual insights across workspace apps.', isInverted: false }
 ];
 
@@ -176,16 +178,72 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
     const [success, setSuccess] = useState<string | null>(null);
 
 
-    // Known model configs list
-    const KNOWN_MODELS = [
+    // Fallback/Known model configs list
+    const FALLBACK_MODELS = [
+        'gemini-3.6-flash',
+        'gemini-3.5-flash',
+        'gemini-3.1-pro-preview',
         'gemini-3.1-pro',
-        'gemini-3-pro-preview',
-        'gemini-3-pro-image-preview',
-        'gemini-2.5-flash-image',
-        'gemini-3-flash',
         'gemini-2.5-pro',
         'gemini-2.5-flash'
     ];
+
+    const dynamicModels = useMemo(() => {
+        const modelIds = new Set<string>();
+
+        // 1. Add fallback models
+        FALLBACK_MODELS.forEach(id => modelIds.add(id));
+
+        // 2. Add keys from engine.modelConfigs (to show custom/legacy configurations if present)
+        if (engine.modelConfigs) {
+            Object.keys(engine.modelConfigs).forEach(id => modelIds.add(id));
+        }
+
+        // 3. Add keys from widgetConfig modelConfigs
+        const widgetConfigs = widgetConfig?.uiSettings?.modelConfigs;
+        if (widgetConfigs) {
+            Object.keys(widgetConfigs).forEach(id => modelIds.add(id));
+        }
+
+        // 4. Add keys from resolvedModels
+        const apiModels = widgetConfig?.uiSettings?.modelConfigInfo?.resolvedModels;
+        if (apiModels && apiModels.length > 0) {
+            apiModels.forEach((m: any) => {
+                if (m.modelId) {
+                    modelIds.add(m.modelId);
+                }
+            });
+        }
+
+        return Array.from(modelIds).map(id => {
+            const resolvedInfo = apiModels?.find((m: any) => m.modelId === id);
+            
+            let displayName = resolvedInfo?.displayName || id;
+            if (displayName === id) {
+                if (id === 'gemini-3.6-flash') displayName = 'Gemini 3.6 Flash';
+                else if (id === 'gemini-3.5-flash') displayName = 'Gemini 3.5 Flash';
+                else if (id === 'gemini-3.1-pro-preview' || id === 'gemini-3.1-pro') displayName = 'Gemini 3.1 Pro';
+                else if (id === 'gemini-2.5-pro') displayName = 'Gemini 2.5 Pro';
+                else if (id === 'gemini-2.5-flash') displayName = 'Gemini 2.5 Flash';
+            }
+
+            let description = resolvedInfo?.description;
+            if (!description) {
+                if (id.includes('pro')) {
+                    description = 'More powerful model for complex tasks and reasoning.';
+                } else {
+                    description = 'Frontier intelligence built for speed and efficiency.';
+                }
+            }
+
+            return {
+                id,
+                displayName,
+                description,
+                isPreview: resolvedInfo?.isPreview || id.includes('preview')
+            };
+        });
+    }, [engine.modelConfigs, widgetConfig]);
 
     const getConstructedDeeplinkUrl = useCallback((): string | null => {
         const providerName = widgetConfig?.accessSettings?.workforceIdentityPoolProvider;
@@ -351,17 +409,25 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         setFeatures(currentFeatures);
 
         const currentModels: Record<string, boolean> = {};
-        // Initialize known models or those present in engine
-        KNOWN_MODELS.forEach(m => {
-            currentModels[m] = engine.modelConfigs?.[m] === 'MODEL_ENABLED';
+        // Initialize dynamic models or those present in engine/widgetConfigs
+        dynamicModels.forEach(m => {
+            currentModels[m.id] = engine.modelConfigs?.[m.id] === 'MODEL_ENABLED';
         });
         if (engine.modelConfigs) {
             Object.keys(engine.modelConfigs).forEach(key => {
                 currentModels[key] = engine.modelConfigs![key] === 'MODEL_ENABLED';
             });
         }
+        const widgetOverrides = widgetConfig?.uiSettings?.modelConfigs;
+        if (widgetOverrides) {
+            Object.keys(widgetOverrides).forEach(key => {
+                if (currentModels[key] === undefined) {
+                    currentModels[key] = widgetOverrides[key] === 'MODEL_ENABLED';
+                }
+            });
+        }
         setModelConfigs(currentModels);
-    }, [engine, widgetConfig, getConstructedDeeplinkUrl, isSupportedIdpForQrCode]);
+    }, [engine, widgetConfig, dynamicModels, getConstructedDeeplinkUrl, isSupportedIdpForQrCode]);
 
     useEffect(() => {
         const fetchConfigs = async () => {
@@ -697,17 +763,27 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
 
                 <CollapsibleSection title="Model Configuration">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-900/30 rounded-md">
-                        {KNOWN_MODELS.map(model => (
-                            <label key={model} className="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-800 rounded transition-colors">
-                                <input
-                                    type="checkbox"
-                                    checked={modelConfigs[model] || false}
-                                    onChange={() => handleModelChange(model)}
-                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0"
-                                />
-                                <span className="text-sm text-gray-300 break-words truncate">{model}</span>
-                                {/* Generic tooltip for models as we don't have descriptions in api docs for each */}
-                                <InfoTooltip text={`Enable or disable the ${model} model.`} />
+                        {dynamicModels.map(model => (
+                            <label key={model.id} className="flex flex-col space-y-1 p-2 hover:bg-gray-800 rounded transition-colors cursor-pointer border border-transparent hover:border-gray-700">
+                                <div className="flex items-center space-x-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={modelConfigs[model.id] || false}
+                                        onChange={() => handleModelChange(model.id)}
+                                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                                    />
+                                    <span className="text-sm font-medium text-gray-200 break-words truncate flex-grow">
+                                        {model.displayName}
+                                    </span>
+                                    {model.isPreview && (
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-900/80 text-purple-200 border border-purple-700 flex-shrink-0">
+                                            Preview
+                                        </span>
+                                    )}
+                                </div>
+                                <span className="text-xs text-gray-400 pl-6 leading-normal line-clamp-2">
+                                    {model.description}
+                                </span>
                             </label>
                         ))}
                     </div>

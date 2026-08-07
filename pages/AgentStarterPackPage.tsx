@@ -293,7 +293,7 @@ jobs:
                     // Actually, let's inject a standard cloudbuild.yaml for samples to support "Deploy" button.
                     const cloudbuildYaml = `
 steps:
-- name: 'python:3.10'
+- name: 'python:3.11'
   entrypoint: 'bash'
   args:
     - '-c'
@@ -341,7 +341,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install Dependencies
         run: |
@@ -390,7 +390,7 @@ jobs:
             const buildConfig: any = {
                 steps: [
                     {
-                        name: 'python:3.10',
+                        name: 'python:3.11',
                         entrypoint: 'bash',
                         args: ['-c', 'pip install uv && ' + command] // Run the CLI command
                     }

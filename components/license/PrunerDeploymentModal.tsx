@@ -496,7 +496,7 @@ const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, o
         skipIamInScript
     );
     const requirementsTxt = `Flask==3.0.0\ngunicorn==22.0.0\ngoogle-auth>=2.22.0\nrequests>=2.31.0`;
-    const dockerfile = `FROM python:3.10-slim\nENV PYTHONUNBUFFERED True\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nCMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "0", "main:app"]`;
+    const dockerfile = `FROM python:3.11-slim\nENV PYTHONUNBUFFERED True\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nCMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "0", "main:app"]`;
 
     const handleDownload = async () => {
         const zip = new JSZip();

@@ -68,6 +68,24 @@ export interface Config {
   suppressErrorLog?: boolean;
 }
 
+export interface ResolvedModel {
+  modelId?: string; // Optional because "Auto" has no modelId
+  displayName: string;
+  icon?: string;
+  description?: string;
+  isPreview?: boolean;
+  adminView?: {
+    adminOverridable?: boolean;
+    enabledByDefault?: boolean;
+    regions?: string[];
+  };
+}
+
+export interface ModelConfigInfo {
+  resolvedModels?: ResolvedModel[];
+  defaultModelId?: string;
+}
+
 export interface WidgetConfig {
   name: string;
   accessSettings?: {
@@ -77,6 +95,9 @@ export interface WidgetConfig {
   uiSettings?: {
     enableAutocomplete?: boolean;
     enableQualityFeedback?: boolean;
+    features?: Record<string, string>;
+    modelConfigs?: Record<string, string>;
+    modelConfigInfo?: ModelConfigInfo;
   };
 }
 

@@ -713,7 +713,7 @@ export const getWidgetConfig = async (name: string, config: Config) => {
   const { projectId, appLocation } = config;
   const baseUrl = getDiscoveryEngineUrl(appLocation);
   // Widget configs use v1alpha in the user's curl payload, but we can try v1beta if available. We'll use v1alpha to match HAR capture safely.
-  const url = `${baseUrl}/v1alpha/${name}/widgetConfigs/default_search_widget_config`;
+  const url = `${baseUrl}/v1alpha/${name}/widgetConfigs/default_search_widget_config?model_info_view=ADMIN`;
   return gapiRequest<WidgetConfig>(url, "GET", projectId);
 };
 
