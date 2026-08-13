@@ -2518,7 +2518,8 @@ def create_agent():
         tools=[${toolListForAgent.join(", ")}],
         mcp_servers=mcp_servers,
         policies=policies if policies else None,
-        workspaces=[os.getcwd()]
+        workspaces=[os.getcwd()],
+        app_data_dir=os.path.join(os.getcwd(), "brain")
     )
 
     return Agent(config)
@@ -4835,6 +4836,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     env: a2aGeneratedCode.yaml,
   }[a2aActiveTab];
 
+  const gitignoreContent = `.venv/\nvenv/\nnode_modules/\n__pycache__/\n.git/\n*.pyc\n*.pkl\ndeploy_re.py\n`;
+
   const adkFilesForBuild = [
     { name: "app.py", content: adkGeneratedCode.app },
     { name: "agent.py", content: adkGeneratedCode.agent },
@@ -4842,6 +4845,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     { name: "requirements.txt", content: adkGeneratedCode.requirements },
     { name: "auth.py", content: adkGeneratedCode.auth },
     { name: "tools.py", content: adkGeneratedCode.tools },
+    { name: ".gitignore", content: gitignoreContent },
+    { name: ".ignore", content: gitignoreContent },
   ];
 
   const a2aFilesForBuild = [

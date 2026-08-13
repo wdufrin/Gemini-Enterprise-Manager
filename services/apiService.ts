@@ -351,6 +351,37 @@ export const setProjectIamPolicy = async (
   return gapiRequest<any>(url, "POST", projectId, undefined, { policy });
 };
 
+export const getCustomRole = async (
+  projectId: string,
+  roleId: string,
+): Promise<any> => {
+  const url = `https://iam.googleapis.com/v1/projects/${projectId}/roles/${roleId}`;
+  return gapiRequest<any>(url, "GET", projectId, undefined, undefined, undefined, true);
+};
+
+export const createCustomRole = async (
+  projectId: string,
+  roleId: string,
+  roleData: {
+    title: string;
+    description: string;
+    stage?: string;
+    includedPermissions: string[];
+  },
+): Promise<any> => {
+  const url = `https://iam.googleapis.com/v1/projects/${projectId}/roles`;
+  return gapiRequest<any>(url, "POST", projectId, undefined, {
+    roleId,
+    role: {
+      title: roleData.title,
+      description: roleData.description,
+      stage: roleData.stage || "GA",
+      includedPermissions: roleData.includedPermissions,
+    },
+  });
+};
+
+
 // --- BigQuery & Logging Sinks ---
 
 export const getDataset = async (
@@ -707,6 +738,108 @@ export const setEngineIamPolicy = async (
   const url = `${baseUrl}/v1/${resourcePath}:setIamPolicy`;
   return gapiRequest<any>(url, "POST", projectId, undefined, { policy });
 };
+
+export const getDataStoreIamPolicy = async (
+  name: string,
+  config: Config,
+): Promise<any> => {
+  const {
+    projectId,
+    appLocation,
+    collectionId = "default_collection",
+  } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+
+  const resourcePath = name.startsWith("projects/")
+    ? name
+    : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/dataStores/${name}`;
+
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${resourcePath}:getIamPolicy`;
+  return gapiRequest<any>(url, "GET", projectId);
+};
+
+export const setDataStoreIamPolicy = async (
+  name: string,
+  policy: any,
+  config: Config,
+): Promise<any> => {
+  const {
+    projectId,
+    appLocation,
+    collectionId = "default_collection",
+  } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+
+  const resourcePath = name.startsWith("projects/")
+    ? name
+    : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/dataStores/${name}`;
+
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${resourcePath}:setIamPolicy`;
+  return gapiRequest<any>(url, "POST", projectId, undefined, { policy });
+};
+
+export const getCollectionIamPolicy = async (
+  name: string,
+  config: Config,
+): Promise<any> => {
+  const { projectId, appLocation } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+
+  const resourcePath = name.startsWith("projects/")
+    ? name
+    : `projects/${projectId}/locations/${appLocation}/collections/${name}`;
+
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${resourcePath}:getIamPolicy`;
+  return gapiRequest<any>(url, "GET", projectId);
+};
+
+export const setCollectionIamPolicy = async (
+  name: string,
+  policy: any,
+  config: Config,
+): Promise<any> => {
+  const { projectId, appLocation } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+
+  const resourcePath = name.startsWith("projects/")
+    ? name
+    : `projects/${projectId}/locations/${appLocation}/collections/${name}`;
+
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${resourcePath}:setIamPolicy`;
+  return gapiRequest<any>(url, "POST", projectId, undefined, { policy });
+};
+
+export const listCollections = async (
+  config: Config,
+): Promise<{ collections?: { name: string; displayName?: string }[] }> => {
+  const { projectId, appLocation } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections`;
+  return gapiRequest<any>(url, "GET", projectId, undefined, undefined, undefined, true);
+};
+
+export const checkDataStoreAclSupport = async (
+  config: Config,
+  sampleDataStoreId?: string
+): Promise<boolean> => {
+  const { projectId, appLocation, collectionId = "default_collection" } = config;
+  if (!projectId || !appLocation) return false;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+
+  try {
+    let testPath = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}`;
+    if (sampleDataStoreId) {
+      testPath += `/dataStores/${sampleDataStoreId}`;
+    }
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${testPath}:getIamPolicy`;
+    const res = await gapiRequest<any>(url, "GET", projectId);
+    return !!(res && (res.etag !== undefined || res.bindings !== undefined));
+  } catch (err: any) {
+    // If the API returns an error (400 / 403 / 404 / FAILED_PRECONDITION), it's not allowlisted
+    return false;
+  }
+};
+
 
 export const getWidgetConfig = async (name: string, config: Config) => {
   // name is the engine name

@@ -118,6 +118,24 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                                 <li><strong>Assistant Configuration</strong>: Manage the default assistant's system instructions, grounding settings (Google Search), and enabled tools/actions.</li>
                             </ul>
                         </section>
+
+                        <section className="bg-gray-900/60 p-4 rounded-lg border border-gray-700 space-y-3">
+                            <div className="flex items-center gap-2">
+                                <h4 className="text-md font-semibold text-blue-300">Restricting DataStores via Datastore-Level ACLs (Beta)</h4>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-900/60 text-purple-300 border border-purple-600">Beta</span>
+                            </div>
+                            <p className="text-xs text-gray-300">
+                                Restrict Gemini Enterprise end users so they only see and query specific DataStores or DataConnectors without granting project-wide privileges:
+                            </p>
+                            <ol className="list-decimal pl-5 space-y-1.5 text-xs text-gray-300">
+                                <li><strong>Allowlisting & Isolation</strong>: Ensure the project is allowlisted under Mendel (<code className="text-purple-300">bogao@</code>) and end users do not have project-wide roles like <code className="text-red-300">roles/viewer</code> or <code className="text-red-300">roles/editor</code>.</li>
+                                <li><strong>Project Custom Role (Appendix A)</strong>: Create <code className="text-blue-300">customRestrictedEndUser</code> containing permission <code className="text-green-300">discoveryengine.locations.buildAuthorizationUrl</code>.</li>
+                                <li><strong>Grant at Project Level (Step A1)</strong>: Assign the custom role to the user or group (<code className="text-yellow-300">user:alice@example.com</code> or <code className="text-yellow-300">group:finance-team@example.com</code>).</li>
+                                <li><strong>Grant App Engine Access (Step A2)</strong>: Grant <code className="text-blue-300">roles/discoveryengine.agentspaceUser</code> on the specific App Engine.</li>
+                                <li><strong>Grant Specific DataStores (Steps A3 & A4)</strong>: Grant <code className="text-blue-300">roles/discoveryengine.agentspaceUser</code> on only the allowed DataConnectors / DataStores. Unassigned DataStores are hidden.</li>
+                                <li><strong>Audit</strong>: Use the <strong>Connected DataStores (Beta)</strong> tab in Assistant detail view to audit permissions and run live setup.</li>
+                            </ol>
+                        </section>
                     </div>
                 );
             case 'security':
@@ -135,6 +153,7 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                                     </ul>
                                 </li>
                                 <li><strong>IAM Policies</strong>: View and edit IAM policies for specific agents directly from the UI.</li>
+                                <li><strong>Datastore-Level ACLs (Beta)</strong>: Manage fine-grained 2-tier access control for Assistant Engines, DataConnectors, and Legacy DataStores with Read-Modify-Write etag preservation.</li>
                             </ul>
                         </section>
                     </div>

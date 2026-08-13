@@ -25,6 +25,8 @@ interface EngineDetailsFormProps {
     config: Config;
     onUpdateSuccess: (updatedEngine: AppEngine) => void;
     onLaunchWizard?: () => void;
+    onNavigateToDataStores?: () => void;
+    isDataStoreAclSupported?: boolean | null;
 }
 
 const CollapsibleSection: React.FC<React.PropsWithChildren<{ title: string }>> = ({ title, children }) => {
@@ -112,40 +114,54 @@ interface FeatureDefinition {
     displayName: string;
     description: string;
     isInverted: boolean;
+    category: 'Access & Security' | 'Models & Intelligence' | 'Canvas & UI' | 'Connectors & Grounding' | 'Observability & Analytics';
 }
 
 const FEATURE_DEFS: FeatureDefinition[] = [
-    { key: 'agent-gallery', displayName: 'Enable agent gallery', description: 'If enabled, the web app will show agent gallery entry point.', isInverted: false },
-    { key: 'no-code-agent-builder', displayName: 'Enable agent designer', description: 'If enabled, end users can build custom agents using the agent designer.', isInverted: false },
-    { key: 'prompt-gallery', displayName: 'Enable prompt gallery', description: 'If enabled, the web app will show prompt gallery entry point.', isInverted: false },
-    { key: 'model-selector', displayName: 'Enable model selector', description: 'If enabled, end users can select the Gemini model used in the web app.', isInverted: false },
-    { key: 'notebook-lm', displayName: 'Enable Gemini Notebook', description: 'If enabled, end users will be able to use Gemini Notebook in the web app.', isInverted: false },
-    { key: 'session-sharing', displayName: 'Enable session sharing', description: 'If enabled, end users will be able to share Gemini Enterprise conversations with other users.', isInverted: false },
-    { key: 'personalization-memory', displayName: 'Enable memory & customization', description: 'Make Gemini Enterprise\'s responses personal and relevant by remembering past conversations and team member information.', isInverted: false },
-    { key: 'disable-canvas', displayName: 'Enable canvas', description: 'Enable users to create, edit, export files in an interactive editor next to their chat conversation.', isInverted: true },
-    { key: 'disable-image-generation', displayName: 'Enable image generation', description: 'Allow end users to generate images in the web app.', isInverted: true },
-    { key: 'disable-video-generation', displayName: 'Enable video generation', description: 'Allow end users to generate videos in the web app.', isInverted: true },
-    { key: 'disable-onedrive-upload', displayName: 'Enable OneDrive upload', description: 'Users will be able to upload files from OneDrive as a data source.', isInverted: true },
-    { key: 'disable-talk-to-content', displayName: 'Enable talk to content', description: 'Users will be able to talk to the content.', isInverted: true },
-    { key: 'disable-google-drive-upload', displayName: 'Enable Google Drive upload', description: 'Users will be able to upload files from Google Drive as a data source.', isInverted: true },
-    { key: 'disable-agent-sharing', displayName: 'Enable agent sharing', description: 'Allows team members to share and use agents within the team.', isInverted: true },
-    { key: 'agent-sharing-without-admin-approval', displayName: 'Enable agent sharing without admin approval', description: 'Allows team members to share and use agents within the team without admin approval. Note: Please review and approve all pending sharing requests before turning this on. Otherwise users will have to redo their share requests.', isInverted: false },
-    { key: 'enable-end-user-sharing-with-groups', displayName: 'Enable End Users to share with Groups', description: 'Allow End Users to share agents with Groups. Google Identity and WIF+SCIM Identity only.', isInverted: false },
-    { key: 'disable-welcome-emails', displayName: 'Enable welcome emails', description: 'If enabled, end users will be able to receive welcome emails.', isInverted: true },
-    { key: 'cross-domain-documents', displayName: 'Include cross-domain documents', description: 'When using Google Drive connectors, allow searching and indexing of documents outside your organization.', isInverted: false },
-    
-    // Developer & Additional Settings
-    { key: 'people-search', displayName: 'Enable People Search', description: 'Allows searching for people within the organization.', isInverted: false },
-    { key: 'people-search-org-chart', displayName: 'Enable Org Chart in People Search', description: 'Displays organizational charts in people search results.', isInverted: false },
-    { key: 'bi-directional-audio', displayName: 'Enable Bi-directional Audio', description: 'Enables two-way audio interaction.', isInverted: false },
-    { key: 'feedback', displayName: 'Enable Quality Feedback', description: 'Allows users to provide feedback on responses.', isInverted: false },
-    { key: 'personalization-suggested-highlights', displayName: 'Enable Suggested Highlights', description: 'Provides AI-suggested personalized highlights.', isInverted: false },
-    { key: 'disable-skills', displayName: 'Enable specialized skills', description: 'Allows the assistant to use specialized developer skills.', isInverted: true },
-    { key: 'disable-canvas-workspace', displayName: 'Enable Canvas Workspace', description: 'Allows users to interact with Canvas workspace views.', isInverted: true },
-    { key: 'cross-product-intelligence', displayName: 'Enable Cross-product Intelligence', description: 'Integrates contextual insights across workspace apps.', isInverted: false }
+    // Access & Security
+    { key: 'mobile-app-access', displayName: 'Mobile App Access', description: 'Enables mobile app authentication and access for end users on iOS and Android.', isInverted: false, category: 'Access & Security' },
+    { key: 'disable-mobile-app-access', displayName: 'Legacy Mobile Access (Inverted)', description: 'Legacy inverted toggle for mobile app access.', isInverted: true, category: 'Access & Security' },
+    { key: 'enable-qr-code-widget', displayName: 'QR Code Mobile Login Widget', description: 'Renders an instant QR code pairing modal for mobile app login.', isInverted: false, category: 'Access & Security' },
+    { key: 'disable-agent-sharing', displayName: 'Workspace Agent Sharing', description: 'Allows team members to share and discover custom agents across the enterprise workspace.', isInverted: true, category: 'Access & Security' },
+    { key: 'agent-sharing-without-admin-approval', displayName: 'Auto-Approve Agent Sharing', description: 'Allows team members to share and publish agents instantly without requiring explicit workspace admin approval.', isInverted: false, category: 'Access & Security' },
+    { key: 'enable-end-user-sharing-with-groups', displayName: 'End Users Share with Groups', description: 'Allow End Users to share agents directly with Workforce Identity groups (Google Identity & WIF+SCIM).', isInverted: false, category: 'Access & Security' },
+    { key: 'disable-welcome-emails', displayName: 'Automated Welcome Emails', description: 'Sends automated onboarding and welcome emails to new end users upon first login.', isInverted: true, category: 'Access & Security' },
+
+    // Models & Intelligence
+    { key: 'model-selector', displayName: 'Dynamic Model Selector', description: 'Enables end users to select between available Gemini models (Flash, Pro, Thinking) in active sessions.', isInverted: false, category: 'Models & Intelligence' },
+    { key: 'workflow-agents', displayName: 'Autonomous Workflow Agents', description: 'Allows assistants to trigger autonomous workflow sequences and multi-step execution tasks.', isInverted: false, category: 'Models & Intelligence' },
+    { key: 'skills', displayName: 'Specialized Skills Engine', description: 'Enables the assistant to dynamically invoke specialized skills and plugins.', isInverted: false, category: 'Models & Intelligence' },
+    { key: 'disable-skills', displayName: 'Developer Skills System (Inverted)', description: 'Allows the assistant to use specialized developer skills and execution plugins.', isInverted: true, category: 'Models & Intelligence' },
+    { key: 'personalization-memory', displayName: 'Personalization & Persistent Memory', description: 'Remembers context from past conversations and user preferences to personalize future assistant answers.', isInverted: false, category: 'Models & Intelligence' },
+    { key: 'personalization-suggested-highlights', displayName: 'AI Suggested Highlights', description: 'Provides proactive contextual highlights and suggested follow-up actions based on user conversation patterns.', isInverted: false, category: 'Models & Intelligence' },
+    { key: 'bi-directional-audio', displayName: 'Bi-directional Real-Time Audio', description: 'Enables real-time two-way voice conversations with conversational Gemini models.', isInverted: false, category: 'Models & Intelligence' },
+
+    // Canvas & UI
+    { key: 'agent-gallery', displayName: 'Workspace Agent Gallery', description: 'Shows the enterprise catalog and gallery of published agents to end users.', isInverted: false, category: 'Canvas & UI' },
+    { key: 'no-code-agent-builder', displayName: 'No-Code Agent Designer', description: 'Empowers non-technical users to build and test custom assistants and agents inside the web app.', isInverted: false, category: 'Canvas & UI' },
+    { key: 'prompt-gallery', displayName: 'Prompt Template Gallery', description: 'Shows recommended prompt starters and company-wide template libraries in the search interface.', isInverted: false, category: 'Canvas & UI' },
+    { key: 'notebook-lm', displayName: 'Gemini Notebook Integration', description: 'Allows users to ground queries against interactive Notebooks and multi-source research notebooks.', isInverted: false, category: 'Canvas & UI' },
+    { key: 'in-app-notifications', displayName: 'In-App Notifications & Alerts', description: 'Renders in-app notifications and proactive assistant announcements in the web app.', isInverted: false, category: 'Canvas & UI' },
+    { key: 'disable-canvas-workspace', displayName: 'Canvas Interactive Workspace', description: 'Side-by-side interactive document and artifact editing canvas attached to chat conversations.', isInverted: true, category: 'Canvas & UI' },
+    { key: 'disable-canvas', displayName: 'Legacy Canvas Workspace', description: 'Enables legacy side-by-side canvas for document generation and editing.', isInverted: true, category: 'Canvas & UI' },
+    { key: 'disable-image-generation', displayName: 'Imagen 3 Image Generation', description: 'Allows end users to generate and iterate on images in conversational chat.', isInverted: true, category: 'Canvas & UI' },
+    { key: 'disable-video-generation', displayName: 'Veo Video Generation (EAP)', description: 'Allows end users to synthesize short video clips and animations directly in chat.', isInverted: true, category: 'Canvas & UI' },
+
+    // Connectors & Grounding
+    { key: 'cross-domain-documents', displayName: 'Cross-Domain Document Grounding', description: 'Indexes and searches documents shared across organizational domains when using Drive and SharePoint connectors.', isInverted: false, category: 'Connectors & Grounding' },
+    { key: 'cross-product-intelligence', displayName: 'Cross-Product Workspace Intelligence', description: 'Integrates contextual insights and data sources across Google Workspace and connected SaaS apps.', isInverted: false, category: 'Connectors & Grounding' },
+    { key: 'disable-onedrive-upload', displayName: 'OneDrive Direct File Upload', description: 'Enables users to directly attach and ground documents from Microsoft OneDrive.', isInverted: true, category: 'Connectors & Grounding' },
+    { key: 'disable-google-drive-upload', displayName: 'Google Drive Direct File Upload', description: 'Enables users to directly attach and ground documents from Google Drive.', isInverted: true, category: 'Connectors & Grounding' },
+    { key: 'disable-talk-to-content', displayName: 'Talk to Content (Document Q&A)', description: 'Allows conversational deep-dives over attached documents with exact source citations.', isInverted: true, category: 'Connectors & Grounding' },
+    { key: 'people-search', displayName: 'People & Employee Directory Search', description: 'Allows searching for employees, team members, and role directories within the company.', isInverted: false, category: 'Connectors & Grounding' },
+    { key: 'people-search-org-chart', displayName: 'Org Chart in People Search', description: 'Displays organizational tree charts in people search results.', isInverted: false, category: 'Connectors & Grounding' },
+
+    // Observability & Analytics
+    { key: 'feedback', displayName: 'Thumbs Up/Down Quality Feedback', description: 'Collects user response ratings and feedback to monitor agent answer quality.', isInverted: false, category: 'Observability & Analytics' },
+    { key: 'session-sharing', displayName: 'Conversation Session Sharing', description: 'Allows end users to generate shareable links for assistant conversations.', isInverted: false, category: 'Observability & Analytics' }
 ];
 
-const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, onUpdateSuccess, onLaunchWizard }) => {
+const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, onUpdateSuccess, onLaunchWizard, onNavigateToDataStores, isDataStoreAclSupported }) => {
     const [formData, setFormData] = useState({
         displayName: '',
         disableAnalytics: false,
@@ -176,6 +192,54 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+    const [featureSearchQuery, setFeatureSearchQuery] = useState('');
+    const [featureCategory, setFeatureCategory] = useState('All');
+    const [customFeatureInput, setCustomFeatureInput] = useState('');
+
+    const allDynamicFeatures = useMemo(() => {
+        const knownKeys = new Set(FEATURE_DEFS.map(f => f.key));
+        const result = [...FEATURE_DEFS];
+
+        if (engine.features) {
+            Object.keys(engine.features).forEach(k => {
+                if (!knownKeys.has(k) && k !== 'disable-mobile-app-access' && k !== 'enable-qr-code-widget') {
+                    const isDisable = k.startsWith('disable-');
+                    const cleanName = k
+                        .replace(/^disable-/, '')
+                        .replace(/^enable-/, '')
+                        .split('-')
+                        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+                        .join(' ');
+                    result.push({
+                        key: k,
+                        displayName: `${cleanName} (Custom)`,
+                        description: `Custom engine feature key (${k})`,
+                        isInverted: isDisable,
+                        category: 'Models & Intelligence'
+                    });
+                }
+            });
+        }
+
+        return result;
+    }, [engine.features]);
+
+    const activeFeatureCount = useMemo(() => {
+        return allDynamicFeatures.filter(f => features[f.key] === true).length;
+    }, [allDynamicFeatures, features]);
+
+    const filteredFeatureDefs = useMemo(() => {
+        return allDynamicFeatures.filter(f => {
+            const matchesCategory = featureCategory === 'All' || f.category === featureCategory;
+            const matchesSearch = !featureSearchQuery.trim() ||
+                f.displayName.toLowerCase().includes(featureSearchQuery.toLowerCase()) ||
+                f.key.toLowerCase().includes(featureSearchQuery.toLowerCase()) ||
+                f.description.toLowerCase().includes(featureSearchQuery.toLowerCase());
+            return matchesCategory && matchesSearch;
+        });
+    }, [allDynamicFeatures, featureCategory, featureSearchQuery]);
+
+    const featureCategories = ['All', 'Access & Security', 'Models & Intelligence', 'Canvas & UI', 'Connectors & Grounding', 'Observability & Analytics'];
 
 
     // Fallback/Known model configs list
@@ -745,19 +809,107 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                 </div>
 
                 <CollapsibleSection title="Feature Management">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-900/30 rounded-md">
-                        {FEATURE_DEFS.map(feature => (
-                            <label key={feature.key} className="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-800 rounded transition-colors">
+                    <div className="space-y-4 p-4 bg-gray-900/40 rounded-md border border-gray-700/80">
+                        {/* Summary & Live Capabilities Header */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-gray-700/60">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-900/60 text-blue-300 border border-blue-700">
+                                    {activeFeatureCount} of {allDynamicFeatures.length} Features Active
+                                </span>
+                                {isDataStoreAclSupported && (
+                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-900/60 text-green-300 border border-green-700 flex items-center gap-1">
+                                        <span>🟢</span> DataStore-Level Direct ACLs: Active
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Category Filter Pills & Search */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                            <div className="flex flex-wrap gap-1.5">
+                                {featureCategories.map(cat => (
+                                    <button
+                                        key={cat}
+                                        type="button"
+                                        onClick={() => setFeatureCategory(cat)}
+                                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                                            featureCategory === cat
+                                                ? 'bg-blue-600 text-white shadow-sm'
+                                                : 'bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                                        }`}
+                                    >
+                                        {cat}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="w-full sm:w-60">
                                 <input
-                                    type="checkbox"
-                                    checked={features[feature.key] || false}
-                                    onChange={() => handleFeatureChange(feature.key)}
-                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                                    type="text"
+                                    placeholder="Search features or flags..."
+                                    value={featureSearchQuery}
+                                    onChange={(e) => setFeatureSearchQuery(e.target.value)}
+                                    className="w-full bg-gray-950 border border-gray-700 rounded-md px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:ring-1 focus:ring-blue-500 outline-none"
                                 />
-                                <span className="text-sm text-gray-300 break-words truncate">{feature.displayName}</span>
-                                <InfoTooltip text={feature.description} />
-                            </label>
-                        ))}
+                            </div>
+                        </div>
+
+                        {/* Feature Cards Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                            {filteredFeatureDefs.map(feature => (
+                                <label
+                                    key={feature.key}
+                                    className={`flex items-start space-x-2.5 p-3 rounded-lg border transition-all cursor-pointer ${
+                                        features[feature.key]
+                                            ? 'bg-gray-800/90 border-blue-600/40 shadow-sm'
+                                            : 'bg-gray-900/60 border-gray-800 hover:border-gray-700'
+                                    }`}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={features[feature.key] || false}
+                                        onChange={() => handleFeatureChange(feature.key)}
+                                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0 mt-0.5"
+                                    />
+                                    <div className="flex-grow min-w-0">
+                                        <div className="flex items-center justify-between gap-1">
+                                            <span className="text-xs font-bold text-gray-200 truncate">{feature.displayName}</span>
+                                            <InfoTooltip text={feature.description} />
+                                        </div>
+                                        <span className="text-[10px] text-gray-500 font-mono block truncate mt-0.5">{feature.key}</span>
+                                        <span className="inline-block mt-1 text-[9px] px-1.5 py-0.2 bg-gray-950/80 text-gray-400 rounded">
+                                            {feature.category}
+                                        </span>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+
+                        {/* Custom Feature Key Injector */}
+                        <div className="pt-3 border-t border-gray-800 flex flex-col sm:flex-row items-center gap-2">
+                            <span className="text-xs text-gray-400 whitespace-nowrap">+ Add Custom Feature Key:</span>
+                            <input
+                                type="text"
+                                placeholder="e.g., custom-preview-flag"
+                                value={customFeatureInput}
+                                onChange={(e) => setCustomFeatureInput(e.target.value)}
+                                className="flex-1 bg-gray-950 border border-gray-700 rounded px-2.5 py-1 text-xs text-white font-mono placeholder-gray-600 focus:ring-1 focus:ring-blue-500 outline-none"
+                            />
+                            <button
+                                type="button"
+                                disabled={!customFeatureInput.trim()}
+                                onClick={() => {
+                                    const key = customFeatureInput.trim();
+                                    if (key) {
+                                        setFeatures(prev => ({ ...prev, [key]: true }));
+                                        setCustomFeatureInput('');
+                                    }
+                                }}
+                                className="px-3 py-1 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-semibold rounded transition-colors"
+                            >
+                                Add Flag
+                            </button>
+                        </div>
                     </div>
                 </CollapsibleSection>
 
@@ -1148,6 +1300,50 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                         )}
                     </div>
                 </CollapsibleSection>
+
+                {isDataStoreAclSupported && (
+                    <CollapsibleSection title="Connected DataStores & Permissions (Beta)">
+                        <div className="p-4 bg-gray-900/50 rounded-md border border-gray-700 space-y-3">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="text-sm font-bold text-white">Datastore-Level ACL Controls</h4>
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-900/60 text-purple-300 border border-purple-600">
+                                            Beta
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-1 max-w-xl">
+                                        Manage fine-grained IAM permissions for end users and groups on this App Engine and its connected DataStores / DataConnectors without granting project-wide privileges.
+                                    </p>
+                                </div>
+                                {onNavigateToDataStores && (
+                                    <button
+                                        type="button"
+                                        onClick={onNavigateToDataStores}
+                                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-md transition-colors whitespace-nowrap shadow-sm"
+                                    >
+                                        Manage DataStore Permissions →
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="pt-2">
+                                <span className="text-xs text-gray-400 font-semibold block mb-1.5">Attached DataStores:</span>
+                                {engine.dataStoreIds && engine.dataStoreIds.length > 0 ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {engine.dataStoreIds.map(id => (
+                                            <span key={id} className="px-2.5 py-1 bg-gray-800 border border-gray-700 text-blue-300 rounded text-xs font-mono">
+                                                {id}
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-gray-500 italic">No DataStores currently attached to this engine.</p>
+                                )}
+                            </div>
+                        </div>
+                    </CollapsibleSection>
+                )}
 
                 <CollapsibleSection title="Prompt Chips Administration">
                     <div className="p-4 bg-gray-900/30 rounded-md">

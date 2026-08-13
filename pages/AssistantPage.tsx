@@ -29,6 +29,7 @@ import ChatWindow from '../components/agents/ChatWindow';
 import ChatHistoryViewer from '../components/assistants/ChatHistoryViewer';
 import NotebookListViewer from '../components/assistants/NotebookListViewer';
 import VanityUrlDeploymentForm from '../components/assistants/VanityUrlDeploymentForm';
+import ConnectedDataStorePermissions from '../components/assistants/ConnectedDataStorePermissions';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 
 interface AssistantPageProps {
@@ -134,7 +135,13 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'notebooks' | 'history' | 'customize'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'datastores' | 'notebooks' | 'history' | 'customize'>('overview');
+    const [isDataStoreAclSupported, setIsDataStoreAclSupported] = useState<boolean | null>(() => {
+      const override = localStorage.getItem('feature_flag_datastore_acls');
+      if (override === 'true') return true;
+      if (override === 'false') return false;
+      return null;
+    });
 
   // Chat State
   const [activeChatConfig, setActiveChatConfig] = useState<{ displayName: string; config: Config } | null>(null);
@@ -150,6 +157,46 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
     appId: '', // Dynamic
     assistantId: 'default_assistant'
   }), [projectNumber, projectId, config]);
+
+  // Probe DataStore ACL feature capability for this project/location
+  useEffect(() => {
+    if (!selectedRow?.engine) return;
+    const override = localStorage.getItem('feature_flag_datastore_acls');
+    if (override === 'true') {
+      setIsDataStoreAclSupported(true);
+      return;
+    }
+    if (override === 'false') {
+      setIsDataStoreAclSupported(false);
+      return;
+    }
+
+    let isMounted = true;
+    const sampleDsId = selectedRow.engine.dataStoreIds?.[0];
+    const engineConfig: Config = {
+      ...baseApiConfig,
+      appId: selectedRow.engine.name.split('/').pop()!,
+    };
+    api.checkDataStoreAclSupport(engineConfig, sampleDsId).then(supported => {
+      if (isMounted) {
+        setIsDataStoreAclSupported(supported);
+        if (!supported && activeTab === 'datastores') {
+          setActiveTab('overview');
+        }
+      }
+    }).catch(() => {
+      if (isMounted) {
+        setIsDataStoreAclSupported(false);
+        if (activeTab === 'datastores') {
+          setActiveTab('overview');
+        }
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedRow?.engine, baseApiConfig, activeTab]);
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -616,16 +663,28 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                           {/* Tabs Navigation */}
                           <div className="border-b border-gray-700 flex justify-between items-center">
                               <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                                  {['overview', 'agents', 'notebooks', 'history', 'customize'].map((tab) => (
+                                  {[
+                                      { key: 'overview', label: 'Overview' },
+                                      { key: 'agents', label: 'Agents' },
+                                      ...(isDataStoreAclSupported ? [{ key: 'datastores', label: 'Connected DataStores', badge: 'Beta' }] : []),
+                                      { key: 'notebooks', label: 'Notebooks' },
+                                      { key: 'history', label: 'History' },
+                                      { key: 'customize', label: 'Customize' },
+                                  ].map((tabItem) => (
                                       <button
-                                          key={tab}
-                                          onClick={() => setActiveTab(tab as any)}
-                                          className={`${activeTab === tab
+                                          key={tabItem.key}
+                                          onClick={() => setActiveTab(tabItem.key as any)}
+                                          className={`${activeTab === tabItem.key
                                               ? 'border-blue-500 text-blue-400'
                                               : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
-                                              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm capitalize`}
+                                              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm capitalize flex items-center gap-1.5`}
                                       >
-                                          {tab}
+                                          <span>{tabItem.label}</span>
+                                          {tabItem.badge && (
+                                              <span className="px-1.5 py-0.2 bg-purple-900/60 text-purple-300 text-[10px] font-bold rounded-full border border-purple-600">
+                                                  {tabItem.badge}
+                                              </span>
+                                          )}
                                       </button>
                                   ))}
                               </nav>
@@ -640,6 +699,8 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                                           config={currentConfig}
                                           onUpdateSuccess={handleEngineUpdateSuccess}
                                           onLaunchWizard={() => setIsAuditModalOpen(true)}
+                                          onNavigateToDataStores={() => setActiveTab('datastores')}
+                                          isDataStoreAclSupported={isDataStoreAclSupported}
                                       />
                                       <div className="mt-6">
                                           <AssistantDetailsForm
@@ -656,6 +717,14 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                                       agents={agents} 
                                       config={currentConfig}
                                       onRefreshAgents={() => fetchAgentsForAssistant(selectedRow.engine.name.split('/').pop()!)}
+                                  />
+                              )}
+
+                              {activeTab === 'datastores' && (
+                                  <ConnectedDataStorePermissions
+                                      engine={selectedRow.engine}
+                                      config={currentConfig}
+                                      projectNumber={projectNumber}
                                   />
                               )}
 
