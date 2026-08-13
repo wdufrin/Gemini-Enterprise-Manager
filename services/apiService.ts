@@ -33,6 +33,10 @@ import {
   DiscoverySession,
   ReasoningEngineSession,
   WidgetConfig,
+  ServiceAgentValidation,
+  UserPermissionsValidation,
+  UserPermissionItem,
+  ComprehensiveValidationResult,
 } from "../types";
 import { getGapiClient } from "./gapiService";
 
@@ -251,6 +255,260 @@ export const batchEnableApis = async (projectId: string, apis: string[]) => {
 
 export const getServiceUsageOperation = async (name: string) => {
   return gapiRequest<any>(`https://serviceusage.googleapis.com/v1/${name}`);
+};
+
+export const generateDiscoveryEngineServiceIdentity = async (projectId: string) => {
+  const url = `https://serviceusage.googleapis.com/v1beta1/projects/${projectId}/services/discoveryengine.googleapis.com:generateServiceIdentity`;
+  return gapiRequest<any>(url, "POST", projectId, undefined, {});
+};
+
+export const checkDiscoveryEngineServiceAgent = async (
+  projectId: string,
+  projectNumber: string
+): Promise<ServiceAgentValidation> => {
+  const email = `service-${projectNumber}@gcp-sa-discoveryengine.iam.gserviceaccount.com`;
+  const memberKey = `serviceAccount:${email}`;
+  const requiredRole = "roles/discoveryengine.serviceAgent";
+  const recommendedRoles = [
+    "roles/aiplatform.user",
+    "roles/storage.objectViewer",
+    "roles/bigquery.dataViewer"
+  ];
+
+  try {
+    const policy = await getProjectIamPolicy(projectId);
+    const assignedRoles: string[] = [];
+
+    if (policy && policy.bindings) {
+      for (const binding of policy.bindings) {
+        if (binding.members && binding.members.some((m: string) => m.toLowerCase() === memberKey.toLowerCase())) {
+          assignedRoles.push(binding.role);
+        }
+      }
+    }
+
+    const hasRequiredRole = assignedRoles.includes(requiredRole);
+    const missingRecommendedRoles = recommendedRoles.filter(r => !assignedRoles.includes(r));
+
+    return {
+      email,
+      exists: true,
+      hasRequiredRole,
+      requiredRole,
+      assignedRoles,
+      missingRecommendedRoles,
+      status: hasRequiredRole ? 'READY' : 'MISSING_ROLE'
+    };
+  } catch (err: any) {
+    const errMsg = err?.message || (typeof err === 'string' ? err : 'Unknown error');
+    const isPermissionDenied = errMsg.includes('403') || errMsg.toLowerCase().includes('permission') || errMsg.toLowerCase().includes('forbidden');
+    
+    return {
+      email,
+      exists: true,
+      hasRequiredRole: false,
+      requiredRole,
+      assignedRoles: [],
+      missingRecommendedRoles: recommendedRoles,
+      status: isPermissionDenied ? 'PERMISSION_DENIED' : 'NOT_FOUND',
+      errorMessage: isPermissionDenied
+        ? 'Insufficient permissions to inspect project IAM policy (roles/resourcemanager.projectIamViewer or roles/owner required).'
+        : `Could not check service agent status: ${errMsg}`
+    };
+  }
+};
+
+export const grantDiscoveryEngineServiceAgentRole = async (
+  projectId: string,
+  projectNumber: string,
+  extraRoles: string[] = []
+): Promise<any> => {
+  // 1. Ensure service identity is initialized by Google Service Usage
+  try {
+    await generateDiscoveryEngineServiceIdentity(projectId);
+  } catch (e) {
+    console.warn('generateServiceIdentity warning (may already exist):', e);
+  }
+
+  const email = `service-${projectNumber}@gcp-sa-discoveryengine.iam.gserviceaccount.com`;
+  const memberKey = `serviceAccount:${email}`;
+  const rolesToEnsure = ["roles/discoveryengine.serviceAgent", ...extraRoles];
+
+  const policy = await getProjectIamPolicy(projectId);
+  const bindings = policy.bindings || [];
+
+  rolesToEnsure.forEach(role => {
+    let binding = bindings.find((b: any) => b.role === role);
+    if (binding) {
+      if (!binding.members) binding.members = [];
+      if (!binding.members.some((m: string) => m.toLowerCase() === memberKey.toLowerCase())) {
+        binding.members.push(memberKey);
+      }
+    } else {
+      bindings.push({
+        role,
+        members: [memberKey]
+      });
+    }
+  });
+
+  policy.bindings = bindings;
+  return setProjectIamPolicy(projectId, policy);
+};
+
+export const validateUserPermissions = async (
+  projectId: string
+): Promise<UserPermissionsValidation> => {
+  const permissionsToCheck: {
+    permission: string;
+    category: 'Discovery Engine Admin' | 'IAM & Security' | 'Service Management' | 'Vertex AI / Reasoning';
+    description: string;
+    recommendedRole: string;
+    critical?: boolean;
+  }[] = [
+    {
+      permission: 'discoveryengine.engines.get',
+      category: 'Discovery Engine Admin',
+      description: 'View Assistants & App Engines',
+      recommendedRole: 'roles/discoveryengine.admin',
+      critical: true
+    },
+    {
+      permission: 'discoveryengine.engines.update',
+      category: 'Discovery Engine Admin',
+      description: 'Modify Assistant & Feature Configuration',
+      recommendedRole: 'roles/discoveryengine.admin',
+      critical: true
+    },
+    {
+      permission: 'discoveryengine.engines.list',
+      category: 'Discovery Engine Admin',
+      description: 'List all Assistants & App Engines',
+      recommendedRole: 'roles/discoveryengine.admin',
+      critical: true
+    },
+    {
+      permission: 'discoveryengine.dataStores.get',
+      category: 'Discovery Engine Admin',
+      description: 'View and query DataStores',
+      recommendedRole: 'roles/discoveryengine.admin'
+    },
+    {
+      permission: 'discoveryengine.assistants.get',
+      category: 'Discovery Engine Admin',
+      description: 'View Assistant chat configs & prompt chips',
+      recommendedRole: 'roles/discoveryengine.admin'
+    },
+    {
+      permission: 'resourcemanager.projects.get',
+      category: 'IAM & Security',
+      description: 'Get project metadata & number',
+      recommendedRole: 'roles/viewer'
+    },
+    {
+      permission: 'resourcemanager.projects.getIamPolicy',
+      category: 'IAM & Security',
+      description: 'Audit project IAM policy & service agents',
+      recommendedRole: 'roles/resourcemanager.projectIamAdmin'
+    },
+    {
+      permission: 'resourcemanager.projects.setIamPolicy',
+      category: 'IAM & Security',
+      description: 'Assign roles to service agents & users',
+      recommendedRole: 'roles/resourcemanager.projectIamAdmin'
+    },
+    {
+      permission: 'serviceusage.services.list',
+      category: 'Service Management',
+      description: 'Check enabled Google Cloud APIs',
+      recommendedRole: 'roles/serviceusage.serviceUsageViewer'
+    },
+    {
+      permission: 'serviceusage.services.enable',
+      category: 'Service Management',
+      description: '1-click enable required Google APIs',
+      recommendedRole: 'roles/serviceusage.serviceUsageAdmin'
+    },
+    {
+      permission: 'aiplatform.reasoningEngines.list',
+      category: 'Vertex AI / Reasoning',
+      description: 'List Vertex AI Agent Engines',
+      recommendedRole: 'roles/aiplatform.user'
+    }
+  ];
+
+  try {
+    const rawPermissions = permissionsToCheck.map(p => p.permission);
+    const response = await gapiRequest<any>(
+      `https://cloudresourcemanager.googleapis.com/v1/projects/${projectId}:testIamPermissions`,
+      'POST',
+      projectId,
+      undefined,
+      { permissions: rawPermissions }
+    );
+
+    const grantedSet = new Set<string>(response.permissions || []);
+    const items: UserPermissionItem[] = permissionsToCheck.map(p => ({
+      permission: p.permission,
+      category: p.category,
+      granted: grantedSet.has(p.permission),
+      description: p.description,
+      recommendedRole: p.recommendedRole
+    }));
+
+    const missingCritical = permissionsToCheck
+      .filter(p => p.critical && !grantedSet.has(p.permission))
+      .map(p => p.permission);
+
+    const grantedCount = items.filter(i => i.granted).length;
+    const canInspectIam = grantedSet.has('resourcemanager.projects.getIamPolicy');
+    const hasAdminAccess = missingCritical.length === 0;
+
+    return {
+      tested: true,
+      canInspectIam,
+      hasAdminAccess,
+      grantedCount,
+      totalCount: items.length,
+      items,
+      missingCritical
+    };
+  } catch (err: any) {
+    const errMsg = err?.message || (typeof err === 'string' ? err : 'Unknown error');
+    return {
+      tested: false,
+      canInspectIam: false,
+      hasAdminAccess: false,
+      grantedCount: 0,
+      totalCount: permissionsToCheck.length,
+      items: permissionsToCheck.map(p => ({
+        permission: p.permission,
+        category: p.category,
+        granted: false,
+        description: p.description,
+        recommendedRole: p.recommendedRole
+      })),
+      missingCritical: [],
+      notice: `Could not test project IAM permissions: ${errMsg}. If you only have resource-scoped access, you can still proceed into the app.`
+    };
+  }
+};
+
+export const runComprehensiveProjectValidation = async (
+  projectId: string,
+  projectNumber: string
+): Promise<ComprehensiveValidationResult> => {
+  const [apis, serviceAgent, userPermissions] = await Promise.all([
+    validateEnabledApis(projectId),
+    checkDiscoveryEngineServiceAgent(projectId, projectNumber),
+    validateUserPermissions(projectId)
+  ]);
+
+  return {
+    apis,
+    serviceAgent,
+    userPermissions
+  };
 };
 
 export const checkServiceAccountPermissions = async (

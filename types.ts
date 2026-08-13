@@ -446,3 +446,40 @@ export interface ReasoningEngineSession {
     parts: { text: string }[];
   }[];
 }
+
+export interface ServiceAgentValidation {
+  email: string;
+  exists: boolean;
+  hasRequiredRole: boolean;
+  requiredRole: string;
+  assignedRoles: string[];
+  missingRecommendedRoles: string[];
+  status: 'READY' | 'MISSING_ROLE' | 'NOT_FOUND' | 'PERMISSION_DENIED';
+  errorMessage?: string;
+}
+
+export interface UserPermissionItem {
+  permission: string;
+  category: 'Discovery Engine Admin' | 'IAM & Security' | 'Service Management' | 'Vertex AI / Reasoning';
+  granted: boolean;
+  description: string;
+  recommendedRole: string;
+}
+
+export interface UserPermissionsValidation {
+  tested: boolean;
+  canInspectIam: boolean;
+  hasAdminAccess: boolean;
+  grantedCount: number;
+  totalCount: number;
+  items: UserPermissionItem[];
+  missingCritical: string[];
+  notice?: string;
+}
+
+export interface ComprehensiveValidationResult {
+  apis: { enabled: string[]; disabled: string[] };
+  serviceAgent: ServiceAgentValidation | null;
+  userPermissions: UserPermissionsValidation | null;
+}
+

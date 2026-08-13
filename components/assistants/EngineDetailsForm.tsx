@@ -109,6 +109,114 @@ const ScimTenantsList: React.FC<{ providerName: string, config: Config }> = ({ p
     );
 };
 
+const formatModelDisplayName = (id: string): string => {
+    if (id === 'gemini-3.1-pro-preview') return 'Gemini 3.1 Pro (Thinking)';
+    if (id === 'gemini-3.1-pro') return 'Gemini 3.1 Pro (Legacy)';
+    if (id === 'gemini-3-flash-preview') return 'Gemini 3 Flash (Preview)';
+    if (id === 'gemini-3-pro-preview') return 'Gemini 3 Pro (Preview)';
+    if (id === 'gemini-3-pro-image-preview' || id === 'gemini-3-pro-image') return 'Gemini 3 Pro Image';
+    if (id === 'gemini-3.1-flash-image-preview' || id === 'gemini-3.1-flash-image') return 'Gemini 3.1 Flash Image';
+    if (id === 'gemini-3.7-flash') return 'Gemini 3.7 Flash';
+    if (id === 'gemini-3.6-flash') return 'Gemini 3.6 Flash';
+    if (id === 'gemini-3.5-flash') return 'Gemini 3.5 Flash';
+    if (id === 'gemini-3-flash') return 'Gemini 3 Flash';
+    if (id === 'gemini-2.5-flash-image') return 'Gemini 2.5 Flash Image';
+    if (id === 'gemini-2.5-pro') return 'Gemini 2.5 Pro';
+    if (id === 'gemini-2.5-flash') return 'Gemini 2.5 Flash';
+
+    return id
+        .split('-')
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+};
+
+const getModelDefaultDescription = (id: string): string => {
+    if (id === 'gemini-3-pro-image-preview' || id === 'gemini-3-pro-image') {
+        return 'Built for complex image generation use cases, with increased factuality.';
+    }
+    if (id === 'gemini-3.1-flash-image-preview' || id === 'gemini-3.1-flash-image') {
+        return 'Efficient, high-quality image generation optimized for most creative projects.';
+    }
+    if (id.includes('image') || id.includes('vision')) {
+        return 'Multimodal visual intelligence and image synthesis.';
+    }
+    if (id === 'gemini-2.5-pro') {
+        return 'More powerful model for complex tasks.';
+    }
+    if (id === 'gemini-3.1-pro-preview' || id === 'gemini-3.1-pro') {
+        return 'State-of-the-art reasoning and deep multi-step thinking.';
+    }
+    if (id === 'gemini-3.5-flash' || id === 'gemini-3.6-flash' || id === 'gemini-3.7-flash') {
+        return 'Frontier intelligence built for speed.';
+    }
+    if (id === 'gemini-2.5-flash') {
+        return 'Fast, balanced intelligence built for speed.';
+    }
+    if (id.includes('pro') || id.includes('ultra') || id.includes('thinking')) {
+        return 'High-intelligence frontier model optimized for complex reasoning, multi-step problem solving, and analysis.';
+    }
+    return 'Frontier intelligence built for speed.';
+};
+
+const STANDARD_ENTERPRISE_MODELS = [
+    {
+        id: 'gemini-3.6-flash',
+        displayName: 'Gemini 3.6 Flash',
+        description: 'Frontier intelligence built for speed.',
+        isPreview: false,
+        category: 'Flash / Speed'
+    },
+    {
+        id: 'gemini-3.1-pro-preview',
+        displayName: 'Gemini 3.1 Pro (Thinking)',
+        description: 'State-of-the-art reasoning and deep multi-step thinking.',
+        isPreview: true,
+        category: 'Pro / Reasoning'
+    },
+    {
+        id: 'gemini-3.5-flash',
+        displayName: 'Gemini 3.5 Flash',
+        description: 'Frontier intelligence built for speed.',
+        isPreview: false,
+        category: 'Flash / Speed'
+    },
+    {
+        id: 'gemini-3.7-flash',
+        displayName: 'Gemini 3.7 Flash',
+        description: 'Frontier intelligence built for speed.',
+        isPreview: false,
+        category: 'Flash / Speed'
+    },
+    {
+        id: 'gemini-2.5-pro',
+        displayName: 'Gemini 2.5 Pro',
+        description: 'More powerful model for complex tasks.',
+        isPreview: false,
+        category: 'Pro / Reasoning'
+    },
+    {
+        id: 'gemini-2.5-flash',
+        displayName: 'Gemini 2.5 Flash',
+        description: 'Fast, balanced intelligence built for speed.',
+        isPreview: false,
+        category: 'Flash / Speed'
+    },
+    {
+        id: 'gemini-3-pro-image-preview',
+        displayName: 'Gemini 3 Pro Image',
+        description: 'Built for complex image generation use cases, with increased factuality.',
+        isPreview: true,
+        category: 'Vision & Image'
+    },
+    {
+        id: 'gemini-3.1-flash-image-preview',
+        displayName: 'Gemini 3.1 Flash Image',
+        description: 'Efficient, high-quality image generation optimized for most creative projects.',
+        isPreview: true,
+        category: 'Vision & Image'
+    }
+];
+
 interface FeatureDefinition {
     key: string;
     displayName: string;
@@ -242,72 +350,117 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
     const featureCategories = ['All', 'Access & Security', 'Models & Intelligence', 'Canvas & UI', 'Connectors & Grounding', 'Observability & Analytics'];
 
 
-    // Fallback/Known model configs list
-    const FALLBACK_MODELS = [
-        'gemini-3.6-flash',
-        'gemini-3.5-flash',
-        'gemini-3.1-pro-preview',
-        'gemini-3.1-pro',
-        'gemini-2.5-pro',
-        'gemini-2.5-flash'
-    ];
+    // Dynamic Model Configuration State
+    const [modelSearchQuery, setModelSearchQuery] = useState('');
+    const [modelCategory, setModelCategory] = useState('All');
+    const [customModelInput, setCustomModelInput] = useState('');
+    const [showLegacyModels, setShowLegacyModels] = useState(false);
 
-    const dynamicModels = useMemo(() => {
-        const modelIds = new Set<string>();
+    const { activeModels, legacyModels } = useMemo(() => {
+        const activeMap = new Map<string, { id: string; displayName: string; description: string; isPreview: boolean; category: string }>();
+        const legacyList: { id: string; displayName: string; description: string; isPreview: boolean; category: string }[] = [];
 
-        // 1. Add fallback models
-        FALLBACK_MODELS.forEach(id => modelIds.add(id));
+        // 1. Seed with Google's standard enterprise catalog (so even disabled models can be toggled on/off by admin)
+        STANDARD_ENTERPRISE_MODELS.forEach(m => {
+            activeMap.set(m.id, { ...m });
+        });
 
-        // 2. Add keys from engine.modelConfigs (to show custom/legacy configurations if present)
-        if (engine.modelConfigs) {
-            Object.keys(engine.modelConfigs).forEach(id => modelIds.add(id));
-        }
-
-        // 3. Add keys from widgetConfig modelConfigs
-        const widgetConfigs = widgetConfig?.uiSettings?.modelConfigs;
-        if (widgetConfigs) {
-            Object.keys(widgetConfigs).forEach(id => modelIds.add(id));
-        }
-
-        // 4. Add keys from resolvedModels
+        // 2. Overlay live dynamic resolved models from widgetConfig (if Google adds new live models!)
         const apiModels = widgetConfig?.uiSettings?.modelConfigInfo?.resolvedModels;
-        if (apiModels && apiModels.length > 0) {
+        if (apiModels && Array.isArray(apiModels)) {
             apiModels.forEach((m: any) => {
                 if (m.modelId) {
-                    modelIds.add(m.modelId);
+                    const isPreview = Boolean(m.isPreview || m.modelId.includes('preview') || m.modelId.includes('exp'));
+                    let category = 'Flash / Speed';
+                    if (m.modelId.includes('image') || m.modelId.includes('vision')) {
+                        category = 'Vision & Image';
+                    } else if (m.modelId.includes('pro') || m.modelId.includes('ultra') || m.modelId.includes('thinking')) {
+                        category = 'Pro / Reasoning';
+                    }
+
+                    activeMap.set(m.modelId, {
+                        id: m.modelId,
+                        displayName: m.displayName || formatModelDisplayName(m.modelId),
+                        description: m.description || getModelDefaultDescription(m.modelId),
+                        isPreview,
+                        category
+                    });
                 }
             });
         }
 
-        return Array.from(modelIds).map(id => {
-            const resolvedInfo = apiModels?.find((m: any) => m.modelId === id);
-            
-            let displayName = resolvedInfo?.displayName || id;
-            if (displayName === id) {
-                if (id === 'gemini-3.6-flash') displayName = 'Gemini 3.6 Flash';
-                else if (id === 'gemini-3.5-flash') displayName = 'Gemini 3.5 Flash';
-                else if (id === 'gemini-3.1-pro-preview' || id === 'gemini-3.1-pro') displayName = 'Gemini 3.1 Pro';
-                else if (id === 'gemini-2.5-pro') displayName = 'Gemini 2.5 Pro';
-                else if (id === 'gemini-2.5-flash') displayName = 'Gemini 2.5 Flash';
+        // 3. Separate any extra keys present in engine.modelConfigs or widgetConfig
+        const extraKeys = new Set<string>();
+        if (engine.modelConfigs) {
+            Object.keys(engine.modelConfigs).forEach(id => {
+                if (!activeMap.has(id)) extraKeys.add(id);
+            });
+        }
+        if (widgetConfig?.uiSettings?.modelConfigs) {
+            Object.keys(widgetConfig.uiSettings.modelConfigs).forEach(id => {
+                if (!activeMap.has(id)) extraKeys.add(id);
+            });
+        }
+
+        extraKeys.forEach(id => {
+            const isPreview = id.includes('preview') || id.includes('exp');
+            let category = 'Flash / Speed';
+            if (id.includes('image') || id.includes('vision')) {
+                category = 'Vision & Image';
+            } else if (id.includes('pro') || id.includes('ultra') || id.includes('thinking')) {
+                category = 'Pro / Reasoning';
             }
 
-            let description = resolvedInfo?.description;
-            if (!description) {
-                if (id.includes('pro')) {
-                    description = 'More powerful model for complex tasks and reasoning.';
-                } else {
-                    description = 'Frontier intelligence built for speed and efficiency.';
-                }
-            }
+            const isKnownLegacy = ['gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3.1-pro', 'gemini-2.5-flash-image', 'gemini-3-flash'].includes(id);
 
-            return {
-                id,
-                displayName,
-                description,
-                isPreview: resolvedInfo?.isPreview || id.includes('preview')
-            };
+            if (isKnownLegacy) {
+                legacyList.push({
+                    id,
+                    displayName: `${formatModelDisplayName(id)} (Legacy)`,
+                    description: `Legacy engine key (${id})`,
+                    isPreview,
+                    category
+                });
+            } else {
+                activeMap.set(id, {
+                    id,
+                    displayName: formatModelDisplayName(id),
+                    description: getModelDefaultDescription(id),
+                    isPreview,
+                    category
+                });
+            }
         });
+
+        return {
+            activeModels: Array.from(activeMap.values()),
+            legacyModels: legacyList
+        };
     }, [engine.modelConfigs, widgetConfig]);
+
+    const dynamicModels = useMemo(() => {
+        return showLegacyModels ? [...activeModels, ...legacyModels] : activeModels;
+    }, [activeModels, legacyModels, showLegacyModels]);
+
+    const activeModelCount = useMemo(() => {
+        return dynamicModels.filter(m => modelConfigs[m.id] === true).length;
+    }, [dynamicModels, modelConfigs]);
+
+    const filteredModels = useMemo(() => {
+        return dynamicModels.filter(m => {
+            const matchesCategory = 
+                modelCategory === 'All' ||
+                (modelCategory === 'Preview Models' && m.isPreview) ||
+                m.category === modelCategory;
+            const matchesSearch = !modelSearchQuery.trim() ||
+                m.displayName.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
+                m.id.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
+                m.description.toLowerCase().includes(modelSearchQuery.toLowerCase());
+            return matchesCategory && matchesSearch;
+        });
+    }, [dynamicModels, modelCategory, modelSearchQuery]);
+
+    const modelCategories = ['All', 'Pro / Reasoning', 'Flash / Speed', 'Vision & Image', 'Preview Models'];
 
     const getConstructedDeeplinkUrl = useCallback((): string | null => {
         const providerName = widgetConfig?.accessSettings?.workforceIdentityPoolProvider;
@@ -473,21 +626,21 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         setFeatures(currentFeatures);
 
         const currentModels: Record<string, boolean> = {};
-        // Initialize dynamic models or those present in engine/widgetConfigs
+        // 1. Initialize all models in dynamicModels as false by default
         dynamicModels.forEach(m => {
-            currentModels[m.id] = engine.modelConfigs?.[m.id] === 'MODEL_ENABLED';
+            currentModels[m.id] = false;
         });
+        // 2. Read from engine.modelConfigs
         if (engine.modelConfigs) {
             Object.keys(engine.modelConfigs).forEach(key => {
                 currentModels[key] = engine.modelConfigs![key] === 'MODEL_ENABLED';
             });
         }
+        // 3. Read from widgetConfig overrides (authoritative)
         const widgetOverrides = widgetConfig?.uiSettings?.modelConfigs;
         if (widgetOverrides) {
             Object.keys(widgetOverrides).forEach(key => {
-                if (currentModels[key] === undefined) {
-                    currentModels[key] = widgetOverrides[key] === 'MODEL_ENABLED';
-                }
+                currentModels[key] = widgetOverrides[key] === 'MODEL_ENABLED';
             });
         }
         setModelConfigs(currentModels);
@@ -497,14 +650,12 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         const fetchConfigs = async () => {
             setIsLoadingIdp(true);
             try {
-                 const [acl, widget] = await Promise.all([
-                     api.getAclConfig(config).catch(e => { console.error("Acl error", e); return null; }),
-                     api.getWidgetConfig(engine.name, config).catch(e => { console.error("Widget error", e); return null; })
-                 ]);
+                 const idp = await api.getIdpConfig(engine.name, config);
+                 const widget = await api.getWidgetConfig(engine.name, config);
 
-                 if (acl) {
-                     const type = acl.idpConfig?.idpType || 'IDP_TYPE_UNSPECIFIED';
-                     const poolName = acl.idpConfig?.externalIdpConfig?.workforcePoolName || '';
+                 if (idp) {
+                     const type = idp.idpType || 'IDP_TYPE_UNSPECIFIED';
+                     const poolName = idp.workforcePoolName || '';
                      setIdpData({ idpType: type, workforcePoolName: poolName });
                      setOriginalIdpData({ idpType: type, workforcePoolName: poolName });
 
@@ -550,10 +701,16 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
     };
 
     const handleModelChange = (model: string) => {
-        setModelConfigs(prev => ({
-            ...prev,
-            [model]: !prev[model]
-        }));
+        setModelConfigs(prev => {
+            const nextVal = !prev[model];
+            const updated = { ...prev, [model]: nextVal };
+            if (model === 'gemini-3.1-pro-preview') {
+                updated['gemini-3.1-pro'] = nextVal;
+            } else if (model === 'gemini-3.1-pro') {
+                updated['gemini-3.1-pro-preview'] = nextVal;
+            }
+            return updated;
+        });
     };
 
     const handleIdpChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
@@ -597,78 +754,20 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             }
 
             const currentSearchTier = engine.searchEngineConfig?.searchTier || 'SEARCH_TIER_STANDARD';
-            const currentLlmAddon = engine.searchEngineConfig?.searchAddOns?.includes('SEARCH_ADD_ON_LLM') || false;
-            const currentSubTier = engine.searchEngineConfig?.requiredSubscriptionTier || 'SUBSCRIPTION_TIER_UNSPECIFIED';
+            const currentAddOnLlm = engine.searchEngineConfig?.searchAddOns?.includes('SEARCH_ADD_ON_LLM') || false;
+            const currentRequiredSub = engine.searchEngineConfig?.requiredSubscriptionTier || 'SUBSCRIPTION_TIER_UNSPECIFIED';
 
-            if (formData.searchTier !== currentSearchTier || formData.searchAddOnLlm !== currentLlmAddon || formData.requiredSubscriptionTier !== currentSubTier) {
-                const addons = [];
+            if (formData.searchTier !== currentSearchTier || formData.searchAddOnLlm !== currentAddOnLlm || formData.requiredSubscriptionTier !== currentRequiredSub) {
+                const searchAddOns: string[] = [];
                 if (formData.searchAddOnLlm) {
-                    addons.push('SEARCH_ADD_ON_LLM');
+                    searchAddOns.push('SEARCH_ADD_ON_LLM');
                 }
                 payload.searchEngineConfig = {
                     searchTier: formData.searchTier,
-                    searchAddOns: addons,
+                    searchAddOns: searchAddOns,
                     requiredSubscriptionTier: formData.requiredSubscriptionTier
                 };
                 updateMask.push('searchEngineConfig');
-            }
-
-            // Calculate idp config changes
-            let idpChanged = false;
-            if (idpData.idpType !== originalIdpData.idpType || (idpData.idpType === 'THIRD_PARTY' && idpData.workforcePoolName !== originalIdpData.workforcePoolName)) {
-                const aclPayload: any = {
-                    idpConfig: {
-                        idpType: idpData.idpType,
-                    }
-                };
-                if (idpData.idpType === 'THIRD_PARTY') {
-                    aclPayload.idpConfig.externalIdpConfig = { workforcePoolName: idpData.workforcePoolName };
-                }
-                await api.updateAclConfig(aclPayload, config);
-                idpChanged = true;
-            }
-
-            // Calculate widget config changes
-            let widgetChanged = false;
-            if (widgetConfig && originalWidgetConfig) {
-                const currentProvider = widgetConfig.accessSettings?.workforceIdentityPoolProvider || '';
-                const origProvider = originalWidgetConfig.accessSettings?.workforceIdentityPoolProvider || '';
-
-                const currentEnableWebApp = formData.enableWebApp;
-                const origEnableWebApp = originalWidgetConfig.accessSettings?.enableWebApp || false;
-
-                const currentAutocomplete = formData.enableAutocomplete;
-                const origAutocomplete = originalWidgetConfig.uiSettings?.enableAutocomplete || false;
-
-                const currentFeedback = formData.enableQualityFeedback;
-                const origFeedback = originalWidgetConfig.uiSettings?.enableQualityFeedback || false;
-
-                if (currentProvider !== origProvider || currentEnableWebApp !== origEnableWebApp || currentAutocomplete !== origAutocomplete || currentFeedback !== origFeedback) {
-                    const updatePayload: any = {
-                        accessSettings: {
-                            ...widgetConfig.accessSettings,
-                            enableWebApp: currentEnableWebApp,
-                            workforceIdentityPoolProvider: currentProvider || null
-                        },
-                        uiSettings: {
-                            ...widgetConfig.uiSettings,
-                            enableAutocomplete: currentAutocomplete,
-                            enableQualityFeedback: currentFeedback
-                        }
-                    };
-
-                    const widgetMask = [];
-                    if (currentProvider !== origProvider || currentEnableWebApp !== origEnableWebApp) {
-                        widgetMask.push('accessSettings');
-                    }
-                    if (currentAutocomplete !== origAutocomplete || currentFeedback !== origFeedback) {
-                        widgetMask.push('uiSettings');
-                    }
-
-                    const updatedWidget = await api.updateWidgetConfig(engine.name, updatePayload, widgetMask, config);
-                    setWidgetConfig(updatedWidget);
-                    widgetChanged = true;
-                }
             }
 
             // Calculate changed features
@@ -739,6 +838,62 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             if (!qrCodeEnabled && engine.mobileDeeplinkUrl) {
                 payload.mobileDeeplinkUrl = '';
                 updateMask.push('mobileDeeplinkUrl');
+            }
+
+            // Handle IDP updates
+            let idpChanged = false;
+            if (idpData.idpType !== originalIdpData.idpType || idpData.workforcePoolName !== originalIdpData.workforcePoolName) {
+                await api.updateIdpConfig(engine.name, {
+                    idpType: idpData.idpType,
+                    workforcePoolName: idpData.idpType === 'THIRD_PARTY' ? idpData.workforcePoolName : ''
+                }, config);
+                idpChanged = true;
+            }
+
+            // Handle Widget Config updates
+            let widgetChanged = false;
+            if (widgetConfig && originalWidgetConfig) {
+                const currentProvider = idpData.idpType === 'THIRD_PARTY' ? idpData.workforcePoolName : '';
+                const origProvider = originalWidgetConfig.accessSettings?.workforceIdentityPoolProvider || '';
+                const currentEnableWebApp = formData.enableWebApp;
+                const origEnableWebApp = originalWidgetConfig.accessSettings?.enableWebApp || false;
+
+                const currentAutocomplete = formData.enableAutocomplete;
+                const origAutocomplete = originalWidgetConfig.uiSettings?.enableAutocomplete || false;
+
+                const currentFeedback = formData.enableQualityFeedback;
+                const origFeedback = originalWidgetConfig.uiSettings?.enableQualityFeedback || false;
+
+                const accessSettingsChanged = currentProvider !== origProvider || currentEnableWebApp !== origEnableWebApp;
+                const uiSettingsChanged = currentAutocomplete !== origAutocomplete || currentFeedback !== origFeedback || modelsChanged;
+
+                if (accessSettingsChanged || uiSettingsChanged) {
+                    const updatePayload: any = {
+                        accessSettings: {
+                            ...widgetConfig.accessSettings,
+                            enableWebApp: currentEnableWebApp,
+                            workforceIdentityPoolProvider: currentProvider || null
+                        },
+                        uiSettings: {
+                            ...widgetConfig.uiSettings,
+                            enableAutocomplete: currentAutocomplete,
+                            enableQualityFeedback: currentFeedback,
+                            modelConfigs: newModelConfigsMap
+                        }
+                    };
+
+                    const widgetMask: string[] = [];
+                    if (accessSettingsChanged) {
+                        widgetMask.push('accessSettings');
+                    }
+                    if (uiSettingsChanged) {
+                        widgetMask.push('uiSettings');
+                    }
+
+                    const updatedWidget = await api.updateWidgetConfig(engine.name, updatePayload, widgetMask, config);
+                    setWidgetConfig(updatedWidget);
+                    widgetChanged = true;
+                }
             }
 
             if (updateMask.length === 0 && !idpChanged && !widgetChanged) {
@@ -914,30 +1069,151 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                 </CollapsibleSection>
 
                 <CollapsibleSection title="Model Configuration">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-900/30 rounded-md">
-                        {dynamicModels.map(model => (
-                            <label key={model.id} className="flex flex-col space-y-1 p-2 hover:bg-gray-800 rounded transition-colors cursor-pointer border border-transparent hover:border-gray-700">
-                                <div className="flex items-center space-x-2">
-                                    <input
-                                        type="checkbox"
-                                        checked={modelConfigs[model.id] || false}
-                                        onChange={() => handleModelChange(model.id)}
-                                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0"
-                                    />
-                                    <span className="text-sm font-medium text-gray-200 break-words truncate flex-grow">
-                                        {model.displayName}
-                                    </span>
-                                    {model.isPreview && (
-                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-900/80 text-purple-200 border border-purple-700 flex-shrink-0">
-                                            Preview
-                                        </span>
-                                    )}
-                                </div>
-                                <span className="text-xs text-gray-400 pl-6 leading-normal line-clamp-2">
-                                    {model.description}
+                    <div className="space-y-4 p-4 bg-gray-900/40 rounded-md border border-gray-700/80">
+                        {/* Summary Header */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-gray-700/60">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-900/60 text-purple-300 border border-purple-700">
+                                    {activeModelCount} of {dynamicModels.length} Models Enabled
                                 </span>
-                            </label>
-                        ))}
+                                <span className="text-xs text-gray-400">
+                                    Configure which Gemini foundation models end users can select in the assistant web chat interface.
+                                </span>
+                            </div>
+                            {legacyModels.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowLegacyModels(!showLegacyModels)}
+                                    className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold rounded transition-colors border border-gray-700 whitespace-nowrap"
+                                >
+                                    {showLegacyModels ? 'Hide Legacy Keys' : `Show ${legacyModels.length} Legacy Keys`}
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Category Filter Pills & Search */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                            <div className="flex flex-wrap gap-1.5">
+                                {modelCategories.map(cat => {
+                                    const count = cat === 'All' 
+                                        ? dynamicModels.length 
+                                        : cat === 'Preview Models'
+                                            ? dynamicModels.filter(m => m.isPreview).length
+                                            : dynamicModels.filter(m => m.category === cat).length;
+                                    return (
+                                        <button
+                                            key={cat}
+                                            type="button"
+                                            onClick={() => setModelCategory(cat)}
+                                            className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
+                                                modelCategory === cat
+                                                    ? 'bg-purple-600 text-white shadow-sm'
+                                                    : 'bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                                            }`}
+                                        >
+                                            <span>{cat}</span>
+                                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                                                modelCategory === cat ? 'bg-purple-800 text-purple-200' : 'bg-gray-900 text-gray-400'
+                                            }`}>
+                                                {count}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="w-full sm:w-60">
+                                <input
+                                    type="text"
+                                    placeholder="Search models by name or ID..."
+                                    value={modelSearchQuery}
+                                    onChange={(e) => setModelSearchQuery(e.target.value)}
+                                    className="w-full bg-gray-950 border border-gray-700 rounded-md px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:ring-1 focus:ring-purple-500 outline-none"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Model Cards Grid or Empty State */}
+                        {filteredModels.length === 0 ? (
+                            <div className="py-6 px-4 text-center bg-gray-950/50 rounded-lg border border-gray-800/80 text-xs text-gray-400 space-y-1.5">
+                                <p className="text-gray-300 font-semibold">No active models categorized under "{modelCategory}".</p>
+                                <p className="text-[11px] text-gray-400 max-w-md mx-auto">
+                                    All current Gemini 2.5 and 3.x models in the active catalog are natively multimodal (processing images, documents, and diagrams in chat).
+                                </p>
+                                {legacyModels.some(m => modelCategory === 'All' || m.category === modelCategory) && !showLegacyModels && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowLegacyModels(true)}
+                                        className="mt-2 inline-block px-3 py-1 bg-gray-800 hover:bg-gray-700 text-blue-400 text-xs font-semibold rounded border border-gray-700 transition-colors"
+                                    >
+                                        Show legacy vision/preview endpoints ({legacyModels.filter(m => modelCategory === 'All' || m.category === modelCategory).length})
+                                    </button>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                                {filteredModels.map(model => (
+                                    <label
+                                        key={model.id}
+                                        className={`flex items-start space-x-2.5 p-3 rounded-lg border transition-all cursor-pointer ${
+                                            modelConfigs[model.id]
+                                                ? 'bg-gray-800/90 border-purple-600/40 shadow-sm'
+                                                : 'bg-gray-900/60 border-gray-800 hover:border-gray-700'
+                                        }`}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={modelConfigs[model.id] || false}
+                                            onChange={() => handleModelChange(model.id)}
+                                            className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-purple-600 focus:ring-purple-500 flex-shrink-0 mt-0.5"
+                                        />
+                                        <div className="flex-grow min-w-0">
+                                            <div className="flex items-center justify-between gap-1">
+                                                <span className="text-xs font-bold text-gray-200 truncate">{model.displayName}</span>
+                                                {model.isPreview && (
+                                                    <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-900/80 text-purple-200 border border-purple-600 flex-shrink-0">
+                                                        Preview
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <span className="text-[10px] text-gray-500 font-mono block truncate mt-0.5">{model.id}</span>
+                                            <p className="text-[11px] text-gray-400 mt-1 line-clamp-2 leading-relaxed">
+                                                {model.description}
+                                            </p>
+                                            <span className="inline-block mt-1 text-[9px] px-1.5 py-0.2 bg-gray-950/80 text-gray-400 rounded">
+                                                {model.category}
+                                            </span>
+                                        </div>
+                                    </label>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Custom Model ID Injector */}
+                        <div className="pt-3 border-t border-gray-800 flex flex-col sm:flex-row items-center gap-2">
+                            <span className="text-xs text-gray-400 whitespace-nowrap">+ Add Custom Model ID:</span>
+                            <input
+                                type="text"
+                                placeholder="e.g., gemini-3.1-flash-lite or gemini-exp-1206"
+                                value={customModelInput}
+                                onChange={(e) => setCustomModelInput(e.target.value)}
+                                className="flex-1 bg-gray-950 border border-gray-700 rounded px-2.5 py-1 text-xs text-white font-mono placeholder-gray-600 focus:ring-1 focus:ring-purple-500 outline-none"
+                            />
+                            <button
+                                type="button"
+                                disabled={!customModelInput.trim()}
+                                onClick={() => {
+                                    const id = customModelInput.trim();
+                                    if (id) {
+                                        setModelConfigs(prev => ({ ...prev, [id]: true }));
+                                        setCustomModelInput('');
+                                    }
+                                }}
+                                className="px-3 py-1 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-semibold rounded transition-colors"
+                            >
+                                Add Model
+                            </button>
+                        </div>
                     </div>
                 </CollapsibleSection>
 
