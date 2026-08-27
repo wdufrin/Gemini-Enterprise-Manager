@@ -159,7 +159,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
         {!isCollapsed && (
           <div className="flex flex-col ml-3 justify-center animate-fadeIn">
             <span className="text-lg font-bold text-gray-100 tracking-tight leading-none">Gemini Enterprise</span>
-            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0813.305</span>
+            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0827.306</span>
           </div>
         )}
       </div>
