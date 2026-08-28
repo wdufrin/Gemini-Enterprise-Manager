@@ -30,6 +30,7 @@ import ChatHistoryViewer from '../components/assistants/ChatHistoryViewer';
 import NotebookListViewer from '../components/assistants/NotebookListViewer';
 import VanityUrlDeploymentForm from '../components/assistants/VanityUrlDeploymentForm';
 import ConnectedDataStorePermissions from '../components/assistants/ConnectedDataStorePermissions';
+import UserMemoriesViewer from '../components/assistants/UserMemoriesViewer';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 
 interface AssistantPageProps {
@@ -135,7 +136,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'datastores' | 'notebooks' | 'history' | 'customize'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'memories' | 'datastores' | 'notebooks' | 'history' | 'customize'>('overview');
     const [isDataStoreAclSupported, setIsDataStoreAclSupported] = useState<boolean | null>(() => {
       const override = localStorage.getItem('feature_flag_datastore_acls');
       if (override === 'true') return true;
@@ -620,7 +621,9 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
       
       const currentConfig = { 
           ...baseApiConfig, 
-          appId: selectedRow.engine.name.split('/').pop()! 
+          appId: selectedRow.engine.name.split('/').pop()!,
+          engineName: selectedRow.engine.name,
+          projectNumber: projectNumber,
       };
 
       return (
@@ -666,6 +669,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                                   {[
                                       { key: 'overview', label: 'Overview' },
                                       { key: 'agents', label: 'Agents' },
+                                      { key: 'memories', label: 'User Memories', badge: 'Personalization' },
                                       ...(isDataStoreAclSupported ? [{ key: 'datastores', label: 'Connected DataStores', badge: 'Beta' }] : []),
                                       { key: 'notebooks', label: 'Notebooks' },
                                       { key: 'history', label: 'History' },
@@ -717,6 +721,13 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                                       agents={agents} 
                                       config={currentConfig}
                                       onRefreshAgents={() => fetchAgentsForAssistant(selectedRow.engine.name.split('/').pop()!)}
+                                  />
+                              )}
+
+                              {activeTab === 'memories' && (
+                                  <UserMemoriesViewer 
+                                      config={currentConfig} 
+                                      userProfile={userProfile} 
                                   />
                               )}
 
@@ -806,7 +817,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                   config={activeChatConfig.config}
                   accessToken={accessToken}
                   onClose={() => setActiveChatConfig(null)}
-                      userProfile={userProfile}
+                  userProfile={userProfile}
               />
           </div>
       )}

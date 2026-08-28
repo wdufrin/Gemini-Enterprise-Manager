@@ -37,6 +37,8 @@ import {
   UserPermissionsValidation,
   UserPermissionItem,
   ComprehensiveValidationResult,
+  UserMemory,
+  ListMemoriesResponse,
 } from "../types";
 import { getGapiClient } from "./gapiService";
 
@@ -1121,6 +1123,24 @@ export const updateWidgetConfig = async (
   return gapiRequest<WidgetConfig>(url, "PATCH", projectId, undefined, payload);
 };
 
+export const getIdpConfig = async (name: string, config: Config) => {
+  const { projectId, appLocation } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+  const url = `${baseUrl}/v1alpha/${name}/idpConfig`;
+  return gapiRequest<any>(url, "GET", projectId, undefined, undefined, undefined, true);
+};
+
+export const updateIdpConfig = async (
+  name: string,
+  payload: any,
+  config: Config,
+) => {
+  const { projectId, appLocation } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+  const url = `${baseUrl}/v1alpha/${name}/idpConfig`;
+  return gapiRequest<any>(url, "PATCH", projectId, undefined, payload);
+};
+
 // AclConfig (Location level IDP)
 export const getAclConfig = async (config: Config) => {
   const { projectId, appLocation } = config;
@@ -1211,6 +1231,63 @@ export const createAssistant = async (
   const baseUrl = getDiscoveryEngineUrl(appLocation);
   const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants?assistantId=${assistantId}`;
   return gapiRequest<Assistant>(url, "POST", projectId, undefined, payload);
+};
+
+// User Memories (Personalization)
+export const listUserMemories = async (
+  config: Config & { engineName?: string; projectNumber?: string },
+  pageSize: number = 20,
+  pageToken?: string,
+): Promise<ListMemoriesResponse> => {
+  const { projectId, appLocation, collectionId, appId, engineName, projectNumber } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+
+  let parentPath: string;
+  if (engineName && engineName.startsWith("projects/")) {
+    parentPath = engineName;
+  } else {
+    let proj = projectNumber || projectId;
+    if (proj && !/^\d+$/.test(proj)) {
+      try {
+        const resolved = await getProjectNumber(proj);
+        if (resolved) proj = resolved;
+      } catch (err) {
+        console.warn("Could not resolve project number for memories API, falling back to projectId:", err);
+      }
+    }
+    parentPath = `projects/${proj}/locations/${appLocation}/collections/${collectionId || "default_collection"}/engines/${appId}`;
+  }
+
+  let url = `${baseUrl}/${DISCOVERY_API_VERSION}/${parentPath}/memories?pageSize=${pageSize}`;
+  if (pageToken) {
+    url += `&pageToken=${encodeURIComponent(pageToken)}`;
+  }
+  return gapiRequest<ListMemoriesResponse>(
+    url,
+    "GET",
+    projectId,
+    undefined,
+    undefined,
+    undefined,
+    config.suppressErrorLog,
+  );
+};
+
+export const deleteUserMemory = async (
+  memoryName: string,
+  config: Config,
+): Promise<any> => {
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${memoryName}`;
+  return gapiRequest<any>(
+    url,
+    "DELETE",
+    config.projectId,
+    undefined,
+    undefined,
+    undefined,
+    config.suppressErrorLog,
+  );
 };
 
 // Agents

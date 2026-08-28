@@ -483,3 +483,19 @@ export interface ComprehensiveValidationResult {
   userPermissions: UserPermissionsValidation | null;
 }
 
+export interface UserMemory {
+  name: string;
+  fact?: string;
+  description?: string;
+  createTime?: string;
+  updateTime?: string;
+  originalResourcePath?: string;
+  [key: string]: any;
+}
+
+export interface ListMemoriesResponse {
+  memories?: UserMemory[];
+  nextPageToken?: string;
+}
+
+
