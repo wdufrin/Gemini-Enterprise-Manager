@@ -229,127 +229,208 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
     setConnectivityResult(null);
   }, [connector]);
 
-  // Construct current state as payload
-  const currentPayload = useMemo(() => {
-    const actionParamsPayload: Record<string, any> = {};
+  // Construct targeted payload & computed update mask based on modified fields
+  const { targetedPayload, computedUpdateMask } = useMemo(() => {
+    // 1. Raw JSON Mode
+    if (editorMode === 'json') {
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(rawJsonText);
+      } catch {
+        parsed = null;
+      }
 
-    if (mcpServerDescription.trim()) {
-      actionParamsPayload.mcp_server_description = mcpServerDescription.trim();
-    }
-    if (mcpAgentInstructions.trim()) {
-      actionParamsPayload.mcp_agent_instructions = mcpAgentInstructions.trim();
-    }
-    if (mcpServerSource.trim()) {
-      actionParamsPayload.mcp_server_source = mcpServerSource.trim();
-    }
-    if (registryMcpServerName.trim()) {
-      actionParamsPayload.registry_mcp_server_name = registryMcpServerName.trim();
-    }
+      if (!useAutoUpdateMask && customUpdateMask.trim()) {
+        return {
+          targetedPayload: parsed || {},
+          computedUpdateMask: customUpdateMask.split(',').map((s) => s.trim()).filter(Boolean),
+        };
+      }
 
-    // Discovery Engine OAuth rule:
-    // If auth_type: OAUTH or OAuth endpoints/scopes are sent in actionParams, Discovery Engine requires client_id.
-    // Since Google Cloud redacts client_id and secret on GET, only send OAuth fields if the user provided client_id
-    // or if auth_type is non-OAuth (e.g. NONE, API_KEY). This allows updating descriptions, instructions, and tools
-    // without wiping out or failing stored OAuth credentials.
-    const hasClientId = Boolean(clientId.trim());
-    if (hasClientId) {
-      actionParamsPayload.client_id = clientId.trim();
-      if (clientSecret.trim()) {
-        actionParamsPayload.client_secret = clientSecret.trim();
-      }
-      if (authType) {
-        actionParamsPayload.auth_type = authType;
-      }
-      if (scopes.trim()) {
-        actionParamsPayload.scopes = scopes.trim();
-      }
-      if (authUri.trim()) {
-        actionParamsPayload.auth_uri = authUri.trim();
-      }
-      if (tokenUri.trim()) {
-        actionParamsPayload.token_uri = tokenUri.trim();
-      }
-      if (authUriParams.trim()) {
-        actionParamsPayload.auth_uri_params = authUriParams.trim();
-      }
-      if (instanceUri.trim()) {
-        actionParamsPayload.instance_uri = instanceUri.trim();
-      }
-    } else if (authType && authType !== 'OAUTH') {
-      actionParamsPayload.auth_type = authType;
-      if (instanceUri.trim()) {
-        actionParamsPayload.instance_uri = instanceUri.trim();
-      }
-    }
-
-    customActionParams.forEach((item) => {
-      const k = item.key.trim();
-      if (k) {
-        try {
-          actionParamsPayload[k] = JSON.parse(item.value);
-        } catch {
-          actionParamsPayload[k] = item.value;
+      const masks = new Set<string>();
+      if (parsed) {
+        if (parsed.actionConfig?.actionParams && Object.keys(parsed.actionConfig.actionParams).length > 0) {
+          masks.add('action_config.action_params');
+        }
+        if (Array.isArray(parsed.dynamicTools) && parsed.dynamicTools.length > 0) {
+          masks.add('dynamic_tools');
+        }
+        if (parsed.bapConfig) {
+          masks.add('bap_config');
+        }
+        if (parsed.params?.instance_uri !== undefined) {
+          masks.add('params.instance_uri');
+        }
+        if (parsed.refreshInterval !== undefined) {
+          masks.add('refresh_interval');
+        }
+        if (parsed.staticIpEnabled !== undefined) {
+          masks.add('static_ip_enabled');
         }
       }
-    });
+      return {
+        targetedPayload: parsed || {},
+        computedUpdateMask: masks.size > 0 ? Array.from(masks) : ['action_config.action_params'],
+      };
+    }
 
-    const enabledToolNames = dynamicTools.filter((t) => t.enabled).map((t) => t.name);
+    // 2. Visual Form Mode: Diff against initial connector state
+    const origActionParams = connector?.actionConfig?.actionParams || {};
+    const origDesc = origActionParams.mcp_server_description || '';
+    const origInst = origActionParams.mcp_agent_instructions || '';
+    const origUri = origActionParams.instance_uri || connector?.params?.instance_uri || '';
+    const origInterval = connector?.refreshInterval || '86400s';
+    const origStaticIp = Boolean(connector?.staticIpEnabled ?? connector?.params?.static_ip_enabled);
 
-    return {
-      actionConfig: {
+    const descChanged = mcpServerDescription !== origDesc;
+    const instChanged = mcpAgentInstructions !== origInst;
+    const uriChanged = instanceUri.trim() !== origUri;
+    const intervalChanged = refreshInterval !== origInterval;
+    const staticIpChanged = staticIpEnabled !== origStaticIp;
+
+    const origEnabledActions = (connector?.bapConfig?.enabledActions || []).slice().sort().join(',');
+    const currentEnabledActions = dynamicTools.filter((t) => t.enabled).map((t) => t.name).slice().sort().join(',');
+    const toolsChanged = (
+      origEnabledActions !== currentEnabledActions ||
+      dynamicTools.length !== (connector?.dynamicTools || []).length
+    );
+
+    const customChanged = customActionParams.length > 0;
+    const authChanged = Boolean(clientId.trim());
+
+    // If no changes detected, default to updating action_params with current description & instructions
+    const actionParamsChanged = descChanged || instChanged || customChanged || authChanged;
+    const hasAnyChange = actionParamsChanged || toolsChanged || uriChanged || intervalChanged || staticIpChanged;
+
+    const masks: string[] = [];
+    const payload: Record<string, any> = {};
+
+    // 1. Action Params
+    if (actionParamsChanged || !hasAnyChange) {
+      masks.push('action_config.action_params');
+      const actionParamsPayload: Record<string, any> = {};
+
+      if (mcpServerDescription.trim()) {
+        actionParamsPayload.mcp_server_description = mcpServerDescription.trim();
+      }
+      if (mcpAgentInstructions.trim()) {
+        actionParamsPayload.mcp_agent_instructions = mcpAgentInstructions.trim();
+      }
+      if (mcpServerSource.trim()) {
+        actionParamsPayload.mcp_server_source = mcpServerSource.trim();
+      }
+      if (registryMcpServerName.trim()) {
+        actionParamsPayload.registry_mcp_server_name = registryMcpServerName.trim();
+      }
+
+      if (authChanged) {
+        actionParamsPayload.client_id = clientId.trim();
+        if (clientSecret.trim()) actionParamsPayload.client_secret = clientSecret.trim();
+        if (authType) actionParamsPayload.auth_type = authType;
+        if (scopes.trim()) actionParamsPayload.scopes = scopes.trim();
+        if (authUri.trim()) actionParamsPayload.auth_uri = authUri.trim();
+        if (tokenUri.trim()) actionParamsPayload.token_uri = tokenUri.trim();
+        if (authUriParams.trim()) actionParamsPayload.auth_uri_params = authUriParams.trim();
+        if (instanceUri.trim()) actionParamsPayload.instance_uri = instanceUri.trim();
+      } else if (authType && authType !== 'OAUTH') {
+        actionParamsPayload.auth_type = authType;
+        if (instanceUri.trim()) actionParamsPayload.instance_uri = instanceUri.trim();
+      }
+
+      customActionParams.forEach((item) => {
+        const k = item.key.trim();
+        if (k) {
+          try {
+            actionParamsPayload[k] = JSON.parse(item.value);
+          } catch {
+            actionParamsPayload[k] = item.value;
+          }
+        }
+      });
+
+      payload.actionConfig = {
         ...(connector?.actionConfig || {}),
         actionParams: actionParamsPayload,
-        createBapConnection: connector?.actionConfig?.createBapConnection ?? true,
-      },
-      params: {
-        ...(connector?.params || {}),
-        ...(instanceUri.trim() ? { instance_uri: instanceUri.trim() } : {}),
-      },
-      dynamicTools: dynamicTools.map((t) => ({
+      };
+    }
+
+    // 2. Dynamic Tools
+    if (toolsChanged) {
+      masks.push('dynamic_tools');
+      masks.push('bap_config');
+      payload.dynamicTools = dynamicTools.map((t) => ({
         name: t.name,
         displayName: t.displayName || t.name,
         description: t.description || '',
         enabled: t.enabled,
-      })),
-      bapConfig: {
+      }));
+      payload.bapConfig = {
         ...(connector?.bapConfig || {}),
-        enabledActions: enabledToolNames,
-      },
-      refreshInterval: refreshInterval || '86400s',
-      staticIpEnabled: staticIpEnabled,
+        enabledActions: dynamicTools.filter((t) => t.enabled).map((t) => t.name),
+      };
+    }
+
+    // 3. Instance URI
+    if (uriChanged && instanceUri.trim()) {
+      masks.push('params.instance_uri');
+      payload.params = {
+        ...(connector?.params || {}),
+        instance_uri: instanceUri.trim(),
+      };
+    }
+
+    // 4. Refresh Interval
+    if (intervalChanged) {
+      masks.push('refresh_interval');
+      payload.refreshInterval = refreshInterval;
+    }
+
+    // 5. Static IP
+    if (staticIpChanged) {
+      masks.push('static_ip_enabled');
+      payload.staticIpEnabled = staticIpEnabled;
+    }
+
+    return {
+      targetedPayload: payload,
+      computedUpdateMask: masks.length > 0 ? masks : ['action_config.action_params'],
     };
   }, [
+    editorMode,
+    rawJsonText,
+    useAutoUpdateMask,
+    customUpdateMask,
+    connector,
     mcpServerDescription,
     mcpAgentInstructions,
     instanceUri,
+    refreshInterval,
+    staticIpEnabled,
+    dynamicTools,
+    customActionParams,
+    clientId,
+    clientSecret,
     authType,
     scopes,
     authUri,
     tokenUri,
     authUriParams,
-    clientId,
-    clientSecret,
     mcpServerSource,
     registryMcpServerName,
-    customActionParams,
-    dynamicTools,
-    refreshInterval,
-    staticIpEnabled,
-    connector,
   ]);
 
   // Sync to JSON mode text when switching or when payload updates
   useEffect(() => {
     if (editorMode === 'json' && !rawJsonText) {
-      setRawJsonText(JSON.stringify(currentPayload, null, 2));
+      setRawJsonText(JSON.stringify(targetedPayload, null, 2));
       setRawJsonError(null);
     }
-  }, [editorMode, currentPayload, rawJsonText]);
+  }, [editorMode, targetedPayload, rawJsonText]);
 
   // Handle switching editor mode
   const handleSwitchMode = (mode: 'visual' | 'json') => {
     if (mode === 'json') {
-      setRawJsonText(JSON.stringify(currentPayload, null, 2));
+      setRawJsonText(JSON.stringify(targetedPayload, null, 2));
       setRawJsonError(null);
     } else {
       if (rawJsonText && !rawJsonError) {
@@ -534,64 +615,6 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
     setCustomActionParams((prev) => prev.filter((_, idx) => idx !== index));
   };
 
-  // Determine update mask automatically
-  const computedUpdateMask = useMemo<string[]>(() => {
-    if (editorMode === 'json' && !useAutoUpdateMask && customUpdateMask.trim()) {
-      return customUpdateMask.split(',').map((s) => s.trim()).filter(Boolean);
-    }
-
-    const masks = new Set<string>();
-
-    if (editorMode === 'json' && rawJsonText) {
-      try {
-        const parsed = JSON.parse(rawJsonText);
-        if (parsed.actionConfig?.actionParams && Object.keys(parsed.actionConfig.actionParams).length > 0) {
-          masks.add('action_config.action_params');
-        }
-        if (parsed.dynamicTools && parsed.dynamicTools.length > 0) {
-          masks.add('dynamic_tools');
-        }
-        if (parsed.bapConfig) {
-          masks.add('bap_config');
-        }
-        if (parsed.params?.instance_uri !== undefined) {
-          masks.add('params.instance_uri');
-        }
-        if (parsed.refreshInterval !== undefined) {
-          masks.add('refresh_interval');
-        }
-        if (parsed.staticIpEnabled !== undefined) {
-          masks.add('static_ip_enabled');
-        }
-      } catch {
-        masks.add('action_config.action_params');
-      }
-      return masks.size > 0 ? Array.from(masks) : ['action_config.action_params'];
-    }
-
-    // Visual Form Mode:
-    if (Object.keys(currentPayload.actionConfig?.actionParams || {}).length > 0) {
-      masks.add('action_config.action_params');
-    }
-
-    if (dynamicTools.length > 0) {
-      masks.add('dynamic_tools');
-      masks.add('bap_config');
-    }
-
-    if (instanceUri.trim()) {
-      masks.add('params.instance_uri');
-    }
-
-    if (refreshInterval) {
-      masks.add('refresh_interval');
-    }
-
-    masks.add('static_ip_enabled');
-
-    return Array.from(masks);
-  }, [editorMode, useAutoUpdateMask, customUpdateMask, rawJsonText, currentPayload, dynamicTools, instanceUri, refreshInterval]);
-
   // Construct cURL string
   const generatedCurl = useMemo<string>(() => {
     if (!connector || !connector.name) return '';
@@ -608,10 +631,10 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
       try {
         payloadToPrint = JSON.parse(rawJsonText);
       } catch {
-        payloadToPrint = currentPayload;
+        payloadToPrint = targetedPayload;
       }
     } else {
-      payloadToPrint = currentPayload;
+      payloadToPrint = targetedPayload;
     }
 
     return `curl -X PATCH \\
@@ -620,7 +643,7 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
   -H "x-goog-user-project: ${projId}" \\
   "https://${host}/v1alpha/projects/${projId}/locations/${loc}/collections/${collId}/dataConnector?updateMask=${maskStr}" \\
   -d '${JSON.stringify(payloadToPrint, null, 2).replace(/'/g, "'\\''")}'`;
-  }, [connector, config, computedUpdateMask, editorMode, rawJsonText, rawJsonError, currentPayload]);
+  }, [connector, config, computedUpdateMask, editorMode, rawJsonText, rawJsonError, targetedPayload]);
 
   // Copy cURL to clipboard
   const handleCopyCurl = () => {
@@ -635,7 +658,7 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
     const jsonStr =
       editorMode === 'json' && rawJsonText && !rawJsonError
         ? rawJsonText
-        : JSON.stringify(currentPayload, null, 2);
+        : JSON.stringify(targetedPayload, null, 2);
     navigator.clipboard.writeText(jsonStr);
     setCopiedJson(true);
     setTimeout(() => setCopiedJson(false), 2500);
@@ -678,7 +701,7 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
       if (editorMode === 'json' && rawJsonText) {
         payloadToSend = JSON.parse(rawJsonText);
       } else {
-        payloadToSend = currentPayload;
+        payloadToSend = targetedPayload;
       }
 
       const updateMasks = computedUpdateMask;
@@ -1293,7 +1316,7 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
                 </button>
                 <button
                   onClick={() => {
-                    setRawJsonText(JSON.stringify(currentPayload, null, 2));
+                    setRawJsonText(JSON.stringify(targetedPayload, null, 2));
                     setRawJsonError(null);
                   }}
                   className="px-2.5 py-1 text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded border border-gray-700 transition-colors"
@@ -1406,7 +1429,10 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
         </div>
 
         {/* Save Button */}
-        <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+          <span className="text-[11px] text-gray-400 font-mono hidden sm:inline-block">
+            Mask: <span className="text-purple-300">{computedUpdateMask.join(', ')}</span>
+          </span>
           <button
             onClick={handleSave}
             disabled={isSaving || (editorMode === 'json' && Boolean(rawJsonError))}
