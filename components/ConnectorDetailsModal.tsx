@@ -17,6 +17,7 @@
 import React, { useState, useEffect } from 'react';
 import ConnectorVerificationTab from './connectors/ConnectorVerificationTab';
 import ConnectorFiltersTab, { countFilterRules } from './connectors/ConnectorFiltersTab';
+import BYOMCPConfigTab from './connectors/BYOMCPConfigTab';
 import * as api from '../services/apiService';
 import { Config } from '../types';
 
@@ -210,7 +211,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
               className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'config' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
               onClick={() => setActiveTab('config')}
             >
-              Configuration
+              {connectorState?.dataSource === 'custom_mcp' ? 'BYOMCP Settings & JSON' : 'Configuration'}
             </button>
           </div>
 
@@ -282,23 +283,35 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                       <div className="text-xs text-gray-400 font-medium">
                         BYOMCP Server Actions:
                       </div>
-                      <button
-                        onClick={handleRefreshMcpTools}
-                        disabled={isRefreshingTools}
-                        className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 transition-colors flex items-center gap-1.5 shadow"
-                      >
-                        {isRefreshingTools ? (
-                          <>
-                            <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            Refreshing Tools...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3m-3-3v12" /></svg>
-                            Refresh Tools from MCP
-                          </>
-                        )}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setActiveTab('config')}
+                          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded transition-colors flex items-center gap-1.5 shadow"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          Configure BYOMCP Settings &rarr;
+                        </button>
+                        <button
+                          onClick={handleRefreshMcpTools}
+                          disabled={isRefreshingTools}
+                          className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 transition-colors flex items-center gap-1.5 shadow"
+                        >
+                          {isRefreshingTools ? (
+                            <>
+                              <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                              Refreshing Tools...
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3m-3-3v12" /></svg>
+                              Refresh Tools from MCP
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
 
                     {refreshSuccess && (
@@ -498,6 +511,15 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
           ) : activeTab === 'filters' ? (
             <div className="space-y-6 animate-fadeIn">
               <ConnectorFiltersTab
+                connector={connectorState}
+                config={config}
+                onConnectorUpdated={(updated) => setConnector(updated)}
+                onRefreshSuccess={onRefreshSuccess}
+              />
+            </div>
+          ) : connectorState?.dataSource === 'custom_mcp' ? (
+            <div className="space-y-6 animate-fadeIn">
+              <BYOMCPConfigTab
                 connector={connectorState}
                 config={config}
                 onConnectorUpdated={(updated) => setConnector(updated)}

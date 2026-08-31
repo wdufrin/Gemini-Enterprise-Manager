@@ -160,6 +160,15 @@ export const gapiRequest = async <T>(
     // Try to extract from gapi result error structure
     if (error?.result?.error?.message) {
       errorMessage = error.result.error.message;
+      const details = error.result.error.details;
+      if (Array.isArray(details) && details.length > 0) {
+        const detailTexts = details
+          .map((d: any) => d.detail || d.message)
+          .filter(Boolean);
+        if (detailTexts.length > 0) {
+          errorMessage = `${errorMessage} (${detailTexts.join('; ').trim()})`;
+        }
+      }
     }
     // Try to extract from top-level error message
     else if (error?.message) {
