@@ -8,11 +8,17 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
 
 ### 🤖 Agent Management
 *   **GE Agent Manager**: List, create, update, and delete agents. Supports toggling agent status (Enable/Disable).
+*   **⚡ Skills Registry**: Central enterprise skills management powered by Google Cloud Agent Platform (`agentregistry.googleapis.com`):
+    *   **Package Authoring & Upload**: Create new skills or upload `.zip` packages containing `SKILL.md` instructions and subfiles.
+    *   **Immutable Revision Control**: Inspect versioned revisions (`revisions/rev-1`), compilation logs, and raw JSON specs.
+    *   **Catalog Activation**: Transition skills to `STATE_ACTIVE` with default revisions for company-wide distribution.
+    *   **1-Click GE App Deployment**: Provision skills directly into Gemini Enterprise engine assistants with `scope: ALL_USERS`, displaying under **"From my organization"**.
+    *   **Multi-Region Support**: Switch between `🌍 Global`, `🇪🇺 EU`, and `🇺🇸 US` locations.
 *   **Chat Testing**: Built-in chat interface to test agents and assistants with streaming responses, tool visualization, and grounding metadata inspection.
-*   **Project Context**: smart header with Breadcrumbs and quick project switching (Project ID/Number).
+*   **Project Context**: Smart header with Breadcrumbs and quick project switching (Project ID/Number).
 
 ### 📚 Documentation & Help
-*   **User Manual**: built-in help system with detailed feature guides and API info.
+*   **User Manual**: Built-in help system with detailed feature guides and API info.
 *   **API Reference**: Clear documentation of underlying API calls for each feature.
 
 ### 🏭 Agent Engines & Runtimes
@@ -73,12 +79,13 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
 ### Prerequisites
 *   A Google Cloud Project.
 *   The following APIs enabled:
-    *   `discoveryengine.googleapis.com`
-    *   `aiplatform.googleapis.com`
-    *   `run.googleapis.com`
-    *   `cloudbuild.googleapis.com`
-    *   `storage.googleapis.com`
-    *   `serviceusage.googleapis.com`
+    *   `discoveryengine.googleapis.com` (Discovery Engine / Gemini Enterprise API)
+    *   `agentregistry.googleapis.com` (Agent Registry / Skills Platform API)
+    *   `aiplatform.googleapis.com` (Vertex AI API)
+    *   `run.googleapis.com` (Cloud Run API)
+    *   `cloudbuild.googleapis.com` (Cloud Build API)
+    *   `storage.googleapis.com` (Cloud Storage API)
+    *   `serviceusage.googleapis.com` (Service Usage API)
 
 ### 1. Configure OAuth Consent
 To use "Sign in with Google", configure an OAuth Client ID:
@@ -154,6 +161,14 @@ The application communicates with several Google Cloud APIs. Below is a referenc
 *   **Authorizations**: `GET /v1alpha/projects/{project}/locations/{location}/authorizations`
 *   **User Licenses**: `GET /v1/projects/{project}/locations/{location}/userStores/{userStore}/userLicenses`
 *   **License Allocations**: `GET /v1alpha/billingAccounts/{billingAccount}/billingAccountLicenseConfigs`
+
+### Agent Registry API (`agentregistry.googleapis.com`)
+*   **List Skills**: `GET /v1alpha/projects/{project}/locations/{location}/skills`
+*   **Publish Skill**: `POST /v1alpha/projects/{project}/locations/{location}/skills?skillId={skillId}`
+*   **Get Skill**: `GET /v1alpha/projects/{project}/locations/{location}/skills/{skill}`
+*   **List Skill Revisions**: `GET /v1alpha/projects/{project}/locations/{location}/skills/{skill}/revisions`
+*   **Activate / Update Skill**: `PATCH /v1alpha/projects/{project}/locations/{location}/skills/{skill}?updateMask=default_revision,target_state`
+*   **Delete Skill**: `DELETE /v1alpha/projects/{project}/locations/{location}/skills/{skill}`
 
 ### Vertex AI API (`aiplatform.googleapis.com`)
 *   **Reasoning Engines**: `GET /v1beta1/projects/{project}/locations/{location}/reasoningEngines`

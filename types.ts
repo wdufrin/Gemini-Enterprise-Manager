@@ -18,6 +18,7 @@
 // FIX: Replaced incorrect component code with proper type definitions.
 export enum Page {
   AGENTS = 'GE Agent Manager',
+  SKILLS_REGISTRY = 'Skills Registry',
   ASSISTANT = 'Assistant',
   AUTHORIZATIONS = 'Authorizations',
   AGENT_PERMISSIONS = 'Agent Permissions',
@@ -132,10 +133,14 @@ export interface Agent {
   lowCodeAgentDefinition?: any;
   managedAgentDefinition?: any;
   workflowAgentDefinition?: any;
+  skillAgentDefinition?: SkillAgentDefinition;
   authorizations?: string[]; // Deprecated
   authorizationConfig?: AuthorizationConfig;
   entitlements?: any[];
-  state?: 'ENABLED' | 'DISABLED';
+  state?: 'ENABLED' | 'DISABLED' | 'PRIVATE' | 'CONFIGURED' | 'DEPLOYING' | 'DEPLOYMENT_FAILED' | 'SUSPENDED' | 'CREATING' | 'CREATION_FAILED' | string;
+  sharingConfig?: {
+    scope?: 'RESTRICTED' | 'ALL_USERS' | string;
+  };
   createTime?: string;
   updateTime?: string;
   agentType?: string;
@@ -495,6 +500,95 @@ export interface UserMemory {
 
 export interface ListMemoriesResponse {
   memories?: UserMemory[];
+  nextPageToken?: string;
+}
+
+export interface SkillFile {
+  fileName: string;
+  mimeType?: string;
+  content?: string;
+}
+
+export interface GeminiEnterpriseSkillConfig {
+  dataConnectorSkillConfig?: {
+    dependentTools?: string[];
+    enabled?: boolean;
+    dependentDataConnectorSourceOptions?: string[];
+    skillKey?: string;
+  };
+  workspaceSkillConfig?: Record<string, any>;
+  piperSkill?: boolean;
+}
+
+export interface SkillAgentDefinition {
+  gcsUri?: string;
+  importUri?: string;
+  owner?: string;
+  instruction?: string;
+  dependentSkillAgents?: string[];
+  geminiEnterpriseSkillConfig?: GeminiEnterpriseSkillConfig;
+  session?: string;
+  subfiles?: SkillFile[];
+  agentRegistrySkill?: string;
+  skillRegistrySkill?: string;
+  zippedFilesystem?: string;
+  contentDigest?: string;
+}
+
+export type SkillScope = 'ORGANIZATIONAL' | 'USER_CREATED' | 'FIRST_PARTY';
+
+export interface SkillItem {
+  agent: Agent;
+  scope: SkillScope;
+  sourceType: 'AGENT_REGISTRY' | 'GCS' | 'INLINE_INSTRUCTION' | '1P_CONNECTOR' | 'CUSTOM';
+  sourceLocation?: string;
+}
+
+export interface RegistrySkillFrontmatter {
+  name?: string;
+  description?: string;
+  packageId?: string;
+  license?: string;
+  [key: string]: any;
+}
+
+export interface RegistrySkillRevision {
+  name: string;
+  state?: string;
+  sha256Hash?: string;
+  frontmatter?: RegistrySkillFrontmatter;
+  createTime?: string;
+  sizeBytes?: string;
+  uid?: string;
+}
+
+export interface RegistrySkill {
+  name: string; // projects/{project}/locations/{location}/skills/{skill}
+  uid?: string;
+  displayName: string;
+  description?: string;
+  type?: 'SIMPLE' | 'COMPOSITE' | string;
+  state?: 'STATE_ACTIVE' | 'STATE_DRAFT' | 'STATE_DISABLED' | 'STATE_DEPRECATED' | 'STATE_DECOMMISSIONED' | string;
+  targetState?: 'TARGET_STATE_ACTIVE' | 'TARGET_STATE_DRAFT' | 'TARGET_STATE_DISABLED' | 'TARGET_STATE_DEPRECATED' | string;
+  defaultRevision?: string;
+  publisher?: string;
+  skillId?: string; // urn:skill:...
+  createTime?: string;
+  updateTime?: string;
+  frontmatter?: RegistrySkillFrontmatter;
+  initialRevision?: {
+    frontmatter?: RegistrySkillFrontmatter;
+    [key: string]: any;
+  };
+}
+
+export interface ListRegistrySkillsResponse {
+  skills?: RegistrySkill[];
+  nextPageToken?: string;
+}
+
+export interface ListRegistrySkillRevisionsResponse {
+  skillRevisions?: RegistrySkillRevision[];
   nextPageToken?: string;
 }
 

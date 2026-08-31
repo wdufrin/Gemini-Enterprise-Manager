@@ -24,6 +24,78 @@ interface CurlInfoModalProps {
 }
 
 const ALL_INFO: { [key: string]: { description: string; commands: { title: string; command: string }[] } } = {
+    [Page.SKILLS_REGISTRY]: {
+        description: "These are the REST API calls for managing skills and revisions in the Google Cloud Agent Platform Skills Registry (agentregistry.googleapis.com), and deploying skills to Gemini Enterprise assistant engines.",
+        commands: [
+            {
+                title: 'List Skills in Registry',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://agentregistry.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills"`
+            },
+            {
+                title: 'Publish / Create Skill with ZIP Bundle',
+                command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "displayName": "IT Incident Postmortem",
+        "description": "Generates structured IT incident postmortem reports.",
+        "source": {
+          "inlineSource": {
+            "archive": "[BASE64_ENCODED_ZIP_CONTAINING_SKILL_MD]"
+          }
+        }
+      }' \\
+  "https://agentregistry.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills?skillId=[SKILL_ID]"`
+            },
+            {
+                title: 'List Skill Revisions',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://agentregistry.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/[SKILL_ID]/revisions"`
+            },
+            {
+                title: 'Activate Skill in Company Catalog',
+                command: `curl -X PATCH \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "targetState": "TARGET_STATE_ACTIVE",
+        "defaultRevision": "projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/[SKILL_ID]/revisions/[REVISION_ID]"
+      }' \\
+  "https://agentregistry.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/[SKILL_ID]?updateMask=default_revision,target_state"`
+            },
+            {
+                title: 'Deploy Skill to Gemini Enterprise Engine Assistant',
+                command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "displayName": "IT Incident Postmortem",
+        "description": "Generates structured IT incident postmortem reports.",
+        "state": "ENABLED",
+        "sharingConfig": { "scope": "ALL_USERS" },
+        "skillAgentDefinition": {
+          "instruction": "Generates structured IT incident postmortem reports."
+        }
+      }' \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/default_assistant/agents?agentId=[SKILL_ID]"`
+            },
+            {
+                title: 'Delete Skill from Registry',
+                command: `curl -X DELETE \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://agentregistry.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/[SKILL_ID]"`
+            }
+        ]
+    },
     [Page.AGENTS]: {
         description: "These are the underlying REST API calls for managing agents and their security. They interact with the v1alpha Discovery Engine API.",
         commands: [

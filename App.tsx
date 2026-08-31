@@ -18,6 +18,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GlobalDebugProvider } from './context/GlobalDebugContext';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
+import SkillsRegistryPage from './pages/SkillsRegistryPage';
 import AuthorizationsPage from './pages/AuthorizationsPage';
 import { Page, ReasoningEngine, GraphNode, GraphEdge, UserProfile, AppEngine, Authorization, Agent, ServiceAgentValidation, UserPermissionsValidation } from './types';
 import AccessTokenInput from './components/AccessTokenInput';
@@ -796,6 +797,8 @@ const InnerApp: React.FC = () => {
     switch (currentPage) {
       case Page.AGENTS:
         return <AgentsPage {...projectProps} context={pageContext} accessToken={accessToken} />;
+      case Page.SKILLS_REGISTRY:
+        return <SkillsRegistryPage projectId={projectId} {...projectProps} accessToken={accessToken} userProfile={userProfile} />;
       case Page.ASSISTANT:
             return <AssistantPage projectId={projectId} {...projectProps} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={handleBuildTriggered} />;
       case Page.AUTHORIZATIONS:

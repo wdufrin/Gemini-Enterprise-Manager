@@ -39,6 +39,10 @@ import {
   ComprehensiveValidationResult,
   UserMemory,
   ListMemoriesResponse,
+  RegistrySkill,
+  RegistrySkillRevision,
+  ListRegistrySkillsResponse,
+  ListRegistrySkillRevisionsResponse,
 } from "../types";
 import { getGapiClient } from "./gapiService";
 
@@ -1318,6 +1322,7 @@ export const createAgent = async (
   payload: any,
   config: Config,
   agentId?: string,
+  suppressErrorLog?: boolean,
 ) => {
   const { projectId, appLocation, collectionId, appId, assistantId } = config;
   const baseUrl = getDiscoveryEngineUrl(appLocation);
@@ -1325,7 +1330,7 @@ export const createAgent = async (
   if (agentId) {
     url += `?agentId=${agentId}`;
   }
-  return gapiRequest<Agent>(url, "POST", projectId, undefined, payload);
+  return gapiRequest<Agent>(url, "POST", projectId, undefined, payload, undefined, suppressErrorLog);
 };
 
 export const updateAgent = async (
@@ -1345,11 +1350,122 @@ export const updateAgent = async (
     updateMask.push("low_code_agent_definition");
   if (payload.workflowAgentDefinition)
     updateMask.push("workflow_agent_definition");
+  if (payload.skillAgentDefinition)
+    updateMask.push("skill_agent_definition");
+  if (payload.sharingConfig) updateMask.push("sharing_config");
   if (payload.authorizations) updateMask.push("authorizations");
   if (payload.authorizationConfig) updateMask.push("authorization_config");
 
-  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${agent.name}?updateMask=${updateMask.join(",")}`;
+  const agentName = agent.name && agent.name.startsWith("projects/")
+    ? agent.name
+    : `projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId || "default_collection"}/engines/${config.appId}/assistants/${config.assistantId || "default_assistant"}/agents/${(agent as any).id || agent.name}`;
+
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}?updateMask=${updateMask.join(",")}`;
   return gapiRequest<Agent>(url, "PATCH", config.projectId, undefined, payload);
+};
+
+export const requestAgentReview = async (name: string, config: Config) => {
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  return gapiRequest<Agent>(
+    `${baseUrl}/${DISCOVERY_API_VERSION}/${name}:requestAgentReview`,
+    "POST",
+    config.projectId,
+    undefined,
+    {},
+  );
+};
+
+export const ensureSkillSharingOnEngine = async (config: Config) => {
+  try {
+    const { projectId, appLocation, collectionId = "default_collection", appId } = config;
+    if (!appId) return;
+    const engine = await getEngine(appId, config);
+    if (!engine) return;
+    const features = { ...(engine.features || {}) };
+    let needsUpdate = false;
+    if (features["skill-sharing"] !== "FEATURE_STATE_ON") {
+      features["skill-sharing"] = "FEATURE_STATE_ON";
+      needsUpdate = true;
+    }
+    if (features["skill-sharing-without-admin-approval"] !== "FEATURE_STATE_ON") {
+      features["skill-sharing-without-admin-approval"] = "FEATURE_STATE_ON";
+      needsUpdate = true;
+    }
+    if (needsUpdate) {
+      const engineName = engine.name || `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}`;
+      await updateEngine(engineName, { features }, ["features"], config);
+    }
+  } catch (err) {
+    console.warn("Could not auto-enable skill-sharing features on engine:", err);
+  }
+};
+
+export const promoteSkillToOrg = async (agent: Agent, config: Config): Promise<Agent> => {
+  // 1. Ensure skill-sharing feature flags are enabled on the engine
+  await ensureSkillSharingOnEngine(config);
+
+  // 2. If in PRIVATE, request review to transition to ENABLED
+  if (agent.state === "PRIVATE" || !agent.state) {
+    try {
+      await requestAgentReview(agent.name, config);
+    } catch (e) {
+      console.warn("requestAgentReview failed, attempting direct state update:", e);
+    }
+  }
+
+  // 3. If in DISABLED, enable it
+  try {
+    const current = await getAgent(agent.name, config);
+    if (current.state === "DISABLED" || current.state === "SUSPENDED") {
+      await enableAgent(agent.name, config);
+    }
+  } catch (e) {
+    console.warn("enableAgent failed, proceeding to sharing_config:", e);
+  }
+
+  // 4. Update sharing_config to ALL_USERS
+  try {
+    await updateAgent(agent, { sharingConfig: { scope: "ALL_USERS" } }, config);
+  } catch (e) {
+    console.warn("Failed to patch sharing_config:", e);
+  }
+
+  return getAgent(agent.name, config);
+};
+
+export const demoteSkillToPersonal = async (agent: Agent, config: Config): Promise<Agent> => {
+  try {
+    await updateAgent(agent, { sharingConfig: { scope: "RESTRICTED" } }, config);
+  } catch (e) {
+    console.warn("Failed to set RESTRICTED sharing_config:", e);
+  }
+  return getAgent(agent.name, config);
+};
+
+export const createSkillAgent = async (
+  payload: any,
+  config: Config,
+  agentId?: string,
+  isOrganizational: boolean = true,
+) => {
+  const agent = await createAgent(payload, config, agentId);
+  if (isOrganizational || payload.state === "ENABLED") {
+    try {
+      return await promoteSkillToOrg(agent, config);
+    } catch (e) {
+      console.warn("Could not automatically promote skill to org-wide after creation:", e);
+    }
+  }
+  return agent;
+};
+
+export const deleteSkillAgent = async (name: string, config: Config) => {
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  return gapiRequest(
+    `${baseUrl}/${DISCOVERY_API_VERSION}/${name}`,
+    "DELETE",
+    config.projectId,
+  );
 };
 
 export const disableAgent = async (name: string, config: Config) => {
@@ -11649,3 +11765,99 @@ export const createPromptChip = async (engineName: string, payload: any) => {
     payload,
   );
 };
+
+// ==========================================
+// Google Cloud Agent Registry Skills API
+// ==========================================
+
+export const AGENT_REGISTRY_BASE_URL = "https://agentregistry.googleapis.com";
+export const AGENT_REGISTRY_API_VERSION = "v1alpha";
+
+export const listRegistrySkills = async (config: Config): Promise<RegistrySkill[]> => {
+  const { projectId, appLocation = "global" } = config;
+  const url = `${AGENT_REGISTRY_BASE_URL}/${AGENT_REGISTRY_API_VERSION}/projects/${projectId}/locations/${appLocation}/skills`;
+  const response = await gapiRequest<ListRegistrySkillsResponse>(
+    url,
+    "GET",
+    projectId,
+  );
+  return response.skills || [];
+};
+
+export const getRegistrySkill = async (name: string, config: Config): Promise<RegistrySkill> => {
+  const { projectId, appLocation = "global" } = config;
+  const resourceName = name.startsWith("projects/")
+    ? name
+    : `projects/${projectId}/locations/${appLocation}/skills/${name}`;
+  const url = `${AGENT_REGISTRY_BASE_URL}/${AGENT_REGISTRY_API_VERSION}/${resourceName}`;
+  return gapiRequest<RegistrySkill>(url, "GET", projectId);
+};
+
+export const createRegistrySkill = async (
+  payload: Partial<RegistrySkill>,
+  config: Config,
+  skillId?: string,
+): Promise<any> => {
+  const { projectId, appLocation = "global" } = config;
+  const queryParam = skillId ? `?skillId=${encodeURIComponent(skillId)}` : "";
+  const url = `${AGENT_REGISTRY_BASE_URL}/${AGENT_REGISTRY_API_VERSION}/projects/${projectId}/locations/${appLocation}/skills${queryParam}`;
+  return gapiRequest<any>(url, "POST", projectId, undefined, payload);
+};
+
+export const updateRegistrySkill = async (
+  name: string,
+  payload: Partial<RegistrySkill>,
+  updateMask: string[],
+  config: Config,
+): Promise<any> => {
+  const { projectId, appLocation = "global" } = config;
+  const resourceName = name.startsWith("projects/")
+    ? name
+    : `projects/${projectId}/locations/${appLocation}/skills/${name}`;
+  const mask = updateMask.length > 0 ? `?updateMask=${updateMask.join(",")}` : "";
+  const url = `${AGENT_REGISTRY_BASE_URL}/${AGENT_REGISTRY_API_VERSION}/${resourceName}${mask}`;
+  return gapiRequest<any>(url, "PATCH", projectId, undefined, payload);
+};
+
+export const deleteRegistrySkill = async (name: string, config: Config): Promise<any> => {
+  const { projectId, appLocation = "global" } = config;
+  const resourceName = name.startsWith("projects/")
+    ? name
+    : `projects/${projectId}/locations/${appLocation}/skills/${name}`;
+  const url = `${AGENT_REGISTRY_BASE_URL}/${AGENT_REGISTRY_API_VERSION}/${resourceName}`;
+  return gapiRequest<any>(url, "DELETE", projectId);
+};
+
+export const listRegistrySkillRevisions = async (
+  skillName: string,
+  config: Config,
+): Promise<RegistrySkillRevision[]> => {
+  const { projectId, appLocation = "global" } = config;
+  const resourceName = skillName.startsWith("projects/")
+    ? skillName
+    : `projects/${projectId}/locations/${appLocation}/skills/${skillName}`;
+  const url = `${AGENT_REGISTRY_BASE_URL}/${AGENT_REGISTRY_API_VERSION}/${resourceName}/revisions`;
+  const response = await gapiRequest<ListRegistrySkillRevisionsResponse>(
+    url,
+    "GET",
+    projectId,
+  );
+  return response.skillRevisions || [];
+};
+
+export const createRegistrySkillRevision = async (
+  skillName: string,
+  payload: any,
+  config: Config,
+  revisionId?: string,
+): Promise<any> => {
+  const { projectId, appLocation = "global" } = config;
+  const resourceName = skillName.startsWith("projects/")
+    ? skillName
+    : `projects/${projectId}/locations/${appLocation}/skills/${skillName}`;
+  const queryParam = revisionId ? `?skillRevisionId=${encodeURIComponent(revisionId)}` : "";
+  const url = `${AGENT_REGISTRY_BASE_URL}/${AGENT_REGISTRY_API_VERSION}/${resourceName}/revisions${queryParam}`;
+  return gapiRequest<any>(url, "POST", projectId, undefined, payload);
+};
+
+

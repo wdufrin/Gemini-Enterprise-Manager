@@ -29,6 +29,7 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
     const sections = [
         { id: 'overview', title: 'Overview' },
         { id: 'agents', title: 'Agent Management' },
+        { id: 'skills', title: 'Skills Registry' },
         { id: 'engines', title: 'Agent Engines' },
         { id: 'builder', title: 'Builder & Catalog' },
         { id: 'dataStores', title: 'Knowledge & Data' },
@@ -63,6 +64,24 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                                 <li><strong>GE Agent Manager</strong>: List, create, update, and delete agents. Supports toggling agent status (Enable/Disable).</li>
                                 <li><strong>Chat Testing</strong>: Built-in chat interface to test agents and assistants with streaming responses, tool visualization, and grounding metadata inspection.</li>
                                 <li><strong>Project Context</strong>: Smart header with Breadcrumbs and quick project switching (Project ID/Number).</li>
+                            </ul>
+                        </section>
+                    </div>
+                );
+            case 'skills':
+                return (
+                    <div className="space-y-4">
+                        <section>
+                            <h3 className="text-lg font-bold text-white mb-2">Skills Registry</h3>
+                            <p className="text-sm text-gray-300 mb-3">
+                                Powered by Google Cloud Agent Platform (<code className="text-green-400">agentregistry.googleapis.com</code>), the Skills Registry is a centralized enterprise catalog for authoring, versioning, and deploying agent skills.
+                            </p>
+                            <ul className="list-disc pl-5 space-y-1.5 text-gray-300">
+                                <li><strong>Package Management</strong>: Author custom skills directly or upload complete <code className="text-blue-300">.zip</code> packages containing <code className="text-purple-300">SKILL.md</code> instructions and subfiles.</li>
+                                <li><strong>Immutable Version Revisions</strong>: Inspect revision history (<code className="text-yellow-300">revisions/rev-1</code>), inspect JSON specs, and review compiler output.</li>
+                                <li><strong>Company Catalog Activation</strong>: Activate skills to <code className="text-green-300">STATE_ACTIVE</code> with default revisions for organization-wide discovery.</li>
+                                <li><strong>1-Click GE App Deployment</strong>: Deploy skills directly into Gemini Enterprise assistant engines with <code className="text-blue-300">scope: ALL_USERS</code>, making them appear under the <strong>"From my organization"</strong> tab in Gemini Enterprise.</li>
+                                <li><strong>Multi-Region Support</strong>: Seamlessly browse and publish across <code className="text-blue-300">global</code>, <code className="text-blue-300">eu</code>, and <code className="text-blue-300">us</code> locations.</li>
                             </ul>
                         </section>
                     </div>
@@ -205,7 +224,7 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                             <h4 className="text-md font-semibold text-blue-300 mb-1">Prerequisites</h4>
                             <ul className="list-disc pl-5 space-y-1 text-gray-300">
                                 <li>A Google Cloud Project.</li>
-                                <li>Required APIs enabled (Discovery Engine, Vertex AI, Cloud Run, Cloud Build, Storage, Service Usage).</li>
+                                <li>Required APIs enabled (Discovery Engine, Agent Registry, Vertex AI, Cloud Run, Cloud Build, Storage, Service Usage).</li>
                             </ul>
                         </section>
                         <section>
@@ -231,8 +250,20 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                             <ul className="text-xs font-mono text-gray-300 space-y-1">
                                 <li><strong>Engines</strong>: GET /v1alpha/projects/&#123;project&#125;/locations/&#123;location&#125;/collections/&#123;collection&#125;/engines</li>
                                 <li><strong>Assistants</strong>: GET /v1alpha/projects/.../engines/&#123;engine&#125;/assistants</li>
+                                <li><strong>Agents</strong>: GET /v1alpha/projects/.../assistants/&#123;assistant&#125;/agents</li>
                                 <li><strong>Data Stores</strong>: GET /v1beta/projects/.../dataStores</li>
                                 <li><strong>Conversations</strong>: POST /v1beta/projects/.../conversations</li>
+                            </ul>
+                        </section>
+                        <section className="bg-gray-900/50 p-3 rounded-md border border-gray-700">
+                            <h4 className="text-md font-semibold text-blue-300 mb-2">Agent Registry API (Skills Platform)</h4>
+                            <code className="text-xs text-green-400 block mb-1">agentregistry.googleapis.com</code>
+                            <ul className="text-xs font-mono text-gray-300 space-y-1">
+                                <li><strong>List Skills</strong>: GET /v1alpha/projects/&#123;project&#125;/locations/&#123;location&#125;/skills</li>
+                                <li><strong>Publish Skill</strong>: POST /v1alpha/projects/&#123;project&#125;/locations/&#123;location&#125;/skills?skillId=&#123;skillId&#125;</li>
+                                <li><strong>Revisions</strong>: GET /v1alpha/projects/.../skills/&#123;skill&#125;/revisions</li>
+                                <li><strong>Update / Activate</strong>: PATCH /v1alpha/projects/.../skills/&#123;skill&#125;?updateMask=default_revision,target_state</li>
+                                <li><strong>Delete</strong>: DELETE /v1alpha/projects/.../skills/&#123;skill&#125;</li>
                             </ul>
                         </section>
                         <section className="bg-gray-900/50 p-3 rounded-md border border-gray-700">

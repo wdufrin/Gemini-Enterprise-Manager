@@ -31,6 +31,7 @@ import NotebookListViewer from '../components/assistants/NotebookListViewer';
 import VanityUrlDeploymentForm from '../components/assistants/VanityUrlDeploymentForm';
 import ConnectedDataStorePermissions from '../components/assistants/ConnectedDataStorePermissions';
 import UserMemoriesViewer from '../components/assistants/UserMemoriesViewer';
+import SkillsViewer from '../components/assistants/SkillsViewer';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 
 interface AssistantPageProps {
@@ -136,7 +137,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'memories' | 'datastores' | 'notebooks' | 'history' | 'customize'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'skills' | 'memories' | 'datastores' | 'notebooks' | 'history' | 'customize'>('overview');
     const [isDataStoreAclSupported, setIsDataStoreAclSupported] = useState<boolean | null>(() => {
       const override = localStorage.getItem('feature_flag_datastore_acls');
       if (override === 'true') return true;
@@ -669,6 +670,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                                   {[
                                       { key: 'overview', label: 'Overview' },
                                       { key: 'agents', label: 'Agents' },
+                                      { key: 'skills', label: 'Skills', badge: 'Capabilities' },
                                       { key: 'memories', label: 'User Memories', badge: 'Personalization' },
                                       ...(isDataStoreAclSupported ? [{ key: 'datastores', label: 'Connected DataStores', badge: 'Beta' }] : []),
                                       { key: 'notebooks', label: 'Notebooks' },
@@ -719,8 +721,17 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                               {activeTab === 'agents' && (
                                   <AgentListForAssistant 
                                       agents={agents} 
-                                      config={currentConfig}
+                                      config={currentConfig} 
                                       onRefreshAgents={() => fetchAgentsForAssistant(selectedRow.engine.name.split('/').pop()!)}
+                                  />
+                              )}
+
+                              {activeTab === 'skills' && (
+                                  <SkillsViewer
+                                      agents={agents}
+                                      config={currentConfig}
+                                      userProfile={userProfile}
+                                      onRefreshSkills={() => fetchAgentsForAssistant(selectedRow.engine.name.split('/').pop()!)}
                                   />
                               )}
 
