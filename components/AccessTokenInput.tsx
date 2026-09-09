@@ -83,9 +83,16 @@ const AccessTokenInput: React.FC<AccessTokenInputProps> = ({ accessToken, setAcc
   }
 
   return (
-    <div className="flex items-center space-x-2 w-full md:w-auto">
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleSave();
+      }}
+      className="flex items-center space-x-2 w-full md:w-auto"
+    >
       <div className="relative">
          <button
+            type="button"
             onMouseEnter={() => setShowTooltip(true)}
             onMouseLeave={() => setShowTooltip(false)}
             className="text-gray-400 hover:text-white"
@@ -105,18 +112,20 @@ const AccessTokenInput: React.FC<AccessTokenInputProps> = ({ accessToken, setAcc
       </div>
       <input
         type="password"
+        name="gcpAccessToken"
+        autoComplete="new-password"
         value={tokenInput}
         onChange={(e) => setTokenInput(e.target.value)}
         placeholder="Paste GCP Access Token"
         className="flex-grow bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500"
       />
       <button
-        onClick={handleSave}
+        type="submit"
         className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500"
       >
         Set Token
       </button>
-    </div>
+    </form>
   );
 };
 

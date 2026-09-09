@@ -40,6 +40,7 @@ export enum Page {
   AGENT_STARTER_PACK = 'Agent Starter Pack',
   GE_QUOTA_USAGE = 'GE Quota Usage',
   VANITY_URLS = 'Redirect URLs',
+  CONFIG_AUDIT = 'App Config Audit',
 }
 
 export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime' | 'agentType';
@@ -590,6 +591,32 @@ export interface ListRegistrySkillsResponse {
 export interface ListRegistrySkillRevisionsResponse {
   skillRevisions?: RegistrySkillRevision[];
   nextPageToken?: string;
+}
+
+export interface ConfigAuditItem {
+  id: string;
+  category: 'Engine & IdP' | 'Grounding DataStores' | 'Skills & Tools' | 'Licenses & Quotas' | 'Authorizations';
+  name: string;
+  sourceValue?: string | number | boolean | null;
+  targetValue?: string | number | boolean | null;
+  status: 'MATCH' | 'DRIFT' | 'MISSING_IN_TARGET' | 'INFO';
+  details?: string;
+  remediation?: string;
+  severity: 'OK' | 'WARNING' | 'ERROR';
+}
+
+export interface ConfigAuditSummary {
+  overallScore: number;
+  totalChecks: number;
+  matchedCount: number;
+  driftCount: number;
+  missingCount: number;
+  sourceProject: string;
+  targetProject: string;
+  sourceEngine: string;
+  targetEngine: string;
+  items: ConfigAuditItem[];
+  timestamp: string;
 }
 
 

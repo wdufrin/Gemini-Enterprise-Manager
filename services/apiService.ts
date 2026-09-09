@@ -169,6 +169,17 @@ export const gapiRequest = async <T>(
           errorMessage = `${errorMessage} (${detailTexts.join('; ').trim()})`;
         }
       }
+    } else if (error?.body) {
+      try {
+        const parsed = typeof error.body === 'string' ? JSON.parse(error.body) : error.body;
+        if (parsed?.error?.message) {
+          errorMessage = parsed.error.message;
+        } else {
+          errorMessage = typeof error.body === 'string' ? error.body : JSON.stringify(error.body);
+        }
+      } catch {
+        errorMessage = String(error.body);
+      }
     }
     // Try to extract from top-level error message
     else if (error?.message) {
@@ -181,7 +192,7 @@ export const gapiRequest = async <T>(
     // Fallback to stringifying the error object itself
     else if (typeof error === "object" && error !== null) {
       try {
-        errorMessage = JSON.stringify(error.result, null, 2);
+        errorMessage = JSON.stringify(error, null, 2);
       } catch (e) {
         errorMessage = "Complex Error Object (cannot stringify)";
       }
@@ -2717,13 +2728,19 @@ export const insertBigQueryRows = async (
   );
 };
 
-export const runBigQueryQuery = async (projectId: string, query: string) => {
+export const runBigQueryQuery = async (
+  projectId: string,
+  query: string,
+  suppressErrorLog: boolean = false
+) => {
   return gapiRequest<any>(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`,
     "POST",
     projectId,
     undefined,
     { query, useLegacySql: false },
+    undefined,
+    suppressErrorLog
   );
 };
 

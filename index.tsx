@@ -17,8 +17,12 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import JSZip from 'jszip';
 import App from './App';
 import './src/index.css';
+
+(window as any).JSZip = JSZip;
+
 
 // Suppress benign ResizeObserver errors usually caused by rapid layout changes in ReactFlow or containers
 const resizeObserverErrRegex = /ResizeObserver loop (completed with undelivered notifications|limit exceeded)/;

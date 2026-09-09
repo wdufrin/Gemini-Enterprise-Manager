@@ -65,11 +65,44 @@ const getInitialConfig = () => {
   return { appLocation: 'global' };
 };
 
-const StatusBadge: React.FC<{ active: boolean; text?: string }> = ({ active, text }) => (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${active ? 'bg-green-900/50 text-green-400 border border-green-700' : 'bg-gray-700 text-gray-400 border border-gray-600'}`}>
-        {text || (active ? 'Enabled' : 'Disabled')}
-    </span>
-);
+const StatusBadge: React.FC<{ 
+    active: boolean; 
+    text?: string;
+    activeColor?: 'green' | 'orange';
+    onClick?: () => void;
+    title?: string;
+}> = ({ active, text, activeColor = 'green', onClick, title }) => {
+    let activeClasses = 'bg-green-900/50 text-green-400 border border-green-700';
+    if (activeColor === 'orange') {
+        activeClasses = 'bg-orange-950/80 text-orange-400 border border-orange-700/80 hover:bg-orange-900/80 hover:border-orange-600';
+    }
+
+    if (onClick) {
+        return (
+            <button
+                type="button"
+                onClick={onClick}
+                title={title}
+                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-orange-500 ${
+                    active ? activeClasses : 'bg-gray-700 text-gray-400 border border-gray-600 hover:bg-gray-650'
+                }`}
+            >
+                {text || (active ? 'Enabled' : 'Disabled')}
+            </button>
+        );
+    }
+
+    return (
+        <span 
+            title={title}
+            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                active ? activeClasses : 'bg-gray-700 text-gray-400 border border-gray-600'
+            }`}
+        >
+            {text || (active ? 'Enabled' : 'Disabled')}
+        </span>
+    );
+};
 
 const CountBadge: React.FC<{ count: number }> = ({ count }) => (
     <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium ${count > 0 ? 'bg-blue-900/50 text-blue-300 border border-blue-700' : 'bg-gray-800 text-gray-500 border border-gray-700'}`}>
@@ -236,7 +269,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
           case 'webGrounding':
               return row.assistant.webGroundingType === 'WEB_GROUNDING_TYPE_GOOGLE_SEARCH' || row.assistant.webGroundingType === 'WEB_GROUNDING_TYPE_ENTERPRISE_WEB_SEARCH';
           case 'instructions':
-              return !!row.assistant.generationConfig?.systemInstruction?.additionalSystemInstruction;
+              return !!(row.assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || row.assistant.styleAndFormattingInstructions);
           case 'policy':
               return !!(row.assistant.customerPolicy && Object.keys(row.assistant.customerPolicy).length > 0);
           case 'vertexAgents':
@@ -514,7 +547,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                           
                           // Check if assistant exists to extract props, otherwise defaults
                           const hasWebGrounding = assistant?.webGroundingType === 'WEB_GROUNDING_TYPE_GOOGLE_SEARCH' || assistant?.webGroundingType === 'WEB_GROUNDING_TYPE_ENTERPRISE_WEB_SEARCH';
-                          const hasInstructions = !!assistant?.generationConfig?.systemInstruction?.additionalSystemInstruction;
+                          const hasInstructions = !!(assistant?.generationConfig?.systemInstruction?.additionalSystemInstruction || assistant?.styleAndFormattingInstructions);
                           const hasPolicy = !!(assistant?.customerPolicy && Object.keys(assistant.customerPolicy).length > 0);
                           const vertexAgentsCount = assistant?.vertexAiAgentConfigs?.length || 0;
                           const toolsCount = Object.keys(assistant?.enabledTools || {}).length;
@@ -544,9 +577,15 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                                           <td className="px-6 py-4 whitespace-nowrap">
                                               <StatusBadge active={hasWebGrounding} />
                                           </td>
-                                          <td className="px-6 py-4 whitespace-nowrap">
-                                              <StatusBadge active={hasInstructions} text={hasInstructions ? 'Yes' : 'No'} />
-                                          </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <StatusBadge 
+                                                    active={hasInstructions} 
+                                                    text={hasInstructions ? 'Yes' : 'No'} 
+                                                    activeColor="orange"
+                                                    onClick={() => handleRowClick(row)}
+                                                    title={hasInstructions ? 'Custom system instructions configured (may cause issues for Gemini Enterprise). Click to view/edit.' : 'No custom system instructions'}
+                                                />
+                                            </td>
                                           <td className="px-6 py-4 whitespace-nowrap">
                                               <StatusBadge active={hasPolicy} text={hasPolicy ? 'Applied' : 'None'} />
                                           </td>

@@ -122,10 +122,24 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
             ? String(currentEngine.sessionConfig.sessionTtl.days) 
             : '';
 
+        // Consolidate System Instructions and Style Guidelines into a single unified prompt
+        const sysInstruction = assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '';
+        const styleInstruction = assistant.styleAndFormattingInstructions || '';
+        let combinedInstructions = '';
+        if (sysInstruction && styleInstruction) {
+            if (sysInstruction.trim() === styleInstruction.trim()) {
+                combinedInstructions = sysInstruction;
+            } else {
+                combinedInstructions = `${sysInstruction}\n\n${styleInstruction}`;
+            }
+        } else {
+            combinedInstructions = sysInstruction || styleInstruction || '';
+        }
+
         setFormData({
             displayName: assistant.displayName || '',
-            styleAndFormattingInstructions: assistant.styleAndFormattingInstructions || '',
-            additionalSystemInstruction: assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '',
+            styleAndFormattingInstructions: combinedInstructions,
+            additionalSystemInstruction: combinedInstructions,
             webGroundingType: assistant.webGroundingType || 'WEB_GROUNDING_TYPE_DISABLED',
             customerPolicy: Object.keys(policyObj).length > 0 ? JSON.stringify(policyObj, null, 2) : '{}',
             enableEndUserAgentCreation: assistant.enableEndUserAgentCreation || false,
@@ -227,6 +241,14 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;
+        if (e.target.name === 'additionalSystemInstruction') {
+            setFormData({ 
+                ...formData, 
+                additionalSystemInstruction: value as string,
+                styleAndFormattingInstructions: value as string,
+            });
+            return;
+        }
         setFormData({ ...formData, [e.target.name]: value });
     };
 
@@ -307,17 +329,18 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
             const payload: any = {};
             const updateMask: string[] = [];
 
-            if (formData.styleAndFormattingInstructions !== (assistant.styleAndFormattingInstructions || '')) {
-                payload.styleAndFormattingInstructions = formData.styleAndFormattingInstructions;
-                updateMask.push('styleAndFormattingInstructions');
-            }
-            if (formData.additionalSystemInstruction !== (assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '')) {
+            const origSys = assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '';
+            const origStyle = assistant.styleAndFormattingInstructions || '';
+            if (formData.additionalSystemInstruction !== origSys || formData.additionalSystemInstruction !== origStyle) {
                 payload.generationConfig = {
                     systemInstruction: {
                         additionalSystemInstruction: formData.additionalSystemInstruction
                     }
                 };
                 updateMask.push('generationConfig.systemInstruction');
+
+                payload.styleAndFormattingInstructions = formData.additionalSystemInstruction;
+                updateMask.push('styleAndFormattingInstructions');
             }
             if (formData.webGroundingType !== (assistant.webGroundingType || 'WEB_GROUNDING_TYPE_DISABLED')) {
                 payload.webGroundingType = formData.webGroundingType;
@@ -463,17 +486,18 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         const updateMask: string[] = [];
 
         // Logic mirrors handleSubmit
-        if (formData.styleAndFormattingInstructions !== (assistant.styleAndFormattingInstructions || '')) {
-            payload.styleAndFormattingInstructions = formData.styleAndFormattingInstructions;
-            updateMask.push('styleAndFormattingInstructions');
-        }
-        if (formData.additionalSystemInstruction !== (assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '')) {
+        const origSys = assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '';
+        const origStyle = assistant.styleAndFormattingInstructions || '';
+        if (formData.additionalSystemInstruction !== origSys || formData.additionalSystemInstruction !== origStyle) {
             payload.generationConfig = {
                 systemInstruction: {
                     additionalSystemInstruction: formData.additionalSystemInstruction
                 }
             };
             updateMask.push('generationConfig.systemInstruction');
+
+            payload.styleAndFormattingInstructions = formData.additionalSystemInstruction;
+            updateMask.push('styleAndFormattingInstructions');
         }
         if (formData.webGroundingType !== (assistant.webGroundingType || 'WEB_GROUNDING_TYPE_DISABLED')) {
             payload.webGroundingType = formData.webGroundingType;
@@ -600,18 +624,32 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                     </select>
                 </div>
                 <div>
-                    <label htmlFor="styleAndFormattingInstructions" className="flex items-center text-sm font-medium text-gray-300">
-                        Style & Formatting Instructions
-                        <InfoTooltip text="Guidelines for how the assistant should format its responses (e.g., specific tone, markdown usage)." />
-                    </label>
-                    <textarea name="styleAndFormattingInstructions" value={formData.styleAndFormattingInstructions} onChange={handleChange} rows={4} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" />
-                </div>
-                <div>
-                    <label htmlFor="additionalSystemInstruction" className="flex items-center text-sm font-medium text-gray-300">
-                        System Instruction
-                        <InfoTooltip text="Core instructions that define the assistant's behavior and persona." />
-                    </label>
-                    <textarea name="additionalSystemInstruction" value={formData.additionalSystemInstruction} onChange={handleChange} rows={6} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" />
+                    <div className="flex items-center justify-between">
+                        <label htmlFor="additionalSystemInstruction" className="flex items-center text-sm font-medium text-gray-300">
+                            System & Style Instructions
+                            <InfoTooltip text="Core instructions that define the assistant's behavior, persona, and response formatting guidelines." />
+                        </label>
+                        {formData.additionalSystemInstruction && (
+                            <span className="text-[11px] text-orange-400 font-medium flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                                User-added instructions may impact Gemini Enterprise behavior
+                            </span>
+                        )}
+                    </div>
+                    <textarea 
+                        id="additionalSystemInstruction"
+                        name="additionalSystemInstruction" 
+                        value={formData.additionalSystemInstruction} 
+                        onChange={handleChange} 
+                        rows={7} 
+                        placeholder="Enter system persona instructions, behavioral guidelines, and formatting rules..."
+                        className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-gray-100 placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500 font-mono" 
+                    />
+                    <p className="mt-1 text-[11px] text-gray-400">
+                        Unified configuration for system instructions and style formatting guidelines.
+                    </p>
                 </div>
                 <div>
                     <label htmlFor="chatHistoryRetentionDays" className="flex items-center text-sm font-medium text-gray-300">

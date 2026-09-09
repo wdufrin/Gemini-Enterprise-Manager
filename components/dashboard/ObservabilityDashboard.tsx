@@ -279,7 +279,7 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                                     <Tooltip 
                                         contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
                                     />
-                                    <Area type="monotone" dataKey="requests" name="Requests" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.3} />
+                                    <Area type="monotone" dataKey="requests" name="Requests" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.3} isAnimationActive={false} />
                                     <Legend />
                                 </AreaChart>
                             </ResponsiveContainer>
@@ -355,7 +355,7 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                                             contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
                                         />
                                         <Legend />
-                                        <Bar dataKey="count" name="Messages" fill="#10B981" radius={[4, 4, 0, 0]} />
+                                        <Bar dataKey="count" name="Messages" fill="#10B981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
                                     </BarChart>
                                 ) : (
                                     <BarChart data={defaultLatencyData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
@@ -366,8 +366,8 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                                             contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
                                         />
                                         <Legend />
-                                        <Bar dataKey="p50" name="Median Latency (P50)" fill="#10B981" radius={[4, 4, 0, 0]} />
-                                        <Bar dataKey="p95" name="Tail Latency (P95)" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+                                        <Bar dataKey="p50" name="Median Latency (P50)" fill="#10B981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                                        <Bar dataKey="p95" name="Tail Latency (P95)" fill="#F59E0B" radius={[4, 4, 0, 0]} isAnimationActive={false} />
                                     </BarChart>
                                 )}
                             </ResponsiveContainer>

@@ -47,6 +47,7 @@ import LicensePage from './pages/LicensePage';
 import GEQuotaUsagePage from './pages/GEQuotaUsagePage';
 import VanityUrlsPage from './pages/VanityUrlsPage';
 import AgentPermissionsPage from './pages/AgentPermissionsPage';
+import ConfigAuditPage from './pages/ConfigAuditPage';
 import CloudBuildProgress from './components/agent-builder/CloudBuildProgress';
 import Breadcrumbs from './components/Breadcrumbs';
 import HeaderProjectInput from './components/HeaderProjectInput';
@@ -845,6 +846,8 @@ const InnerApp: React.FC = () => {
         return <ObservabilityPage {...projectProps} projectId={projectId} />;
       case Page.BACKUP_RECOVERY:
         return <BackupPage {...projectProps} accessToken={accessToken} />;
+      case Page.CONFIG_AUDIT:
+        return <ConfigAuditPage projectNumber={projectNumber} projectId={projectId} accessToken={accessToken} />;
       case Page.LICENSE:
         return <LicensePage {...projectProps} onBuildTriggered={handleBuildTriggered} />;
       case Page.GE_QUOTA_USAGE:
