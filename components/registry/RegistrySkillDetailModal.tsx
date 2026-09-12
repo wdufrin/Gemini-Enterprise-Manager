@@ -20,6 +20,8 @@ import * as api from '../../services/apiService';
 import { createZipBase64 } from '../../utils/zipUtils';
 import JSZip from 'jszip';
 import DestructiveConfirmModal from '../DestructiveConfirmModal';
+import { useToast } from '../../context/ToastContext';
+import { toErrorMessage } from '../../utils/errors';
 
 interface RegistrySkillDetailModalProps {
   skill: RegistrySkill | null;
@@ -36,6 +38,7 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
   config,
   onSkillUpdated,
 }) => {
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<'overview' | 'revisions' | 'json'>('overview');
   const [revisions, setRevisions] = useState<RegistrySkillRevision[]>([]);
   const [isLoadingRevisions, setIsLoadingRevisions] = useState(false);
@@ -147,7 +150,7 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
       onSkillUpdated();
     } catch (err: any) {
       console.error('Failed to deploy skill to GE engine assistant:', err);
-      alert(`Failed to deploy skill: ${err.message || 'Unknown error'}`);
+      toast.error(`Failed to deploy skill: ${toErrorMessage(err)}`);
     } finally {
       setIsUpdating(false);
     }
@@ -227,7 +230,7 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`,
       onSkillUpdated();
     } catch (err: any) {
       console.error('Failed to update skill state:', err);
-      alert(`Failed to update state: ${err.message || 'Unknown error'}`);
+      toast.error(`Failed to update state: ${toErrorMessage(err)}`);
     } finally {
       setIsUpdating(false);
     }
@@ -242,7 +245,7 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`,
       onClose();
     } catch (err: unknown) {
       console.error('Failed to delete skill:', err);
-      alert(`Failed to delete skill: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      toast.error(`Failed to delete skill: ${toErrorMessage(err)}`);
     } finally {
       setIsUpdating(false);
     }

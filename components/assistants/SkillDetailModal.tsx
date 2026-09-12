@@ -17,6 +17,8 @@
 import React, { useState } from 'react';
 import { Agent, Config, SkillScope } from '../../types';
 import * as api from '../../services/apiService';
+import { useToast } from '../../context/ToastContext';
+import { toErrorMessage } from '../../utils/errors';
 
 interface SkillDetailModalProps {
   skill: Agent | null;
@@ -33,6 +35,7 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   config,
   onSkillUpdated,
 }) => {
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<'instructions' | 'config' | 'raw'>('instructions');
   const [copied, setCopied] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -60,7 +63,7 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
       onSkillUpdated();
     } catch (err) {
       console.error('Failed to toggle skill scope:', err);
-      alert('Failed to update skill scope.');
+      toast.error('Failed to update skill scope: ' + toErrorMessage(err));
     } finally {
       setIsUpdating(false);
     }
@@ -74,7 +77,7 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
       onSkillUpdated();
     } catch (err) {
       console.error('Failed to toggle active state:', err);
-      alert('Failed to update skill state.');
+      toast.error('Failed to update skill state: ' + toErrorMessage(err));
     } finally {
       setIsUpdating(false);
     }

@@ -27,6 +27,8 @@ vi.mock('../components/CloudConsoleButton', () => ({
     default: () => <button>Console</button>
 }));
 
+import { ToastProvider } from '../context/ToastContext';
+
 describe('ObservabilityPage', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -53,7 +55,11 @@ describe('ObservabilityPage', () => {
             ]
         });
 
-        render(<ObservabilityPage projectNumber="123" projectId="test-proj" />);
+        render(
+            <ToastProvider>
+                <ObservabilityPage projectNumber="123" projectId="test-proj" />
+            </ToastProvider>
+        );
 
         await waitFor(() => {
             expect(screen.getByTestId('dashboard')).toHaveTextContent('Total Requests: 42');

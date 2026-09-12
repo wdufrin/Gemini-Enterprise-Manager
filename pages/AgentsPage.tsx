@@ -154,7 +154,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   // --- Effects to fetch dropdown data ---
 
   useEffect(() => {
-    if (!apiConfig.projectId || !apiConfig.appLocation) {
+    if (!projectNumber || !config.appLocation) {
         setApps([]);
         return;
     }
@@ -162,7 +162,11 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         setIsLoadingApps(true);
         setApps([]);
         try {
-            const response = await api.listResources('engines', apiConfig);
+            const response = await api.listResources('engines', {
+                projectId: projectNumber,
+                appLocation: config.appLocation,
+                collectionId: config.collectionId || 'default_collection',
+            } as Config);
             const fetchedApps = response.engines || [];
             setApps(fetchedApps);
             // Auto-select if there is only one option
@@ -180,7 +184,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         }
     };
     fetchApps();
-  }, [apiConfig.projectId, apiConfig.appLocation, apiConfig.collectionId]);
+  }, [projectNumber, config.appLocation, config.collectionId]);
 
   const fetchAgents = useCallback(async () => {
     if (!apiConfig.projectId || !apiConfig.appId) {

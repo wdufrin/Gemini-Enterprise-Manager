@@ -52,6 +52,7 @@ import {
 } from "./urlSecurity";
 import { assertValidGcpResourceName } from "./shellSafety";
 import { redactRequestBody } from "./redaction";
+import { parseJsonStream } from "./streamParser";
 
 const DISCOVERY_API_VERSION = "v1alpha";
 const DISCOVERY_API_BETA = "v1beta";
@@ -2414,81 +2415,8 @@ export const streamChat = async (
     );
   }
 
-  const reader = response.body?.getReader();
-  if (!reader) return;
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let braceBalance = 0;
-  let inString = false;
-  let isEscaped = false;
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    const chunk = decoder.decode(value || new Uint8Array(), { stream: !done });
-
-    for (const char of chunk) {
-      buffer += char;
-
-      if (isEscaped) {
-        isEscaped = false;
-        continue;
-      }
-      if (char === "\\") {
-        isEscaped = true;
-        continue;
-      }
-      if (char === '"') {
-        inString = !inString;
-        continue;
-      }
-
-      if (!inString) {
-        if (char === "{") {
-          braceBalance++;
-        } else if (char === "}") {
-          braceBalance--;
-          // Balance returns to zero: potentially a complete top-level object
-          if (braceBalance === 0) {
-            try {
-              // Find the last opening brace that started this object
-              // Actually, if we track balance from 0, the entire buffer (trimmed) might be the object if we reset buffer on success.
-              // But since the stream might contain commas or brackets between objects (e.g. "[{...}, {...}]"), we need to be careful.
-              // Simple approach: Try to parse the accumulated buffer if it looks like an object.
-
-              // Remove leading comma or bracket if present and strictly matching an object
-              const cleanBuffer = buffer.trim();
-              // If it starts with ',' or '[', strip them for checking but we need to be careful not to strip valid parts if we are inside...
-              // Actually, robust way: Find first '{'
-              const firstBrace = cleanBuffer.indexOf("{");
-              if (firstBrace !== -1) {
-                const jsonCandidate = cleanBuffer.substring(firstBrace);
-                // verify ends with '}'
-                if (jsonCandidate.endsWith("}")) {
-                  const chunk = JSON.parse(jsonCandidate);
-                  onChunk(chunk);
-                  buffer = ""; // Reset buffer on success
-                }
-              }
-            } catch (e) {
-              // It might be that we haven't reached the REAL end yet if braces were mismatched in logic, or standard parse error.
-              // But with brace counting, we should be at a boundary.
-              // If parse fails, we might want to keep accumulating?
-              // No, if balance is 0, we MUST have finished a potential block.
-              // If it fails, it's likely garbage or we need to respect the array structure more.
-              // For this logic, we assume top-level objects are what we want.
-              console.warn("Could not parse chat chunk via brace counting", e);
-              // We don't reset buffer here? If we don't, we might append next object to this garbage.
-              // Safest is to reset if we really think we hit a boundary, OR try to recover.
-              // Let's reset to avoid infinite buffer growth.
-              buffer = "";
-            }
-          }
-        }
-      }
-    }
-    if (done) break;
-  }
+  if (!response.body) return;
+  await parseJsonStream(response.body, onChunk);
 };
 
 // Stream Query API (Direct Reasoning Engine Query)
@@ -2588,72 +2516,13 @@ export const generateVertexContent = async (
     );
   }
 
-  const reader = response.body?.getReader();
-  if (!reader) return "";
+  if (!response.body) return "";
 
-  const decoder = new TextDecoder();
   let fullText = "";
-  let buffer = "";
-  let braceBalance = 0;
-  let inString = false;
-  let isEscaped = false;
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    const chunk = decoder.decode(value || new Uint8Array(), { stream: !done });
-
-    for (const char of chunk) {
-      buffer += char;
-
-      if (isEscaped) {
-        isEscaped = false;
-        continue;
-      }
-      if (char === "\\") {
-        isEscaped = true;
-        continue;
-      }
-      if (char === '"') {
-        inString = !inString;
-        continue;
-      }
-
-      if (!inString) {
-        if (char === "{") {
-          braceBalance++;
-        } else if (char === "}") {
-          braceBalance--;
-          if (braceBalance === 0) {
-            // Potential complete object found at top level (chunks are usually arrays of objects, but here we might get individual objects or the array wrapper)
-            // Vertex streamGenerateContent returns a stream of Parseable JSON objects like [{...}] or just {...} depending on API version/format.
-            // Actually, Vertex returns an array structure `[`, then Objects `{...},`, then `]`.
-            // But brace counting logic is mainly for finding the `{...}` objects.
-
-            try {
-              const trimmed = buffer.trim();
-              // If it starts with ',' or '[' we might need to be careful.
-              // Simple heuristic: Try to find the first '{'
-              const firstBrace = trimmed.indexOf("{");
-              if (firstBrace !== -1) {
-                const candidate = trimmed.substring(firstBrace);
-                if (candidate.endsWith("}")) {
-                  const json = JSON.parse(candidate);
-                  // Extract text from the candidate object
-                  const part = json.candidates?.[0]?.content?.parts?.[0];
-                  if (part?.text) fullText += part.text;
-
-                  buffer = ""; // Reset buffer on success
-                }
-              }
-            } catch (e) {
-              // Keep buffering if parse fails
-            }
-          }
-        }
-      }
-    }
-    if (done) break;
-  }
+  await parseJsonStream<any>(response.body, (json) => {
+    const part = json.candidates?.[0]?.content?.parts?.[0];
+    if (part?.text) fullText += part.text;
+  });
   return fullText;
 };
 

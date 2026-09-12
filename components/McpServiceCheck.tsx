@@ -14,8 +14,10 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { checkServiceEnabled, enableService, listMcpTools, checkMcpCompliance } from '../services/apiService';
+import { useToast } from '../context/ToastContext';
+import { toErrorMessage } from '../utils/errors';
 
 interface McpServiceCheckProps {
     projectId: string;
@@ -27,6 +29,7 @@ interface McpServiceCheckProps {
 }
 
 export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, serviceName, mcpEndpoint, label, checked, onChange }) => {
+    const { toast } = useToast();
     const [status, setStatus] = useState<'loading' | 'enabled' | 'disabled' | 'error' | 'unchecked'>('unchecked');
     const [showEnablePopup, setShowEnablePopup] = useState(false);
     const [isEnabling, setIsEnabling] = useState(false);
@@ -48,15 +51,7 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
         };
     }, []);
 
-    useEffect(() => {
-        if (checked && projectId) {
-            validate();
-        } else {
-            setStatus('unchecked');
-        }
-    }, [checked, projectId, serviceName]);
-
-    const validate = async () => {
+    const validate = useCallback(async () => {
         setStatus('loading');
 
         try {
@@ -77,7 +72,15 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
             console.error("Validation failed:", e);
             setStatus('error');
         }
-    };
+    }, [projectId, serviceName, mcpEndpoint]);
+
+    useEffect(() => {
+        if (checked && projectId) {
+            validate();
+        } else {
+            setStatus('unchecked');
+        }
+    }, [checked, projectId, validate]);
 
     const handleEnable = async () => {
         setIsEnabling(true);
@@ -108,7 +111,7 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
         } catch (e) {
             console.error(e);
             setIsEnabling(false);
-            alert("Failed to enable service. check console for details.");
+            toast.error("Failed to enable service: " + toErrorMessage(e));
         }
     };
 

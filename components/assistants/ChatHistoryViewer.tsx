@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Config, DiscoverySession } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
+import { useToast } from '../../context/ToastContext';
+import { toErrorMessage } from '../../utils/errors';
 
 interface ChatHistoryViewerProps {
     config: Config;
@@ -83,7 +85,7 @@ const FetchAnswerButton: React.FC<FetcherProps> = ({ resourceName, config, onLoa
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const handleFetch = async () => {
+    const handleFetch = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
@@ -107,7 +109,7 @@ const FetchAnswerButton: React.FC<FetcherProps> = ({ resourceName, config, onLoa
         } finally {
             setLoading(false);
         }
-    };
+    }, [resourceName, config, onLoad]);
 
     useEffect(() => {
         if (autoLoad) {
@@ -116,7 +118,7 @@ const FetchAnswerButton: React.FC<FetcherProps> = ({ resourceName, config, onLoa
             setContent(null);
             setError(null);
         }
-    }, [autoLoad, resourceName]);
+    }, [autoLoad, handleFetch]);
 
     if (loading) return (
         <span className="inline-flex items-center gap-2 text-xs text-blue-400 animate-pulse">
@@ -182,7 +184,7 @@ const DetailedJsonFetcher: React.FC<{ resourceName: string, config: Config }> = 
             }
         };
         fetch();
-    }, [resourceName]);
+    }, [resourceName, config]);
 
     if (loading) return <div className="p-4 text-xs text-blue-400">Loading full JSON...</div>;
     if (error) return <div className="p-4 text-xs text-red-400">Error: {error}</div>;
@@ -200,6 +202,7 @@ const DetailedJsonFetcher: React.FC<{ resourceName: string, config: Config }> = 
 // ----------------------------------------------------------------------------
 
 const ChatHistoryViewer: React.FC<ChatHistoryViewerProps> = ({ config }) => {
+    const { toast } = useToast();
     // List State
     const [sessions, setSessions] = useState<DiscoverySession[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -224,7 +227,7 @@ const ChatHistoryViewer: React.FC<ChatHistoryViewerProps> = ({ config }) => {
     // Fetching Logic
     // ------------------------------------------------------------------------
 
-    const fetchSessions = async (pageToken?: string) => {
+    const fetchSessions = useCallback(async (pageToken?: string) => {
         setIsLoading(true);
         setError(null);
         if (!pageToken) {
@@ -254,14 +257,14 @@ const ChatHistoryViewer: React.FC<ChatHistoryViewerProps> = ({ config }) => {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [config]);
 
     // Auto-fetch on mount
     useEffect(() => {
         if (config.appId) {
             fetchSessions();
         }
-    }, [config.appId, config.appLocation]);
+    }, [config.appId, config.appLocation, fetchSessions]);
 
     const handleSessionClick = async (session: DiscoverySession) => {
         // Always clear modal when clicking a session item, even if it's the same one (to be safe/consistent)
@@ -326,11 +329,11 @@ const ChatHistoryViewer: React.FC<ChatHistoryViewerProps> = ({ config }) => {
                 // Let's rely on the user finding it at the top (since we sort by time).
                 handleSessionClick(newSessionRaw);
             }
-            alert('Session cloned successfully!');
+            toast.success('Session cloned successfully!');
 
         } catch (err: any) {
             console.error("Failed to clone session", err);
-            alert(`Failed to clone session: ${err.message}`);
+            toast.error(`Failed to clone session: ${toErrorMessage(err)}`);
         } finally {
             setIsDetailLoading(false);
         }
@@ -357,11 +360,11 @@ const ChatHistoryViewer: React.FC<ChatHistoryViewerProps> = ({ config }) => {
             // Refresh list
             await fetchSessions();
 
-            alert(`Session successfully shared with ${targetUser}!\n\nThey should now see it in their history.`);
+            toast.success(`Session successfully shared with ${targetUser}!`);
 
         } catch (err: any) {
             console.error("Failed to share session", err);
-            alert(`Failed to share session: ${err.message}`);
+            toast.error(`Failed to share session: ${toErrorMessage(err)}`);
         } finally {
             setIsDetailLoading(false);
         }
@@ -389,10 +392,10 @@ const ChatHistoryViewer: React.FC<ChatHistoryViewerProps> = ({ config }) => {
         const url = `https://vertexaisearch.cloud.google.com/u/0/home/cid/${cid}/r/session/${sessionId}`;
 
         navigator.clipboard.writeText(url).then(() => {
-            alert('Link copied to clipboard!\n\n' + url + '\n\n(CID saved for future use. To reset, clear browser cache or local storage)');
+            toast.success('Link copied to clipboard!');
         }, (err) => {
             console.error('Could not copy text: ', err);
-            alert('Failed to copy link.');
+            toast.error('Failed to copy link.');
         });
     };
 

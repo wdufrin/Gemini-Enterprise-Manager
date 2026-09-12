@@ -143,11 +143,14 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
     ], []);
 
     // Real data for Role Breakdown
-    const roleData = customData?.roleData || (datasetId ? [] : null);
-    const isRoleLive = !!customData?.roleData || !!datasetId;
+    const roleData = useMemo(() => {
+        return customData?.roleData || (datasetId ? [] : null);
+    }, [customData?.roleData, datasetId]);
 
     // Real data for Agent Breakdown
-    const agentData = customData?.agentData || (datasetId ? [] : null);
+    const agentData = useMemo(() => {
+        return customData?.agentData || (datasetId ? [] : null);
+    }, [customData?.agentData, datasetId]);
     const isAgentLive = !!customData?.agentData || !!datasetId;
 
     // Summary metrics from view or derived

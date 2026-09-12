@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import * as api from '../services/apiService';
-import { Agent, AppEngine, Config } from '../types';
+import { Agent, Config } from '../types';
 import ProjectInput from '../components/ProjectInput';
+import PartialResultsBanner, { PartialFailure } from '../components/common/PartialResultsBanner';
+import { toErrorMessage } from '../utils/errors';
 
 interface AgentPermissionsPageProps {
     projectNumber: string;
@@ -21,33 +23,15 @@ interface PermissionRow {
 
 
 const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumber, setProjectNumber }) => {
-    const [permissionsData, setPermissionsData] = useState<PermissionRow[]>(() => {
-        try {
-            const saved = sessionStorage.getItem(`agentPermissionsData_${projectNumber}`);
-            return saved ? JSON.parse(saved) : [];
-        } catch { return []; }
-    });
+    const [permissionsData, setPermissionsData] = useState<PermissionRow[]>([]);
 
     useEffect(() => {
-        try {
-            const saved = sessionStorage.getItem(`agentPermissionsData_${projectNumber}`);
-            setPermissionsData(saved ? JSON.parse(saved) : []);
-        } catch {
-            setPermissionsData([]);
-        }
+        setPermissionsData([]);
     }, [projectNumber]);
-
-    useEffect(() => {
-        if (!projectNumber) return;
-        try {
-            sessionStorage.setItem(`agentPermissionsData_${projectNumber}`, JSON.stringify(permissionsData));
-        } catch (e) {
-            console.warn('Failed to save agentPermissionsData to sessionStorage (quota exceeded):', e);
-        }
-    }, [permissionsData, projectNumber]);
 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [partialFailures, setPartialFailures] = useState<PartialFailure[]>([]);
     const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
 
     const [filters, setFilters] = useState({
@@ -122,23 +106,34 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
         if (!apiConfig.projectId) {
             setError("Project must be selected to list permissions.");
             setPermissionsData([]);
+            setPartialFailures([]);
             return;
         }
 
         setIsLoading(true);
         setError(null);
+        setPartialFailures([]);
         // Do not clear permissionsData immediately so table isn't lost during load
 
         const rows: PermissionRow[] = [];
         const locationsToScan = ['global', 'us', 'eu'];
+        const failures: PartialFailure[] = [];
 
         try {
             // First fetch the project-level IAM policy to get inherited permissions
             let projectPolicy: any = { bindings: [] };
             try {
                 projectPolicy = await api.getProjectIamPolicy(apiConfig.projectId!);
-            } catch (projectErr) {
+            } catch (projectErr: any) {
                 console.warn("Could not fetch project IAM policy for inherited permissions", projectErr);
+                failures.push({
+                    id: `project-iam-${apiConfig.projectId}`,
+                    name: `Project IAM Policy (${apiConfig.projectId})`,
+                    resourceType: 'Project IAM Policy',
+                    status: projectErr?.status || projectErr?.code || (toErrorMessage(projectErr).includes('403') ? 403 : undefined),
+                    error: toErrorMessage(projectErr),
+                    reason: `Could not fetch inherited project IAM policy: ${toErrorMessage(projectErr)}`,
+                });
             }
 
             // Extract inherited project roles related to agent access
@@ -158,8 +153,16 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                 try {
                     const enginesResponse = await api.listResources('engines', locConfig);
                     appsInLocation = enginesResponse.engines || [];
-                } catch (appErr) {
+                } catch (appErr: any) {
                     console.warn(`Could not list apps in location ${location}`, appErr);
+                    failures.push({
+                        id: `engines-${location}`,
+                        name: `Engines (${location})`,
+                        resourceType: 'Engines Collection',
+                        status: appErr?.status || appErr?.code || (toErrorMessage(appErr).includes('403') ? 403 : undefined),
+                        error: toErrorMessage(appErr),
+                        reason: `Failed listing apps in location '${location}': ${toErrorMessage(appErr)}`,
+                    });
                 }
 
                 for (const app of appsInLocation) {
@@ -167,99 +170,125 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                     const appConfig = { ...locConfig, appId };
                     const appName = app.displayName || appId;
 
-                try {
-                    const assistantsResponse = await api.listResources('assistants', appConfig);
-                    const assistants: any[] = assistantsResponse.assistants || [];
+                    try {
+                        const assistantsResponse = await api.listResources('assistants', appConfig);
+                        const assistants: any[] = assistantsResponse.assistants || [];
 
-                    for (const assistant of assistants) {
-                        const assistantConfig = { ...appConfig, assistantId: assistant.name.split('/').pop()! };
+                        for (const assistant of assistants) {
+                            const assistantConfig = { ...appConfig, assistantId: assistant.name.split('/').pop()! };
 
-                try {
-                    const agentsResponse = await api.listResources('agents', assistantConfig);
-                    const agents: Agent[] = agentsResponse.agents || [];
+                            try {
+                                const agentsResponse = await api.listResources('agents', assistantConfig);
+                                const agents: Agent[] = agentsResponse.agents || [];
 
-                    for (const agent of agents) {
-                        try {
-                            const policy = await api.getAgentIamPolicy(agent.name, locConfig);
-                            const specificBindings = policy.bindings || [];
+                                for (const agent of agents) {
+                                    try {
+                                        const policy = await api.getAgentIamPolicy(agent.name, locConfig);
+                                        const specificBindings = policy.bindings || [];
 
-                            // Combine specific bindings with inherited project bindings
-                            const allBindings = [
-                                ...specificBindings.map((b: any) => ({ ...b, isInherited: false })),
-                                ...inheritedBindings.map((b: any) => ({ ...b, isInherited: true }))
-                            ];
+                                        // Combine specific bindings with inherited project bindings
+                                        const allBindings = [
+                                            ...specificBindings.map((b: any) => ({ ...b, isInherited: false })),
+                                            ...inheritedBindings.map((b: any) => ({ ...b, isInherited: true }))
+                                        ];
 
-                            if (allBindings.length === 0) {
-                                // If literally no permissions exist (extremely rare if project inherits are caught)
-                                rows.push({
-                                    id: `${agent.name}-none-none`,
-                                    location: location,
-                                    appName: appName,
-                                    agentName: agent.displayName,
-                                    agentType: agent.adkAgentDefinition ? 'ADK' : (agent.lowCodeAgentDefinition ? 'Low-Code' : (agent.agentType || 'N/A')),
-                                    userId: 'No Members',
-                                    permission: 'unknown'
-                                });
-                            }
+                                        if (allBindings.length === 0) {
+                                            // If literally no permissions exist (extremely rare if project inherits are caught)
+                                            rows.push({
+                                                id: `${location}-${agent.name}-none-none`,
+                                                location: location,
+                                                appName: appName,
+                                                agentName: agent.displayName,
+                                                agentType: agent.adkAgentDefinition ? 'ADK' : (agent.lowCodeAgentDefinition ? 'Low-Code' : (agent.agentType || 'N/A')),
+                                                userId: 'No Members',
+                                                permission: 'unknown'
+                                            });
+                                        }
 
-                            // Keep track of added standard combinations to prevent massive duplication 
-                            // if a user has both a project role and a specific role
-                            const seenUserRoles = new Set<string>();
+                                        // Keep track of added standard combinations to prevent massive duplication 
+                                        // if a user has both a project role and a specific role
+                                        const seenUserRoles = new Set<string>();
 
-                            for (const binding of allBindings) {
-                                const role = binding.role || '';
-                                let permissionType: 'owner' | 'user' | 'unknown' = 'unknown';
-                                const lowerRole = role.toLowerCase();
-                                
-                                if (lowerRole.includes('admin') || lowerRole.includes('editor') || lowerRole.includes('owner')) {
-                                    permissionType = 'owner';
-                                } else if (lowerRole.includes('viewer') || lowerRole.includes('user')) {
-                                    permissionType = 'user';
-                                }
+                                        for (const binding of allBindings) {
+                                            const role = binding.role || '';
+                                            let permissionType: 'owner' | 'user' | 'unknown' = 'unknown';
+                                            const lowerRole = role.toLowerCase();
+                                            
+                                            if (lowerRole.includes('admin') || lowerRole.includes('editor') || lowerRole.includes('owner')) {
+                                                permissionType = 'owner';
+                                            } else if (lowerRole.includes('viewer') || lowerRole.includes('user')) {
+                                                permissionType = 'user';
+                                            }
 
-                                const members = binding.members || [];
-                                
-                                for (const member of members) {
-                                    const displayMember = member.replace(/^(user:|serviceAccount:|group:|domain:)/, '');
-                                    
-                                    // Append (Inherited) to the role conceptually, or just dedup
-                                    const dedupKey = `${displayMember}-${permissionType}`;
-                                    
-                                    if (!seenUserRoles.has(dedupKey)) {
-                                        seenUserRoles.add(dedupKey);
-                                        rows.push({
-                                            id: `${agent.name}-${member}-${role}-${binding.isInherited ? 'inherited' : 'explicit'}`,
-                                            location: location,
-                                            appName: appName,
-                                            agentName: agent.displayName,
-                                            agentType: agent.adkAgentDefinition ? 'ADK' : (agent.lowCodeAgentDefinition ? 'Low-Code' : (agent.agentType || 'N/A')),
-                                            userId: displayMember + (binding.isInherited ? ' (Inherited)' : ''),
-                                            permission: permissionType
+                                            const members = binding.members || [];
+                                            
+                                            for (const member of members) {
+                                                const displayMember = member.replace(/^(user:|serviceAccount:|group:|domain:)/, '');
+                                                
+                                                // Append (Inherited) to the role conceptually, or just dedup
+                                                const dedupKey = `${displayMember}-${permissionType}`;
+                                                
+                                                if (!seenUserRoles.has(dedupKey)) {
+                                                    seenUserRoles.add(dedupKey);
+                                                    rows.push({
+                                                        id: `${location}-${agent.name}-${member}-${role}-${binding.isInherited ? 'inherited' : 'explicit'}`,
+                                                        location: location,
+                                                        appName: appName,
+                                                        agentName: agent.displayName,
+                                                        agentType: agent.adkAgentDefinition ? 'ADK' : (agent.lowCodeAgentDefinition ? 'Low-Code' : (agent.agentType || 'N/A')),
+                                                        userId: displayMember + (binding.isInherited ? ' (Inherited)' : ''),
+                                                        permission: permissionType
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    } catch (policyErr: any) {
+                                        console.warn(`Could not get IAM policy for agent ${agent.displayName}`, policyErr);
+                                        failures.push({
+                                            id: `iam-${agent.name}`,
+                                            name: agent.displayName || agent.name,
+                                            resourceType: 'Agent IAM Policy',
+                                            status: policyErr?.status || policyErr?.code || (toErrorMessage(policyErr).includes('403') ? 403 : undefined),
+                                            error: toErrorMessage(policyErr),
+                                            reason: `Could not fetch IAM policy for agent '${agent.displayName || agent.name}': ${toErrorMessage(policyErr)}`,
                                         });
                                     }
                                 }
+                            } catch (agentErr: any) {
+                                console.warn(`Could not list agents for assistant ${assistant.displayName}`, agentErr);
+                                failures.push({
+                                    id: `agents-${assistant.name}`,
+                                    name: assistant.displayName || assistant.name,
+                                    resourceType: 'Assistant Agents',
+                                    status: agentErr?.status || agentErr?.code || (toErrorMessage(agentErr).includes('403') ? 403 : undefined),
+                                    error: toErrorMessage(agentErr),
+                                    reason: `Could not list agents for assistant '${assistant.displayName || assistant.name}': ${toErrorMessage(agentErr)}`,
+                                });
                             }
-                        } catch (policyErr) {
-                            console.warn(`Could not get IAM policy for agent ${agent.displayName}`, policyErr);
                         }
+                    } catch (appErr: any) {
+                        console.warn(`Could not list assistants for app ${appName}`, appErr);
+                        failures.push({
+                            id: `assistants-${appId}`,
+                            name: appName,
+                            resourceType: 'Engine Assistants',
+                            status: appErr?.status || appErr?.code || (toErrorMessage(appErr).includes('403') ? 403 : undefined),
+                            error: toErrorMessage(appErr),
+                            reason: `Could not list assistants for app '${appName}': ${toErrorMessage(appErr)}`,
+                        });
                     }
-                } catch (agentErr) {
-                    console.warn(`Could not list agents for assistant ${assistant.displayName}`, agentErr);
-                }
-                    }
-                } catch (appErr) {
-                    console.warn(`Could not list assistants for app ${appName}`, appErr);
-                }
                 } // end app loop
             } // end locations loop
 
             setPermissionsData(rows);
+            setPartialFailures(failures);
             if (rows.length === 0) {
                 console.log("No explicit IAM permissions found on agents across any location.");
             }
         } catch (err: any) {
-            setError(err.message || 'An unexpected error occurred while fetching permissions.');
+            setError(toErrorMessage(err) || 'An unexpected error occurred while fetching permissions.');
             setPermissionsData([]);
+            setPartialFailures(failures);
         } finally {
             setIsLoading(false);
         }
@@ -290,6 +319,13 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                 <div className="bg-red-900/30 border border-red-800 text-red-200 p-4 rounded-lg">
                     {error}
                 </div>
+            )}
+
+            {partialFailures.length > 0 && (
+                <PartialResultsBanner
+                    partialFailures={partialFailures}
+                    onRetry={fetchPermissions}
+                />
             )}
 
             <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden shadow-sm w-full min-w-0 flex-1 flex flex-col min-h-0">
@@ -385,8 +421,19 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-700 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                         </svg>
-                        <p className="text-lg font-medium text-gray-400">No agent permissions found.</p>
-                        <p className="text-sm mt-1">Select a project and click refetch to globally scan all agent permissions.</p>
+                        {partialFailures.length > 0 ? (
+                            <div className="text-center px-4">
+                                <p className="text-lg font-medium text-amber-400">Permissions Could Not Be Fully Retrieved</p>
+                                <p className="text-sm mt-1 text-gray-400 max-w-md">
+                                    One or more API requests returned errors or permission denials (e.g. 403 Forbidden). See the banner above for details.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="text-center px-4">
+                                <p className="text-lg font-medium text-gray-400">No agent permissions found.</p>
+                                <p className="text-sm mt-1">Select a project and click refetch to globally scan all agent permissions.</p>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

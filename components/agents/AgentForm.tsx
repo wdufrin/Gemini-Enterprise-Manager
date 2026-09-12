@@ -168,7 +168,7 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
         a2aOrg: a2aOrg,
       });
     }
-  }, [agentToEdit, config.appLocation]);
+  }, [agentToEdit, config.appLocation, config.projectId]);
 
   useEffect(() => {
     if (!agentToEdit) {
@@ -332,7 +332,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
 
             setCurlCommand(command);
         }
-    }, [formData, agentToEdit, config, agentType, isCrossProject, sourceProjectId, a2aStreaming, a2aExtensions]);
+    }, [formData, agentToEdit, config, agentType, isCrossProject, sourceProjectId, a2aStreaming, a2aExtensions, authorizations]);
 
 
   useEffect(() => {

@@ -344,8 +344,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
           }),
         );
         setAllAgents(agentsList);
-        sessionStorage.setItem(`engines_resources_${projectNumber}_${location}`, JSON.stringify(unifiedList));
-        sessionStorage.setItem(`engines_agents_${projectNumber}_${location}`, JSON.stringify(agentsList));
       } catch (e) {
         console.warn("Failed to fetch usage data", e);
       }
@@ -358,14 +356,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
 
   useEffect(() => {
     if (projectNumber) {
-      const cachedResources = sessionStorage.getItem(`engines_resources_${projectNumber}_${location}`);
-      const cachedAgents = sessionStorage.getItem(`engines_agents_${projectNumber}_${location}`);
-      if (cachedResources && cachedAgents) {
-        setResources(JSON.parse(cachedResources));
-        setAllAgents(JSON.parse(cachedAgents));
-      } else {
-        fetchResources();
-      }
+      fetchResources();
     }
   }, [projectNumber, location, fetchResources]);
 
@@ -463,8 +454,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
       setError(`Failed to delete some resources:\n${failures.join("\n")}`);
     }
 
-    sessionStorage.removeItem(`engines_resources_${projectNumber}_${location}`);
-    sessionStorage.removeItem(`engines_agents_${projectNumber}_${location}`);
     setSelectedIds(new Set());
     setIsDeleting(false);
     setIsDeleteModalOpen(false);

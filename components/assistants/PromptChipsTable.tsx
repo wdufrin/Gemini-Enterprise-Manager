@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import * as api from '../../services/apiService';
 import PromptChipModal from './PromptChipModal';
 import DestructiveConfirmModal from '../DestructiveConfirmModal';
+import { useToast } from '../../context/ToastContext';
+import { toErrorMessage } from '../../utils/errors';
 
 interface PromptChip {
     name: string;
@@ -17,6 +19,7 @@ interface PromptChipsTableProps {
 }
 
 const PromptChipsTable: React.FC<PromptChipsTableProps> = ({ engineName }) => {
+    const { toast } = useToast();
     const [chips, setChips] = useState<PromptChip[]>([]);
     const [activeTab, setActiveTab] = useState<'All' | 'Google-made' | 'Our prompts'>('All');
 
@@ -181,7 +184,7 @@ const PromptChipsTable: React.FC<PromptChipsTableProps> = ({ engineName }) => {
                         triggerReload();
                     } catch (err) {
                         console.error("Failed to delete", err);
-                        alert("Failed to delete chip: " + (err instanceof Error ? err.message : String(err)));
+                        toast.error("Failed to delete chip: " + toErrorMessage(err));
                     } finally {
                         setIsDeletingChip(false);
                     }

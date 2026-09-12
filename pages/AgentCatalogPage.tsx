@@ -19,6 +19,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
 import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
+import { useToast } from '../context/ToastContext';
+import { toErrorMessage } from '../utils/errors';
 
 import JSZip from 'jszip';
 
@@ -176,6 +178,7 @@ const FilterDropdown: React.FC<{
 );
 
 const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setProjectNumber, onBuildTriggered }) => {
+  const { toast } = useToast();
   // Git Catalog State
   const [gitRepoUrl, setGitRepoUrl] = useState('https://github.com/google/adk-samples/tree/main/python/agents');
   const [gitAgents, setGitAgents] = useState<GitAgentDir[]>([]);
@@ -315,7 +318,7 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
           setIsDeployModalOpen(true);
 
       } catch (err: any) {
-          alert(`Failed to load agent files: ${err.message}`);
+          toast.error("Failed to load agent files: " + toErrorMessage(err));
           console.error("Agent load error details:", err);
       } finally {
           setLoadingAgentFiles(null);

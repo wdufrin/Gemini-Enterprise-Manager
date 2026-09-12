@@ -229,7 +229,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
             }
         };
         fetchCurrentEngine();
-    }, [config.appId]);
+    }, [config.appId, config]);
 
     useEffect(() => {
         const fetchIamPolicy = async () => {

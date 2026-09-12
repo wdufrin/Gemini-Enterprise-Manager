@@ -20,6 +20,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import SkillsRegistryPage from './SkillsRegistryPage';
 import { RegistrySkill, UserProfile } from '../types';
 import * as api from '../services/apiService';
+import { ToastProvider } from '../context/ToastContext';
 
 vi.mock('../services/apiService', () => ({
   listRegistrySkills: vi.fn(),
@@ -80,8 +81,12 @@ describe('SkillsRegistryPage Component', () => {
     vi.mocked(api.listRegistrySkillRevisions).mockResolvedValue([]);
   });
 
+  const renderWithToast = (ui: React.ReactElement) => {
+    return render(<ToastProvider>{ui}</ToastProvider>);
+  };
+
   it('renders enterprise skills registry with statistics and skill list', async () => {
-    render(
+    renderWithToast(
       <SkillsRegistryPage
         projectNumber="123456789012"
         projectId="test-project-123"
@@ -101,7 +106,7 @@ describe('SkillsRegistryPage Component', () => {
   });
 
   it('filters skills by search query', async () => {
-    render(
+    renderWithToast(
       <SkillsRegistryPage
         projectNumber="123456789012"
         projectId="test-project-123"
@@ -126,7 +131,7 @@ describe('SkillsRegistryPage Component', () => {
     vi.mocked(api.createRegistrySkill).mockResolvedValue({} as any);
     vi.mocked(api.updateRegistrySkill).mockResolvedValue({} as any);
 
-    render(
+    renderWithToast(
       <SkillsRegistryPage
         projectNumber="123456789012"
         projectId="test-project-123"
@@ -159,7 +164,7 @@ describe('SkillsRegistryPage Component', () => {
   });
 
   it('renders skill states correctly including unknown states', async () => {
-    render(
+    renderWithToast(
       <SkillsRegistryPage
         projectNumber="123456789012"
         projectId="test-project-123"

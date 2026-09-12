@@ -15,7 +15,7 @@
  */
 
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { DialogflowAgent, Config } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
@@ -23,6 +23,8 @@ import Spinner from '../components/Spinner';
 import DialogflowQueryModal from '../components/agent-engines/DialogflowQueryModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
+import { useToast } from '../context/ToastContext';
+import { toErrorMessage } from '../utils/errors';
 
 interface DialogflowAgentsPageProps {
   projectNumber: string;
@@ -31,6 +33,7 @@ interface DialogflowAgentsPageProps {
 }
 
 const DialogflowAgentsPage: React.FC<DialogflowAgentsPageProps> = ({ projectNumber, setProjectNumber, accessToken }) => {
+  const { toast } = useToast();
   const [agents, setAgents] = useState<DialogflowAgent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +54,7 @@ const DialogflowAgentsPage: React.FC<DialogflowAgentsPageProps> = ({ projectNumb
       assistantId: ''
   }), [projectNumber, location]);
 
-  const fetchAgents = async () => {
+  const fetchAgents = useCallback(async () => {
     if (!projectNumber) {
         setError("Project ID/Number is required.");
         return;
@@ -67,13 +70,13 @@ const DialogflowAgentsPage: React.FC<DialogflowAgentsPageProps> = ({ projectNumb
     } finally {
         setIsLoading(false);
     }
-  };
+  }, [projectNumber, apiConfig]);
 
   useEffect(() => {
       if (projectNumber) {
           fetchAgents();
       }
-  }, [projectNumber, location]);
+  }, [projectNumber, fetchAgents]);
 
   const handleDelete = async () => {
       if (!agentToDelete) return;
@@ -83,7 +86,7 @@ const DialogflowAgentsPage: React.FC<DialogflowAgentsPageProps> = ({ projectNumb
           setAgents(prev => prev.filter(a => a.name !== agentToDelete.name));
           setAgentToDelete(null);
       } catch (err: any) {
-          alert(`Failed to delete agent: ${err.message}`);
+          toast.error("Failed to delete agent: " + toErrorMessage(err));
       } finally {
           setIsDeleting(false);
       }

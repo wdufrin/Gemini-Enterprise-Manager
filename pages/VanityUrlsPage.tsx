@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import * as api from '../services/apiService';
 import { GlobalForwardingRule, ManagedSslCertificate, AppEngine, Config } from '../types';
 import ProjectInput from '../components/ProjectInput';
@@ -23,7 +23,7 @@ interface CombinedVanityUrl {
   fwdRuleName: string;
   certName?: string;
   assistantDisplayName?: string;
-  routingMode: 'public' | 'private';
+  routingMode?: 'public' | 'private';
 }
 
 const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProjectNumber, onBuildTriggered }) => {
@@ -52,7 +52,7 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
     const [urlToDelete, setUrlToDelete] = useState<CombinedVanityUrl | null>(null);
     const [deletingServiceNames, setDeletingServiceNames] = useState<Set<string>>(new Set());
 
-    const fetchVanityUrls = async () => {
+    const fetchVanityUrls = useCallback(async () => {
         if (!projectId) return;
         setIsLoading(true);
         setError(null);
@@ -159,13 +159,13 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [projectId]);
 
     useEffect(() => {
         if (projectId) {
             fetchVanityUrls();
         }
-    }, [projectId]);
+    }, [projectId, fetchVanityUrls]);
 
     const handleConfirmDelete = async () => {
         if (!urlToDelete) return;

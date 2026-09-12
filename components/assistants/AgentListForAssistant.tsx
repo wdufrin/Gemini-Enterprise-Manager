@@ -17,6 +17,8 @@
 import React, { useState } from 'react';
 import { Agent, Config } from '../../types';
 import * as api from '../../services/apiService';
+import { useToast } from '../../context/ToastContext';
+import { toErrorMessage } from '../../utils/errors';
 
 interface AgentListForAssistantProps {
   agents: Agent[];
@@ -25,6 +27,7 @@ interface AgentListForAssistantProps {
 }
 
 const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({ agents, config, onRefreshAgents }) => {
+  const { toast } = useToast();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -45,7 +48,7 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({ agents, c
       onRefreshAgents();
     } catch (e) {
       console.error("Failed to update agent name", e);
-      alert("Failed to update agent name.");
+      toast.error("Failed to update agent name: " + toErrorMessage(e));
     } finally {
       setIsSaving(false);
       setEditingId(null);
@@ -64,7 +67,7 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({ agents, c
       downloadAnchorNode.remove();
     } catch (e) {
       console.error("Failed to download agent config", e);
-      alert("Failed to download agent configuration.");
+      toast.error("Failed to download agent configuration: " + toErrorMessage(e));
     }
   };
 

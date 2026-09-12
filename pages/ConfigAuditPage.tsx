@@ -50,9 +50,12 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
 
   // Keep source project in sync if props update
   useEffect(() => {
-    if ((projectNumber || projectId) && !sourceProject) {
-      setSourceProject(projectNumber || projectId || '');
-    }
+    setSourceProject(prev => {
+      if (!prev && (projectNumber || projectId)) {
+        return projectNumber || projectId || '';
+      }
+      return prev;
+    });
   }, [projectNumber, projectId]);
 
   // Fetch Source Apps / Engines
@@ -77,12 +80,14 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
           const engines = res?.engines || [];
           setSourceApps(engines);
           if (engines.length > 0) {
-            const hasCurrent = engines.some((e: any) => e.name.split('/').pop() === sourceEngine);
-            if (!hasCurrent) {
-              const defaultEng = engines.find((e: any) => e.name.split('/').pop() === 'default_engine');
-              const chosen = defaultEng ? 'default_engine' : (engines[0].name.split('/').pop() || '');
-              if (chosen) setSourceEngine(chosen);
-            }
+            setSourceEngine(prev => {
+              const hasCurrent = engines.some((e: any) => e.name.split('/').pop() === prev);
+              if (!hasCurrent) {
+                const defaultEng = engines.find((e: any) => e.name.split('/').pop() === 'default_engine');
+                return defaultEng ? 'default_engine' : (engines[0].name.split('/').pop() || '');
+              }
+              return prev;
+            });
           }
         }
       } catch (e) {
@@ -120,12 +125,14 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
           const engines = res?.engines || [];
           setTargetApps(engines);
           if (engines.length > 0) {
-            const hasCurrent = engines.some((e: any) => e.name.split('/').pop() === targetEngine);
-            if (!hasCurrent) {
-              const defaultEng = engines.find((e: any) => e.name.split('/').pop() === 'default_engine');
-              const chosen = defaultEng ? 'default_engine' : (engines[0].name.split('/').pop() || '');
-              if (chosen) setTargetEngine(chosen);
-            }
+            setTargetEngine(prev => {
+              const hasCurrent = engines.some((e: any) => e.name.split('/').pop() === prev);
+              if (!hasCurrent) {
+                const defaultEng = engines.find((e: any) => e.name.split('/').pop() === 'default_engine');
+                return defaultEng ? 'default_engine' : (engines[0].name.split('/').pop() || '');
+              }
+              return prev;
+            });
           }
         }
       } catch (e) {

@@ -20,6 +20,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import SkillsViewer from './SkillsViewer';
 import { Agent, Config, UserProfile } from '../../types';
 import * as api from '../../services/apiService';
+import { ToastProvider } from '../../context/ToastContext';
 
 vi.mock('../../services/apiService', () => ({
   createSkillAgent: vi.fn(),
@@ -71,9 +72,13 @@ describe('SkillsViewer Component', () => {
     vi.clearAllMocks();
   });
 
+  const renderWithToast = (ui: React.ReactElement) => {
+    return render(<ToastProvider>{ui}</ToastProvider>);
+  };
+
   it('renders skills list and correctly classifies organizational vs user-created skills', () => {
     const onRefreshSkills = vi.fn();
-    render(
+    renderWithToast(
       <SkillsViewer
         agents={mockAgents}
         config={mockConfig}
@@ -91,7 +96,7 @@ describe('SkillsViewer Component', () => {
 
   it('filters skills by scope tab', () => {
     const onRefreshSkills = vi.fn();
-    render(
+    renderWithToast(
       <SkillsViewer
         agents={mockAgents}
         config={mockConfig}
@@ -113,7 +118,7 @@ describe('SkillsViewer Component', () => {
 
   it('opens inspect modal and displays skill instructions and metadata', () => {
     const onRefreshSkills = vi.fn();
-    render(
+    renderWithToast(
       <SkillsViewer
         agents={mockAgents}
         config={mockConfig}
@@ -133,7 +138,7 @@ describe('SkillsViewer Component', () => {
     vi.mocked(api.createSkillAgent).mockResolvedValue({} as any);
     const onRefreshSkills = vi.fn();
 
-    render(
+    renderWithToast(
       <SkillsViewer
         agents={mockAgents}
         config={mockConfig}

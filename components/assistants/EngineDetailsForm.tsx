@@ -521,7 +521,10 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             if (!config.projectId) return;
             setIsLicenseLoading(true);
             try {
-                const res = await api.listLicenseConfigs(config);
+                const res = await api.listLicenseConfigs({
+                    projectId: config.projectId,
+                    appLocation: config.appLocation,
+                } as Config);
                 const activeConfigs = (res.licenseConfigs || []).filter((cfg: any) => cfg.state === 'ACTIVE');
                 setProjectLicenseConfigs(activeConfigs);
             } catch (e) {

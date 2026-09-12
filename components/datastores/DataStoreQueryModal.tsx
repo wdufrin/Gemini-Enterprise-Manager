@@ -147,8 +147,8 @@ const DataStoreQueryModal: React.FC<DataStoreQueryModalProps> = ({ isOpen, onClo
                     const poolName = acl.idpConfig?.externalIdpConfig?.workforcePoolName;
                     if (poolName) {
                         const poolId = poolName.split('/').pop();
-                        if (poolId && !wifPoolId) {
-                            setWifPoolId(poolId);
+                        if (poolId) {
+                            setWifPoolId(prev => prev || poolId);
                         }
                     }
                 } catch (e) {

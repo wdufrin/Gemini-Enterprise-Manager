@@ -410,7 +410,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
       }
     };
     fetchBuckets();
-  }, [isOpen, projectId]);
+  }, [isOpen, projectId, initialBucket]);
 
   const handleRefreshBuckets = async () => {
     if (!projectId) return;

@@ -20,6 +20,8 @@ import * as api from '../../services/apiService';
 import AddSkillModal from './AddSkillModal';
 import SkillDetailModal from './SkillDetailModal';
 import ConfirmationModal from '../ConfirmationModal';
+import { useToast } from '../../context/ToastContext';
+import { toErrorMessage } from '../../utils/errors';
 
 interface SkillsViewerProps {
   agents: Agent[];
@@ -34,6 +36,7 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
   userProfile,
   onRefreshSkills,
 }) => {
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [scopeFilter, setScopeFilter] = useState<'ALL' | 'ORGANIZATIONAL' | 'USER_CREATED'>('ALL');
   const [selectedSkill, setSelectedSkill] = useState<Agent | null>(null);
@@ -85,7 +88,7 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
       onRefreshSkills();
     } catch (err) {
       console.error('Failed to delete skill:', err);
-      alert('Failed to delete skill. Please verify permissions.');
+      toast.error('Failed to delete skill: ' + toErrorMessage(err));
     } finally {
       setIsDeleting(false);
     }

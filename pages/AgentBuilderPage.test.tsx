@@ -15,6 +15,7 @@ import {
   ADK_AGENT_NAME_HINT,
 } from '../services/adkTemplates/agentName';
 import { TEMPLATES } from '../services/adkTemplates/starterTemplates';
+import { ToastProvider } from '../context/ToastContext';
 
 // Mock apiService
 vi.mock('../services/apiService', () => ({
@@ -157,8 +158,12 @@ describe('AgentBuilderPage - Helper Functions', () => {
   });
 
   describe('AgentBuilderPage Rendering Tests', () => {
+    const renderWithProviders = (ui: React.ReactElement) => {
+      return render(<ToastProvider>{ui}</ToastProvider>);
+    };
+
     it('renders the AgentBuilderPage and checks that preview model options are available', async () => {
-      render(
+      renderWithProviders(
         <AgentBuilderPage
           projectNumber="123456789"
           setProjectNumber={() => {}}
@@ -178,7 +183,7 @@ describe('AgentBuilderPage - Helper Functions', () => {
     });
 
     it('does not contain the ADK 2.2 option in the version selector', async () => {
-      render(
+      renderWithProviders(
         <AgentBuilderPage
           projectNumber="123456789"
           setProjectNumber={() => {}}
@@ -192,7 +197,7 @@ describe('AgentBuilderPage - Helper Functions', () => {
     });
 
     it('displays an error message for invalid agent names', async () => {
-      const { container } = render(
+      const { container } = renderWithProviders(
         <AgentBuilderPage
           projectNumber="123456789"
           setProjectNumber={() => {}}
@@ -234,7 +239,7 @@ describe('AgentBuilderPage - Helper Functions', () => {
      * locked-down option, and must shout when the user picks public.
      */
     it('defaults Cloud Run access to authenticated and warns on public', () => {
-      const { container } = render(
+      const { container } = renderWithProviders(
         <AgentBuilderPage
           projectNumber="123456789"
           setProjectNumber={() => {}}
@@ -260,7 +265,7 @@ describe('AgentBuilderPage - Helper Functions', () => {
     });
 
     it('surfaces the IAP caveats instead of pretending IAP is one-click', () => {
-      const { container } = render(
+      const { container } = renderWithProviders(
         <AgentBuilderPage
           projectNumber="123456789"
           setProjectNumber={() => {}}
@@ -283,7 +288,7 @@ describe('AgentBuilderPage - Helper Functions', () => {
     });
 
     it('renders Thinking Level selector for Gemini 3 and Thinking Budget for Gemini 2', () => {
-      const { container } = render(
+      const { container } = renderWithProviders(
         <AgentBuilderPage
           projectNumber="123456789"
           setProjectNumber={() => {}}

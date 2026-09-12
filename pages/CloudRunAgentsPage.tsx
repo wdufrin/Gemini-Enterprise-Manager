@@ -15,7 +15,7 @@
  */
 
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { CloudRunService, Config, EnvVar } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
@@ -143,12 +143,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
     const [serviceToDelete, setServiceToDelete] = useState<CloudRunService | null>(null);
 
     // AI Analysis State
-    const [analysisCache, setAnalysisCache] = useState<Record<string, AiAnalysisResult>>(() => {
-        try {
-            const cached = sessionStorage.getItem('agentAnalysisCache');
-            return cached ? JSON.parse(cached) : {};
-        } catch { return {}; }
-    });
+    const [analysisCache, setAnalysisCache] = useState<Record<string, AiAnalysisResult>>({});
     const [analyzingServices, setAnalyzingServices] = useState<Set<string>>(new Set());
     const [analysisError, setAnalysisError] = useState<string | null>(null);
 
@@ -160,12 +155,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
         assistantId: '',
     }), [projectNumber]);
 
-    // Persist cache
-    useEffect(() => {
-        sessionStorage.setItem('agentAnalysisCache', JSON.stringify(analysisCache));
-    }, [analysisCache]);
-
-    const performAiAnalysis = async (service: CloudRunService) => {
+    const performAiAnalysis = useCallback(async (service: CloudRunService) => {
         if (!projectNumber) return;
         
         setAnalyzingServices(prev => new Set(prev).add(service.name));
@@ -225,9 +215,9 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                 return next;
             });
         }
-    };
+    }, [projectNumber, apiConfig]);
 
-    const assessAllServices = async (servicesToScan: CloudRunService[]) => {
+    const assessAllServices = useCallback(async (servicesToScan: CloudRunService[]) => {
         // We only scan in batches to avoid rate limits
         const BATCH_SIZE = 5;
         // Reset cache for found services implies we want fresh data
@@ -237,10 +227,10 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
             const batch = servicesToScan.slice(i, i + BATCH_SIZE);
             await Promise.all(batch.map(s => performAiAnalysis(s)));
         }
-    };
+    }, [performAiAnalysis]);
 
     // Fetch Services
-    const fetchServices = async (runAiAnalysis: boolean = false) => {
+    const fetchServices = useCallback(async (runAiAnalysis: boolean = false) => {
         if (!projectNumber) return;
         setIsLoading(true);
         setError(null);
@@ -270,11 +260,11 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [projectNumber, apiConfig, region, assessAllServices]);
 
     useEffect(() => {
         if (projectNumber) fetchServices(false);
-    }, [projectNumber, region]);
+    }, [projectNumber, fetchServices]);
 
 
     // Filter Logic

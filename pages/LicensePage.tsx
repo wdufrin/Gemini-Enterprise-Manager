@@ -15,7 +15,7 @@
  */
 
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import * as api from '../services/apiService';
 import { Config } from '../types';
 import ProjectInput from '../components/ProjectInput';
@@ -25,6 +25,7 @@ import PruneLicensesModal from '../components/license/PruneLicensesModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import DestructiveConfirmModal from '../components/DestructiveConfirmModal';
 import { toErrorMessage } from '../utils/errors';
+import { useToast } from '../context/ToastContext';
 import PrunerDeploymentModal from '../components/license/PrunerDeploymentModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 import DistributeLicenseModal from '../components/license/DistributeLicenseModal';
@@ -47,6 +48,7 @@ type SortKey = 'userPrincipal' | 'licenseAssignmentState' | 'licenseConfig' | 'l
 type SortDirection = 'asc' | 'desc';
 
 const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumber, onBuildTriggered }) => {
+  const { toast } = useToast();
   // --- Cloud License API State ---
   const [apiConfig, setApiConfig] = useState({
       appLocation: 'global',
@@ -148,124 +150,53 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
     const [selectedServiceForEdit, setSelectedServiceForEdit] = useState<any | null>(null);
     const [lastRunTimes, setLastRunTimes] = useState<Record<string, string>>({});
 
-  // --- Auto Fetch Data ---
-  useEffect(() => {
-      if (projectNumber) {
-          fetchUserLicenses();
-          fetchApiLicenseConfigs();
-      }
-  }, [projectNumber, apiConfig.appLocation, apiConfig.userStoreId]);
-
-  const fetchGroupServices = async () => {
-      if (!projectNumber) return;
-      setIsServicesLoading(true);
-      setServicesError(null);
-      try {
-          const config: Config = {
-              projectId: projectNumber,
-              appLocation: apiConfig.appLocation,
-              collectionId: '', appId: '', assistantId: ''
-          } as any;
-          
-          const region = 'us-central1'; 
-          const res = await api.listCloudRunServices(config, region);
-          const items = res.services || [];
-          
-          const filtered = items.filter((s: any) => {
-              const name = s.name || '';
-              const parts = name.split('/');
-              const id = parts[parts.length - 1];
-              return id.startsWith('group-licensing-');
-          });
-          setGroupServices(filtered);
-          
-          // Fetch last run logs for filtered services
-          filtered.forEach(async (service: any) => {
-              const name = service.name || '';
-              const parts = name.split('/');
-              const id = parts[parts.length - 1];
-              try {
-                  const logRes = await api.fetchLastRunLog(config, id);
-                  const entries = logRes.entries || [];
-                  if (entries.length > 0) {
-                      const timestamp = entries[0].timestamp;
-                      setLastRunTimes(prev => ({ ...prev, [id]: timestamp }));
-                  }
-              } catch (e) {
-                  console.error("Failed to fetch last run log for", id, e);
-              }
-          });
-      } catch (e: any) {
-          console.error("Failed to fetch group services", e);
-          setServicesError("Failed to fetch group services: " + e.message);
-      } finally {
-          setIsServicesLoading(false);
-      }
-  };
-
-  useEffect(() => {
-      if (activeTab === 'group_assignments' && projectNumber) {
-          fetchGroupServices();
-      }
-  }, [activeTab, projectNumber]);
-
-  const handleEditService = async (service: any) => {
-      console.log("handleEditService called for", service.name);
-      const containers = service.template?.containers || [];
-      if (containers.length > 0) {
-          const env = containers[0].env || [];
-          const configGcsUriEnv = env.find((e: any) => e.name === 'CONFIG_GCS_URI');
-          console.log("CONFIG_GCS_URI env var:", configGcsUriEnv);
-          if (configGcsUriEnv && configGcsUriEnv.value) {
-              const gcsUri = configGcsUriEnv.value;
-              console.log("gcsUri value:", gcsUri);
-              if (gcsUri.startsWith("gs://")) {
-                  const parts = gcsUri.substring(5).split('/');
-                  const bucket = parts[0];
-                  const objectName = parts.slice(1).join('/');
-                  console.log("Parsing GCS URI - Bucket:", bucket, "Object:", objectName);
-                  
-                  try {
-                      console.log("Fetching config from GCS...");
-                      const content = await api.getGcsObjectContent(bucket, objectName, projectNumber);
-                      console.log("Fetched config content:", content);
-                      const parsedConfig = JSON.parse(content);
-                      setSelectedServiceForEdit(parsedConfig);
-                      setIsGroupDeploymentModalOpen(true);
-                  } catch (e) {
-                      console.error("Failed to fetch or parse config from GCS", e);
-                      alert("Failed to fetch or parse config from GCS.");
-                  }
-              } else {
-                  alert("Invalid CONFIG_GCS_URI in service: \"" + gcsUri + "\". It must start with \"gs://\".");
-              }
-          } else {
-              alert("No CONFIG_GCS_URI found in service environment variables.");
-          }
-      } else {
-          console.warn("No containers found in service template.");
-      }
-  };
-
-  const handleRunService = async (serviceUrl: string, projectId: string) => {
-      if (!serviceUrl) {
-          alert("Service URL is not available.");
-          return;
-      }
-      try {
-          const resp = await api.gapiRequest<any>(serviceUrl, 'POST', projectId);
-          alert(`Success: ${resp.message || 'Job triggered.'}`);
-      } catch (err: any) {
-          alert(`Error triggering service: ${err.message}`);
-      }
-  };
-
   // --- Cloud License Logic ---
   const handleApiConfigChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
       setApiConfig({ ...apiConfig, [e.target.name]: e.target.value });
   };
 
-  const fetchUserLicenses = async (forceRefresh: boolean = false) => {
+  const resolvedLicenseNamesRef = useRef<Set<string>>(new Set());
+  const resolveLicenseNames = useCallback(async (licenses: any[]) => {
+      // Get all unique license config resource names
+      const uniqueConfigNames = Array.from(new Set(licenses.map((l: any) => l.licenseConfig).filter((c: any) => typeof c === 'string')));
+      
+      // Filter out ones we already have in cache
+      const toFetch = uniqueConfigNames.filter(name => !resolvedLicenseNamesRef.current.has(name));
+      
+      if (toFetch.length === 0) return;
+      toFetch.forEach(name => resolvedLicenseNamesRef.current.add(name));
+
+      const newNames: Record<string, string> = {};
+      
+      // We need a config object for the API call
+      const configForApi: Config = {
+          projectId: projectNumber,
+          appLocation: apiConfig.appLocation,
+          // Dummy values
+          collectionId: '', appId: '', assistantId: ''
+      } as any;
+
+      // Fetch details for missing configs
+      await Promise.allSettled(toFetch.map(async (name) => {
+          try {
+              const details = await api.getLicenseConfig(name, configForApi);
+              if (details.displayName) {
+                  newNames[name] = details.displayName;
+              } else {
+                  // If no display name, fallback to ID
+                  newNames[name] = name.split('/').pop() || name;
+              }
+          } catch (e) {
+              console.warn(`Failed to fetch license config details for ${name}`, e);
+              // Fallback to ID on error
+              newNames[name] = name.split('/').pop() || name;
+          }
+      }));
+
+      setLicenseNames(prev => ({ ...prev, ...newNames }));
+  }, [projectNumber, apiConfig.appLocation]);
+
+  const fetchUserLicenses = useCallback(async (forceRefresh: boolean = false) => {
       if (!projectNumber) return;
       setIsLicensesLoading(true);
       setLicensesError(null);
@@ -319,9 +250,9 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
           setIsLicensesLoading(false);
           setFetchProgress(null);
       }
-  };
+  }, [projectNumber, apiConfig.userStoreId, apiConfig.appLocation, userLicensesFilter, resolveLicenseNames]);
   
-  const fetchApiLicenseConfigs = async () => {
+  const fetchApiLicenseConfigs = useCallback(async () => {
       if (!projectNumber) return;
       try {
           const config: Config = {
@@ -335,47 +266,121 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
       } catch (e) {
           console.error("Failed to fetch license configs for dropdown", e);
       }
-  };
-  const resolveLicenseNames = async (licenses: any[]) => {
-      // Get all unique license config resource names
-      const uniqueConfigNames = Array.from(new Set(licenses.map((l: any) => l.licenseConfig).filter((c: any) => typeof c === 'string')));
-      
-      // Filter out ones we already have in cache
-      const toFetch = uniqueConfigNames.filter(name => !licenseNames[name]);
-      
-      if (toFetch.length === 0) return;
+  }, [projectNumber, apiConfig.appLocation]);
 
-      const newNames: Record<string, string> = {};
-      
-      // We need a config object for the API call
-      const configForApi: Config = {
-          projectId: projectNumber,
-          appLocation: apiConfig.appLocation,
-          // Dummy values
-          collectionId: '', appId: '', assistantId: ''
-      } as any;
+  // --- Auto Fetch Data ---
+  useEffect(() => {
+      if (projectNumber) {
+          fetchUserLicenses();
+          fetchApiLicenseConfigs();
+      }
+  }, [projectNumber, fetchUserLicenses, fetchApiLicenseConfigs]);
 
-      // Fetch details for missing configs
-      await Promise.allSettled(toFetch.map(async (name) => {
-          try {
-              const details = await api.getLicenseConfig(name, configForApi);
-              if (details.displayName) {
-                  newNames[name] = details.displayName;
-              } else {
-                  // If no display name, fallback to ID
-                  newNames[name] = name.split('/').pop() || name;
+  const fetchGroupServices = useCallback(async () => {
+      if (!projectNumber) return;
+      setIsServicesLoading(true);
+      setServicesError(null);
+      try {
+          const config: Config = {
+              projectId: projectNumber,
+              appLocation: apiConfig.appLocation,
+              collectionId: '', appId: '', assistantId: ''
+          } as any;
+          
+          const region = 'us-central1'; 
+          const res = await api.listCloudRunServices(config, region);
+          const items = res.services || [];
+          
+          const filtered = items.filter((s: any) => {
+              const name = s.name || '';
+              const parts = name.split('/');
+              const id = parts[parts.length - 1];
+              return id.startsWith('group-licensing-');
+          });
+          setGroupServices(filtered);
+          
+          // Fetch last run logs for filtered services
+          filtered.forEach(async (service: any) => {
+              const name = service.name || '';
+              const parts = name.split('/');
+              const id = parts[parts.length - 1];
+              try {
+                  const logRes = await api.fetchLastRunLog(config, id);
+                  const entries = logRes.entries || [];
+                  if (entries.length > 0) {
+                      const timestamp = entries[0].timestamp;
+                      setLastRunTimes(prev => ({ ...prev, [id]: timestamp }));
+                  }
+              } catch (e) {
+                  console.error("Failed to fetch last run log for", id, e);
               }
-          } catch (e) {
-              console.warn(`Failed to fetch license config details for ${name}`, e);
-              // Fallback to ID on error
-              newNames[name] = name.split('/').pop() || name;
-          }
-      }));
+          });
+      } catch (e: any) {
+          console.error("Failed to fetch group services", e);
+          setServicesError("Failed to fetch group services: " + e.message);
+      } finally {
+          setIsServicesLoading(false);
+      }
+  }, [projectNumber, apiConfig.appLocation]);
 
-      setLicenseNames(prev => ({ ...prev, ...newNames }));
+  useEffect(() => {
+      if (activeTab === 'group_assignments' && projectNumber) {
+          fetchGroupServices();
+      }
+  }, [activeTab, projectNumber, fetchGroupServices]);
+
+  const handleEditService = async (service: any) => {
+      console.log("handleEditService called for", service.name);
+      const containers = service.template?.containers || [];
+      if (containers.length > 0) {
+          const env = containers[0].env || [];
+          const configGcsUriEnv = env.find((e: any) => e.name === 'CONFIG_GCS_URI');
+          console.log("CONFIG_GCS_URI env var:", configGcsUriEnv);
+          if (configGcsUriEnv && configGcsUriEnv.value) {
+              const gcsUri = configGcsUriEnv.value;
+              console.log("gcsUri value:", gcsUri);
+              if (gcsUri.startsWith("gs://")) {
+                  const parts = gcsUri.substring(5).split('/');
+                  const bucket = parts[0];
+                  const objectName = parts.slice(1).join('/');
+                  console.log("Parsing GCS URI - Bucket:", bucket, "Object:", objectName);
+                  
+                  try {
+                      console.log("Fetching config from GCS...");
+                      const content = await api.getGcsObjectContent(bucket, objectName, projectNumber);
+                      console.log("Fetched config content:", content);
+                      const parsedConfig = JSON.parse(content);
+                      setSelectedServiceForEdit(parsedConfig);
+                      setIsGroupDeploymentModalOpen(true);
+                  } catch (e) {
+                      console.error("Failed to fetch or parse config from GCS", e);
+                      toast.error("Failed to fetch or parse config from GCS: " + toErrorMessage(e));
+                  }
+              } else {
+                  toast.warning("Invalid CONFIG_GCS_URI in service: \"" + gcsUri + "\". It must start with \"gs://\".");
+              }
+          } else {
+              toast.warning("No CONFIG_GCS_URI found in service environment variables.");
+          }
+      } else {
+          console.warn("No containers found in service template.");
+      }
   };
 
-    const fetchAvailableBillingAccounts = async () => {
+  const handleRunService = async (serviceUrl: string, projectId: string) => {
+      if (!serviceUrl) {
+          toast.warning("Service URL is not available.");
+          return;
+      }
+      try {
+          const resp = await api.gapiRequest<any>(serviceUrl, 'POST', projectId);
+          toast.success(resp?.message || 'Job triggered.');
+      } catch (err: any) {
+          toast.error(`Error triggering service: ${toErrorMessage(err)}`);
+      }
+  };
+
+    const fetchAvailableBillingAccounts = useCallback(async () => {
         setIsBillingAccountsLoading(true);
         try {
             const config: Config = {
@@ -389,32 +394,33 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
             setAvailableBillingAccounts(accounts);
 
             // Auto-select if only one
-            if (accounts.length === 1 && !billingAccountId) {
+            if (accounts.length === 1) {
                 // value is like "billingAccounts/012345..."
                 const id = accounts[0].name.split('/').pop();
-                setBillingAccountId(id);
+                setBillingAccountId(prev => prev || id || '');
             }
         } catch (e: any) {
             console.error("Failed to fetch billing accounts", e);
         } finally {
             setIsBillingAccountsLoading(false);
         }
-    };
+    }, [projectNumber, apiConfig.appLocation]);
 
     // Fetch billing accounts when tab is active
     useEffect(() => {
         if (activeTab === 'allocations' && projectNumber) {
             fetchAvailableBillingAccounts();
         }
-    }, [activeTab, projectNumber]);
+    }, [activeTab, projectNumber, fetchAvailableBillingAccounts]);
 
     // Set default stats project ID
     useEffect(() => {
-        if (projectNumber && !statsProjectId) {
-            setStatsProjectId(projectNumber);
+        if (projectNumber) {
+            setStatsProjectId(prev => prev || projectNumber);
         }
     }, [projectNumber]);
 
+    const fetchedProjectsRef = useRef<Set<string>>(new Set());
     useEffect(() => {
         const fetchNames = async () => {
             const projectsToFetch = new Set<string>();
@@ -422,8 +428,9 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                 if (config.licenseConfigDistributions) {
                     Object.keys(config.licenseConfigDistributions).forEach(resourceKey => {
                         const project = resourceKey.includes('projects/') ? resourceKey.split('projects/')[1].split('/')[0] : null;
-                        if (project && !projectNames[project]) {
+                        if (project && !fetchedProjectsRef.current.has(project)) {
                             projectsToFetch.add(project);
+                            fetchedProjectsRef.current.add(project);
                         }
                     });
                 }
@@ -753,7 +760,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
           await fetchGroupServices();
           setServiceToDelete(null);
       } catch (err: unknown) {
-          alert("Failed to delete service: " + toErrorMessage(err));
+          toast.error("Failed to delete service: " + toErrorMessage(err));
       } finally {
           setIsDeletingService(false);
       }

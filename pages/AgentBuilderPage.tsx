@@ -12,6 +12,8 @@ import AgentRegisterModal from '../components/agent-builder/AgentRegisterModal';
 import ProjectInput from '../components/ProjectInput';
 import { McpServiceCheck } from '../components/McpServiceCheck';
 import CloudConsoleButton from '../components/CloudConsoleButton';
+import { useToast } from '../context/ToastContext';
+import PartialResultsBanner, { PartialFailure } from '../components/common/PartialResultsBanner';
 
 import JSZip from 'jszip';
 
@@ -282,6 +284,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   context,
   onBuildTriggered,
 }) => {
+  const { toast } = useToast();
   const [builderTab, setBuilderTab] = useState<'a2a' | 'adk'>('adk');
 
   // --- A2A State ---
@@ -543,6 +546,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   const [dataStores, setDataStores] = useState<(DataStore & { location: string })[]>([]);
   const [isLoadingDataStores, setIsLoadingDataStores] = useState(false);
   const [dataStoreSearchTerm, setDataStoreSearchTerm] = useState('');
+  const [builderPartialFailures, setBuilderPartialFailures] = useState<PartialFailure[]>([]);
 
   // Staging Bucket State
   const [stagingBucket, setStagingBucket] = useState('');
@@ -633,7 +637,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   }, [adkConfig.githubServiceAccount, adkConfig.githubWifProvider, projectNumber]);
 
   // --- Common Logic ---
-  const fetchProjectId = async () => {
+  const fetchProjectId = useCallback(async () => {
     if (!projectNumber) return;
     setIsResolvingId(true);
     try {
@@ -646,12 +650,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     } finally {
       setIsResolvingId(false);
     }
-  };
+  }, [projectNumber]);
 
   useEffect(() => {
     setDeployProjectId(projectNumber);
     fetchProjectId();
-  }, [projectNumber]);
+  }, [projectNumber, fetchProjectId]);
 
   // Handle Fix Mode context
   useEffect(() => {
@@ -684,7 +688,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
       gcloud: generateGcloudCommand(a2aConfig, deployProjectId),
       yaml: generateA2aEnvYaml(a2aConfig, deployProjectId),
     });
-  }, [a2aConfig, deployProjectId]);
+  }, [a2aConfig, deployProjectId, adkConfig]);
 
   // ADK Code Generation
   useEffect(() => {
@@ -742,126 +746,153 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     [projectNumber]
   );
 
-  useEffect(() => {
+  const fetchData = useCallback(async () => {
     if (!projectNumber) return;
 
-    const fetchData = async () => {
-      setIsLoadingDataStores(true);
-      setDataStores([]);
+    setIsLoadingDataStores(true);
+    setDataStores([]);
+    setBuilderPartialFailures([]);
+    const failures: PartialFailure[] = [];
 
-      const locations = ['global', 'us', 'eu'];
-      const dsResults: (DataStore & { location: string })[] = [];
+    const locations = ['global', 'us', 'eu'];
+    const dsResults: (DataStore & { location: string })[] = [];
 
-      await Promise.all(
-        locations.map(async (loc) => {
-          const dsConfig = {
-            projectId: projectNumber,
-            appLocation: loc,
-            collectionId: 'default_collection',
-            appId: '',
-            assistantId: '',
-          };
-          try {
-            const res = await api.listResources('dataStores', dsConfig);
-            if (res.dataStores) {
-              res.dataStores.forEach((ds: any) => dsResults.push({ ...ds, location: loc }));
-            }
-          } catch (e) {
-            // TODO(phase6): surface partial-scan failures in the UI instead of
-            // silently returning a short list. Tracked in remediation Phase 6.
-            console.warn(
-              `[AgentBuilder] Failed to list data stores in location "${loc}". ` +
-                `Results may be incomplete.`,
-              e
-            );
+    await Promise.all(
+      locations.map(async (loc) => {
+        const dsConfig = {
+          projectId: projectNumber,
+          appLocation: loc,
+          collectionId: 'default_collection',
+          appId: '',
+          assistantId: '',
+        };
+        try {
+          const res = await api.listResources('dataStores', dsConfig);
+          if (res.dataStores) {
+            res.dataStores.forEach((ds: any) => dsResults.push({ ...ds, location: loc }));
           }
-        })
-      );
+        } catch (e: any) {
+          console.warn(
+            `[AgentBuilder] Failed to list data stores in location "${loc}". Results may be incomplete.`,
+            e
+          );
+          failures.push({
+            id: `dataStores-${loc}`,
+            name: `Data Stores (${loc})`,
+            resourceType: 'Data Stores',
+            status: e?.status || e?.code || (toErrorMessage(e).includes('403') ? 403 : undefined),
+            error: toErrorMessage(e),
+            reason: `Failed to list data stores in location "${loc}": ${toErrorMessage(e)}`,
+          });
+        }
+      })
+    );
 
-      setDataStores(dsResults);
-      if (dsResults.length === 1 && !toolBuilderConfig.dataStoreId) {
-        setToolBuilderConfig((prev) => ({
-          ...prev,
-          dataStoreId: dsResults[0].name,
-        }));
+    setDataStores(dsResults);
+    if (dsResults.length === 1 && !toolBuilderConfig.dataStoreId) {
+      setToolBuilderConfig((prev) => ({
+        ...prev,
+        dataStoreId: dsResults[0].name,
+      }));
+    }
+    setIsLoadingDataStores(false);
+
+    setIsLoadingServices(true);
+    setCloudRunServices([]);
+    const regions = ['us-central1', 'us-east1', 'europe-west1', 'asia-east1'];
+    const services: CloudRunService[] = [];
+
+    await Promise.all(
+      regions.map(async (region) => {
+        try {
+          const res = await api.listCloudRunServices({ projectId: projectNumber } as any, region);
+          if (res.services) services.push(...res.services);
+        } catch (e: any) {
+          console.warn(
+            `[AgentBuilder] Failed to list Cloud Run services in region "${region}". Results may be incomplete.`,
+            e
+          );
+          failures.push({
+            id: `cloudRun-${region}`,
+            name: `Cloud Run (${region})`,
+            resourceType: 'Cloud Run Services',
+            status: e?.status || e?.code || (toErrorMessage(e).includes('403') ? 403 : undefined),
+            error: toErrorMessage(e),
+            reason: `Failed to list Cloud Run services in region "${region}": ${toErrorMessage(e)}`,
+          });
+        }
+      })
+    );
+
+    const a2a = services.filter((s) => {
+      const envVars = s.template?.containers?.[0]?.env || [];
+      const getEnv = (name: string) => envVars.find((e) => e.name === name)?.value;
+      return !!(
+        getEnv('AGENT_URL') ||
+        getEnv('PROVIDER_ORGANIZATION') ||
+        s.name.toLowerCase().includes('a2a')
+      );
+    });
+
+    setCloudRunServices(a2a);
+    setIsLoadingServices(false);
+
+    // Fetch Buckets
+    setIsLoadingBuckets(true);
+    try {
+      const b = await api.listBuckets(projectNumber);
+      const items = b.items || [];
+      setBuckets(items);
+      if (items.length > 0 && !stagingBucket) {
+        setStagingBucket(`gs://${items[0].name}`);
       }
-      setIsLoadingDataStores(false);
-
-      setIsLoadingServices(true);
-      setCloudRunServices([]);
-      const regions = ['us-central1', 'us-east1', 'europe-west1', 'asia-east1'];
-      const services: CloudRunService[] = [];
-
-      await Promise.all(
-        regions.map(async (region) => {
-          try {
-            const res = await api.listCloudRunServices({ projectId: projectNumber } as any, region);
-            if (res.services) services.push(...res.services);
-          } catch (e) {
-            // TODO(phase6): surface partial-scan failures in the UI instead of
-            // silently returning a short list. Tracked in remediation Phase 6.
-            console.warn(
-              `[AgentBuilder] Failed to list Cloud Run services in region ` +
-                `"${region}". Results may be incomplete.`,
-              e
-            );
-          }
-        })
-      );
-
-      const a2a = services.filter((s) => {
-        const envVars = s.template?.containers?.[0]?.env || [];
-        const getEnv = (name: string) => envVars.find((e) => e.name === name)?.value;
-        return !!(
-          getEnv('AGENT_URL') ||
-          getEnv('PROVIDER_ORGANIZATION') ||
-          s.name.toLowerCase().includes('a2a')
-        );
+    } catch (e: any) {
+      console.error('Failed to fetch buckets', e);
+      failures.push({
+        id: `buckets-${projectNumber}`,
+        name: `Buckets (${projectNumber})`,
+        resourceType: 'GCS Buckets',
+        status: e?.status || e?.code,
+        error: toErrorMessage(e),
+        reason: `Failed to list Cloud Storage buckets: ${toErrorMessage(e)}`,
       });
+    } finally {
+      setIsLoadingBuckets(false);
+    }
 
-      setCloudRunServices(a2a);
-      setIsLoadingServices(false);
-
-      // Fetch Buckets
-      setIsLoadingBuckets(true);
-      try {
-        // We need to resolve the project string first if currently a number,
-        // but here we just try api.listBuckets which likely expects an ID string or number.
-        // Best effort:
-        const b = await api.listBuckets(projectNumber);
-        const items = b.items || [];
-        setBuckets(items);
-        if (items.length > 0 && !stagingBucket) {
-          setStagingBucket(`gs://${items[0].name}`);
-        }
-      } catch (e) {
-        console.error('Failed to fetch buckets', e);
-      } finally {
-        setIsLoadingBuckets(false);
-      }
-
-      // Fetch Authorizations for Dropdown Select
-      setIsLoadingAuths(true);
-      setAuthorizations([]);
-      try {
-        const response = await api.listAuthorizations(apiConfig);
-        const auths = response.authorizations || [];
-        setAuthorizations(auths);
-        if (auths.length > 0) {
-          setAuthInputMode('select');
-        } else {
-          setAuthInputMode('manual');
-        }
-      } catch (e) {
-        console.warn('Failed to fetch authorizations', e);
+    // Fetch Authorizations for Dropdown Select
+    setIsLoadingAuths(true);
+    setAuthorizations([]);
+    try {
+      const response = await api.listAuthorizations(apiConfig);
+      const auths = response.authorizations || [];
+      setAuthorizations(auths);
+      if (auths.length > 0) {
+        setAuthInputMode('select');
+      } else {
         setAuthInputMode('manual');
-      } finally {
-        setIsLoadingAuths(false);
       }
-    };
+    } catch (e: any) {
+      console.warn('Failed to fetch authorizations', e);
+      setAuthInputMode('manual');
+      failures.push({
+        id: `authorizations-${apiConfig.appLocation || 'global'}`,
+        name: `Authorizations (${apiConfig.appLocation || 'global'})`,
+        resourceType: 'Authorizations',
+        status: e?.status || e?.code,
+        error: toErrorMessage(e),
+        reason: `Failed to fetch authorizations list: ${toErrorMessage(e)}`,
+      });
+    } finally {
+      setIsLoadingAuths(false);
+    }
 
+    setBuilderPartialFailures(failures);
+  }, [projectNumber, apiConfig, stagingBucket, toolBuilderConfig.dataStoreId]);
+
+  useEffect(() => {
     fetchData();
-  }, [projectNumber, apiConfig]);
+  }, [fetchData]);
 
   // --- Handlers ---
   const handleA2aConfigChange = (
@@ -1096,7 +1127,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         setAdkConfig((prev) => ({ ...prev, instruction: rewrittenText }));
       }
     } catch (err: unknown) {
-      alert(`AI rewrite failed: ${toErrorMessage(err)}`);
+      toast.error(`AI rewrite failed: ${toErrorMessage(err)}`);
     } finally {
       setRewritingField(null);
     }
@@ -1130,7 +1161,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err: unknown) {
-      alert(`Download failed: ${toErrorMessage(err)}`);
+      toast.error(`Download failed: ${toErrorMessage(err)}`);
     }
   };
 
@@ -1238,10 +1269,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
           URL.revokeObjectURL(url);
         })
         .catch(function (err: unknown) {
-          alert(`Download failed: ${toErrorMessage(err)}`);
+          toast.error(`Download failed: ${toErrorMessage(err)}`);
         });
     } catch (err: unknown) {
-      alert(`Download failed: ${toErrorMessage(err)}`);
+      toast.error(`Download failed: ${toErrorMessage(err)}`);
     }
   };
 
@@ -1352,7 +1383,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
   const handleCheckBuildStatus = async () => {
     if (!deployProjectId && !projectNumber) {
-      alert('Project ID not set.');
+      toast.warning('Project ID not set.');
       return;
     }
     const pid = deployProjectId || projectNumber;
@@ -1401,10 +1432,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
       }
 
       if (!foundAny) {
-        alert('No active or queued builds found.');
+        toast.info('No active or queued builds found.');
       }
     } catch (e: any) {
-      alert(`Failed to check builds: ${e.message}`);
+      toast.error(`Failed to check builds: ${toErrorMessage(e)}`);
     }
   };
 
@@ -1540,6 +1571,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
           </button>
         </div>
       </div>
+
+      {builderPartialFailures.length > 0 && (
+        <PartialResultsBanner
+          partialFailures={builderPartialFailures}
+          onRetry={fetchData}
+        />
+      )}
 
       {/* Deploy Modals */}
       <AgentDeploymentModal

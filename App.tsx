@@ -16,6 +16,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GlobalDebugProvider } from './context/GlobalDebugContext';
+import { ToastProvider } from './context/ToastContext';
 import Sidebar from './components/Sidebar';
 import ErrorBoundary from './components/ErrorBoundary';
 import AgentsPage from './pages/AgentsPage';
@@ -1565,7 +1566,9 @@ const InnerApp: React.FC = () => {
 const App: React.FC = () => {
     return (
         <GlobalDebugProvider>
-            <InnerApp />
+            <ToastProvider>
+                <InnerApp />
+            </ToastProvider>
         </GlobalDebugProvider>
     );
 };

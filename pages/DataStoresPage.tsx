@@ -407,7 +407,7 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber, projectI
         setDataStores([]);
     }
     setSelectedDataStores(new Set());
-  }, [fetchDataStores]);
+  }, [fetchDataStores, projectNumber, config.collectionId]);
 
   const pollDiscoveryOperation = async (operation: any, maxAttempts: number = 60) => {
     let currentOperation = operation;

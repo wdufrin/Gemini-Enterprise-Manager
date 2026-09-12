@@ -3,6 +3,8 @@ import CloudConsoleButton from '../components/CloudConsoleButton';
 import { listLoggingSinks, listBigQueryTables, runBigQueryQuery, gapiRequest } from '../services/apiService';
 import ObservabilityDashboard from '../components/dashboard/ObservabilityDashboard';
 import { OperationalAnalyticsDashboard } from '../components/dashboard/operational/OperationalAnalyticsDashboard';
+import { useToast } from '../context/ToastContext';
+import { toErrorMessage } from '../utils/errors';
 
 interface Props {
     projectNumber: string;
@@ -10,6 +12,7 @@ interface Props {
 }
 
 const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
+    const { toast } = useToast();
     const [sinks, setSinks] = useState<any[]>([]);
     const [tables, setTables] = useState<any[]>([]);
     const [dashboardData, setDashboardData] = useState<any>(null);
@@ -105,6 +108,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
             } catch (err: any) {
                 if (isCurrent) {
                     console.error('Failed to fetch tables:', err);
+                    setError(`Failed to fetch BigQuery tables: ${toErrorMessage(err)}`);
                 }
             }
         };
@@ -480,10 +484,12 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
             queryCache.current.clear();
             const tablesResponse = await listBigQueryTables(projectId || projectNumber, datasetId);
             setTables(tablesResponse.tables || []);
+            toast.success('BigQuery tables refreshed successfully.');
         } catch (e) {
             console.error('Failed to refresh tables:', e);
+            toast.error(`Failed to refresh BigQuery tables: ${toErrorMessage(e)}`);
         }
-    }, [projectId, projectNumber, datasetId]);
+    }, [projectId, projectNumber, datasetId, toast]);
 
     return (
         <div className="flex-1 overflow-auto bg-gray-900 border-l border-gray-800 custom-scrollbar">

@@ -33,6 +33,7 @@ import ConnectedDataStorePermissions from '../components/assistants/ConnectedDat
 import UserMemoriesViewer from '../components/assistants/UserMemoriesViewer';
 import SkillsViewer from '../components/assistants/SkillsViewer';
 import CloudConsoleButton from '../components/CloudConsoleButton';
+import { useToast } from '../context/ToastContext';
 
 interface AssistantPageProps {
   projectNumber: string;
@@ -148,6 +149,7 @@ const determineAppType = (engine: AppEngine): string => {
 };
 
 const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId, setProjectNumber, accessToken, userProfile, onBuildTriggered }) => {
+  const { toast } = useToast();
   const [config, setConfig] = useState(getInitialConfig);
   
   // List View State
@@ -427,7 +429,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
 
   const handleRowClick = (row: AssistantRowData) => {
       if (!row.assistant) {
-          alert(`This engine (${row.engine.displayName}) has not been fully initialized with an assistant yet. Please open the Assistant configuration or check Discovery Engine status.`);
+          toast.warning(`This engine (${row.engine.displayName}) has not been fully initialized with an assistant yet. Please open the Assistant configuration or check Discovery Engine status.`);
           return;
       }
       setSelectedRow(row);

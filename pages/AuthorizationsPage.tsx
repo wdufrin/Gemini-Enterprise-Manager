@@ -23,6 +23,8 @@ import AuthForm from '../components/authorizations/AuthForm';
 import ViewAuthModal from '../components/authorizations/ViewAuthModal';
 import WorkforcePoolValidator from '../components/tools/WorkforcePoolValidator';
 import ConfirmationModal from '../components/ConfirmationModal';
+import PartialResultsBanner, { PartialFailure } from '../components/common/PartialResultsBanner';
+import { toErrorMessage } from '../utils/errors';
 
 interface AuthorizationsPageProps {
   projectNumber: string;
@@ -67,13 +69,13 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [partialFailures, setPartialFailures] = useState<PartialFailure[]>([]);
 
   const [showWorkforceValidator, setShowWorkforceValidator] = useState(false);
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectId || projectNumber,
-      // These are not used for authorizations but are required by the type
-    appLocation: region, 
+      appLocation: region, 
       collectionId: 'default_collection',
       appId: '',
       assistantId: 'default_assistant'
@@ -82,25 +84,38 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   const fetchData = useCallback(async () => {
     if (!projectNumber) {
         setAuthorizations([]);
+        setPartialFailures([]);
         setError("Project ID/Number is required to list authorizations.");
         return;
     }
     setIsLoading(true);
     setIsScanningAgents(true);
     setError(null);
+    setPartialFailures([]);
     setAuthUsage({});
+
+    const failures: PartialFailure[] = [];
 
     try {
       const discoveryLocations = ['global', 'us', 'eu'];
 
-      const authPromises = discoveryLocations.map(loc =>
-        api.listAuthorizations({ ...apiConfig, appLocation: loc })
-          .then(res => res.authorizations || [])
-          .catch(err => {
-            console.error(`Failed to load auths for region ${loc}:`, err);
-            return [];
-          })
-      );
+      const authPromises = discoveryLocations.map(async (loc) => {
+        try {
+          const res = await api.listAuthorizations({ ...apiConfig, appLocation: loc });
+          return res.authorizations || [];
+        } catch (err: any) {
+          console.error(`Failed to load auths for region ${loc}:`, err);
+          failures.push({
+            id: `authorizations-${loc}`,
+            name: `Authorizations (${loc})`,
+            resourceType: 'Authorizations',
+            status: err?.status || err?.code || (toErrorMessage(err).includes('403') ? 403 : undefined),
+            error: toErrorMessage(err),
+            reason: `Failed to load authorizations for region '${loc}': ${toErrorMessage(err)}`,
+          });
+          return [];
+        }
+      });
       
       const agentPromise = (async () => {
         const agentsList: Agent[] = [];
@@ -118,20 +133,64 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
                           for (const appEngine of appEngines) {
                               const appId = appEngine.name.split('/').pop()!;
                               const appConfig = { ...collectionConfig, appId };
-                              const assistantsResponse = await api.listResources('assistants', appConfig);
-                              const assistants = assistantsResponse.assistants || [];
-                              for (const assistant of assistants) {
-                                  const assistantId = assistant.name.split('/').pop()!;
-                                  const assistantConfig = { ...appConfig, assistantId };
-                                  const agentsResponse = await api.listResources('agents', assistantConfig);
-                                  if (agentsResponse.agents) {
-                                      agentsList.push(...agentsResponse.agents);
+                              try {
+                                  const assistantsResponse = await api.listResources('assistants', appConfig);
+                                  const assistants = assistantsResponse.assistants || [];
+                                  for (const assistant of assistants) {
+                                      const assistantId = assistant.name.split('/').pop()!;
+                                      const assistantConfig = { ...appConfig, assistantId };
+                                      try {
+                                          const agentsResponse = await api.listResources('agents', assistantConfig);
+                                          if (agentsResponse.agents) {
+                                              agentsList.push(...agentsResponse.agents);
+                                          }
+                                      } catch (agentErr: any) {
+                                          console.warn(`Could not list agents for assistant ${assistantId}:`, agentErr);
+                                          failures.push({
+                                              id: `agents-${assistantId}`,
+                                              name: `Assistant ${assistantId}`,
+                                              resourceType: 'Assistant Agents',
+                                              status: agentErr?.status || agentErr?.code,
+                                              error: toErrorMessage(agentErr),
+                                              reason: `Could not list agents for assistant '${assistantId}': ${toErrorMessage(agentErr)}`,
+                                          });
+                                      }
                                   }
+                              } catch (astErr: any) {
+                                  console.warn(`Could not list assistants for app ${appId}:`, astErr);
+                                  failures.push({
+                                      id: `assistants-${appId}`,
+                                      name: `Engine App ${appId}`,
+                                      resourceType: 'Engine Assistants',
+                                      status: astErr?.status || astErr?.code,
+                                      error: toErrorMessage(astErr),
+                                      reason: `Could not list assistants for app '${appId}': ${toErrorMessage(astErr)}`,
+                                  });
                               }
                           }
-                      } catch (e) { /* ignore errors in sub-resources to allow partial data */ }
+                      } catch (engErr: any) {
+                          console.warn(`Could not list engines for collection ${collectionId}:`, engErr);
+                          failures.push({
+                              id: `engines-${collectionId}`,
+                              name: `Collection ${collectionId}`,
+                              resourceType: 'Engines',
+                              status: engErr?.status || engErr?.code,
+                              error: toErrorMessage(engErr),
+                              reason: `Could not list engines for collection '${collectionId}': ${toErrorMessage(engErr)}`,
+                          });
+                      }
                   }
-              } catch (e) { /* ignore errors in sub-resources to allow partial data */ }
+              } catch (colErr: any) {
+                  console.warn(`Could not list collections for location ${discoveryLocation}:`, colErr);
+                  failures.push({
+                      id: `collections-${discoveryLocation}`,
+                      name: `Collections (${discoveryLocation})`,
+                      resourceType: 'Collections',
+                      status: colErr?.status || colErr?.code,
+                      error: toErrorMessage(colErr),
+                      reason: `Could not list collections for location '${discoveryLocation}': ${toErrorMessage(colErr)}`,
+                  });
+              }
           }
           return agentsList;
       })();
@@ -143,6 +202,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       const allAuths = authResults.flat();
 
       setAuthorizations(allAuths);
+      setPartialFailures(failures);
       setHasLoaded(true);
       
       const usageMap: Record<string, Agent[]> = {};
@@ -165,13 +225,14 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       setAuthUsage(usageMap);
 
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch authorizations or agent data.');
+      setError(toErrorMessage(err) || 'Failed to fetch authorizations or agent data.');
       setAuthorizations([]);
+      setPartialFailures(failures);
     } finally {
       setIsLoading(false);
       setIsScanningAgents(false);
     }
-  }, [projectNumber, apiConfig]);
+  }, [projectNumber, apiConfig, setAuthUsage, setAuthorizations, setError, setHasLoaded, setIsLoading, setIsScanningAgents]);
 
   useEffect(() => {
     if (projectNumber) {
@@ -381,6 +442,15 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
               <WorkforcePoolValidator config={apiConfig} />
             </div>
           )}
+        </div>
+      )}
+
+      {view === 'list' && partialFailures.length > 0 && (
+        <div className="mb-6">
+          <PartialResultsBanner
+            partialFailures={partialFailures}
+            onRetry={fetchData}
+          />
         </div>
       )}
       {renderContent()}

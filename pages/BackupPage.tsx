@@ -15,7 +15,7 @@
  */
 
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Agent, AppEngine, Assistant, Authorization, Collection, Config, DataStore, ReasoningEngine, GcsBucket, GcsObject, DiscoverySession } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
@@ -386,7 +386,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
               setBuckets(items);
               if (items.length > 0) {
                   // Default to first bucket if not set
-                  if (!selectedBucket) setSelectedBucket(items[0].name);
+                  setSelectedBucket(prev => prev || items[0].name);
               }
           } catch (e) {
               console.error("Failed to fetch buckets", e);
@@ -397,7 +397,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       fetchBuckets();
   }, [apiConfig.projectId]);
 
-  const fetchBackups = async () => {
+  const fetchBackups = useCallback(async () => {
       if (!selectedBucket || !apiConfig.projectId) return;
       setIsLoadingFiles(true);
       setBackupFiles({}); // Clear while loading
@@ -440,12 +440,12 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       } finally {
           setIsLoadingFiles(false);
       }
-  };
+  }, [selectedBucket, apiConfig.projectId]);
 
   // Fetch Backup Files when bucket changes
   useEffect(() => {
       fetchBackups();
-  }, [selectedBucket, apiConfig.projectId]);
+  }, [fetchBackups]);
 
 
   useEffect(() => {
@@ -457,10 +457,15 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         setIsLoadingApps(true);
         setApps([]);
         try {
+            const locConfig = {
+                projectId: apiConfig.projectId,
+                appLocation: apiConfig.appLocation,
+                collectionId: apiConfig.collectionId,
+            } as any;
             const fetchedApps: AppEngine[] = [];
             let engToken: string | undefined;
             do {
-                const response = await api.listResources('engines', apiConfig, engToken);
+                const response = await api.listResources('engines', locConfig, engToken);
                 fetchedApps.push(...(response.engines || []));
                 engToken = response.nextPageToken;
             } while (engToken);
@@ -487,7 +492,11 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         setIsLoadingReasoningEngines(true);
         setReasoningEngines([]);
         try {
-            const engines = await api.listAllReasoningEngines(apiConfig);
+            const reConfig = {
+                projectId: apiConfig.projectId,
+                reasoningEngineLocation: apiConfig.reasoningEngineLocation,
+            } as any;
+            const engines = await api.listAllReasoningEngines(reConfig);
             setReasoningEngines(engines);
             // Auto select if only one
              if (engines.length === 1) {

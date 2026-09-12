@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import * as api from "../../services/apiService";
 import { Config } from "../../types";
 import Spinner from "../Spinner";
@@ -64,13 +64,7 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
     : "unknown";
 
   // Fetch usage stats on mount
-  React.useEffect(() => {
-    if (isOpen && project !== "unknown") {
-      fetchUsage();
-    }
-  }, [isOpen, project, location]);
-
-  const fetchUsage = async () => {
+  const fetchUsage = useCallback(async () => {
     setIsFetchingUsage(true);
     try {
       // We use the TARGET project for the list request
@@ -91,14 +85,20 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
 
       setUsageStats({ used, available });
       // Reset count if it exceeds available
-      if (count !== "" && count > available) setCount(Math.max(1, available));
+      setCount((prev) => (prev !== "" && prev > available ? Math.max(1, available) : prev));
     } catch (e) {
       console.warn("Failed to fetch user licenses for retraction stats", e);
       setUserLicenses([]);
     } finally {
       setIsFetchingUsage(false);
     }
-  };
+  }, [project, location, allocatedCount]);
+
+  React.useEffect(() => {
+    if (isOpen && project !== "unknown") {
+      fetchUsage();
+    }
+  }, [isOpen, project, fetchUsage]);
 
   const handleRevokeUser = async (principal: string) => {
     setRevokingPrincipal(principal);

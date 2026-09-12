@@ -20,6 +20,7 @@ import { Agent, Config, DataStore } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import SetIamPolicyModal from './SetIamPolicyModal';
+import { useToast } from '../../context/ToastContext';
 
 interface AgentDetailsProps {
     agent: Agent;
@@ -40,6 +41,7 @@ const DetailItem: React.FC<{ label: string; value: string | undefined | null }> 
 );
 
 const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEdit, onDeleteSuccess, onToggleStatus, togglingAgentId, error: pageError }) => {
+    const { toast } = useToast();
     const [isDeleting, setIsDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const [agentViewData, setAgentViewData] = useState<any | null>(null);
@@ -117,7 +119,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
             
             await api.updateAgent(agent, payload, config);
             setFullAgent(updatedAgent);
-            alert("Model updated successfully!");
+            toast.success("Model updated successfully!");
         } catch (err: any) {
             setSaveModelError(err.message || 'Failed to save model.');
         } finally {

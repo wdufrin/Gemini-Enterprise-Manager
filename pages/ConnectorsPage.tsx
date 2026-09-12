@@ -120,7 +120,7 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
     if (config.projectId) {
       fetchCollections();
     }
-  }, [fetchCollections]);
+  }, [config.projectId, fetchCollections]);
 
   const handleConfigChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,

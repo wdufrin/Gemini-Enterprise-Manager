@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { DiscoverySession, Config } from '../../types';
 import * as api from '../../services/apiService';
 import { createDiscoverySession } from '../../services/apiService';
@@ -86,7 +86,7 @@ const FetchAnswerButton: React.FC<FetcherProps> = ({ resourceName, config, onLoa
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const handleFetch = async () => {
+    const handleFetch = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
@@ -110,7 +110,7 @@ const FetchAnswerButton: React.FC<FetcherProps> = ({ resourceName, config, onLoa
         } finally {
             setLoading(false);
         }
-    };
+    }, [resourceName, config, onLoad]);
 
     useEffect(() => {
         if (autoLoad) {
@@ -122,7 +122,7 @@ const FetchAnswerButton: React.FC<FetcherProps> = ({ resourceName, config, onLoa
             setContent(null);
             setError(null);
         }
-    }, [autoLoad, resourceName]);
+    }, [autoLoad, handleFetch]);
 
     if (loading) return (
         <span className="inline-flex items-center gap-2 text-xs text-blue-400 animate-pulse">
@@ -189,7 +189,7 @@ const DetailedJsonFetcher: React.FC<{ resourceName: string, config: Config }> = 
             }
         };
         fetch();
-    }, [resourceName]);
+    }, [resourceName, config]);
 
     if (loading) return <div className="p-4 text-xs text-blue-400">Loading full JSON...</div>;
     if (error) return <div className="p-4 text-xs text-red-400">Error: {error}</div>;

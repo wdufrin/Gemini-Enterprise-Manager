@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import InfoTooltip from '../InfoTooltip';
 import * as api from '../../services/apiService';
 import { Config } from '../../types';
@@ -41,8 +41,8 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 const accounts = res.billingAccounts || [];
                 setBillingAccounts(accounts);
                 
-                if (accounts.length === 1 && !selectedBillingAccountId) {
-                     setSelectedBillingAccountId(accounts[0].name.split('/').pop());
+                if (accounts.length === 1) {
+                     setSelectedBillingAccountId(prev => prev || accounts[0].name.split('/').pop());
                 }
             } catch (err: any) {
                 console.error("Failed to fetch billing accounts:", err);
@@ -54,38 +54,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
         fetchAccounts();
     }, [projectNumber]);
 
-    // Fetch License Configs when Billing Account changes
-    useEffect(() => {
-        const fetchConfigs = async () => {
-            if (!projectNumber || !selectedBillingAccountId) {
-                setLicenseConfigs([]);
-                return;
-            }
-            setIsLoading(true);
-            try {
-                const config = { projectId: projectNumber, appLocation: 'global' } as Config;
-                const res = await api.listBillingAccountLicenseConfigs(selectedBillingAccountId, config);
-                const configs = res.billingAccountLicenseConfigs || [];
-                setLicenseConfigs(configs);
-
-                if (configs.length === 1 && !selectedConfigName) {
-                    handleConfigSelection(configs[0].name, '', configs);
-                } else if (configs.length > 0 && selectedConfigName) {
-                     // Update current selection if it still exists
-                     const stillExists = configs.find(c => c.name === selectedConfigName);
-                     if (stillExists) handleConfigSelection(selectedConfigName, '', configs);
-                }
-            } catch (err: any) {
-                console.error("Failed to fetch license configs:", err);
-                setError(err.message || "Failed to load subscription profiles.");
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchConfigs();
-    }, [projectNumber, selectedBillingAccountId]);
-
-    const handleConfigSelection = (configName: string, locName: string = '', availableConfigs: any[] = licenseConfigs) => {
+    const applyConfigSelection = useCallback((configName: string, locName: string, availableConfigs: any[]) => {
         setSelectedConfigName(configName);
         setSelectedLocation(locName);
         if (!configName) return;
@@ -97,7 +66,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                  setEdition('Plus');
             } else if (selectedConfig.subscriptionTier === 'GEMINI_ENTERPRISE') {
                  setEdition('Standard');
-            } else if (selectedConfigName.endsWith('internal_only_agent_space')) {
+            } else if (configName.endsWith('internal_only_agent_space')) {
                  setEdition('Standard'); // Fallback for the special internal ID
             }
 
@@ -122,6 +91,41 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                  setLicenses(totalLicenses);
             }
         }
+    }, [projectNumber]);
+
+    // Fetch License Configs when Billing Account changes
+    useEffect(() => {
+        const fetchConfigs = async () => {
+            if (!projectNumber || !selectedBillingAccountId) {
+                setLicenseConfigs([]);
+                return;
+            }
+            setIsLoading(true);
+            try {
+                const config = { projectId: projectNumber, appLocation: 'global' } as Config;
+                const res = await api.listBillingAccountLicenseConfigs(selectedBillingAccountId, config);
+                const configs = res.billingAccountLicenseConfigs || [];
+                setLicenseConfigs(configs);
+
+                if (configs.length === 1 && !selectedConfigName) {
+                    applyConfigSelection(configs[0].name, '', configs);
+                } else if (configs.length > 0 && selectedConfigName) {
+                     // Update current selection if it still exists
+                     const stillExists = configs.find(c => c.name === selectedConfigName);
+                     if (stillExists) applyConfigSelection(selectedConfigName, '', configs);
+                }
+            } catch (err: any) {
+                console.error("Failed to fetch license configs:", err);
+                setError(err.message || "Failed to load subscription profiles.");
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchConfigs();
+    }, [projectNumber, selectedBillingAccountId, applyConfigSelection, selectedConfigName]);
+
+    const handleConfigSelection = (configName: string, locName: string = '', availableConfigs: any[] = licenseConfigs) => {
+        applyConfigSelection(configName, locName, availableConfigs);
     };
 
     const handleProjectLicenseSelection = (licenseName: string) => {
@@ -196,8 +200,22 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 setProjectLicenses(hydratedLicenses);
                 
                 // Auto-select if there's only one
-                if (hydratedLicenses.length === 1 && !selectedProjectLicense) {
-                     handleProjectLicenseSelection(hydratedLicenses[0].name);
+                if (hydratedLicenses.length === 1) {
+                    const first = hydratedLicenses[0];
+                    setSelectedProjectLicense(prev => {
+                        if (!prev) {
+                            if (first.subscriptionTier === 'GEMINI_ENTERPRISE_PLUS') {
+                                setEdition('Plus');
+                            } else {
+                                setEdition('Standard');
+                            }
+                            if (first.allocatedCount > 0) {
+                                setLicenses(first.allocatedCount);
+                            }
+                            return first.name;
+                        }
+                        return prev;
+                    });
                 }
             } catch (err: any) {
                 console.error("Failed to fetch project licenses:", err);
