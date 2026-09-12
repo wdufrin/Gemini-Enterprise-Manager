@@ -513,10 +513,16 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
     }
   };
 
-  const pollOperation = async (operation: any) => {
+  const pollOperation = async (operation: any, maxAttempts: number = 60) => {
     let currentOperation = operation;
     if (!currentOperation || typeof currentOperation !== "object") return;
+    let attempts = 0;
     while (!currentOperation.done) {
+      if (attempts++ >= maxAttempts) {
+        throw new Error(
+          `Operation timed out after ${maxAttempts * 2}s waiting for completion. It may still be running in Google Cloud: ${currentOperation.name}`,
+        );
+      }
       await new Promise((resolve) => setTimeout(resolve, 2000));
       currentOperation = await api.getDiscoveryOperation(
         currentOperation.name,

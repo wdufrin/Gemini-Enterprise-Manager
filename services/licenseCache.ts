@@ -54,28 +54,40 @@ const getCacheKey = (projectNumber: string, userStoreId: string): string => {
   return `${projectNumber}:${userStoreId}`;
 };
 
+export const DEFAULT_LICENSE_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
 export const getCachedUserLicenses = async (
   projectNumber: string,
-  userStoreId: string
+  userStoreId: string,
+  maxAgeMs: number = DEFAULT_LICENSE_CACHE_TTL_MS,
 ): Promise<CachedLicenseData | null> => {
   const key = getCacheKey(projectNumber, userStoreId);
+
+  const checkTTL = (record: CachedLicenseData | null): CachedLicenseData | null => {
+    if (!record) return null;
+    if (typeof record.timestamp === "number" && Date.now() - record.timestamp > maxAgeMs) {
+      // Stale cache expired
+      return null;
+    }
+    return record;
+  };
 
   try {
     const db = await openDB();
     return new Promise((resolve) => {
-      const tx = db.transaction(STORE_NAME, 'readonly');
+      const tx = db.transaction(STORE_NAME, "readonly");
       const store = tx.objectStore(STORE_NAME);
       const req = store.get(key);
 
       req.onsuccess = () => {
-        resolve(req.result || memoryCache.get(key) || null);
+        resolve(checkTTL(req.result || memoryCache.get(key) || null));
       };
       req.onerror = () => {
-        resolve(memoryCache.get(key) || null);
+        resolve(checkTTL(memoryCache.get(key) || null));
       };
     });
   } catch {
-    return memoryCache.get(key) || null;
+    return checkTTL(memoryCache.get(key) || null);
   }
 };
 

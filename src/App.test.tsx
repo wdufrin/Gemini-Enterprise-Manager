@@ -23,6 +23,9 @@ vi.mock('../services/apiService', () => ({
   listUserStoreLicenses: vi.fn().mockResolvedValue({ userLicenses: [] }),
   listBillingAccounts: vi.fn().mockResolvedValue({ billingAccounts: [] }),
   listLicenseConfigsUsageStats: vi.fn().mockResolvedValue({ usageStats: [] }),
+  listAllReasoningEngines: vi.fn().mockResolvedValue([]),
+  listAllReasoningEngineSessions: vi.fn().mockResolvedValue([]),
+  onAuthExpired: vi.fn().mockReturnValue(() => {}),
   setDebugLogger: vi.fn(),
 }));
 

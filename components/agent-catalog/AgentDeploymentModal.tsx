@@ -466,7 +466,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
   const getPreviewBuildConfig = () => {
     const bucket = selectedBucket || "[STAGING_BUCKET]";
     const objectName = `source/${agentName}-TIMESTAMP.zip`;
-    const imageName = `gcr.io/${projectId}/${agentName.toLowerCase()}`;
+    const imageName = `${region}-docker.pkg.dev/${projectId}/cloud-run-source-deploy/${agentName.toLowerCase()}`;
 
     const envStrings = envVars.map((e) => `${e.key}=${e.value}`);
     envStrings.push(`STAGING_BUCKET=gs://${bucket}`);
@@ -513,7 +513,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
   };
 
   const getCloudRunDeployScript = () => {
-    const imageName = `gcr.io/${projectId}/${agentName.toLowerCase()}`;
+    const imageName = `${region}-docker.pkg.dev/${projectId}/cloud-run-source-deploy/${agentName.toLowerCase()}`;
     const serviceName = agentName.toLowerCase();
     // SECURITY (F-01): env var VALUES are free-form (URLs, API keys, model
     // names) so they cannot be allowlisted -- they are POSIX single-quoted
@@ -1023,7 +1023,7 @@ print(f"Resource Name: {remote_app.resource_name}")
       }
 
       if (target === "cloud_run") {
-        const imageName = `gcr.io/${projectId}/${agentName.toLowerCase()}`;
+        const imageName = `${region}-docker.pkg.dev/${projectId}/cloud-run-source-deploy/${agentName.toLowerCase()}`;
         addLog(`Target Image: ${imageName}`);
 
         // Build Image using Docker

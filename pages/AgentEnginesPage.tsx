@@ -388,9 +388,15 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
     if (selectedIds.size > 0 || resource) setIsDeleteModalOpen(true);
   };
 
-  const pollVertexOperation = async (operation: any) => {
+  const pollVertexOperation = async (operation: any, maxAttempts: number = 60) => {
     let currentOperation = operation;
+    let attempts = 0;
     while (!currentOperation.done) {
+      if (attempts++ >= maxAttempts) {
+        throw new Error(
+          `Operation timed out after ${maxAttempts * 5}s waiting for completion. It may still be running in Google Cloud: ${operation.name}`,
+        );
+      }
       await new Promise((resolve) => setTimeout(resolve, 5000));
       currentOperation = await api.getVertexAiOperation(
         operation.name,

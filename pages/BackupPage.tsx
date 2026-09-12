@@ -457,8 +457,13 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         setIsLoadingApps(true);
         setApps([]);
         try {
-            const response = await api.listResources('engines', apiConfig);
-            const fetchedApps = response.engines || [];
+            const fetchedApps: AppEngine[] = [];
+            let engToken: string | undefined;
+            do {
+                const response = await api.listResources('engines', apiConfig, engToken);
+                fetchedApps.push(...(response.engines || []));
+                engToken = response.nextPageToken;
+            } while (engToken);
             setApps(fetchedApps);
             if (fetchedApps.length === 1) {
                 const singleAppId = fetchedApps[0].name.split('/').pop();
@@ -482,8 +487,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         setIsLoadingReasoningEngines(true);
         setReasoningEngines([]);
         try {
-            const res = await api.listReasoningEngines(apiConfig);
-            const engines = res.reasoningEngines || [];
+            const engines = await api.listAllReasoningEngines(apiConfig);
             setReasoningEngines(engines);
             // Auto select if only one
              if (engines.length === 1) {
@@ -533,10 +537,14 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       }
   };
 
-  const pollOperation = async (operation: any, pollConfig: typeof apiConfig, resourceName: string, apiVersion: 'v1alpha' | 'v1beta' = 'v1beta') => {
+  const pollOperation = async (operation: any, pollConfig: typeof apiConfig, resourceName: string, apiVersion: 'v1alpha' | 'v1beta' = 'v1beta', maxAttempts: number = 60) => {
     let currentOperation = operation;
+    let attempts = 0;
     addLog(`  - Operation for ${resourceName} initiated (${currentOperation.name}). Polling for completion...`);
     while (!currentOperation.done) {
+        if (attempts++ >= maxAttempts) {
+          throw new Error(`${resourceName} operation timed out after ${maxAttempts * 5}s waiting for completion. It may still be running in Google Cloud.`);
+        }
         await delay(5000); // Poll every 5 seconds
         currentOperation = await api.getDiscoveryOperation(currentOperation.name, pollConfig, apiVersion);
         addLog(`    - Polling ${resourceName}... status: ${currentOperation.done ? 'DONE' : 'IN_PROGRESS'}`);
@@ -693,8 +701,13 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
   const handleBackupNotebooks = async () => executeOperation('BackupNotebookLM', async () => {
     addLog(`Starting backup for Notebooks in ${apiConfig.appLocation}...`);
-    const response = await api.listNotebooks(apiConfig);
-    const notebooks = response.notebooks || [];
+    const notebooks: any[] = [];
+    let nbToken: string | undefined = undefined;
+    do {
+      const response = await api.listNotebooks(apiConfig, nbToken);
+      notebooks.push(...(response.notebooks || []));
+      nbToken = response.nextPageToken;
+    } while (nbToken);
 
     addLog(`Found ${notebooks.length} notebooks. Fetching detailed sources...`);
     const fullNotebooks = [];
@@ -765,13 +778,23 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       // The other backups try to discover all (e.g. iterate collections).
       // Let's iterate all collections -> engines -> sessions.
 
-      const collectionsResponse = await api.listResources('collections', apiConfig);
-      const collections: Collection[] = collectionsResponse.collections || [];
+      const collections: Collection[] = [];
+      let colToken: string | undefined = undefined;
+      do {
+        const collectionsResponse = await api.listResources('collections', apiConfig, colToken);
+        collections.push(...(collectionsResponse.collections || []));
+        colToken = collectionsResponse.nextPageToken;
+      } while (colToken);
 
       for (const collection of collections) {
         const collectionId = collection.name.split('/').pop()!;
-        const enginesResponse = await api.listResources('engines', { ...apiConfig, collectionId });
-        const engines: AppEngine[] = enginesResponse.engines || [];
+        const engines: AppEngine[] = [];
+        let engToken: string | undefined = undefined;
+        do {
+          const enginesResponse = await api.listResources('engines', { ...apiConfig, collectionId }, engToken);
+          engines.push(...(enginesResponse.engines || []));
+          engToken = enginesResponse.nextPageToken;
+        } while (engToken);
         for (const engine of engines) {
           const appId = engine.name.split('/').pop()!;
           try {
@@ -851,18 +874,14 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       addLog(`Error fetching Discovery sessions: ${e.message}`);
     }
 
-    // 2./Agent Engine Sessions (if a reasoning engine is selected or iterate all?)
-    // We'll skip complex iteration for now and just check the selected one if present, or maybe list all?
-    // listReasoningEngines -> sessions
+    // 2. Agent Engine Sessions
     addLog("Fetching Agent Engine sessions...");
     const reasoningSessions: any[] = []; // Type is generic for now
     try {
-      const res = await api.listReasoningEngines(apiConfig);
-      const engines = res.reasoningEngines || [];
+      const engines = await api.listAllReasoningEngines(apiConfig);
       for (const engine of engines) {
         try {
-          const sessionsResp = await api.listReasoningEngineSessions(engine.name, apiConfig);
-          const sessions = sessionsResp.sessions || [];
+          const sessions = await api.listAllReasoningEngineSessions(engine.name, apiConfig);
           if (sessions.length > 0) {
             addLog(`  - Found ${sessions.length} sessions in Agent Engine '${engine.displayName}'`);
             for (const session of sessions) {
@@ -1288,9 +1307,15 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
             const operation = await api.createReasoningEngine(apiConfig, payload);
             addLog(`  - Operation started: ${operation.name}`);
             
-            // Poll for completion
+            // Poll for completion (up to 60 attempts * 10s = 10 minutes)
             let currentOp = operation;
+            let attempts = 0;
+            const maxAttempts = 60;
             while (!currentOp.done) {
+                if (attempts++ >= maxAttempts) {
+                    addLog(`  - WARNING: Operation is taking longer than expected. It may still be deploying in Google Cloud: ${operation.name}`);
+                    throw new Error(`Agent Engine restore timed out after ${maxAttempts * 10}s waiting for operation to complete. Operation name: ${operation.name}`);
+                }
                 await delay(10000); // Poll every 10 seconds (deployment takes time)
                 try {
                     currentOp = await api.getVertexAiOperation(operation.name, apiConfig);

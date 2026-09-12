@@ -56,4 +56,18 @@ describe('licenseCache', () => {
     const cached = await getCachedUserLicenses(project, userStore);
     expect(cached?.data).toHaveLength(2);
   });
+
+  it('expires and returns null after TTL has elapsed', async () => {
+    await setCachedUserLicenses(project, userStore, [
+      { userPrincipal: 'alice@example.com', licenseAssignmentState: 'ASSIGNED' },
+    ]);
+
+    // Fast-forward or pass a tiny maxAgeMs to verify expiration
+    const fresh = await getCachedUserLicenses(project, userStore, 60000);
+    expect(fresh).not.toBeNull();
+
+    // Expired with maxAgeMs = -1 (older than now)
+    const expired = await getCachedUserLicenses(project, userStore, -1);
+    expect(expired).toBeNull();
+  });
 });

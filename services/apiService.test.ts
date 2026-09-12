@@ -16,7 +16,17 @@
 
 
 import { describe, it, expect, vi } from 'vitest';
-import { streamChat, createDiscoverySession, listMcpTools, fetchConnectorLogs, listAssistants, pollDiscoveryOperation } from './apiService';
+import {
+  streamChat,
+  createDiscoverySession,
+  listMcpTools,
+  fetchConnectorLogs,
+  listAssistants,
+  pollDiscoveryOperation,
+  GapiError,
+  createConcurrencyLimiter,
+  onAuthExpired
+} from './apiService';
 import { getGapiClient } from './gapiService';
 
 // Mock gapi
@@ -212,9 +222,30 @@ describe('apiService', () => {
   });
 
   describe('listMcpTools', () => {
-    it('should return hardcoded tools for bigquery.googleapis.com', async () => {
-      const tools = await listMcpTools('test-project', 'https://bigquery.googleapis.com');
-      expect(tools).toHaveLength(5);
+    it('should query Google API endpoints via gapiRequest using JSON-RPC', async () => {
+      const mockGapiClient = {
+        request: vi.fn().mockResolvedValue({
+          result: {
+            tools: [{ name: 'list_dataset_ids', description: 'Lists BigQuery datasets' }]
+          }
+        }),
+        getToken: () => ({ access_token: 'mock-token' }),
+      };
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+
+      const tools = await listMcpTools('test-project', 'https://bigquery.googleapis.com/mcp');
+      expect(mockGapiClient.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: 'https://bigquery.googleapis.com/mcp',
+          method: 'POST',
+          body: {
+            jsonrpc: '2.0',
+            id: 0,
+            method: 'tools/list'
+          }
+        })
+      );
+      expect(tools).toHaveLength(1);
       expect(tools[0].name).toBe('list_dataset_ids');
     });
 
@@ -423,6 +454,62 @@ describe('apiService', () => {
       await expect(
         pollDiscoveryOperation(op, { projectId: 'p', appLocation: 'global' } as any)
       ).rejects.toThrow('Resource invalid');
+    });
+  });
+
+  describe('GapiError', () => {
+    it('should construct structured error properties properly', () => {
+      const error = new GapiError(
+        'Resource quota exceeded',
+        429,
+        'RESOURCE_EXHAUSTED',
+        [{ reason: 'RATE_LIMIT_EXCEEDED' }],
+        { raw: true }
+      );
+
+      expect(error.name).toBe('GapiError');
+      expect(error.message).toBe('Resource quota exceeded');
+      expect(error.status).toBe(429);
+      expect(error.code).toBe('RESOURCE_EXHAUSTED');
+      expect(error.details).toEqual([{ reason: 'RATE_LIMIT_EXCEEDED' }]);
+      expect(error.raw).toEqual({ raw: true });
+      expect(error instanceof Error).toBe(true);
+    });
+  });
+
+  describe('createConcurrencyLimiter', () => {
+    it('should limit concurrent executions and queue excess operations', async () => {
+      const limiter = createConcurrencyLimiter(2);
+      let activeCount = 0;
+      let maxActiveCount = 0;
+
+      const runTask = (ms: number) =>
+        limiter(async () => {
+          activeCount++;
+          if (activeCount > maxActiveCount) {
+            maxActiveCount = activeCount;
+          }
+          await new Promise((resolve) => setTimeout(resolve, ms));
+          activeCount--;
+          return 'ok';
+        });
+
+      const promises = [runTask(20), runTask(20), runTask(20), runTask(20)];
+      const results = await Promise.all(promises);
+
+      expect(results).toEqual(['ok', 'ok', 'ok', 'ok']);
+      expect(maxActiveCount).toBe(2);
+      expect(activeCount).toBe(0);
+    });
+  });
+
+  describe('onAuthExpired', () => {
+    it('should register subscriber and return an unsubscribe function', () => {
+      const listener = vi.fn();
+      const unsubscribe = onAuthExpired(listener);
+
+      expect(typeof unsubscribe).toBe('function');
+      unsubscribe();
     });
   });
 });
