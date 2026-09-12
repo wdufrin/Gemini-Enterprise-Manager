@@ -292,7 +292,7 @@ echo "Service Account: $SERVICE_ACCOUNT"
 
                     {step === 1 && (
                         <div className="space-y-6">
-                            <p className="text-gray-300">This wizard will automatically create a new repository in GitHub, push your agent's boilerplate code (including the deployment workflow), and generate the exact Workload Identity Federation (WIF) setup script for your Google Cloud Project.</p>
+                            <p className="text-gray-300">This wizard will automatically create a new repository in GitHub, push your agent&apos;s boilerplate code (including the deployment workflow), and generate the exact Workload Identity Federation (WIF) setup script for your Google Cloud Project.</p>
                             
                             <div className="bg-gray-700/50 p-4 rounded-lg border border-gray-600">
                                 <label className="block text-sm font-medium text-gray-300 mb-2">GitHub Personal Access Token (PAT)</label>
@@ -500,7 +500,7 @@ echo "Service Account: $SERVICE_ACCOUNT"
                                         
                                         <p className="text-yellow-400/80 text-xs mt-4 italic">
                                             <span className="font-bold mr-1">Note:</span> 
-                                            After running this script, it will output the <code>WIF Provider</code> and <code>Service Account</code> values. Copy those values back into the "Lifecycle Management" settings in the Agent Designer!
+                                            After running this script, it will output the <code>WIF Provider</code> and <code>Service Account</code> values. Copy those values back into the &quot;Lifecycle Management&quot; settings in the Agent Designer!
                                         </p>
                                     </>
                                 )}

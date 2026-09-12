@@ -33,33 +33,39 @@ const getGcpConsoleUrl = (node: GraphNode, projectNumber: string): string | null
     switch (type) {
         case 'Project':
             return `https://console.cloud.google.com/home/dashboard?project=${projectId}`;
-        case 'ReasoningEngine':
+        case 'ReasoningEngine': {
             const reLocation = id.split('/')[3];
             const reId = id.split('/').pop();
             return `https://console.cloud.google.com/vertex-ai/reasoning-engines/locations/${reLocation}/engines/${reId}?project=${projectId}`;
-        case 'Agent':
+        }
+        case 'Agent': {
             const agentLocation = id.split('/')[3];
             const collectionId = id.split('/')[5];
             const engineId = id.split('/')[7];
             const agentId = id.split('/').pop();
             return `https://console.cloud.google.com/gen-app-builder/locations/${agentLocation}/collections/${collectionId}/engines/${engineId}/agents/${agentId}?project=${projectId}`;
-        case 'DataStore':
+        }
+        case 'DataStore': {
             const dsLocation = id.split('/')[3];
             const dsCollectionId = id.split('/')[5];
             const dsId = id.split('/').pop();
-             return `https://console.cloud.google.com/gen-app-builder/locations/${dsLocation}/collections/${dsCollectionId}/dataStores/${dsId}?project=${projectId}`;
-        case 'Authorization':
+            return `https://console.cloud.google.com/gen-app-builder/locations/${dsLocation}/collections/${dsCollectionId}/dataStores/${dsId}?project=${projectId}`;
+        }
+        case 'Authorization': {
             const authId = id.split('/').pop();
             return `https://console.cloud.google.com/gen-app-builder/authorizations/${authId}?project=${projectId}`;
-        case 'Engine':
-             const enLocation = id.split('/')[3];
-             const enCollectionId = id.split('/')[5];
-             const enId = id.split('/').pop();
-             return `https://console.cloud.google.com/gen-app-builder/locations/${enLocation}/collections/${enCollectionId}/engines/${enId}?project=${projectId}`;
-        case 'CloudRunService':
-             const crLocation = id.split('/')[3];
-             const crService = id.split('/').pop();
-             return `https://console.cloud.google.com/run/detail/${crLocation}/${crService}/metrics?project=${projectId}`;
+        }
+        case 'Engine': {
+            const enLocation = id.split('/')[3];
+            const enCollectionId = id.split('/')[5];
+            const enId = id.split('/').pop();
+            return `https://console.cloud.google.com/gen-app-builder/locations/${enLocation}/collections/${enCollectionId}/engines/${enId}?project=${projectId}`;
+        }
+        case 'CloudRunService': {
+            const crLocation = id.split('/')[3];
+            const crService = id.split('/').pop();
+            return `https://console.cloud.google.com/run/detail/${crLocation}/${crService}/metrics?project=${projectId}`;
+        }
         default:
             return `https://console.cloud.google.com/?project=${projectId}`;
     }
@@ -104,13 +110,14 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
                  return <DetailItem label="Solution Type" value={node.data.solutionType} />;
             case 'Authorization':
                 return <DetailItem label="Client ID" value={node.data.serverSideOauth2?.clientId} />;
-            case 'CloudRunService':
+            case 'CloudRunService': {
                 const crService = node.data as CloudRunService;
                 return <>
                     <DetailItem label="URL">{crService.uri}</DetailItem>
                     <DetailItem label="Location" value={crService.location} />
                     <DetailItem label="Image">{crService.template?.containers?.[0]?.image}</DetailItem>
                 </>;
+            }
             default:
                 return null;
         }
@@ -118,7 +125,7 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
     
     const renderActions = () => {
          switch (node.type) {
-            case 'Agent':
+            case 'Agent': {
                 const engineId = node.id.split('/')[7];
                 const engineLocation = node.id.split('/')[3];
                 const agentContext = { appEngineId: `projects/${projectNumber}/locations/${engineLocation}/collections/default_collection/engines/${engineId}` };
@@ -128,6 +135,7 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
                          Test in Playground
                     </ActionButton>
                 );
+            }
             case 'ReasoningEngine':
                  return (
                     <ActionButton onClick={() => onDirectQuery(node.data as ReasoningEngine)}>

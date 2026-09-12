@@ -3,7 +3,7 @@ import { AppEngine, Config } from '../../types';
 import * as api from '../../services/apiService';
 import InfoTooltip from '../InfoTooltip';
 
-declare var JSZip: any;
+declare let JSZip: any;
 
 interface AuditLoggingModalProps {
     isOpen: boolean;
@@ -274,7 +274,7 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                     <div className="space-y-4">
                         <h3 className="text-lg font-semibold text-white">2. Configure Observability</h3>
                         <p className="text-sm text-gray-300">
-                            Enable usage audit logging by updating the app's <code>observabilityConfig</code>.
+                            Enable usage audit logging by updating the app&apos;s <code>observabilityConfig</code>.
                         </p>
 
                         <div className="space-y-4 p-4 bg-gray-900/30 rounded-md border border-gray-700">

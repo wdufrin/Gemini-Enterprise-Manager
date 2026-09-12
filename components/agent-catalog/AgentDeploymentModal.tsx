@@ -19,7 +19,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import * as api from "../../services/apiService";
 import { GcsBucket } from "../../types";
 
-declare var JSZip: any;
+declare let JSZip: any;
 
 interface AgentDeploymentModalProps {
   isOpen: boolean;
@@ -1370,7 +1370,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                 </h3>
                 <p className="text-xs text-gray-400 mb-3">
                   Modify these values if the auto-detection failed or if you are
-                  getting "ImportError" during deployment.
+                  getting &quot;ImportError&quot; during deployment.
                 </p>
                 <div className="grid grid-cols-2 gap-4">
                   <div>

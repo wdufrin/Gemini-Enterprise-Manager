@@ -405,8 +405,8 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
             
             const enrichedAgents = baseAgents.map((agent, index) => {
                 const viewResult = agentViewResults[index];
-                let agentType = viewResult.status === 'fulfilled' && viewResult.value?.agentView ? viewResult.value.agentView.agentType : undefined;
-                let agentOrigin = viewResult.status === 'fulfilled' && viewResult.value?.agentView ? viewResult.value.agentView.agentOrigin : undefined;
+                const agentType = viewResult.status === 'fulfilled' && viewResult.value?.agentView ? viewResult.value.agentView.agentType : undefined;
+                const agentOrigin = viewResult.status === 'fulfilled' && viewResult.value?.agentView ? viewResult.value.agentView.agentOrigin : undefined;
                 return {
                     ...agent,
                     agentType,

@@ -396,7 +396,7 @@ STS_RESPONSE=$(curl -s -X POST \\
   -d "requested_token_type=urn:ietf:params:oauth:token-type:access_token" \\
   -d "subject_token_type=${wifSubjectTokenType}" \\
   -d "subject_token=<YOUR_EXTERNAL_IDP_TOKEN>" \\
-  --data-urlencode "options={\"userProject\":\"${projectId}\"}" \\
+  --data-urlencode "options={"userProject":"${projectId}"}" \\
   "https://sts.googleapis.com/v1/token")
 
 ACCESS_TOKEN=$(echo "$STS_RESPONSE" | jq -r '.access_token')
@@ -1163,8 +1163,8 @@ ${dataStore.name}`;
                                         />
                                         <p className="text-xs text-gray-400 mt-2">
                                             {authMode === 'wif'
-                                                ? <>Uses STS token exchange (Workforce Identity Federation) to authenticate with an external IdP token. Replace the subject token with your IdP's JWT/OIDC/SAML token.</>
-                                                : <>Ensure you're authenticated via <span className="font-mono text-gray-300">gcloud auth application-default login</span> or 
+                                                ? <>Uses STS token exchange (Workforce Identity Federation) to authenticate with an external IdP token. Replace the subject token with your IdP&apos;s JWT/OIDC/SAML token.</>
+                                                : <>Ensure you&apos;re authenticated via <span className="font-mono text-gray-300">gcloud auth application-default login</span> or 
                                                 have <span className="font-mono text-gray-300">GOOGLE_APPLICATION_CREDENTIALS</span> set.</>
                                             }
                                         </p>
@@ -1249,7 +1249,7 @@ ${dataStore.name}`;
                     </form>
                     {authMode === 'wif' && !isWifSignedIn && (
                         <p className="text-xs text-amber-400 mt-1.5 ml-1">
-                            Enter your Pool ID and Provider ID above, then click "Sign In with Identity Provider" to authenticate.
+                            Enter your Pool ID and Provider ID above, then click &quot;Sign In with Identity Provider&quot; to authenticate.
                         </p>
                     )}
                 </footer>

@@ -248,11 +248,11 @@ const ChatHistoryArchiveViewer: React.FC<ChatHistoryArchiveViewerProps> = ({ ses
 
     const getAppId = (sessionName: string) => {
         const parts = sessionName.split('/');
-        let engineIndex = parts.indexOf('engines');
+        const engineIndex = parts.indexOf('engines');
         if (engineIndex !== -1 && parts.length > engineIndex + 1) return parts[engineIndex + 1];
-        let agentIndex = parts.indexOf('agents');
+        const agentIndex = parts.indexOf('agents');
         if (agentIndex !== -1 && parts.length > agentIndex + 1) return parts[agentIndex + 1];
-        let reIndex = parts.indexOf('reasoningEngines');
+        const reIndex = parts.indexOf('reasoningEngines');
         if (reIndex !== -1 && parts.length > reIndex + 1) return parts[reIndex + 1];
         return 'Unknown App';
     };
@@ -321,7 +321,7 @@ const ChatHistoryArchiveViewer: React.FC<ChatHistoryArchiveViewerProps> = ({ ses
             try {
                 // DEEP HYDRATION:
                 // Fetch content for "Reference" answers to bake them into the new session.
-                let hydratedSession: any = { ...session };
+                const hydratedSession: any = { ...session };
 
                 // Gemini Enterprise UI visibility hacks
                 hydratedSession.state = 'IN_PROGRESS';

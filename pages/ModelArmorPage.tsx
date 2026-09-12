@@ -596,7 +596,7 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
                                     {attachCommand}
                                 </div>
                                 <p className="text-xs text-gray-500 mt-2">
-                                    Run this command in your terminal to associate the template with your app's assistant config.
+                                    Run this command in your terminal to associate the template with your app&apos;s assistant config.
                                 </p>
                             </div>
                         )}
@@ -884,7 +884,7 @@ const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({ template, curre
                         </div>
                         <div className="col-span-2">
                             <p className="text-[10px] text-gray-500 italic mt-0.5 leading-relaxed">
-                                Note: Location availability depends on the target project's Google Cloud Organization Resource Location Policies (e.g. some projects restrict template writes to the "global" location).
+                                Note: Location availability depends on the target project&apos;s Google Cloud Organization Resource Location Policies (e.g. some projects restrict template writes to the &quot;global&quot; location).
                             </p>
                         </div>
                     </div>
@@ -1192,7 +1192,7 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
                     
                     <div className="mt-4 pt-3 border-t border-gray-700/50 flex items-center gap-2 text-xs text-gray-500">
                         <InfoIcon />
-                        <span>Querying: <code className="bg-gray-900 px-1 py-0.5 rounded text-gray-400 border border-gray-700">resource.type="modelarmor.googleapis.com/SanitizeOperation"</code></span>
+                        <span>Querying: <code className="bg-gray-900 px-1 py-0.5 rounded text-gray-400 border border-gray-700">resource.type=&quot;modelarmor.googleapis.com/SanitizeOperation&quot;</code></span>
                     </div>
                 </>
             )}

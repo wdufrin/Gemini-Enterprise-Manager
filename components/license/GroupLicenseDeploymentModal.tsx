@@ -3,7 +3,7 @@ import { Config, GcsBucket } from '../../types';
 import * as api from '../../services/apiService';
 import mainPyTemplate from './main.py.template?raw';
 
-declare var JSZip: any;
+declare let JSZip: any;
 
 interface GroupLicenseDeploymentModalProps {
   isOpen: boolean;

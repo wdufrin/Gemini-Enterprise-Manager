@@ -525,7 +525,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                 dsResults.push({ ...ds, location: loc }),
               );
             }
-          } catch (e) { }
+          } catch (e) {
+            // TODO(phase6): surface partial-scan failures in the UI instead of
+            // silently returning a short list. Tracked in remediation Phase 6.
+            console.warn(
+              `[AgentBuilder] Failed to list data stores in location "${loc}". ` +
+                `Results may be incomplete.`,
+              e,
+            );
+          }
         }),
       );
 
@@ -551,7 +559,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
               region,
             );
             if (res.services) services.push(...res.services);
-          } catch (e) { }
+          } catch (e) {
+            // TODO(phase6): surface partial-scan failures in the UI instead of
+            // silently returning a short list. Tracked in remediation Phase 6.
+            console.warn(
+              `[AgentBuilder] Failed to list Cloud Run services in region ` +
+                `"${region}". Results may be incomplete.`,
+              e,
+            );
+          }
         }),
       );
 
@@ -2314,34 +2330,34 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                               <div># 1. Create a Workload Identity Pool</div>
                               <div className="text-gray-400">
                                 gcloud iam workload-identity-pools create
-                                "github-actions" \<br />{" "}
-                                --project="YOUR_PROJECT_ID" \<br />{" "}
-                                --location="global" \<br />{" "}
-                                --display-name="GitHub Actions Pool"
+                                &quot;github-actions&quot; \<br />{" "}
+                                --project=&quot;YOUR_PROJECT_ID&quot; \<br />{" "}
+                                --location=&quot;global&quot; \<br />{" "}
+                                --display-name=&quot;GitHub Actions Pool&quot;
                               </div>
                               <br />
                               <div># 2. Create a WIF Provider in that pool</div>
                               <div className="text-gray-400">
                                 gcloud iam workload-identity-pools providers
-                                create-oidc "my-repo" \<br />{" "}
-                                --project="YOUR_PROJECT_ID" \<br />{" "}
-                                --location="global" \<br />{" "}
-                                --workload-identity-pool="github-actions" \
-                                <br /> --display-name="My GitHub repo Provider"
+                                create-oidc &quot;my-repo&quot; \<br />{" "}
+                                --project=&quot;YOUR_PROJECT_ID&quot; \<br />{" "}
+                                --location=&quot;global&quot; \<br />{" "}
+                                --workload-identity-pool=&quot;github-actions&quot; \
+                                <br /> --display-name=&quot;My GitHub repo Provider&quot;
                                 \<br />{" "}
-                                --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository_owner=assertion.repository_owner"
+                                --attribute-mapping=&quot;google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository_owner=assertion.repository_owner&quot;
                                 \<br />{" "}
-                                --attribute-condition="attribute.repository_owner
-                                == 'YOUR_ORG'" \<br />{" "}
-                                --issuer-uri="https://token.actions.githubusercontent.com"
+                                --attribute-condition=&quot;attribute.repository_owner
+                                == &apos;YOUR_ORG&apos;&quot; \<br />{" "}
+                                --issuer-uri=&quot;https://token.actions.githubusercontent.com&quot;
                               </div>
                               <br />
                               <div># 3. Create a Service Account</div>
                               <div className="text-gray-400">
                                 gcloud iam service-accounts create
-                                "github-actions-sa" \<br />{" "}
-                                --project="YOUR_PROJECT_ID" \<br />{" "}
-                                --display-name="GitHub Actions Service Account"
+                                &quot;github-actions-sa&quot; \<br />{" "}
+                                --project=&quot;YOUR_PROJECT_ID&quot; \<br />{" "}
+                                --display-name=&quot;GitHub Actions Service Account&quot;
                               </div>
                               <br />
                               <div>
@@ -2351,11 +2367,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                               <div className="text-gray-400">
                                 gcloud iam service-accounts
                                 add-iam-policy-binding
-                                "github-actions-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com"
+                                &quot;github-actions-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com&quot;
                                 \<br />
-                                --project="YOUR_PROJECT_ID" \<br />
-                                --role="roles/iam.workloadIdentityUser" \<br />
-                                --member="principalSet://iam.googleapis.com/projects/YOUR_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-actions/attribute.repository_owner/YOUR_ORG"
+                                --project=&quot;YOUR_PROJECT_ID&quot; \<br />
+                                --role=&quot;roles/iam.workloadIdentityUser&quot; \<br />
+                                --member=&quot;principalSet://iam.googleapis.com/projects/YOUR_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-actions/attribute.repository_owner/YOUR_ORG&quot;
                               </div>
                             </div>
                           )}

@@ -109,7 +109,7 @@ export const generateAdk22PythonCode = (
     return `"${str.replace(/"/g, '\\"')}"`;
   };
 
-  let finalInstruction = config.instruction;
+  const finalInstruction = config.instruction;
   if (config.enableGraphvizRendering) {
     toolsImport.add("render_graphviz");
     toolListForAgent.push("render_graphviz");

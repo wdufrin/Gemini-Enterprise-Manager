@@ -80,7 +80,7 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                                 <li><strong>Package Management</strong>: Author custom skills directly or upload complete <code className="text-blue-300">.zip</code> packages containing <code className="text-purple-300">SKILL.md</code> instructions and subfiles.</li>
                                 <li><strong>Immutable Version Revisions</strong>: Inspect revision history (<code className="text-yellow-300">revisions/rev-1</code>), inspect JSON specs, and review compiler output.</li>
                                 <li><strong>Company Catalog Activation</strong>: Activate skills to <code className="text-green-300">STATE_ACTIVE</code> with default revisions for organization-wide discovery.</li>
-                                <li><strong>1-Click GE App Deployment</strong>: Deploy skills directly into Gemini Enterprise assistant engines with <code className="text-blue-300">scope: ALL_USERS</code>, making them appear under the <strong>"From my organization"</strong> tab in Gemini Enterprise.</li>
+                                <li><strong>1-Click GE App Deployment</strong>: Deploy skills directly into Gemini Enterprise assistant engines with <code className="text-blue-300">scope: ALL_USERS</code>, making them appear under the <strong>&quot;From my organization&quot;</strong> tab in Gemini Enterprise.</li>
                                 <li><strong>Multi-Region Support</strong>: Seamlessly browse and publish across <code className="text-blue-300">global</code>, <code className="text-blue-300">eu</code>, and <code className="text-blue-300">us</code> locations.</li>
                             </ul>
                         </section>
@@ -134,7 +134,7 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                                         <li><strong>Document Management</strong>: List documents and import new files directly from your computer or Google Cloud Storage (GCS).</li>
                                     </ul>
                                 </li>
-                                <li><strong>Assistant Configuration</strong>: Manage the default assistant's system instructions, grounding settings (Google Search), and enabled tools/actions.</li>
+                                <li><strong>Assistant Configuration</strong>: Manage the default assistant&apos;s system instructions, grounding settings (Google Search), and enabled tools/actions.</li>
                             </ul>
                         </section>
 
@@ -209,7 +209,7 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                                 <li>
                                     <strong>Licenses</strong>: Monitor user license assignments and prune inactive users.
                                     <ul className="list-disc pl-5 mt-1 space-y-1 text-gray-400">
-                                        <li><strong>Auto-Pruner</strong>: Deploy a serverless job to automatically revoke licenses for users who haven't logged in for $N days.</li>
+                                        <li><strong>Auto-Pruner</strong>: Deploy a serverless job to automatically revoke licenses for users who haven&apos;t logged in for $N days.</li>
                                     </ul>
                                 </li>
                             </ul>
@@ -230,7 +230,7 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                         <section>
                             <h4 className="text-md font-semibold text-blue-300 mb-1">Usage Tips</h4>
                             <ul className="list-disc pl-5 space-y-1 text-gray-300">
-                                <li><strong>API Validation</strong>: On first load, the app checks if required APIs are enabled. Use the "Enable APIs" button to fix missing dependencies.</li>
+                                <li><strong>API Validation</strong>: On first load, the app checks if required APIs are enabled. Use the &quot;Enable APIs&quot; button to fix missing dependencies.</li>
                                 <li><strong>Access Token</strong>: If you cannot use Google Sign-In, you can manually paste a token generated via <code>gcloud auth print-access-token</code>.</li>
                                 <li><strong>Region Selection</strong>: Ensure you select the correct location (Global, US, EU) in the configuration bar.</li>
                             </ul>

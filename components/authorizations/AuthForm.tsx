@@ -94,8 +94,8 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
         if (authUri.includes('microsoftonline.com') || tokenUri.includes('microsoftonline.com')) {
             detectedProvider = 'microsoft';
             // Try to extract tenant ID from Auth URI first, then Token URI
-            const tenantMatch = authUri.match(/microsoftonline\.com\/([^\/]+)\//) ||
-                tokenUri.match(/microsoftonline\.com\/([^\/]+)\//);
+            const tenantMatch = authUri.match(/microsoftonline\.com\/([^/]+)\//) ||
+                tokenUri.match(/microsoftonline\.com\/([^/]+)\//);
             if (tenantMatch) {
                 detectedTenantId = tenantMatch[1];
             }

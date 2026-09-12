@@ -382,7 +382,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     const etag = policy.etag || '';
     let bindings = policy.bindings || [];
 
-    let targetBinding = bindings.find((b: any) => b.role === role);
+    const targetBinding = bindings.find((b: any) => b.role === role);
     const hasRole = targetBinding?.members?.includes(member);
 
     if (shouldGrant) {
@@ -1209,7 +1209,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
                 Ensure custom role <code className="text-blue-300">customRestrictedEndUser</code> exists with permission <code className="text-green-300">discoveryengine.locations.buildAuthorizationUrl</code>.
               </p>
               <p className="pl-7 text-gray-400 italic">
-                👉 Click "+ Create Custom Role in Project" above if missing.
+                👉 Click &quot;+ Create Custom Role in Project&quot; above if missing.
               </p>
             </div>
 
@@ -1606,7 +1606,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
               <div className="mt-2 text-[11px] text-blue-300 bg-blue-950/40 p-2.5 rounded-lg border border-blue-800/50 flex items-center gap-1.5">
                 <span>⚡</span>
                 <span>
-                  <strong>Two-Way Synchronization Active:</strong> Checkboxes automatically load the principal's current permissions. Checking an item will <strong>grant</strong> access; unchecking an item will <strong>revoke</strong> access on save.
+                  <strong>Two-Way Synchronization Active:</strong> Checkboxes automatically load the principal&apos;s current permissions. Checking an item will <strong>grant</strong> access; unchecking an item will <strong>revoke</strong> access on save.
                 </span>
               </div>
             </div>

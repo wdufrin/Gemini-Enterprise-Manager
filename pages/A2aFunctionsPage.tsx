@@ -21,7 +21,7 @@ import * as api from '../services/apiService';
 import A2aDeployModal from '../components/a2a/A2aDeployModal';
 import ProjectInput from '../components/ProjectInput';
 
-declare var JSZip: any;
+declare let JSZip: any;
 
 interface A2aConfig {
     serviceName: string;

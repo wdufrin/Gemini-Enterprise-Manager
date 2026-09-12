@@ -1,8 +1,10 @@
 {
+  "root": true,
   "env": {
     "browser": true,
     "es2021": true
   },
+  "ignorePatterns": ["dist/", "build/", "coverage/", "node_modules/"],
   "extends": [
     "eslint:recommended",
     "plugin:react/recommended",
@@ -18,11 +20,7 @@
     "ecmaVersion": "latest",
     "sourceType": "module"
   },
-  "plugins": [
-    "react",
-    "react-hooks",
-    "@typescript-eslint"
-  ],
+  "plugins": ["react", "react-hooks", "@typescript-eslint"],
   "rules": {
     "react/react-in-jsx-scope": "off",
     "@typescript-eslint/no-explicit-any": "warn",

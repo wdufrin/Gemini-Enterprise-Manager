@@ -37,7 +37,7 @@ def after_request(response):
   // Generate Tools Initialization Code
   let toolsInit = "tools = []";
   if (hasTools) {
-    let toolCode: string[] = [];
+    const toolCode: string[] = [];
     toolCode.push("if Tool:"); // Only proceed if Tool class exists
 
     if (useGoogleSearch) {

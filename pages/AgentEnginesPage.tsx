@@ -164,7 +164,15 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
                 acc[matchingResource.id].push(agent);
               }
             }
-          } catch (e) {}
+          } catch (e) {
+            // TODO(phase6): surface this in the UI. A malformed agent card
+            // currently just drops the agent from the grouping silently.
+            console.warn(
+              `[AgentEngines] Could not parse jsonAgentCard for agent ` +
+                `"${agent.name ?? "(unnamed)"}"; it will not be grouped under a runtime.`,
+              e,
+            );
+          }
         }
         return acc;
       },
@@ -316,9 +324,23 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
                       if (res.agents) agentsList.push(...res.agents);
                     }
                   }
-                } catch (e) {}
+                } catch (e) {
+                  // TODO(phase6): surface partial-scan failures in the UI.
+                  console.warn(
+                    `[AgentEngines] Failed to enumerate agents under collection ` +
+                      `"${col.name}" in "${loc}". Agent list may be incomplete.`,
+                    e,
+                  );
+                }
               }
-            } catch (e) {}
+            } catch (e) {
+              // TODO(phase6): surface partial-scan failures in the UI.
+              console.warn(
+                `[AgentEngines] Failed to list collections in location "${loc}". ` +
+                  `Agent list may be incomplete.`,
+                e,
+              );
+            }
           }),
         );
         setAllAgents(agentsList);
@@ -644,7 +666,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
                   const isSelected = selectedIds.has(res.id);
                   const usingAgents = agentsByResource[res.id] || [];
                   const isRE = res.type === "Agent Engine";
-                  let badgeClass = isRE
+                  const badgeClass = isRE
                     ? "bg-purple-900 text-purple-200"
                     : "bg-teal-900 text-teal-200";
 

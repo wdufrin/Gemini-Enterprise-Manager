@@ -97,7 +97,7 @@ export class GitHubService {
 
     let latestCommitSha: string | undefined;
     let baseTreeSha: string | undefined;
-    let filesToPush = files;
+    const filesToPush = files;
 
     if (files.length === 0) return;
 

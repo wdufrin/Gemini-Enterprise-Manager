@@ -478,7 +478,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         let tenantId = '';
         const issuer = provider.oidc?.issuerUri || '';
         if (issuer.includes('login.microsoftonline.com')) {
-            const matches = issuer.match(/login\.microsoftonline\.com\/([^\/]+)/);
+            const matches = issuer.match(/login\.microsoftonline\.com\/([^/]+)/);
             if (matches && matches[1]) {
                 tenantId = matches[1];
             }
@@ -1136,7 +1136,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                         {/* Model Cards Grid or Empty State */}
                         {filteredModels.length === 0 ? (
                             <div className="py-6 px-4 text-center bg-gray-950/50 rounded-lg border border-gray-800/80 text-xs text-gray-400 space-y-1.5">
-                                <p className="text-gray-300 font-semibold">No active models categorized under "{modelCategory}".</p>
+                                <p className="text-gray-300 font-semibold">No active models categorized under &quot;{modelCategory}&quot;.</p>
                                 <p className="text-[11px] text-gray-400 max-w-md mx-auto">
                                     All current Gemini 2.5 and 3.x models in the active catalog are natively multimodal (processing images, documents, and diagrams in chat).
                                 </p>
@@ -1274,7 +1274,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                             {formData.requiredSubscriptionTier !== 'SUBSCRIPTION_TIER_UNSPECIFIED' && 
                              isSubscriptionTierActive(formData.requiredSubscriptionTier) === false && (
                                 <p className="mt-2 text-xs text-yellow-400 flex items-center gap-1.5 bg-yellow-950/20 border border-yellow-900/40 p-2 rounded">
-                                    <span>⚠️</span> No active license configuration found for {formData.requiredSubscriptionTier.replace('SUBSCRIPTION_TIER_', '')}. Make sure this matches your team's assigned licenses.
+                                    <span>⚠️</span> No active license configuration found for {formData.requiredSubscriptionTier.replace('SUBSCRIPTION_TIER_', '')}. Make sure this matches your team&apos;s assigned licenses.
                                 </p>
                             )}
                         </div>

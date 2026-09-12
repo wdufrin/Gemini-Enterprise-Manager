@@ -344,7 +344,7 @@ if __name__ == "__main__":
                       Permission: discoveryengine.locations.buildAuthorizationUrl
                     </div>
                     <p className="text-[11px] text-gray-400 mt-1.5">
-                      💡 <em>You can create this in 1 click using the "+ Create Custom Role in Project" button at the top of the Connected DataStores tab.</em>
+                      💡 <em>You can create this in 1 click using the &quot;+ Create Custom Role in Project&quot; button at the top of the Connected DataStores tab.</em>
                     </p>
                   </div>
                 </div>

@@ -229,7 +229,7 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
                                 }}
                                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded"
                             >
-                                I've Enabled It
+                                I&apos;ve Enabled It
                             </button>
                             <button
                                 onClick={() => setShowEnablePopup(false)}

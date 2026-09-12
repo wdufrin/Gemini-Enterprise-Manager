@@ -246,7 +246,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
         let wasMessageReceived = false;
         let skipReason: string | null = null;
         let finalDiagnostics: any = null;
-        let allCitations: any[] = [];
+        const allCitations: any[] = [];
         let currentSessionId = sessionId;
 
         // Build toolsSpec based on CURRENT filter selection

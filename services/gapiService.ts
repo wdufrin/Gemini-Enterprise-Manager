@@ -68,31 +68,36 @@ const loadGapiScript = (): Promise<void> => {
  */
 export const initGapiClient = (accessToken: string): Promise<void> => {
     if (!gapiClientPromise) {
-        gapiClientPromise = new Promise(async (resolve, reject) => {
-            try {
-                await loadGapiScript();
-                window.gapi.load('client', async () => {
-                    try {
-                        if (window.gapi.config) {
-                            window.gapi.config.update('client/cors', true);
-                        }
+        const init = async (): Promise<void> => {
+            await loadGapiScript();
 
-                        await window.gapi.client.init({
-                            discoveryDocs: DISCOVERY_DOCS,
-                        });
-                        window.gapi.client.setToken({ access_token: accessToken });
-                        resolve();
-                    } catch (err) {
-                        console.error('Error initializing gapi client:', err);
-                        gapiClientPromise = null; // Reset on failure to allow retry
-                        reject(err);
-                    }
+            // gapi.load() is callback-based, so wrap just that call. Supplying
+            // onerror matters: without it, a failure to load the 'client'
+            // module leaves the promise pending forever.
+            await new Promise<void>((resolve, reject) => {
+                window.gapi.load('client', {
+                    callback: () => resolve(),
+                    onerror: (err: unknown) =>
+                        reject(err instanceof Error ? err : new Error('Failed to load the gapi "client" module.')),
+                    ontimeout: () => reject(new Error('Timed out loading the gapi "client" module.')),
+                    timeout: 30000,
                 });
-            } catch (err) {
-                console.error('Error loading gapi script:', err);
-                gapiClientPromise = null; // Reset on failure
-                reject(err);
+            });
+
+            if (window.gapi.config) {
+                window.gapi.config.update('client/cors', true);
             }
+
+            await window.gapi.client.init({
+                discoveryDocs: DISCOVERY_DOCS,
+            });
+            window.gapi.client.setToken({ access_token: accessToken });
+        };
+
+        gapiClientPromise = init().catch((err) => {
+            console.error('Error initializing gapi client:', err);
+            gapiClientPromise = null; // Reset on failure to allow retry
+            throw err;
         });
     } else {
         // If already initialized or initializing, wait for it to finish then set the new token.

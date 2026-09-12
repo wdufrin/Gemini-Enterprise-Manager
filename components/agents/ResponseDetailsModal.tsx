@@ -30,7 +30,7 @@ interface ResponseDetailsModalProps {
 const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onClose, details }) => {
   if (!isOpen || !details) return null;
 
-  let toolSteps: any[] = [];
+  const toolSteps: any[] = [];
   let dataSources: { name: string; title: string }[] = [];
 
   const uniqueDataStores = new Map<string, { name: string; title: string }>();

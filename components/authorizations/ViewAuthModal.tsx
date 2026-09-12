@@ -211,7 +211,7 @@ const ViewAuthModal: React.FC<ViewAuthModalProps> = ({
                   <div className="space-y-4">
                     <div className="bg-teal-900/20 border border-teal-700/40 rounded-lg p-3 text-xs text-teal-200 leading-relaxed">
                       <p className="font-semibold text-teal-300 mb-1">End-User OAuth Delegation Blueprint</p>
-                      In Gemini Enterprise, user OAuth tokens are automatically injected into the agent's{' '}
+                      In Gemini Enterprise, user OAuth tokens are automatically injected into the agent&apos;s{' '}
                       <code className="text-teal-100 font-mono bg-teal-950/60 px-1 py-0.5 rounded">ToolContext</code> state.
                       Use this Python function in your ADK tools to extract the delegated token and call downstream APIs on behalf of the user.
                     </div>

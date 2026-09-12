@@ -496,7 +496,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                         </div>
                     )}
                     {accessibleDataStores && accessibleDataStores.length === 0 && (
-                         <p className="text-sm text-gray-400 italic">No data stores found in this agent's tool configuration.</p>
+                         <p className="text-sm text-gray-400 italic">No data stores found in this agent&apos;s tool configuration.</p>
                     )}
                 </div>
             </div>

@@ -18,7 +18,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Config, GcsBucket } from '../../types';
 import * as api from '../../services/apiService';
 
-declare var JSZip: any;
+declare let JSZip: any;
 
 interface ExportMetricsModalProps {
     isOpen: boolean;

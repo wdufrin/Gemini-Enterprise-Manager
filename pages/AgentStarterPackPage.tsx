@@ -503,7 +503,7 @@ jobs:
                         setDataStoreId={setDataStoreId}
                     />
                 );
-            case 5:
+            case 5: {
                 const selectedTemplate = TEMPLATES.find(t => t.id === selectedTemplateId) || { name: selectedSample?.name || 'Sample', resources: [] } as any;
                 return (
                     <StepDeploy
@@ -519,6 +519,7 @@ jobs:
                         files={generatedFiles}
                     />
                 );
+            }
             default:
                 return null;
         }

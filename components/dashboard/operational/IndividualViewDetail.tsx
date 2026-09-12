@@ -79,7 +79,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
     if (!viewDef) {
         return (
             <div className="p-8 text-center text-gray-500">
-                <p>View "{viewId}" not found.</p>
+                <p>View &quot;{viewId}&quot; not found.</p>
                 <button
                     onClick={onBackToOverview}
                     className="mt-3 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs"
@@ -419,8 +419,8 @@ export const IndividualViewDetail: React.FC<Props> = ({
 
             case 'v_consolidated_user_activity': {
                 let totalInteractions = data.length;
-                let uniqueSessions = new Set(data.map((d) => d.session_id)).size;
-                let uniqueUsers = new Set(data.map((d) => d.user_email)).size;
+                const uniqueSessions = new Set(data.map((d) => d.session_id)).size;
+                const uniqueUsers = new Set(data.map((d) => d.user_email)).size;
 
                 const dateMap: Record<string, number> = {};
                 const agentMap: Record<string, number> = {};

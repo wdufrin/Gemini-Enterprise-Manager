@@ -41,7 +41,7 @@ const ServerList: React.FC<ServerListProps> = ({ services, onSelectService }) =>
         <h2 className="text-xl font-bold text-white">Cloud Run Services</h2>
       </div>
       {services.length === 0 ? (
-        <p className="text-gray-400 p-6 text-center">No Cloud Run services found for the selected project and region. Click "Scan for Services" to begin.</p>
+        <p className="text-gray-400 p-6 text-center">No Cloud Run services found for the selected project and region. Click &quot;Scan for Services&quot; to begin.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-700">

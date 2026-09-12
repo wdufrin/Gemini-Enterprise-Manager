@@ -28,20 +28,8 @@ scripts/
 docs/Gemini_Enterprise_Demo_Guide.md
 examples/
 
-# Tests
-__tests__/
-*.test.js
-*.test.jsx
-*.test.ts
-*.test.tsx
-*.spec.js
-*.spec.jsx
-*.spec.ts
-*.spec.tsx
+# Test artifacts (generated output only -- test SOURCES must be tracked)
 coverage/
-tests/
-test_*.py
-*_test.py
 .pytest_cache/
 htmlcov/
 

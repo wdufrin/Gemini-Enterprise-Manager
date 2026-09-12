@@ -682,7 +682,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                 
                 <div className="border-t border-gray-700 pt-4">
                     <label className="block text-sm font-medium text-gray-300">Starter Prompts</label>
-                    <p className="mt-1 text-xs text-gray-400">Suggestions to show the user on the agent's landing page.</p>
+                    <p className="mt-1 text-xs text-gray-400">Suggestions to show the user on the agent&apos;s landing page.</p>
                     <div className="mt-2 space-y-2">
                         {formData.starterPrompts.map((prompt, index) => (
                             <div key={index} className="flex items-center space-x-2">
@@ -879,7 +879,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                                     />
                                     <button type="button" onClick={handleLoadEngines} disabled={isLoadingEngines || !formData.reasoningEngineLocation || isEditingDisabled} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500">{isLoadingEngines ? '...' : 'Load'}</button>
                                 </div>
-                                <p className="mt-1 text-xs text-gray-400">This is automatically set based on the Agent's Location (`{config.appLocation}`) to ensure compatibility.</p>
+                                <p className="mt-1 text-xs text-gray-400">This is automatically set based on the Agent&apos;s Location (`{config.appLocation}`) to ensure compatibility.</p>
                             </div>
                             {engineLoadError && <p className="text-sm text-red-400">{engineLoadError}</p>}
                             {reasoningEngines.length > 0 && (

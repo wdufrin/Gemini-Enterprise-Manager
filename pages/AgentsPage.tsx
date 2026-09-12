@@ -239,7 +239,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
           const enrichedAgents = baseAgents.map((agent, index) => {
             const viewResult = agentViewResults[index];
             let agentType = viewResult && viewResult.agentView ? viewResult.agentView.agentType : undefined;
-            let agentOrigin = viewResult && viewResult.agentView ? viewResult.agentView.agentOrigin : undefined;
+            const agentOrigin = viewResult && viewResult.agentView ? viewResult.agentView.agentOrigin : undefined;
 
             if (!agentType) {
               if (agent.adkAgentDefinition) {

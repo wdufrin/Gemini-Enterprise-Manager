@@ -11,9 +11,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "serve -s dist -l 8080",
-    "lint": "eslint . --ext .ts,.tsx -c eslint-config.json",
-    "format": "prettier --write . --config prettier-config.json",
-    "test": "vitest"
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "@google/genai": "^1.40.0",

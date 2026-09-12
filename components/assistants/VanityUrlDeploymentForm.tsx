@@ -397,7 +397,7 @@ gcloud compute ssl-certificates create $$CERT_NAME \\
 
 echo "2. Creating URL Map for 302 Redirect to Portal..."
 cat <<EOF > urlmap.yaml
-name: \$\$URL_MAP_NAME
+name: $$URL_MAP_NAME
 defaultUrlRedirect:
   hostRedirect: vertexaisearch.cloud.google.com
   pathRedirect: /u/0/home/cid/${widgetConfigId}

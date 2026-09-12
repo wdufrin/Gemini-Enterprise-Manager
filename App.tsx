@@ -17,6 +17,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GlobalDebugProvider } from './context/GlobalDebugContext';
 import Sidebar from './components/Sidebar';
+import ErrorBoundary from './components/ErrorBoundary';
 import AgentsPage from './pages/AgentsPage';
 import SkillsRegistryPage from './pages/SkillsRegistryPage';
 import AuthorizationsPage from './pages/AuthorizationsPage';
@@ -1384,7 +1385,9 @@ const InnerApp: React.FC = () => {
                       </div>
           </header>
                   <div key={`${currentPage}-${refreshKey}`} className="flex-1 overflow-y-auto p-6 relative">
-            {renderPage()}
+            <ErrorBoundary boundaryName={currentPage} resetKey={currentPage}>
+              {renderPage()}
+            </ErrorBoundary>
           </div>
         </main>
       </div>

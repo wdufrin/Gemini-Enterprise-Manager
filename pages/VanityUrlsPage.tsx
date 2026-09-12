@@ -133,7 +133,7 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
                          inferredAppId = baseServiceName.replace('cosmere-', '');
                     }
                     
-                    let dName = assistantNames[baseServiceName] || assistantNames[inferredAppId];
+                    const dName = assistantNames[baseServiceName] || assistantNames[inferredAppId];
 
                     return {
                         name: baseServiceName,

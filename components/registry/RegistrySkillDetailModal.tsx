@@ -115,7 +115,7 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
         },
       };
 
-      let targetConfig = { ...config };
+      const targetConfig = { ...config };
       if (selectedEngineId) {
         targetConfig.appId = selectedEngineId;
       } else if (!targetConfig.appId || targetConfig.appId === 'default_engine') {

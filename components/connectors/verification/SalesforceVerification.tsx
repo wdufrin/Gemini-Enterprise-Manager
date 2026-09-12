@@ -132,7 +132,7 @@ const SalesforceVerification: React.FC<SalesforceVerificationProps> = ({ dataMod
 
                     {authType === 'OAUTH_CLIENT_CREDS' && (
                         <div className="space-y-1">
-                            <p className="text-xs text-gray-400 mb-3">Setup "External Client App" in Salesforce.</p>
+                            <p className="text-xs text-gray-400 mb-3">Setup &quot;External Client App&quot; in Salesforce.</p>
                             <ChecklistItem id="app_enable_client_creds" label="Enable Client Credentials Flow" subLabel="Also select 'Enable Authorization Code and Credentials Flow' in Flow Enablement settings." />
                             <ChecklistItem id="app_callback" label="Callback URL" subLabel="https://vertexaisearch.cloud.google.com/console/oauth/salesforce_oauth.html" copyValue="https://vertexaisearch.cloud.google.com/console/oauth/salesforce_oauth.html" />
                             <ChecklistItem id="app_scopes" label="Scopes" subLabel="Full (full), API (api), Refresh Token (refresh_token, offline_access)" />
@@ -143,7 +143,7 @@ const SalesforceVerification: React.FC<SalesforceVerificationProps> = ({ dataMod
 
                     {authType === 'OAUTH_JWT' && (
                         <div className="space-y-1">
-                            <p className="text-xs text-gray-400 mb-3">Setup "External Client App" with JWT Bearer.</p>
+                            <p className="text-xs text-gray-400 mb-3">Setup &quot;External Client App&quot; with JWT Bearer.</p>
                             <ChecklistItem id="jwt_keys" label="Generate Keys" subLabel="openssl genrsa -out server.key 2048" />
                             <ChecklistItem id="jwt_cert" label="Generate Cert" subLabel="openssl req -new -x509 ... -out server.crt" />
                             <ChecklistItem id="app_upload_cert" label="Upload Cert" subLabel="Upload server.crt to Salesforce App settings." />

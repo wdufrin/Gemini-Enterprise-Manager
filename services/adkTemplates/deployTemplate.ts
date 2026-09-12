@@ -386,7 +386,7 @@ try:
                 line = line.strip()
                 if line and not line.startswith("#"):
                     key = line.split("=")[0].strip()
-                    value = line.split("=", 1)[1].strip().strip("\\\"'") if "=" in line else ""
+                    value = line.split("=", 1)[1].strip().strip("\\"'") if "=" in line else ""
                     os.environ[key] = value
 except Exception as e:
     logger.warning(f"Failed to parse .env file: {e}")
@@ -476,7 +476,7 @@ try:
                 line = line.strip()
                 if line and not line.startswith("#"):
                     key = line.split("=")[0].strip()
-                    value = line.split("=", 1)[1].strip().strip("\\\"'") if "=" in line else ""
+                    value = line.split("=", 1)[1].strip().strip("\\"'") if "=" in line else ""
                     os.environ[key] = value
                     # Append strictly non-reserved keys to env_vars list for deployment
                     # We explicitly allow GOOGLE_CLOUD_LOCATION to pass into the container

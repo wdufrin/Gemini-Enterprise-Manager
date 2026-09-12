@@ -52,7 +52,7 @@ const CurlConfirmationModal: React.FC<CurlConfirmationModalProps> = ({
 
                 <main className="p-6 overflow-hidden flex flex-col flex-1">
                     <p className="text-sm text-gray-300 mb-4">
-                        You have "Show Interaction Details" enabled. Please review the equivalent API command before proceeding.
+                        You have &quot;Show Interaction Details&quot; enabled. Please review the equivalent API command before proceeding.
                     </p>
                     
                     <div className="flex-1 overflow-auto bg-gray-950 p-4 rounded-lg border border-gray-700 relative group">

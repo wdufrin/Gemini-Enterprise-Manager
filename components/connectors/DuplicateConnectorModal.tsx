@@ -89,13 +89,14 @@ const discoverFields = (connectorState: any, includeActions: boolean = true): Fo
           label: "Instance URI",
           desc: "The base URL of the service instance (e.g. https://your-org.atlassian.net).",
         };
-      default:
+      default: {
         const formatted = key
           .replace(/_/g, " ")
           .replace(/([A-Z])/g, " $1")
           .trim();
         const label = formatted.charAt(0).toUpperCase() + formatted.slice(1);
         return { label, desc: "" };
+      }
     }
   };
 
@@ -371,8 +372,6 @@ const DuplicateConnectorModal: React.FC<DuplicateConnectorModalProps> = ({
     }
   }, [isOpen, currentProjectId, currentLocation, sourceCollectionId, sourceConnectorState]);
 
-  if (!isOpen) return null;
-
   const handleFieldChange = (
     fieldKey: string,
     value: string | boolean,
@@ -468,7 +467,7 @@ const DuplicateConnectorModal: React.FC<DuplicateConnectorModalProps> = ({
     const cleanEntities =
       sourceConnectorState.entities?.map((e: any) => {
         const { dataStore, params: entityParams, ...rest } = e;
-        let newEntityParams = entityParams ? { ...entityParams } : {};
+        const newEntityParams = entityParams ? { ...entityParams } : {};
         
         if (isMicrosoft) {
           const tenantVal = newEntityParams.tenant_id || newEntityParams.instance_id || newEntityParams.azure_tenant || topTenantVal;
@@ -720,6 +719,12 @@ const DuplicateConnectorModal: React.FC<DuplicateConnectorModalProps> = ({
     fieldValues,
     includeActions,
   ]);
+
+  // NOTE: This early return MUST stay below every hook call above.
+  // Previously it sat at the top of the component (before `finalPayload`),
+  // which changed the hook count between the closed and open renders and
+  // crashed the app with "Rendered more hooks than during the previous render".
+  if (!isOpen) return null;
 
   const handleSubmit = async () => {
     if (!validateStep()) return;
@@ -1086,7 +1091,7 @@ const DuplicateConnectorModal: React.FC<DuplicateConnectorModalProps> = ({
                 </h3>
                 <p className="text-xs text-gray-400">
                   Review the destination and credentials payload. Clicking
-                  "Provision" will invoke the `setUpDataConnector` API in the target
+                  &quot;Provision&quot; will invoke the `setUpDataConnector` API in the target
                   project/location.
                 </p>
 

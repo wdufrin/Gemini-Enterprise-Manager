@@ -19,6 +19,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import JSZip from 'jszip';
 import App from './App';
+import ErrorBoundary from './components/ErrorBoundary';
 import './src/index.css';
 
 (window as any).JSZip = JSZip;
@@ -50,6 +51,8 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary boundaryName="Gemini Enterprise Manager">
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 );

@@ -19,7 +19,7 @@ import React, { useState, useEffect } from 'react';
 import { Config, GcsBucket } from '../../types';
 import * as api from '../../services/apiService';
 
-declare var JSZip: any;
+declare let JSZip: any;
 
 interface PrunerDeploymentModalProps {
   isOpen: boolean;
@@ -622,7 +622,7 @@ gcloud projects add-iam-policy-binding ${config.projectId} \\
                         <div>
                             <label className="block text-sm font-medium text-gray-400">Project ID (String) {isResolvingId && <span className="animate-pulse">...</span>}</label>
                             <input type="text" value={config.projectId} onChange={(e) => setConfig({...config, projectId: e.target.value})} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" placeholder="my-project-id" disabled={isDeploying} />
-                            {/^\d+$/.test(config.projectId) && <p className="text-xs text-yellow-400 mt-1">Warning: Enter the string Project ID (e.g., 'my-app'), not the number, for gcloud scripts.</p>}
+                            {/^\d+$/.test(config.projectId) && <p className="text-xs text-yellow-400 mt-1">Warning: Enter the string Project ID (e.g., &apos;my-app&apos;), not the number, for gcloud scripts.</p>}
                         </div>
                         
                         <div className="grid grid-cols-2 gap-4">
@@ -729,7 +729,7 @@ gcloud projects add-iam-policy-binding ${config.projectId} \\
                                         The Cloud Build service account (<code>{cloudBuildSa}</code>) does not have permission to create Scheduler jobs or Cloud Run services by default.
                                     </p>
                                     <p className="text-xs text-orange-100 mb-2 font-semibold">
-                                        🛡️ Recommended: Click "Download .zip" below and execute <code>./deploy.sh</code> in your local terminal. This uses your personal credentials and avoids granting broad Project IAM Admin rights to Cloud Build.
+                                        🛡️ Recommended: Click &quot;Download .zip&quot; below and execute <code>./deploy.sh</code> in your local terminal. This uses your personal credentials and avoids granting broad Project IAM Admin rights to Cloud Build.
                                     </p>
                                     <p className="text-xs text-orange-100 mb-2">
                                         Alternatively, if you wish to deploy directly from the UI via Cloud Build, you must run these commands in Cloud Shell to grant Cloud Build the necessary permissions:

@@ -14,7 +14,7 @@ const GEQuotaUsagePage: React.FC<Props> = ({ projectNumber }) => {
                     <div>
                         <h1 className="text-3xl font-bold text-white tracking-tight">Gemini Enterprise Quota Usage</h1>
                         <p className="mt-2 text-sm text-gray-400">
-                            Model and calculate your organization's pooled Gemini Enterprise quota limits.
+                            Model and calculate your organization&apos;s pooled Gemini Enterprise quota limits.
                         </p>
                     </div>
                     <CloudConsoleButton url={`https://console.cloud.google.com/gemini-enterprise/user-license?project=${projectNumber}`} />

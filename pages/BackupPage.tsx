@@ -640,7 +640,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
     // 1. Discovery Engine Sessions
     addLog("Fetching Discovery Engine sessions...");
-    let discoverySessions: DiscoverySession[] = [];
+    const discoverySessions: DiscoverySession[] = [];
     try {
       // We need to iterate over all "Engines"/Apps to get their sessions.
       // This might be expensive if there are many apps.
@@ -738,7 +738,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     // We'll skip complex iteration for now and just check the selected one if present, or maybe list all?
     // listReasoningEngines -> sessions
     addLog("Fetching Agent Engine sessions...");
-    let reasoningSessions: any[] = []; // Type is generic for now
+    const reasoningSessions: any[] = []; // Type is generic for now
     try {
       const res = await api.listReasoningEngines(apiConfig);
       const engines = res.reasoningEngines || [];
@@ -855,7 +855,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
     const sectionName = section.replace(/[A-Z]/g, ' $&').trim();
     executeOperation(`Restore${section}`, async () => {
-      let dataToRestore = { ...originalData };
+      const dataToRestore = { ...originalData };
       
       // Filter the original data based on the selected items
       switch (section) {
@@ -963,7 +963,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         return payload;
       };
 
-      let createPayload = buildPayload(agent);
+      const createPayload = buildPayload(agent);
   
       try {
         // Create the agent without specifying an ID to get a new one.

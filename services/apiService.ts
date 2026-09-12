@@ -364,7 +364,7 @@ export const grantDiscoveryEngineServiceAgentRole = async (
   const bindings = policy.bindings || [];
 
   rolesToEnsure.forEach(role => {
-    let binding = bindings.find((b: any) => b.role === role);
+    const binding = bindings.find((b: any) => b.role === role);
     if (binding) {
       if (!binding.members) binding.members = [];
       if (!binding.members.some((m: string) => m.toLowerCase() === memberKey.toLowerCase())) {
@@ -2261,7 +2261,7 @@ export const streamChat = async (
   let inString = false;
   let isEscaped = false;
 
-  while (true) {
+  for (;;) {
     const { done, value } = await reader.read();
     const chunk = decoder.decode(value || new Uint8Array(), { stream: !done });
 
@@ -2295,7 +2295,7 @@ export const streamChat = async (
               // Simple approach: Try to parse the accumulated buffer if it looks like an object.
 
               // Remove leading comma or bracket if present and strictly matching an object
-              let cleanBuffer = buffer.trim();
+              const cleanBuffer = buffer.trim();
               // If it starts with ',' or '[', strip them for checking but we need to be careful not to strip valid parts if we are inside...
               // Actually, robust way: Find first '{'
               const firstBrace = cleanBuffer.indexOf("{");
@@ -2372,7 +2372,7 @@ export const streamQueryReasoningEngine = async (
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
+  for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
 
@@ -2436,7 +2436,7 @@ export const generateVertexContent = async (
   let inString = false;
   let isEscaped = false;
 
-  while (true) {
+  for (;;) {
     const { done, value } = await reader.read();
     const chunk = decoder.decode(value || new Uint8Array(), { stream: !done });
 

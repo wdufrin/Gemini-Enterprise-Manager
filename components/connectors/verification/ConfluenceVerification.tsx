@@ -143,7 +143,7 @@ const ConfluenceVerification: React.FC<ConfluenceVerificationProps> = ({ dataMod
                         Identity & Email Visibility
                     </h4>
                     <p className="text-gray-400 text-xs mb-4">
-                        Required to map users correctly. If emails are hidden, install the "User Identity Accessor" app.
+                        Required to map users correctly. If emails are hidden, install the &quot;User Identity Accessor&quot; app.
                     </p>
                     <div className="border-l-2 border-yellow-600 pl-3 mb-4">
                         <p className="text-[10px] text-yellow-200">
