@@ -17,6 +17,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Config, GcsBucket } from '../../types';
 import * as api from '../../services/apiService';
+import { assertValidOpaqueId } from '../../services/shellSafety';
 
 declare let JSZip: any;
 
@@ -267,6 +268,32 @@ gcloud projects add-iam-policy-binding ${config.projectId} \\
         setDeployError(null);
 
         try {
+            // SECURITY (F-01): everything below is interpolated into generated code
+            // that later executes with high privilege -- deploy.sh runs under
+            // `entrypoint: 'bash'` in Cloud Build (build service account), and main.py
+            // is deployed as a Cloud Function. Allowlist-validate the inputs here,
+            // before the scripts are assembled and uploaded. Every helper throws, and
+            // the catch below puts err.message into setDeployError, which is rendered
+            // in the modal.
+            //
+            // cfLocation is derived from config.appLocation and is one of two hardcoded
+            // constants, so it is not validated separately.
+            assertValidOpaqueId(config.projectId, 'Project ID');
+            assertValidOpaqueId(projectNumber, 'Project number');
+            assertValidOpaqueId(config.appLocation, 'App location');
+            assertValidOpaqueId(config.collectionId, 'Collection ID');
+            assertValidOpaqueId(config.appId, 'App ID');
+            // datasetId is optional here: main.py falls back to a placeholder.
+            if (datasetId) assertValidOpaqueId(datasetId, 'BigQuery dataset');
+            // baseTableId is free text from the "Base Table Name" input and is written
+            // straight into a Python string literal in main.py.
+            assertValidOpaqueId(baseTableId || 'metrics_backup', 'Base table name');
+            // backupDay lands inside a cron expression in deploy.sh. It comes from a
+            // <select> of 1..28 coerced with Number(), but assert the range anyway.
+            if (!Number.isInteger(backupDay) || backupDay < 1 || backupDay > 28) {
+                throw new Error(`Day of month must be a whole number between 1 and 28 (got "${backupDay}").`);
+            }
+
             // 1. Prepare Zip
             const deploySh = `#!/bin/bash
 set -e

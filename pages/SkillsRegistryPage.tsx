@@ -88,7 +88,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   // Statistics
   const totalCount = skills.length;
   const activeCount = skills.filter((s) => s.state === 'STATE_ACTIVE').length;
-  const draftCount = totalCount - activeCount;
+  const draftCount = skills.filter((s) => s.state === 'STATE_DRAFT').length;
   const publisherCount = publishers.length;
 
   // Filtered skills
@@ -102,7 +102,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
 
       // Status filter
       if (selectedStatus === 'ACTIVE' && skill.state !== 'STATE_ACTIVE') return false;
-      if (selectedStatus === 'DRAFT' && skill.state === 'STATE_ACTIVE') return false;
+      if (selectedStatus === 'DRAFT' && skill.state !== 'STATE_DRAFT') return false;
 
       // Search query
       if (!searchQuery.trim()) return true;
@@ -337,19 +337,26 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                         </span>
                       </td>
 
-                      {/* Status */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${
                           skill.state === 'STATE_ACTIVE'
                             ? 'bg-green-900/40 text-green-300 border-green-700'
                             : skill.state === 'STATE_DRAFT'
                             ? 'bg-yellow-900/40 text-yellow-300 border-yellow-700'
+                            : skill.state === 'STATE_DISABLED'
+                            ? 'bg-gray-800 text-gray-400 border-gray-600'
+                            : skill.state === 'STATE_DEPRECATED' || skill.state === 'STATE_DECOMMISSIONED'
+                            ? 'bg-red-900/40 text-red-300 border-red-700'
                             : 'bg-gray-700 text-gray-300 border-gray-600'
                         }`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${
-                            skill.state === 'STATE_ACTIVE' ? 'bg-green-400' : 'bg-yellow-400'
+                            skill.state === 'STATE_ACTIVE' ? 'bg-green-400' 
+                            : skill.state === 'STATE_DRAFT' ? 'bg-yellow-400'
+                            : skill.state === 'STATE_DISABLED' ? 'bg-gray-400'
+                            : skill.state === 'STATE_DEPRECATED' || skill.state === 'STATE_DECOMMISSIONED' ? 'bg-red-400'
+                            : 'bg-gray-400'
                           }`} />
-                          {skill.state === 'STATE_ACTIVE' ? 'ACTIVE' : 'DRAFT'}
+                          {skill.state ? skill.state.replace('STATE_', '') : 'UNKNOWN'}
                         </span>
                       </td>
 

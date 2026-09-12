@@ -902,7 +902,7 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
                   type="text"
                   value={instanceUri}
                   onChange={(e) => setInstanceUri(e.target.value)}
-                  placeholder="https://oracle-mcp-server-180054373655.us-central1.run.app/mcp"
+                  placeholder="https://oracle-mcp-server-123456789012.us-central1.run.app/mcp"
                   className="flex-1 bg-gray-950 border border-gray-700 rounded p-2.5 text-xs text-white font-mono placeholder-gray-500 focus:outline-none focus:border-blue-500"
                 />
                 <button

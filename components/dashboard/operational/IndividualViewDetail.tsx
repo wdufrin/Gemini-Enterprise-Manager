@@ -380,9 +380,9 @@ export const IndividualViewDetail: React.FC<Props> = ({
                                     <ResponsiveContainer width="100%" height={256}>
                                         {is30d ? (
                                             <BarChart layout="vertical" data={sortedUsers.length > 0 ? sortedUsers : [
-                                                { user: 'qos-test-user@wdufrin.onmicrosoft.com', calls: 744 },
-                                                { user: 'admin@wdufrin.altostrat.com', calls: 291 },
-                                                { user: 'wdufrin@wdufrin.onmicrosoft.com', calls: 95 }
+                                                { user: 'qos-test-user@example.com', calls: 744 },
+                                                { user: 'admin@example.com', calls: 291 },
+                                                { user: 'alex.morgan@example.com', calls: 95 }
                                             ]}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
                                                 <XAxis type="number" stroke="#9CA3AF" fontSize={11} />
@@ -820,8 +820,8 @@ export const IndividualViewDetail: React.FC<Props> = ({
                                 <div className="h-64 w-full">
                                     <ResponsiveContainer width="100%" height={256}>
                                         <BarChart layout="vertical" data={topUsers.length > 0 ? topUsers : [
-                                            { user: 'admin@wdufrin.altostrat.com', count: 520 },
-                                            { user: 'qos-test-user@wdufrin.onmicrosoft.com', count: 362 }
+                                            { user: 'admin@example.com', count: 520 },
+                                            { user: 'qos-test-user@example.com', count: 362 }
                                         ]}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
                                             <XAxis type="number" stroke="#9CA3AF" fontSize={11} />

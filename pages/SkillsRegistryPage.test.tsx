@@ -56,6 +56,21 @@ const mockRegistrySkills: RegistrySkill[] = [
     publisher: 'projects/test-project-123/locations/global/publishers/cloud.google.com',
     skillId: 'urn:skill:cloud.google.com:container:gke-storage',
   },
+  {
+    name: 'projects/test-project-123/locations/global/skills/draft-skill',
+    displayName: 'Draft Skill',
+    state: 'STATE_DRAFT',
+  },
+  {
+    name: 'projects/test-project-123/locations/global/skills/deprecated-skill',
+    displayName: 'Deprecated Skill',
+    state: 'STATE_DEPRECATED',
+  },
+  {
+    name: 'projects/test-project-123/locations/global/skills/unknown-skill',
+    displayName: 'Unknown Skill',
+    state: 'STATE_WEIRD',
+  },
 ];
 
 describe('SkillsRegistryPage Component', () => {
@@ -68,7 +83,7 @@ describe('SkillsRegistryPage Component', () => {
   it('renders enterprise skills registry with statistics and skill list', async () => {
     render(
       <SkillsRegistryPage
-        projectNumber="180054373655"
+        projectNumber="123456789012"
         projectId="test-project-123"
         setProjectNumber={vi.fn()}
         accessToken="mock-token"
@@ -88,7 +103,7 @@ describe('SkillsRegistryPage Component', () => {
   it('filters skills by search query', async () => {
     render(
       <SkillsRegistryPage
-        projectNumber="180054373655"
+        projectNumber="123456789012"
         projectId="test-project-123"
         setProjectNumber={vi.fn()}
         accessToken="mock-token"
@@ -113,7 +128,7 @@ describe('SkillsRegistryPage Component', () => {
 
     render(
       <SkillsRegistryPage
-        projectNumber="180054373655"
+        projectNumber="123456789012"
         projectId="test-project-123"
         setProjectNumber={vi.fn()}
         accessToken="mock-token"
@@ -140,6 +155,25 @@ describe('SkillsRegistryPage Component', () => {
         expect.objectContaining({ projectId: 'test-project-123' }),
         expect.any(String)
       );
+    });
+  });
+
+  it('renders skill states correctly including unknown states', async () => {
+    render(
+      <SkillsRegistryPage
+        projectNumber="123456789012"
+        projectId="test-project-123"
+        setProjectNumber={vi.fn()}
+        accessToken="mock-token"
+        userProfile={mockUserProfile}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/ACTIVE/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/DRAFT/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/DEPRECATED/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/WEIRD/i).length).toBeGreaterThan(0);
     });
   });
 });

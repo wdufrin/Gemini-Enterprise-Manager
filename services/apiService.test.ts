@@ -334,7 +334,7 @@ describe('apiService', () => {
       };
       vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
 
-      const instanceUri = 'https://oracle-mcp-server-180054373655.us-central1.run.app/mcp';
+      const instanceUri = 'https://oracle-mcp-server-123456789012.us-central1.run.app/mcp';
       await fetchConnectorLogs(config as any, connectorName, 2, instanceUri);
 
       expect(mockGapiClient.request).toHaveBeenCalledWith(

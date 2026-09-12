@@ -118,4 +118,21 @@ describe('configAuditService', () => {
     expect(md).toContain('MISSING IN TARGET');
     expect(md).toContain('Missing Docs');
   });
+
+  it('does not report success when zero meaningful checks could be executed', async () => {
+    vi.mocked(api.getEngine).mockResolvedValue(null as any);
+    vi.mocked(api.listResources).mockResolvedValue({ dataStores: [] });
+    vi.mocked(api.listRegistrySkills).mockRejectedValue(new Error('Auth error'));
+    vi.mocked(api.listAuthorizations).mockRejectedValue(new Error('Auth error'));
+    vi.mocked(api.listLicenseConfigsUsageStats).mockRejectedValue(new Error('Auth error'));
+
+    const summary = await runConfigAudit(sourceConfig, targetConfig);
+
+    expect(summary.overallScore).toBeNull();
+    expect(summary.unknownCount).toBeGreaterThan(0);
+    
+
+    const md = generateAuditMarkdown(summary);
+    expect(md).toContain('UNABLE TO ASSESS');
+  });
 });

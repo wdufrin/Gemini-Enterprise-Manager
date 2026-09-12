@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import AgentBuilderPage, {
   generateA2aEnvYaml,
   generateAdkEnvFile,
@@ -145,6 +145,48 @@ describe('AgentBuilderPage - Helper Functions', () => {
       expect(optionValues).toContain('gemini-3.1-pro-preview');
       expect(optionValues).toContain('gemini-3-flash-preview');
       expect(optionValues).toContain('gemini-3.5-flash');
+    });
+
+    it('does not contain the ADK 2.2 option in the version selector', async () => {
+      render(
+        <AgentBuilderPage
+          projectNumber="123456789"
+          setProjectNumber={() => {}}
+        />
+      );
+
+      const options = screen.getAllByRole('option');
+      const optionValues = options.map(o => (o as HTMLOptionElement).value);
+
+      expect(optionValues).not.toContain('2.2');
+    });
+
+    it('displays an error message for invalid agent names', async () => {
+      const { container } = render(
+        <AgentBuilderPage
+          projectNumber="123456789"
+          setProjectNumber={() => {}}
+        />
+      );
+
+      // Find the name input
+      const nameInput = container.querySelector('input[name="name"]') as HTMLInputElement;
+      expect(nameInput).toBeDefined();
+
+      // Ensure error is shown when empty (initial state is empty)
+      expect(screen.getByText(/Required\. Must start with a lowercase letter and contain only lowercase letters, numbers, and underscores\./)).toBeDefined();
+
+      // Type an invalid name
+      act(() => {
+        fireEvent.change(nameInput, { target: { value: 'Invalid-Name' } });
+      });
+      expect(screen.getByText(/Required\. Must start with a lowercase letter/)).toBeDefined();
+
+      // Type a valid name
+      act(() => {
+        fireEvent.change(nameInput, { target: { value: 'valid_name' } });
+      });
+      expect(screen.queryByText(/Required\. Must start with a lowercase letter/)).toBeNull();
     });
   });
 });

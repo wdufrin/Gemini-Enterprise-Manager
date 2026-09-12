@@ -55,9 +55,13 @@ const StepConfig: React.FC<StepConfigProps> = ({
                             value={agentName}
                             onChange={(e) => setAgentName(e.target.value)}
                             className="w-full bg-gray-900 border border-gray-600 rounded-md px-4 py-2 text-white focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                            placeholder="my-awesome-agent"
+                            placeholder="my-awesome-agent (lowercase, numbers, hyphens)"
                         />
-                        <p className="text-xs text-gray-500 mt-1">Used for folder creation and resource naming.</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Used for folder creation and resource naming. Must start with a lowercase
+                            letter and contain only lowercase letters, numbers and hyphens (no spaces
+                            or underscores, 63 characters maximum).
+                        </p>
                     </div>
 
                     {/* Project ID */}

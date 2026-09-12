@@ -600,15 +600,16 @@ export interface ConfigAuditItem {
   name: string;
   sourceValue?: string | number | boolean | null;
   targetValue?: string | number | boolean | null;
-  status: 'MATCH' | 'DRIFT' | 'MISSING_IN_TARGET' | 'INFO';
+  status: 'MATCH' | 'DRIFT' | 'MISSING_IN_TARGET' | 'INFO' | 'UNKNOWN';
   details?: string;
   remediation?: string;
   severity: 'OK' | 'WARNING' | 'ERROR';
 }
 
 export interface ConfigAuditSummary {
-  overallScore: number;
+  overallScore: number | null;
   totalChecks: number;
+  unknownCount: number;
   matchedCount: number;
   driftCount: number;
   missingCount: number;

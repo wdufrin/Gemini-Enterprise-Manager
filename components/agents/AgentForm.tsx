@@ -859,7 +859,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                                         id="sourceProjectId"
                                         value={sourceProjectId}
                                         onChange={(e) => setSourceProjectId(e.target.value)}
-                                        placeholder="e.g. 474791121936"
+                                        placeholder="e.g. 123456789012"
                                         disabled={isEditingDisabled}
                                         className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm"
                                         required

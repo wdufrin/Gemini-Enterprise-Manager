@@ -27,7 +27,7 @@ interface ConnectorDetailsModalProps {
   onClose: () => void;
   title: string;
   data: any;
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'unvalidated';
   config: Config;
   onRefreshSuccess?: () => void;
 }
@@ -55,6 +55,8 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
   const [isRefreshingTools, setIsRefreshingTools] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshSuccess, setRefreshSuccess] = useState<boolean>(false);
+  const [showTokenHelp, setShowTokenHelp] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   useEffect(() => {
     if (data && data.connectorState) {
@@ -220,8 +222,8 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
               {/* Summary Section */}
               <div className="bg-gray-900/50 p-3 rounded border border-gray-700">
                 <h3 className="text-sm font-bold text-gray-300 mb-2 uppercase tracking-wider">Summary</h3>
-                <div className={`text-md font-semibold ${status === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-                  {data.summary || (status === 'success' ? 'Validation Passed' : 'Validation Failed')}
+                <div className={`text-md font-semibold ${status === 'success' ? 'text-green-400' : status === 'unvalidated' ? 'text-gray-400' : 'text-red-400'}`}>
+                  {data.summary || (status === 'success' ? 'Validation Passed' : status === 'unvalidated' ? 'Not validated' : 'Validation Failed')}
                 </div>
 
                 {recommendation && (
@@ -570,20 +572,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                   ].includes(connectorState.dataSource.toLowerCase()) && (
                     <>
                       <button
-                        onClick={() => {
-                          const isAtlassianHelp = ['jira', 'confluence'].includes(connectorState.dataSource.toLowerCase());
-                          alert(isAtlassianHelp ? `To get a refresh token for Atlassian:
-1. Enable 'offline_access' scope in Atlassian Developer Console.
-2. Visit the authorization URL to get a code.
-3. Exchange the code for tokens via curl.
-
-See docs/Connectors_Auth_Guide.md in your workspace for full instructions.` : `To get a refresh token for Microsoft/SaaS connectors:
-1. Ensure the 'offline_access' scope is included in authorization.
-2. Visit the authorization URL to get a code.
-3. Exchange the code for tokens via curl.
-
-See docs/Connectors_Auth_Guide.md in your workspace for full instructions.`);
-                        }}
+                        onClick={() => setShowTokenHelp(!showTokenHelp)}
                         className="px-3 py-1.5 bg-gray-600 text-white text-xs font-semibold rounded hover:bg-gray-700 transition-colors flex items-center gap-1"
                       >
                         Token Help
@@ -670,17 +659,39 @@ See docs/Connectors_Auth_Guide.md in your workspace for full instructions.`);
       -d '${JSON.stringify(fullPayload, null, 2).replace(/'/g, "'\\''")}'`;
                           
                           navigator.clipboard.writeText(curl);
-                          alert('cURL command copied to clipboard!');
+                          setCopySuccess(true);
+                          setTimeout(() => setCopySuccess(false), 2000);
                         }}
                         className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-6 9h6m-6 4h6" /></svg>
-                        Copy cURL
+                        {copySuccess ? (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-6 9h6m-6 4h6" /></svg>
+                            Copy cURL
+                          </>
+                        )}
                       </button>
                     </>
                   )}
                   </div>
                 </div>
+                {showTokenHelp && (
+                  <div className="mb-4 bg-gray-900/80 border border-gray-700 rounded p-4 text-sm text-gray-300">
+                    <h4 className="font-bold text-white mb-2">Token Authentication Guide</h4>
+                    <p className="mb-2">To get a refresh token for {['jira', 'confluence'].includes(connectorState?.dataSource?.toLowerCase() || '') ? 'Atlassian' : 'Microsoft/SaaS connectors'}:</p>
+                    <ol className="list-decimal pl-5 space-y-1 mb-3">
+                      <li>Enable the <strong>&apos;offline_access&apos;</strong> scope in your Developer Console/App Registration.</li>
+                      <li>Visit the authorization URL to get a code.</li>
+                      <li>Exchange the code for tokens via curl.</li>
+                    </ol>
+                    <p className="text-xs text-gray-400">See <code className="bg-gray-800 px-1 py-0.5 rounded text-gray-300">docs/Connectors_Auth_Guide.md</code> in your workspace for full instructions.</p>
+                  </div>
+                )}
                 <pre className="text-xs bg-gray-950 p-4 rounded overflow-x-auto border border-gray-800 text-gray-300 font-mono">
                   {JSON.stringify(connectorState, null, 2)}
                 </pre>
@@ -703,10 +714,12 @@ See docs/Connectors_Auth_Guide.md in your workspace for full instructions.`);
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
       <div className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-gray-700 ring-1 ring-white/10">
-        <div className={`p-4 border-b ${status === 'success' ? 'border-green-900/50 bg-green-900/10' : 'border-red-900/50 bg-red-900/10'} flex justify-between items-center rounded-t-lg shrink-0`}>
-          <h2 className={`text-xl font-bold ${status === 'success' ? 'text-green-400' : 'text-red-400'} flex items-center gap-2`}>
+        <div className={`p-4 border-b ${status === 'success' ? 'border-green-900/50 bg-green-900/10' : status === 'unvalidated' ? 'border-gray-700 bg-gray-800' : 'border-red-900/50 bg-red-900/10'} flex justify-between items-center rounded-t-lg shrink-0`}>
+          <h2 className={`text-xl font-bold ${status === 'success' ? 'text-green-400' : status === 'unvalidated' ? 'text-gray-300' : 'text-red-400'} flex items-center gap-2`}>
             {status === 'success' ? (
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            ) : status === 'unvalidated' ? (
+              <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             ) : (
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             )}

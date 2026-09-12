@@ -54,3 +54,11 @@ test_adk_gen.ts
 
 # Scratch files
 scratch/
+
+# Production data dumps / exported GCP logs -- never commit these.
+# They contain real end-user queries, userIamPrincipal values and resource names.
+agents.json
+scratch_log.json
+model_armor_log.json
+*_log.json
+*.patch

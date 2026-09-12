@@ -31,7 +31,7 @@ interface ConnectorsPageProps {
 }
 
 interface ValidationResult {
-  status: "pending" | "success" | "error" | "n/a";
+  status: "pending" | "success" | "error" | "n/a" | "unvalidated";
   message?: string;
   details?: any;
   dataConnector?: any;
@@ -446,18 +446,18 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
     const collectionConfig = { ...config, collectionId: collectionId };
     try {
       const connector = await api.getDataConnector(collectionConfig);
-      const mockResult: ValidationResult = {
-        status: "success",
-        message: "Configuration Loaded",
+      const unvalidatedResult: ValidationResult = {
+        status: "unvalidated",
+        message: "Not validated",
         dataConnector: connector,
         details: {
-          summary: "Configuration Loaded",
+          summary: "Not validated",
           connectorState: connector,
           diagnostics: { steps: [] },
         },
       };
       setSelectedResult({
-        result: mockResult,
+        result: unvalidatedResult,
         title: `Connector Details: ${collectionId}`,
       });
     } catch (err: any) {

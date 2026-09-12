@@ -1009,13 +1009,13 @@ export const FALLBACK_SNAPSHOT = {
         { tool: 'email_agent__search_email_tool', count: 12 }
     ],
     connectorUsageAll: [
-        { connector_name: 'Sharepoint', connector_type: 'Agent Tool', usage_count: '987', tools_used: 'sharepoint_agent__search_tool', user_email: 'qos-test-user@wdufrin.onmicrosoft.com', first_used_at: '2026-08-10 13:24:58', last_used_at: '2026-08-13 13:04:44' },
-        { connector_name: 'Ingestion Search', connector_type: 'Agent Tool', usage_count: '316', tools_used: 'ingestion_search_agent__ingestion_search_tool', user_email: 'qos-test-user@wdufrin.onmicrosoft.com', first_used_at: '2026-08-10 00:00:31', last_used_at: '2026-08-19 15:26:07' },
-        { connector_name: 'Cosmere', connector_type: 'Search Data Source', usage_count: '259', tools_used: 'cosmere', user_email: 'admin@wdufrin.altostrat.com', first_used_at: '2026-08-10 13:07:12', last_used_at: '2026-09-09 16:04:53' },
-        { connector_name: 'Google Search', connector_type: 'Agent Tool', usage_count: '9', tools_used: 'google_search_tool', user_email: 'admin@wdufrin.altostrat.com', first_used_at: '2026-08-10 13:07:43', last_used_at: '2026-08-27 15:23:09' },
-        { connector_name: 'Email', connector_type: 'Agent Tool', usage_count: '4', tools_used: 'email_agent__search_email_tool', user_email: 'admin@wdufrin.altostrat.com', first_used_at: '2026-08-13 16:26:37', last_used_at: '2026-08-19 15:26:02' },
-        { connector_name: 'Google Drive', connector_type: 'Agent Tool', usage_count: '3', tools_used: 'google_drive_agent__search_drive_tool', user_email: 'admin@wdufrin.altostrat.com', first_used_at: '2026-08-17 11:34:50', last_used_at: '2026-08-19 15:26:02' },
-        { connector_name: 'Jira', connector_type: 'Agent Tool', usage_count: '2', tools_used: 'jira__search_issues', user_email: 'admin@wdufrin.altostrat.com', first_used_at: '2026-08-13 16:26:37', last_used_at: '2026-08-17 11:35:03' }
+        { connector_name: 'Sharepoint', connector_type: 'Agent Tool', usage_count: '987', tools_used: 'sharepoint_agent__search_tool', user_email: 'qos-test-user@example.com', first_used_at: '2026-08-10 13:24:58', last_used_at: '2026-08-13 13:04:44' },
+        { connector_name: 'Ingestion Search', connector_type: 'Agent Tool', usage_count: '316', tools_used: 'ingestion_search_agent__ingestion_search_tool', user_email: 'qos-test-user@example.com', first_used_at: '2026-08-10 00:00:31', last_used_at: '2026-08-19 15:26:07' },
+        { connector_name: 'Cosmere', connector_type: 'Search Data Source', usage_count: '259', tools_used: 'cosmere', user_email: 'admin@example.com', first_used_at: '2026-08-10 13:07:12', last_used_at: '2026-09-09 16:04:53' },
+        { connector_name: 'Google Search', connector_type: 'Agent Tool', usage_count: '9', tools_used: 'google_search_tool', user_email: 'admin@example.com', first_used_at: '2026-08-10 13:07:43', last_used_at: '2026-08-27 15:23:09' },
+        { connector_name: 'Email', connector_type: 'Agent Tool', usage_count: '4', tools_used: 'email_agent__search_email_tool', user_email: 'admin@example.com', first_used_at: '2026-08-13 16:26:37', last_used_at: '2026-08-19 15:26:02' },
+        { connector_name: 'Google Drive', connector_type: 'Agent Tool', usage_count: '3', tools_used: 'google_drive_agent__search_drive_tool', user_email: 'admin@example.com', first_used_at: '2026-08-17 11:34:50', last_used_at: '2026-08-19 15:26:02' },
+        { connector_name: 'Jira', connector_type: 'Agent Tool', usage_count: '2', tools_used: 'jira__search_issues', user_email: 'admin@example.com', first_used_at: '2026-08-13 16:26:37', last_used_at: '2026-08-17 11:35:03' }
     ],
     connectorUsage30d: [
         { connector: 'Sharepoint', calls: 987, users: 4 },
@@ -1027,10 +1027,10 @@ export const FALLBACK_SNAPSHOT = {
         { connector: 'Jira', calls: 2, users: 1 }
     ],
     topConnectorUsers: [
-        { user: 'qos-test-user@wdufrin.onmicrosoft.com', calls: 745 },
-        { user: 'admin@wdufrin.altostrat.com', calls: 396 },
-        { user: '180054373655-compute@developer.gserviceaccount.com', calls: 120 },
-        { user: 'wdufrin@wdufrin.onmicrosoft.com', calls: 94 }
+        { user: 'qos-test-user@example.com', calls: 745 },
+        { user: 'admin@example.com', calls: 396 },
+        { user: '123456789012-compute@developer.gserviceaccount.com', calls: 120 },
+        { user: 'alex.morgan@example.com', calls: 94 }
     ],
     aiFinishReasons: [
         { name: 'STOP', value: 8940 },

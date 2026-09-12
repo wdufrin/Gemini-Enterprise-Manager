@@ -1,20 +1,20 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { Config, DataStore, CloudRunService, GcsBucket } from "../types";
-import * as api from "../services/apiService";
-import AgentDeploymentModal from "../components/agent-catalog/AgentDeploymentModal";
-import A2aDeployModal from "../components/a2a/A2aDeployModal";
-import InfoTooltip from "../components/InfoTooltip";
-import CloudBuildProgress from "../components/agent-builder/CloudBuildProgress";
-import GitHubDeployModal from "../components/agent-builder/GitHubDeployModal";
-import ProjectInput from "../components/ProjectInput";
-import { McpServiceCheck } from "../components/McpServiceCheck";
-import CloudConsoleButton from "../components/CloudConsoleButton";
+import { toErrorMessage } from '../utils/errors';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Config, DataStore, CloudRunService, GcsBucket } from '../types';
+import * as api from '../services/apiService';
+import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
+import A2aDeployModal from '../components/a2a/A2aDeployModal';
+import InfoTooltip from '../components/InfoTooltip';
+import CloudBuildProgress from '../components/agent-builder/CloudBuildProgress';
+import GitHubDeployModal from '../components/agent-builder/GitHubDeployModal';
+import ProjectInput from '../components/ProjectInput';
+import { McpServiceCheck } from '../components/McpServiceCheck';
+import CloudConsoleButton from '../components/CloudConsoleButton';
 
-import JSZip from "jszip";
-
+import JSZip from 'jszip';
 
 // Re-export all ADK & A2A types and generators from modular template service
-export * from "../services/adkTemplates";
+export * from '../services/adkTemplates';
 import {
   AgentTool,
   A2aConfig,
@@ -51,7 +51,7 @@ import {
   generateAdkEnvFile,
   generateAdkRequirementsFile,
   generateAdkReadmeFile,
-} from "../services/adkTemplates";
+} from '../services/adkTemplates';
 
 interface AgentBuilderPageProps {
   projectNumber: string;
@@ -60,24 +60,72 @@ interface AgentBuilderPageProps {
   onBuildTriggered?: (buildId: string, projectId?: string) => void;
 }
 
+/**
+ * .gitignore shipped inside every generated agent project.
+ *
+ * `.env` is listed deliberately: the generated project's .env carries project
+ * and deployment configuration, and users naturally add secrets to it. It must
+ * never reach a git remote. Supply it to CI via encrypted repository secrets.
+ */
+const GENERATED_GITIGNORE = `# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pkl
+
+# Node
+node_modules/
+
+# Git
+.git/
+
+# Environment files -- never commit these.
+# Deployment reads .env at deploy time, so keep it locally and supply it to CI
+# via encrypted repository secrets rather than committing it.
+.env
+.env.*
+!.env.example
+
+# Local deploy helper
+deploy_re.py
+`;
+
+/**
+ * Explicit .gcloudignore, and it is load-bearing.
+ *
+ * When no .gcloudignore exists, `gcloud builds submit` synthesizes one from
+ * .gitignore. Since .gitignore now excludes .env -- and deploy_re.py reads .env
+ * at deploy time -- omitting this file would silently break Cloud Build deploys.
+ * Note that .env is intentionally NOT excluded here.
+ */
+const GENERATED_GCLOUDIGNORE = `.git/
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pkl
+node_modules/
+`;
+
 const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   projectNumber,
   setProjectNumber,
   context,
   onBuildTriggered,
 }) => {
-  const [builderTab, setBuilderTab] = useState<"a2a" | "adk">("adk");
+  const [builderTab, setBuilderTab] = useState<'a2a' | 'adk'>('adk');
 
   // --- A2A State ---
   const [a2aConfig, setA2aConfig] = useState<A2aConfig>({
-    serviceName: "my-a2a-function",
-    displayName: "My A2A Function",
-    providerOrganization: "My Company",
-    model: "gemini-2.5-flash",
-    region: "us-central1",
-    memory: "1Gi",
+    serviceName: 'my-a2a-function',
+    displayName: 'My A2A Function',
+    providerOrganization: 'My Company',
+    model: 'gemini-2.5-flash',
+    region: 'us-central1',
+    memory: '1Gi',
     instruction:
-      "You are a helpful assistant that responds to user queries directly and concisely.",
+      'You are a helpful assistant that responds to user queries directly and concisely.',
     allowUnauthenticated: true,
     enableCors: true,
     useGoogleSearch: false,
@@ -88,17 +136,17 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   const [isResolvingId, setIsResolvingId] = useState(false);
 
   const [a2aGeneratedCode, setA2aGeneratedCode] = useState({
-    main: "",
-    dockerfile: "",
-    requirements: "",
-    gcloud: "",
-    yaml: "",
+    main: '',
+    dockerfile: '',
+    requirements: '',
+    gcloud: '',
+    yaml: '',
   });
 
-  const [a2aActiveTab, setA2aActiveTab] = useState<
-    "main" | "dockerfile" | "requirements" | "env"
-  >("main");
-  const [a2aCopySuccess, setA2aCopySuccess] = useState("");
+  const [a2aActiveTab, setA2aActiveTab] = useState<'main' | 'dockerfile' | 'requirements' | 'env'>(
+    'main'
+  );
+  const [a2aCopySuccess, setA2aCopySuccess] = useState('');
   const [isFixMode, setIsFixMode] = useState(false);
   const [isA2aDeployModalOpen, setIsA2aDeployModalOpen] = useState(false);
   const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
@@ -106,30 +154,30 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
   // --- ADK State ---
   const [adkConfig, setAdkConfig] = useState<AdkAgentConfig>({
-    adkVersion: "1.35.1",
-    name: "",
-    description: "An agent that can do awesome things.",
-    model: "gemini-2.5-flash",
-    instruction: "You are an awesome and helpful agent.",
+    adkVersion: '1.35.1',
+    name: '',
+    description: 'An agent that can do awesome things.',
+    model: 'gemini-2.5-flash',
+    instruction: 'You are an awesome and helpful agent.',
     tools: [],
     useGoogleSearch: false,
     enableOAuth: false,
-    authId: "temp_oauth",
+    authId: 'temp_oauth',
     allowAdcFallback: true,
     enableDiscoveryApi: false,
     discoveryConfig: {
-      projectId: "",
-      location: "global",
-      collection: "default_collection",
-      engineId: "",
-      dataStoreIds: "",
+      projectId: '',
+      location: 'global',
+      collection: 'default_collection',
+      engineId: '',
+      dataStoreIds: '',
     },
     enableBqAnalytics: false,
-    bqDatasetId: "",
-    bqTableId: "",
+    bqDatasetId: '',
+    bqTableId: '',
     enableThinking: false,
     thinkingBudget: 1024,
-    thinkingLevel: "HIGH",
+    thinkingLevel: 'HIGH',
     enableStreaming: false,
     enableBigQueryMcp: false,
     enableCodeExecution: false,
@@ -161,10 +209,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     enableMapsGroundingMcp: false,
     enableEvaluation: false,
     enableCiCd: false,
-    ciCdRunner: "none",
-    deploymentTarget: "agent_engine",
-    githubWifProvider: "",
-    githubServiceAccount: "",
+    ciCdRunner: 'none',
+    deploymentTarget: 'agent_engine',
+    githubWifProvider: '',
+    githubServiceAccount: '',
     customMcpEndpoints: [],
   });
 
@@ -172,38 +220,38 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   const [serviceAccounts, setServiceAccounts] = useState<any[]>([]);
   const [wifProviders, setWifProviders] = useState<any[]>([]);
   const [validationStatus, setValidationStatus] = useState<
-    "unchecked" | "testing" | "valid" | "invalid"
-  >("unchecked");
-  const [validationMessage, setValidationMessage] = useState("");
+    'unchecked' | 'testing' | 'valid' | 'invalid'
+  >('unchecked');
+  const [validationMessage, setValidationMessage] = useState('');
 
-  const [vertexLocation, setVertexLocation] = useState("us-central1");
+  const [vertexLocation, setVertexLocation] = useState('us-central1');
   const [adkGeneratedCode, setAdkGeneratedCode] = useState({
-    app: "",
-    agent: "",
-    env: "",
-    requirements: "",
-    readme: "",
-    deploy_re: "",
-    auth: "",
-    tools: "",
-    init: "",
+    app: '',
+    agent: '',
+    env: '',
+    requirements: '',
+    readme: '',
+    deploy_re: '',
+    auth: '',
+    tools: '',
+    init: '',
   });
   const [adkActiveTab, setAdkActiveTab] = useState<
-    | "app"
-    | "agent"
-    | "env"
-    | "requirements"
-    | "readme"
-    | "deploy_re"
-    | "auth"
-    | "tools"
-    | "init"
-    | "makefile"
-    | "dockerfile"
-    | "cloudbuild"
-    | "github_deploy"
-  >("app");
-  const [adkCopySuccess, setAdkCopySuccess] = useState("");
+    | 'app'
+    | 'agent'
+    | 'env'
+    | 'requirements'
+    | 'readme'
+    | 'deploy_re'
+    | 'auth'
+    | 'tools'
+    | 'init'
+    | 'makefile'
+    | 'dockerfile'
+    | 'cloudbuild'
+    | 'github_deploy'
+  >('app');
+  const [adkCopySuccess, setAdkCopySuccess] = useState('');
 
   // Discovery Engine State
   const [collections, setCollections] = useState<any[]>([]);
@@ -213,33 +261,27 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   // Authorizations State for Dropdown Select
   const [authorizations, setAuthorizations] = useState<any[]>([]);
   const [isLoadingAuths, setIsLoadingAuths] = useState(false);
-  const [authInputMode, setAuthInputMode] = useState<"manual" | "select">(
-    "manual",
-  );
+  const [authInputMode, setAuthInputMode] = useState<'manual' | 'select'>('manual');
 
   // Fetch Collections when project/location changes
   useEffect(() => {
-    if (
-      !adkConfig.enableDiscoveryApi ||
-      (!adkConfig.discoveryConfig.projectId && !projectNumber)
-    )
+    if (!adkConfig.enableDiscoveryApi || (!adkConfig.discoveryConfig.projectId && !projectNumber))
       return;
     if (!adkConfig.discoveryConfig.location) return;
 
     const fetchCollections = async () => {
       setIsDiscoveryLoading(true);
       try {
-        const targetProject =
-          adkConfig.discoveryConfig.projectId || projectNumber;
+        const targetProject = adkConfig.discoveryConfig.projectId || projectNumber;
         const tempConfig: any = {
           projectId: targetProject,
           appLocation: adkConfig.discoveryConfig.location,
         };
 
-        const res = await api.listResources("collections", tempConfig);
+        const res = await api.listResources('collections', tempConfig);
         setCollections(res.collections || []);
       } catch (e) {
-        console.error("Failed to fetch collections", e);
+        console.error('Failed to fetch collections', e);
       } finally {
         setIsDiscoveryLoading(false);
       }
@@ -254,23 +296,21 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
   // Fetch Engines when Collection changes
   useEffect(() => {
-    if (!adkConfig.enableDiscoveryApi || !adkConfig.discoveryConfig.collection)
-      return;
+    if (!adkConfig.enableDiscoveryApi || !adkConfig.discoveryConfig.collection) return;
 
     const fetchEngines = async () => {
       setIsDiscoveryLoading(true);
       try {
-        const targetProject =
-          adkConfig.discoveryConfig.projectId || projectNumber;
+        const targetProject = adkConfig.discoveryConfig.projectId || projectNumber;
         const tempConfig: any = {
           projectId: targetProject,
           appLocation: adkConfig.discoveryConfig.location,
           collectionId: adkConfig.discoveryConfig.collection,
         };
-        const res = await api.listResources("engines", tempConfig);
+        const res = await api.listResources('engines', tempConfig);
         setEngines(res.engines || []);
       } catch (e) {
-        console.error("Failed to fetch engines", e);
+        console.error('Failed to fetch engines', e);
       } finally {
         setIsDiscoveryLoading(false);
       }
@@ -286,26 +326,22 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
   // Data Store Tool State
   const [toolBuilderConfig, setToolBuilderConfig] = useState({
-    dataStoreId: "",
+    dataStoreId: '',
   });
-  const [dataStores, setDataStores] = useState<
-    (DataStore & { location: string })[]
-  >([]);
+  const [dataStores, setDataStores] = useState<(DataStore & { location: string })[]>([]);
   const [isLoadingDataStores, setIsLoadingDataStores] = useState(false);
-  const [dataStoreSearchTerm, setDataStoreSearchTerm] = useState("");
+  const [dataStoreSearchTerm, setDataStoreSearchTerm] = useState('');
 
   // Staging Bucket State
-  const [stagingBucket, setStagingBucket] = useState("");
+  const [stagingBucket, setStagingBucket] = useState('');
   const [buckets, setBuckets] = useState<GcsBucket[]>([]);
   const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
 
   // A2A Tool State
-  const [cloudRunServices, setCloudRunServices] = useState<CloudRunService[]>(
-    [],
-  );
+  const [cloudRunServices, setCloudRunServices] = useState<CloudRunService[]>([]);
   const [isLoadingServices, setIsLoadingServices] = useState(false);
-  const [selectedA2aService, setSelectedA2aService] = useState("");
-  const [a2aSearchTerm, setA2aSearchTerm] = useState("");
+  const [selectedA2aService, setSelectedA2aService] = useState('');
+  const [a2aSearchTerm, setA2aSearchTerm] = useState('');
 
   const [isAdkDeployModalOpen, setIsAdkDeployModalOpen] = useState(false);
   const [rewritingField, setRewritingField] = useState<string | null>(null);
@@ -328,15 +364,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         const pools = await api.listWorkloadIdentityPools(projectNumber);
         let allProviders: any[] = [];
         for (const pool of pools) {
-          const providers = await api.listWorkloadIdentityProviders(
-            pool.name,
-            projectNumber,
-          );
+          const providers = await api.listWorkloadIdentityProviders(pool.name, projectNumber);
           allProviders = allProviders.concat(providers);
         }
         setWifProviders(allProviders);
       } catch (e) {
-        console.error("Failed to fetch IAM data:", e);
+        console.error('Failed to fetch IAM data:', e);
       }
     };
     fetchIamData();
@@ -344,64 +377,48 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
   useEffect(() => {
     const validateWif = async () => {
-      if (
-        !adkConfig.githubServiceAccount ||
-        !adkConfig.githubWifProvider ||
-        !projectNumber
-      ) {
-        setValidationStatus("unchecked");
+      if (!adkConfig.githubServiceAccount || !adkConfig.githubWifProvider || !projectNumber) {
+        setValidationStatus('unchecked');
         return;
       }
-      setValidationStatus("testing");
+      setValidationStatus('testing');
       try {
         const policy = await api.getServiceAccountIamPolicy(
           adkConfig.githubServiceAccount,
-          projectNumber,
+          projectNumber
         );
         const bindings = policy.bindings || [];
         let hasBinding = false;
         for (const binding of bindings) {
-          if (binding.role === "roles/iam.workloadIdentityUser") {
-            const poolName =
-              adkConfig.githubWifProvider.split("/providers/")[0];
-            if (
-              binding.members &&
-              binding.members.some((m: string) => m.includes(poolName))
-            ) {
+          if (binding.role === 'roles/iam.workloadIdentityUser') {
+            const poolName = adkConfig.githubWifProvider.split('/providers/')[0];
+            if (binding.members && binding.members.some((m: string) => m.includes(poolName))) {
               hasBinding = true;
               break;
             }
           }
         }
         if (hasBinding) {
-          setValidationStatus("valid");
-          setValidationMessage(
-            "Service Account is correctly bound to the related WIF Pool.",
-          );
+          setValidationStatus('valid');
+          setValidationMessage('Service Account is correctly bound to the related WIF Pool.');
         } else {
-          setValidationStatus("invalid");
+          setValidationStatus('invalid');
           setValidationMessage(
-            "Service Account is missing roles/iam.workloadIdentityUser binding for this WIF Provider / Pool.",
+            'Service Account is missing roles/iam.workloadIdentityUser binding for this WIF Provider / Pool.'
           );
         }
       } catch (e: any) {
-        setValidationStatus("invalid");
-        if (e.message && e.message.includes("permission")) {
-          setValidationMessage(
-            "Permission denied to read Service Account IAM policy.",
-          );
+        setValidationStatus('invalid');
+        if (e.message && e.message.includes('permission')) {
+          setValidationMessage('Permission denied to read Service Account IAM policy.');
         } else {
-          setValidationMessage("Failed to validate IAM policy.");
+          setValidationMessage('Failed to validate IAM policy.');
         }
       }
     };
     const timeoutId = setTimeout(validateWif, 300);
     return () => clearTimeout(timeoutId);
-  }, [
-    adkConfig.githubServiceAccount,
-    adkConfig.githubWifProvider,
-    projectNumber,
-  ]);
+  }, [adkConfig.githubServiceAccount, adkConfig.githubWifProvider, projectNumber]);
 
   // --- Common Logic ---
   const fetchProjectId = async () => {
@@ -413,7 +430,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         setDeployProjectId(project.projectId);
       }
     } catch (e) {
-      console.warn("Could not auto-resolve Project ID from Number:", e);
+      console.warn('Could not auto-resolve Project ID from Number:', e);
     } finally {
       setIsResolvingId(false);
     }
@@ -427,23 +444,21 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   // Handle Fix Mode context
   useEffect(() => {
     if (context && context.serviceToEdit) {
-      setBuilderTab("a2a");
+      setBuilderTab('a2a');
       setIsFixMode(true);
       const service: CloudRunService = context.serviceToEdit;
       const container = service.template?.containers?.[0];
       const envVars = container?.env || [];
-      const getEnv = (key: string) =>
-        envVars.find((e) => e.name === key)?.value || "";
+      const getEnv = (key: string) => envVars.find((e) => e.name === key)?.value || '';
 
       setA2aConfig((prev) => ({
         ...prev,
-        serviceName: service.name.split("/").pop() || prev.serviceName,
+        serviceName: service.name.split('/').pop() || prev.serviceName,
         region: service.location || prev.region,
-        displayName: getEnv("AGENT_DISPLAY_NAME") || prev.displayName,
-        providerOrganization:
-          getEnv("PROVIDER_ORGANIZATION") || prev.providerOrganization,
-        model: getEnv("MODEL") || prev.model,
-        instruction: getEnv("AGENT_DESCRIPTION") || prev.instruction,
+        displayName: getEnv('AGENT_DISPLAY_NAME') || prev.displayName,
+        providerOrganization: getEnv('PROVIDER_ORGANIZATION') || prev.providerOrganization,
+        model: getEnv('MODEL') || prev.model,
+        instruction: getEnv('AGENT_DESCRIPTION') || prev.instruction,
       }));
     }
   }, [context]);
@@ -461,12 +476,28 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
   // ADK Code Generation
   useEffect(() => {
+    if (!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name)) {
+      setAdkGeneratedCode({
+        agent:
+          '# Please enter a valid Agent Name (lowercase letters, numbers, underscores) to generate code.',
+        env: '',
+        requirements: '',
+        readme: '',
+        deploy_re: '',
+        auth: '',
+        tools: '',
+        init: '',
+        app: '',
+      });
+      return;
+    }
+
     const agentCode = generateAdkPythonCode(adkConfig, true);
     const envCode = generateAdkEnvFile(
       adkConfig,
       deployProjectId || projectNumber,
       vertexLocation,
-      stagingBucket,
+      stagingBucket
     );
     const reqsCode = generateAdkRequirementsFile(adkConfig);
     const readmeCode = generateAdkReadmeFile(adkConfig);
@@ -491,12 +522,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   const apiConfig = useMemo(
     () => ({
       projectId: projectNumber,
-      appLocation: "global",
-      collectionId: "",
-      appId: "",
-      assistantId: "",
+      appLocation: 'global',
+      collectionId: '',
+      appId: '',
+      assistantId: '',
     }),
-    [projectNumber],
+    [projectNumber]
   );
 
   useEffect(() => {
@@ -506,7 +537,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
       setIsLoadingDataStores(true);
       setDataStores([]);
 
-      const locations = ["global", "us", "eu"];
+      const locations = ['global', 'us', 'eu'];
       const dsResults: (DataStore & { location: string })[] = [];
 
       await Promise.all(
@@ -514,16 +545,14 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
           const dsConfig = {
             projectId: projectNumber,
             appLocation: loc,
-            collectionId: "default_collection",
-            appId: "",
-            assistantId: "",
+            collectionId: 'default_collection',
+            appId: '',
+            assistantId: '',
           };
           try {
-            const res = await api.listResources("dataStores", dsConfig);
+            const res = await api.listResources('dataStores', dsConfig);
             if (res.dataStores) {
-              res.dataStores.forEach((ds: any) =>
-                dsResults.push({ ...ds, location: loc }),
-              );
+              res.dataStores.forEach((ds: any) => dsResults.push({ ...ds, location: loc }));
             }
           } catch (e) {
             // TODO(phase6): surface partial-scan failures in the UI instead of
@@ -531,10 +560,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
             console.warn(
               `[AgentBuilder] Failed to list data stores in location "${loc}". ` +
                 `Results may be incomplete.`,
-              e,
+              e
             );
           }
-        }),
+        })
       );
 
       setDataStores(dsResults);
@@ -548,16 +577,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
       setIsLoadingServices(true);
       setCloudRunServices([]);
-      const regions = ["us-central1", "us-east1", "europe-west1", "asia-east1"];
+      const regions = ['us-central1', 'us-east1', 'europe-west1', 'asia-east1'];
       const services: CloudRunService[] = [];
 
       await Promise.all(
         regions.map(async (region) => {
           try {
-            const res = await api.listCloudRunServices(
-              { projectId: projectNumber } as any,
-              region,
-            );
+            const res = await api.listCloudRunServices({ projectId: projectNumber } as any, region);
             if (res.services) services.push(...res.services);
           } catch (e) {
             // TODO(phase6): surface partial-scan failures in the UI instead of
@@ -565,20 +591,19 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
             console.warn(
               `[AgentBuilder] Failed to list Cloud Run services in region ` +
                 `"${region}". Results may be incomplete.`,
-              e,
+              e
             );
           }
-        }),
+        })
       );
 
       const a2a = services.filter((s) => {
         const envVars = s.template?.containers?.[0]?.env || [];
-        const getEnv = (name: string) =>
-          envVars.find((e) => e.name === name)?.value;
+        const getEnv = (name: string) => envVars.find((e) => e.name === name)?.value;
         return !!(
-          getEnv("AGENT_URL") ||
-          getEnv("PROVIDER_ORGANIZATION") ||
-          s.name.toLowerCase().includes("a2a")
+          getEnv('AGENT_URL') ||
+          getEnv('PROVIDER_ORGANIZATION') ||
+          s.name.toLowerCase().includes('a2a')
         );
       });
 
@@ -598,7 +623,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
           setStagingBucket(`gs://${items[0].name}`);
         }
       } catch (e) {
-        console.error("Failed to fetch buckets", e);
+        console.error('Failed to fetch buckets', e);
       } finally {
         setIsLoadingBuckets(false);
       }
@@ -611,13 +636,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         const auths = response.authorizations || [];
         setAuthorizations(auths);
         if (auths.length > 0) {
-          setAuthInputMode("select");
+          setAuthInputMode('select');
         } else {
-          setAuthInputMode("manual");
+          setAuthInputMode('manual');
         }
       } catch (e) {
-        console.warn("Failed to fetch authorizations", e);
-        setAuthInputMode("manual");
+        console.warn('Failed to fetch authorizations', e);
+        setAuthInputMode('manual');
       } finally {
         setIsLoadingAuths(false);
       }
@@ -628,21 +653,19 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
   // --- Handlers ---
   const handleA2aConfigChange = (
-    e: React.ChangeEvent<
-      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >,
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     const { name, value, type } = e.target;
-    if (type === "checkbox") {
+    if (type === 'checkbox') {
       setA2aConfig((prev) => ({
         ...prev,
         [name]: (e.target as HTMLInputElement).checked,
       }));
-    } else if (name === "serviceName") {
+    } else if (name === 'serviceName') {
       const sanitizedValue = value
         .toLowerCase()
-        .replace(/\s+/g, "-")
-        .replace(/[^a-z0-9-]/g, "")
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-]/g, '')
         .substring(0, 63);
       setA2aConfig((prev) => ({ ...prev, [name]: sanitizedValue }));
     } else {
@@ -651,13 +674,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   };
 
   const handleAdkConfigChange = (
-    e: React.ChangeEvent<
-      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >,
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     const { name, value, type } = e.target;
-    if (name.startsWith("discovery.")) {
-      const field = name.split(".")[1];
+    if (name.startsWith('discovery.')) {
+      const field = name.split('.')[1];
       setAdkConfig((prev) => ({
         ...prev,
         discoveryConfig: {
@@ -665,7 +686,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
           [field]: value,
         },
       }));
-    } else if (type === "checkbox") {
+    } else if (type === 'checkbox') {
       const isChecked = (e.target as HTMLInputElement).checked;
 
       setAdkConfig((prev) => {
@@ -673,10 +694,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
         // Link MCPs, APIs, and Plugins to OAuth
         if (
-          (name.endsWith("Mcp") ||
-            name.endsWith("Api") ||
-            name === "enableEmailTool" ||
-            name === "enableBqAnalytics") &&
+          (name.endsWith('Mcp') ||
+            name.endsWith('Api') ||
+            name === 'enableEmailTool' ||
+            name === 'enableBqAnalytics') &&
           isChecked
         ) {
           updates.enableOAuth = true;
@@ -684,22 +705,23 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
         // When unchecking, turn off enableOAuth if no other OAuth-dependent tools remain
         if (
-          (name.endsWith("Mcp") ||
-            name.endsWith("Api") ||
-            name === "enableEmailTool" ||
-            name === "enableBqAnalytics") &&
+          (name.endsWith('Mcp') ||
+            name.endsWith('Api') ||
+            name === 'enableEmailTool' ||
+            name === 'enableBqAnalytics') &&
           !isChecked
         ) {
           const merged = { ...prev, [name]: false };
           const hasRemainingOAuthTools =
             Object.keys(merged).some(
               (k) =>
-                (k.endsWith("Mcp") ||
-                  k.endsWith("Api") ||
-                  k === "enableEmailTool" ||
-                  k === "enableBqAnalytics") &&
-                (merged as any)[k] === true,
-            ) || (merged.tools && merged.tools.length > 0);
+                (k.endsWith('Mcp') ||
+                  k.endsWith('Api') ||
+                  k === 'enableEmailTool' ||
+                  k === 'enableBqAnalytics') &&
+                (merged as any)[k] === true
+            ) ||
+            (merged.tools && merged.tools.length > 0);
           if (!hasRemainingOAuthTools) {
             updates.enableOAuth = false;
           }
@@ -707,13 +729,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
         // Enforce mutual exclusivity between API and MCP counterparts
         if (isChecked) {
-          if (name.endsWith("Mcp")) {
-            const apiCounterpart = name.replace("Mcp", "Api");
+          if (name.endsWith('Mcp')) {
+            const apiCounterpart = name.replace('Mcp', 'Api');
             if (apiCounterpart in prev) {
               updates[apiCounterpart] = false;
             }
-          } else if (name.endsWith("Api")) {
-            const mcpCounterpart = name.replace("Api", "Mcp");
+          } else if (name.endsWith('Api')) {
+            const mcpCounterpart = name.replace('Api', 'Mcp');
             if (mcpCounterpart in prev) {
               updates[mcpCounterpart] = false;
             }
@@ -722,24 +744,21 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
         return { ...prev, ...updates };
       });
-    } else if (name === "thinkingBudget") {
+    } else if (name === 'thinkingBudget') {
       const numVal = parseInt(value, 10);
       setAdkConfig((prev) => ({
         ...prev,
         thinkingBudget: isNaN(numVal) ? 1024 : numVal,
       }));
-    } else if (name === "name") {
-      const sanitizedValue = value
-        .replace(/\s+/g, "_")
-        .replace(/[^a-zA-Z0-9_-]/g, "");
-      setAdkConfig((prev) => ({ ...prev, [name]: sanitizedValue }));
+    } else if (name === 'name') {
+      setAdkConfig((prev) => ({ ...prev, [name]: value }));
     } else {
       setAdkConfig((prev) => ({ ...prev, [name]: value }));
     }
   };
 
   const handleAddTool = (tool: AgentTool) => {
-    if (builderTab === "a2a") {
+    if (builderTab === 'a2a') {
       setA2aConfig((prev) => ({ ...prev, tools: [...prev.tools, tool] }));
     } else {
       setAdkConfig((prev) => ({
@@ -751,7 +770,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   };
 
   const handleRemoveTool = (index: number) => {
-    if (builderTab === "a2a") {
+    if (builderTab === 'a2a') {
       setA2aConfig((prev) => ({
         ...prev,
         tools: prev.tools.filter((_, i) => i !== index),
@@ -763,11 +782,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
           remainingTools.length > 0 ||
           Object.keys(prev).some(
             (k) =>
-              (k.endsWith("Mcp") ||
-                k.endsWith("Api") ||
-                k === "enableEmailTool" ||
-                k === "enableBqAnalytics") &&
-              (prev as any)[k] === true,
+              (k.endsWith('Mcp') ||
+                k.endsWith('Api') ||
+                k === 'enableEmailTool' ||
+                k === 'enableBqAnalytics') &&
+              (prev as any)[k] === true
           );
         return {
           ...prev,
@@ -781,15 +800,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   const handleAddCustomMcp = () => {
     setAdkConfig((prev) => ({
       ...prev,
-      customMcpEndpoints: [...prev.customMcpEndpoints, { name: "", url: "" }],
+      customMcpEndpoints: [...prev.customMcpEndpoints, { name: '', url: '' }],
     }));
   };
 
-  const handleUpdateCustomMcp = (
-    index: number,
-    field: "name" | "url",
-    value: string,
-  ) => {
+  const handleUpdateCustomMcp = (index: number, field: 'name' | 'url', value: string) => {
     setAdkConfig((prev) => {
       const newEndpoints = [...prev.customMcpEndpoints];
       newEndpoints[index] = { ...newEndpoints[index], [field]: value };
@@ -808,13 +823,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     if (!url) return;
     setCustomMcpStatus((prev) => ({ ...prev, [index]: { loading: true } }));
     try {
-      const tools = await api.listMcpTools(deployProjectId || "", url);
+      const tools = await api.listMcpTools(deployProjectId || '', url);
       setCustomMcpStatus((prev) => ({
         ...prev,
         [index]: { loading: false, tools },
       }));
     } catch (e: any) {
-      console.error("Failed to verify custom MCP:", e);
+      console.error('Failed to verify custom MCP:', e);
       setCustomMcpStatus((prev) => ({
         ...prev,
         [index]: { loading: false, error: e.message || String(e) },
@@ -822,32 +837,25 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     }
   };
 
-  const handleRewrite = async (field: "instruction") => {
+  const handleRewrite = async (field: 'instruction') => {
     setRewritingField(field);
 
-    const currentInstruction =
-      builderTab === "a2a" ? a2aConfig.instruction : adkConfig.instruction;
+    const currentInstruction = builderTab === 'a2a' ? a2aConfig.instruction : adkConfig.instruction;
 
-    let toolNames = "";
-    if (builderTab === "a2a") {
-      toolNames =
-        a2aConfig.tools
-          .map((t) => t.displayName || t.variableName)
-          .join(", ") || "None";
+    let toolNames = '';
+    if (builderTab === 'a2a') {
+      toolNames = a2aConfig.tools.map((t) => t.displayName || t.variableName).join(', ') || 'None';
     } else {
-      const adkTools = [
-        ...adkConfig.tools.map((t) => t.displayName || t.variableName),
-      ];
-      if (adkConfig.useGoogleSearch) adkTools.push("Google Search");
-      if (adkConfig.enableCodeExecution)
-        adkTools.push("Code Execution Sub-Agent");
-      if (adkConfig.enableGraphvizRendering) adkTools.push("Graphviz Renderer");
-      if (adkConfig.enableBigQueryMcp) adkTools.push("BigQuery MCP");
-      if (adkConfig.enableCloudLoggingMcp) adkTools.push("Cloud Logging MCP");
-      if (adkConfig.enableCloudSqlMcp) adkTools.push("Cloud SQL MCP");
+      const adkTools = [...adkConfig.tools.map((t) => t.displayName || t.variableName)];
+      if (adkConfig.useGoogleSearch) adkTools.push('Google Search');
+      if (adkConfig.enableCodeExecution) adkTools.push('Code Execution Sub-Agent');
+      if (adkConfig.enableGraphvizRendering) adkTools.push('Graphviz Renderer');
+      if (adkConfig.enableBigQueryMcp) adkTools.push('BigQuery MCP');
+      if (adkConfig.enableCloudLoggingMcp) adkTools.push('Cloud Logging MCP');
+      if (adkConfig.enableCloudSqlMcp) adkTools.push('Cloud SQL MCP');
       if (adkConfig.customMcpEndpoints.length > 0)
         adkTools.push(...adkConfig.customMcpEndpoints.map((e) => e.name));
-      toolNames = adkTools.join(", ") || "None";
+      toolNames = adkTools.join(', ') || 'None';
     }
 
     const prompt = `You are an expert prompt engineer. Your task is to rewrite the following system instruction to be highly effective for a Large Language Model (LLM).
@@ -859,24 +867,19 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         Original Instruction: "${currentInstruction}"`;
 
     try {
-      const text = await api.generateVertexContent(
-        apiConfig,
-        prompt,
-        "gemini-2.5-flash",
-        8192,
-      );
+      const text = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash', 8192);
       const rewrittenText = text
         .trim()
-        .replace(/^["']|["']$/g, "")
-        .replace(/^```\w*\n?|\n?```$/g, "")
+        .replace(/^["']|["']$/g, '')
+        .replace(/^```\w*\n?|\n?```$/g, '')
         .trim();
-      if (builderTab === "a2a") {
+      if (builderTab === 'a2a') {
         setA2aConfig((prev) => ({ ...prev, instruction: rewrittenText }));
       } else {
         setAdkConfig((prev) => ({ ...prev, instruction: rewrittenText }));
       }
-    } catch (err: any) {
-      alert(`AI rewrite failed: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`AI rewrite failed: ${toErrorMessage(err)}`);
     } finally {
       setRewritingField(null);
     }
@@ -884,100 +887,160 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
   const handleCopy = (
     content: string,
-    setSuccess: React.Dispatch<React.SetStateAction<string>>,
+    setSuccess: React.Dispatch<React.SetStateAction<string>>
   ) => {
     navigator.clipboard.writeText(content).then(() => {
-      setSuccess("Copied!");
-      setTimeout(() => setSuccess(""), 2000);
+      setSuccess('Copied!');
+      setTimeout(() => setSuccess(''), 2000);
     });
   };
 
   const handleDownloadA2a = async () => {
-    const zip = new JSZip();
-    zip.file("main.py", a2aGeneratedCode.main);
-    zip.file("Dockerfile", a2aGeneratedCode.dockerfile);
-    zip.file("requirements.txt", a2aGeneratedCode.requirements);
-    zip.file("deploy.sh", a2aGeneratedCode.gcloud);
-    zip.file("env.yaml", a2aGeneratedCode.yaml);
-    const blob = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${a2aConfig.serviceName}-source.zip`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDownloadAdkZip = () => {
-    const zip = new JSZip();
-
-    // App Directory
-    const appFolder = zip.folder("app");
-    appFolder.file("app.py", generateAppPy(true));
-    appFolder.file("agent.py", generateAdkPythonCode(adkConfig, true));
-    appFolder.file("requirements.txt", adkGeneratedCode.requirements);
-    if (adkConfig.enableOAuth) {
-      appFolder.file("auth.py", adkGeneratedCode.auth);
-    }
-    if (hasAnyTools(adkConfig)) {
-      appFolder.file("tools.py", generateToolsPy(adkConfig, true));
-    }
-    appFolder.file("__init__.py", adkGeneratedCode.init);
-    appFolder.file("deploy_re.py", generateAdkDeployScript(adkConfig));
-
-    // Root Files
-    zip.file(
-      "agent.py",
-      "import os, sys\nsys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\nfrom app.agent import root_agent\n",
-    );
-    zip.file(".env", adkGeneratedCode.env);
-    zip.file("README.md", generateAdkReadmeFile(adkConfig));
-    zip.file("DESIGN_SPEC.md", generateDesignSpec(adkConfig));
-    zip.file("Makefile", generateMakefile(adkConfig));
-
-    if (adkConfig.deploymentTarget === "cloud_run") {
-      zip.file("Dockerfile", generateDockerfile(adkConfig));
-    }
-
-    // Tests Directory
-    const testsFolder = zip.folder("tests");
-    const evalFolder = testsFolder.folder("eval");
-    evalFolder.file("test_config.json", generateTestConfigJson(adkConfig));
-    const evalsetsFolder = evalFolder.folder("evalsets");
-    evalsetsFolder.file("basic.evalset.json", generateEvalSetJson(adkConfig));
-
-    // Deployment Directory
-    const deployFolder = zip.folder("deployment");
-    deployFolder.file("terraform/main.tf", "# Terraform config placeholder");
-
-    // Scripts Directory
-    const scriptsFolder = zip.folder("scripts");
-    scriptsFolder.file("launch_local.sh", generateLaunchScript(adkConfig));
-    scriptsFolder.file("deploy.sh", generateAdkDeployBashWrapper());
-
-    if (adkConfig.ciCdRunner === "google_cloud_build") {
-      zip.file(
-        "cloudbuild.yaml",
-        generateCloudBuildYaml(adkConfig, deployProjectId || "YOUR_PROJECT_ID"),
-      );
-    } else if (adkConfig.ciCdRunner === "github_actions") {
-      const githubFolder = zip.folder(".github");
-      const workflowsFolder = githubFolder.folder("workflows");
-      workflowsFolder.file("deploy.yaml", generateGithubWorkflow(adkConfig));
-    }
-
-    zip.generateAsync({ type: "blob" }).then(function (content) {
-      const url = URL.createObjectURL(content);
-      const a = document.createElement("a");
+    try {
+      const zip = new JSZip();
+      zip.file('main.py', a2aGeneratedCode.main);
+      zip.file('Dockerfile', a2aGeneratedCode.dockerfile);
+      zip.file('requirements.txt', a2aGeneratedCode.requirements);
+      zip.file('deploy.sh', a2aGeneratedCode.gcloud);
+      zip.file('env.yaml', a2aGeneratedCode.yaml);
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
       a.href = url;
-      a.download = `${adkConfig.name || "adk_agent"}.zip`;
+      a.download = `${a2aConfig.serviceName}-source.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    });
+    } catch (err: unknown) {
+      alert(`Download failed: ${toErrorMessage(err)}`);
+    }
+  };
+
+  const handleDownloadAdkZip = () => {
+    // The generators below validate their inputs and throw on a config that
+    // would produce an unsafe shell command. Without this guard the throw
+    // escapes the click handler and the button silently does nothing, which
+    // looks identical to a broken download.
+    try {
+      const zip = new JSZip();
+
+      // App Directory
+      const appFolder = zip.folder('app');
+      if (appFolder) {
+        appFolder.file('app.py', generateAppPy(true));
+        appFolder.file('agent.py', generateAdkPythonCode(adkConfig, true));
+        appFolder.file('requirements.txt', adkGeneratedCode.requirements);
+        if (adkConfig.enableOAuth) {
+          appFolder.file('auth.py', adkGeneratedCode.auth);
+        }
+        if (hasAnyTools(adkConfig)) {
+          appFolder.file('tools.py', generateToolsPy(adkConfig, true));
+        }
+        appFolder.file('__init__.py', adkGeneratedCode.init);
+        appFolder.file('deploy_re.py', generateAdkDeployScript(adkConfig));
+      }
+
+      // Root Files
+      zip.file(
+        'agent.py',
+        'import os, sys\nsys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\nfrom app.agent import root_agent\n'
+      );
+      zip.file('.env', adkGeneratedCode.env);
+      zip.file('.gitignore', GENERATED_GITIGNORE);
+      zip.file('.gcloudignore', GENERATED_GCLOUDIGNORE);
+      zip.file('README.md', generateAdkReadmeFile(adkConfig));
+      zip.file('DESIGN_SPEC.md', generateDesignSpec(adkConfig));
+      zip.file('Makefile', generateMakefile(adkConfig));
+
+      if (adkConfig.deploymentTarget === 'cloud_run') {
+        zip.file('Dockerfile', generateDockerfile(adkConfig));
+      }
+
+      // Tests Directory
+      const testsFolder = zip.folder('tests');
+      if (testsFolder) {
+        const evalFolder = testsFolder.folder('eval');
+        if (evalFolder) {
+          evalFolder.file('test_config.json', generateTestConfigJson(adkConfig));
+          const evalsetsFolder = evalFolder.folder('evalsets');
+          if (evalsetsFolder) {
+            evalsetsFolder.file('basic.evalset.json', generateEvalSetJson(adkConfig));
+          }
+        }
+      }
+
+      // Deployment Directory
+      const deployFolder = zip.folder('deployment');
+      if (deployFolder) {
+        deployFolder.file('terraform/main.tf', '# Terraform config placeholder');
+      }
+
+      // Scripts Directory
+      const scriptsFolder = zip.folder('scripts');
+      if (scriptsFolder) {
+        scriptsFolder.file('launch_local.sh', generateLaunchScript(adkConfig));
+        scriptsFolder.file('deploy.sh', generateAdkDeployBashWrapper());
+      }
+
+      if (adkConfig.ciCdRunner === 'google_cloud_build') {
+        zip.file(
+          'cloudbuild.yaml',
+          generateCloudBuildYaml(adkConfig, deployProjectId || 'YOUR_PROJECT_ID')
+        );
+      } else if (adkConfig.ciCdRunner === 'github_actions') {
+        const githubFolder = zip.folder('.github');
+        if (githubFolder) {
+          const workflowsFolder = githubFolder.folder('workflows');
+          if (workflowsFolder) {
+            workflowsFolder.file('deploy.yaml', generateGithubWorkflow(adkConfig));
+          }
+        }
+      }
+
+      zip
+        .generateAsync({ type: 'blob' })
+        .then(function (content) {
+          const url = URL.createObjectURL(content);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${adkConfig.name || 'adk_agent'}.zip`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        })
+        .catch(function (err: unknown) {
+          alert(`Download failed: ${toErrorMessage(err)}`);
+        });
+    } catch (err: unknown) {
+      alert(`Download failed: ${toErrorMessage(err)}`);
+    }
+  };
+
+  /**
+   * Generated-code previews are computed on EVERY render, and the object
+   * literal below evaluates every entry regardless of which tab is active.
+   *
+   * The generators now reject configs that would produce an unsafe shell
+   * command (see services/shellSafety.ts). A half-typed agent name is a normal
+   * transient state, so letting that throw would hit the ErrorBoundary in
+   * App.tsx and blank the entire builder -- destroying the user's in-progress
+   * form. Render the validation message into the code pane instead.
+   */
+  const safeGenerate = (label: string, generate: () => string): string => {
+    try {
+      return generate();
+    } catch (err: unknown) {
+      const message = toErrorMessage(err);
+      return [
+        `# ${label} cannot be generated with the current settings.`,
+        `#`,
+        `# ${message}`,
+        `#`,
+        `# Correct the highlighted field above and this preview will update.`,
+      ].join('\n');
+    }
   };
 
   const adkCodeDisplay = {
@@ -988,13 +1051,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     auth: adkGeneratedCode.auth,
     tools: adkGeneratedCode.tools,
     init: adkGeneratedCode.init,
-    makefile: generateMakefile(adkConfig),
-    dockerfile: generateDockerfile(adkConfig),
-    cloudbuild: generateCloudBuildYaml(
-      adkConfig,
-      deployProjectId || "YOUR_PROJECT_ID",
+    makefile: safeGenerate('Makefile', () => generateMakefile(adkConfig)),
+    dockerfile: safeGenerate('Dockerfile', () => generateDockerfile(adkConfig)),
+    cloudbuild: safeGenerate('cloudbuild.yaml', () =>
+      generateCloudBuildYaml(adkConfig, deployProjectId || 'YOUR_PROJECT_ID')
     ),
-    github_deploy: generateGithubWorkflow(adkConfig),
+    github_deploy: safeGenerate('GitHub workflow', () => generateGithubWorkflow(adkConfig)),
   }[adkActiveTab];
 
   const a2aCodeDisplay = {
@@ -1004,27 +1066,31 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     env: a2aGeneratedCode.yaml,
   }[a2aActiveTab];
 
-  const gitignoreContent = `.venv/\nvenv/\nnode_modules/\n__pycache__/\n.git/\n*.pyc\n*.pkl\ndeploy_re.py\n`;
+  const gitignoreContent = GENERATED_GITIGNORE;
+  const gcloudignoreContent = GENERATED_GCLOUDIGNORE;
 
   const adkFilesForBuild = [
-    { name: "app.py", content: adkGeneratedCode.app },
-    { name: "agent.py", content: adkGeneratedCode.agent },
-    { name: ".env", content: adkGeneratedCode.env },
-    { name: "requirements.txt", content: adkGeneratedCode.requirements },
-    ...(adkConfig.enableOAuth ? [{ name: "auth.py", content: adkGeneratedCode.auth }] : []),
-    ...(hasAnyTools(adkConfig) ? [{ name: "tools.py", content: adkGeneratedCode.tools }] : []),
-    { name: "deploy_re.py", content: adkGeneratedCode.deploy_re },
-    ...(adkConfig.deploymentTarget === "cloud_run" ? [{ name: "Dockerfile", content: generateDockerfile(adkConfig) }] : []),
-    { name: ".gitignore", content: gitignoreContent },
-    { name: ".ignore", content: gitignoreContent },
+    { name: 'app.py', content: adkGeneratedCode.app },
+    { name: 'agent.py', content: adkGeneratedCode.agent },
+    { name: '.env', content: adkGeneratedCode.env },
+    { name: 'requirements.txt', content: adkGeneratedCode.requirements },
+    ...(adkConfig.enableOAuth ? [{ name: 'auth.py', content: adkGeneratedCode.auth }] : []),
+    ...(hasAnyTools(adkConfig) ? [{ name: 'tools.py', content: adkGeneratedCode.tools }] : []),
+    { name: 'deploy_re.py', content: adkGeneratedCode.deploy_re },
+    ...(adkConfig.deploymentTarget === 'cloud_run'
+      ? [{ name: 'Dockerfile', content: generateDockerfile(adkConfig) }]
+      : []),
+    { name: '.gitignore', content: gitignoreContent },
+    { name: '.gcloudignore', content: gcloudignoreContent },
+    { name: '.ignore', content: gitignoreContent },
   ];
 
   const a2aFilesForBuild = [
-    { name: "main.py", content: a2aGeneratedCode.main },
-    { name: "Dockerfile", content: a2aGeneratedCode.dockerfile },
-    { name: "requirements.txt", content: a2aGeneratedCode.requirements },
-    { name: "deploy.sh", content: a2aGeneratedCode.gcloud },
-    { name: "env.yaml", content: a2aGeneratedCode.yaml },
+    { name: 'main.py', content: a2aGeneratedCode.main },
+    { name: 'Dockerfile', content: a2aGeneratedCode.dockerfile },
+    { name: 'requirements.txt', content: a2aGeneratedCode.requirements },
+    { name: 'deploy.sh', content: a2aGeneratedCode.gcloud },
+    { name: 'env.yaml', content: a2aGeneratedCode.yaml },
   ];
 
   const handleBuildTriggered = (id: string) => {
@@ -1038,7 +1104,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
   const handleCheckBuildStatus = async () => {
     if (!deployProjectId && !projectNumber) {
-      alert("Project ID not set.");
+      alert('Project ID not set.');
       return;
     }
     const pid = deployProjectId || projectNumber;
@@ -1048,9 +1114,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
       // Check for running builds first
       const running = await api.listCloudBuilds(pid, 'status="WORKING"');
       if (running.builds && running.builds.length > 0) {
-        console.log(
-          `handleCheckBuildStatus: FOUND ${running.builds.length} WORKING builds`,
-        );
+        console.log(`handleCheckBuildStatus: FOUND ${running.builds.length} WORKING builds`);
         running.builds.forEach((b: any) => {
           if (onBuildTriggered) onBuildTriggered(b.id, pid);
         });
@@ -1060,9 +1124,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
       // Check for queued builds
       const queued = await api.listCloudBuilds(pid, 'status="QUEUED"');
       if (queued.builds && queued.builds.length > 0) {
-        console.log(
-          `handleCheckBuildStatus: FOUND ${queued.builds.length} QUEUED builds`,
-        );
+        console.log(`handleCheckBuildStatus: FOUND ${queued.builds.length} QUEUED builds`);
         queued.builds.forEach((b: any) => {
           if (onBuildTriggered) onBuildTriggered(b.id, pid);
         });
@@ -1071,25 +1133,19 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
       // Fallback: Fetch latest if nothing active found yet
       if (!foundAny) {
-        console.log(
-          "No active (WORKING/QUEUED) builds. Fetching recent history...",
-        );
+        console.log('No active (WORKING/QUEUED) builds. Fetching recent history...');
         const recent = await api.listCloudBuilds(pid);
         const build = recent.builds?.[0];
 
         if (build) {
-          console.log(
-            "handleCheckBuildStatus: FOUND recent build:",
-            build.id,
-            build.status,
-          );
+          console.log('handleCheckBuildStatus: FOUND recent build:', build.id, build.status);
           if (onBuildTriggered) onBuildTriggered(build.id, pid);
           foundAny = true;
         }
       }
 
       if (!foundAny) {
-        alert("No active or queued builds found.");
+        alert('No active or queued builds found.');
       }
     } catch (e: any) {
       alert(`Failed to check builds: ${e.message}`);
@@ -1097,74 +1153,81 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   };
 
   const ADK_TABS = [
-    { id: "app", label: "app.py" },
-    { id: "agent", label: "agent.py" },
-    { id: "env", label: ".env" },
-    { id: "requirements", label: "requirements.txt" },
-    { id: "auth", label: "auth.py" },
-    { id: "tools", label: "tools.py" },
-    { id: "init", label: "__init__.py" },
-    { id: "makefile", label: "Makefile" },
-    ...(adkConfig.deploymentTarget === "cloud_run"
-      ? [{ id: "dockerfile", label: "Dockerfile" }]
+    { id: 'app', label: 'app.py' },
+    { id: 'agent', label: 'agent.py' },
+    { id: 'env', label: '.env' },
+    { id: 'requirements', label: 'requirements.txt' },
+    { id: 'auth', label: 'auth.py' },
+    { id: 'tools', label: 'tools.py' },
+    { id: 'init', label: '__init__.py' },
+    { id: 'makefile', label: 'Makefile' },
+    ...(adkConfig.deploymentTarget === 'cloud_run'
+      ? [{ id: 'dockerfile', label: 'Dockerfile' }]
       : []),
-    ...(adkConfig.enableCiCd && adkConfig.ciCdRunner === "google_cloud_build"
-      ? [{ id: "cloudbuild", label: "cloudbuild.yaml" }]
+    ...(adkConfig.enableCiCd && adkConfig.ciCdRunner === 'google_cloud_build'
+      ? [{ id: 'cloudbuild', label: 'cloudbuild.yaml' }]
       : []),
-    ...(adkConfig.enableCiCd && adkConfig.ciCdRunner === "github_actions"
-      ? [{ id: "github_deploy", label: "deploy.yaml" }]
+    ...(adkConfig.enableCiCd && adkConfig.ciCdRunner === 'github_actions'
+      ? [{ id: 'github_deploy', label: 'deploy.yaml' }]
       : []),
   ];
 
   const A2A_TABS = [
-    { id: "main", label: "main.py" },
-    { id: "dockerfile", label: "Dockerfile" },
-    { id: "requirements", label: "requirements.txt" },
-    { id: "env", label: "env.yaml" },
+    { id: 'main', label: 'main.py' },
+    { id: 'dockerfile', label: 'Dockerfile' },
+    { id: 'requirements', label: 'requirements.txt' },
+    { id: 'env', label: 'env.yaml' },
   ];
 
   // Map generated ADK code into the format expected by the GitHub API
   const githubDeploymentFiles = [
-    { path: "app/app.py", content: adkGeneratedCode.app },
-    { path: "app/agent.py", content: adkGeneratedCode.agent },
-    { path: "app/.env", content: adkGeneratedCode.env },
-    { path: "app/requirements.txt", content: adkGeneratedCode.requirements },
-    { path: "app/__init__.py", content: adkGeneratedCode.init },
-    { path: "app/deploy_re.py", content: adkGeneratedCode.deploy_re },
-    { path: "Makefile", content: generateMakefile(adkConfig) },
-    { path: "README.md", content: adkGeneratedCode.readme },
-    { path: "tests/eval/test_config.json", content: generateTestConfig() },
+    { path: 'app/app.py', content: adkGeneratedCode.app },
+    { path: 'app/agent.py', content: adkGeneratedCode.agent },
+    { path: 'app/.env', content: adkGeneratedCode.env },
+    { path: 'app/requirements.txt', content: adkGeneratedCode.requirements },
+    { path: 'app/__init__.py', content: adkGeneratedCode.init },
+    { path: 'app/deploy_re.py', content: adkGeneratedCode.deploy_re },
+    // Built during render like the previews above, so it must not throw on a
+    // half-typed agent name (see safeGenerate). The placeholder content is a
+    // comment block, and the Deploy button is disabled while the name is
+    // invalid, so an unusable Makefile can never reach a real repository.
     {
-      path: "tests/eval/evalsets/basic.evalset.json",
+      path: 'Makefile',
+      content: safeGenerate('Makefile', () => generateMakefile(adkConfig)),
+    },
+    { path: 'README.md', content: adkGeneratedCode.readme },
+    { path: 'tests/eval/test_config.json', content: generateTestConfig() },
+    {
+      path: 'tests/eval/evalsets/basic.evalset.json',
       content: generateEvalSet(),
     },
   ];
 
   if (adkConfig.enableOAuth) {
     githubDeploymentFiles.push({
-      path: "app/auth.py",
+      path: 'app/auth.py',
       content: adkGeneratedCode.auth,
     });
   }
 
   if (hasAnyTools(adkConfig)) {
     githubDeploymentFiles.push({
-      path: "app/tools.py",
+      path: 'app/tools.py',
       content: adkGeneratedCode.tools,
     });
   }
 
-  if (adkConfig.deploymentTarget === "cloud_run") {
+  if (adkConfig.deploymentTarget === 'cloud_run') {
     githubDeploymentFiles.push({
-      path: "Dockerfile",
+      path: 'Dockerfile',
       content: generateDockerfile(adkConfig),
     });
   }
 
   // Always push the GitHub actions deploy config if they enabled GitHub CI/CD here!
-  if (adkConfig.enableCiCd && adkConfig.ciCdRunner === "github_actions") {
+  if (adkConfig.enableCiCd && adkConfig.ciCdRunner === 'github_actions') {
     githubDeploymentFiles.push({
-      path: ".github/workflows/deploy.yaml",
+      path: '.github/workflows/deploy.yaml',
       content: generateGithubWorkflow(adkConfig),
     });
   }
@@ -1175,19 +1238,20 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         <div>
           <h1 className="text-2xl font-bold text-white">ADK Prototyper & Code Studio</h1>
           <p className="text-xs text-gray-400 mt-0.5">
-            Interactive ADK agent code generation, tool composition, and enterprise OAuth delegation blueprints.
+            Interactive ADK agent code generation, tool composition, and enterprise OAuth delegation
+            blueprints.
           </p>
         </div>
         <div className="bg-gray-800 p-1 rounded-lg border border-gray-700">
           <button
-            onClick={() => setBuilderTab("adk")}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${builderTab === "adk" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white"}`}
+            onClick={() => setBuilderTab('adk')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${builderTab === 'adk' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
           >
             ADK Agent (Engine)
           </button>
           <button
-            onClick={() => setBuilderTab("a2a")}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${builderTab === "a2a" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white"}`}
+            onClick={() => setBuilderTab('a2a')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${builderTab === 'a2a' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
           >
             A2A Function (Cloud Run)
           </button>
@@ -1206,13 +1270,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
       <AgentDeploymentModal
         isOpen={isAdkDeployModalOpen}
         onClose={() => setIsAdkDeployModalOpen(false)}
-        agentName={adkConfig.name || "my-agent"}
+        agentName={adkConfig.name}
         files={adkFilesForBuild}
         projectNumber={projectNumber}
         onBuildTriggered={handleBuildTriggered}
-        initialBucket={
-          stagingBucket ? stagingBucket.replace("gs://", "") : undefined
-        }
+        initialBucket={stagingBucket ? stagingBucket.replace('gs://', '') : undefined}
       />
       <A2aDeployModal
         isOpen={isA2aDeployModalOpen}
@@ -1235,14 +1297,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         generateCallerGithubWorkflow={generateCallerGithubWorkflow}
       />
 
-      {isFixMode && builderTab === "a2a" && (
+      {isFixMode && builderTab === 'a2a' && (
         <div className="bg-yellow-900/30 border border-yellow-700 p-4 rounded-lg shrink-0">
           <h3 className="text-yellow-400 font-bold mb-1">
             Fixing Service: {a2aConfig.serviceName}
           </h3>
-          <p className="text-sm text-gray-300">
-            Configuration pre-filled from deployed service.
-          </p>
+          <p className="text-sm text-gray-300">Configuration pre-filled from deployed service.</p>
         </div>
       )}
 
@@ -1251,22 +1311,18 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         {/* Left Column: Configuration (Box 1) */}
         <div className="bg-gray-800 p-4 rounded-lg shadow-md lg:w-1/3 flex flex-col overflow-y-auto border border-gray-700">
           <div className="flex justify-between items-center mb-3 shrink-0">
-            <h2 className="text-lg font-semibold text-white">
-              1. Configure Agent
-            </h2>
+            <h2 className="text-lg font-semibold text-white">1. Configure Agent</h2>
             <CloudConsoleButton
               url={`https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=${projectNumber}`}
             />
           </div>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">
-                Project Number
-              </label>
+              <label className="block text-sm font-medium text-gray-400 mb-1">Project Number</label>
               <ProjectInput value={projectNumber} onChange={setProjectNumber} />
             </div>
 
-            {builderTab === "adk" ? (
+            {builderTab === 'adk' ? (
               <>
                 {/* Templates Selection */}
                 <div className="mb-4 p-3 bg-gray-750 rounded-lg border border-gray-600">
@@ -1275,36 +1331,33 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                   </label>
                   <select
                     onChange={(e) => {
-                      const template = TEMPLATES.find(
-                        (t) => t.id === e.target.value,
-                      );
+                      const template = TEMPLATES.find((t) => t.id === e.target.value);
                       if (template) {
                         setAdkConfig((prev) => {
                           const cleanConfig: AdkAgentConfig = {
-                            name: "",
-                            description: "An agent that can do awesome things.",
-                            model: "gemini-2.5-flash",
-                            instruction:
-                              "You are an awesome and helpful agent.",
+                            name: '',
+                            description: 'An agent that can do awesome things.',
+                            model: 'gemini-2.5-flash',
+                            instruction: 'You are an awesome and helpful agent.',
                             tools: [],
                             useGoogleSearch: false,
                             enableOAuth: false,
-                            authId: "temp_oauth",
+                            authId: 'temp_oauth',
                             allowAdcFallback: true,
                             enableDiscoveryApi: false,
                             discoveryConfig: {
-                              projectId: "",
-                              location: "global",
-                              collection: "default_collection",
-                              engineId: "",
-                              dataStoreIds: "",
+                              projectId: '',
+                              location: 'global',
+                              collection: 'default_collection',
+                              engineId: '',
+                              dataStoreIds: '',
                             },
                             enableBqAnalytics: false,
-                            bqDatasetId: "",
-                            bqTableId: "",
+                            bqDatasetId: '',
+                            bqTableId: '',
                             enableThinking: false,
                             thinkingBudget: 1024,
-                            thinkingLevel: "HIGH",
+                            thinkingLevel: 'HIGH',
                             enableStreaming: false,
                             enableBigQueryMcp: false,
                             enableCodeExecution: false,
@@ -1336,10 +1389,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                             enableMapsGroundingMcp: false,
                             enableEvaluation: false,
                             enableCiCd: false,
-                            ciCdRunner: "none",
-                            deploymentTarget: "agent_engine",
-                            githubWifProvider: "",
-                            githubServiceAccount: "",
+                            ciCdRunner: 'none',
+                            deploymentTarget: 'agent_engine',
+                            githubWifProvider: '',
+                            githubServiceAccount: '',
                             customMcpEndpoints: [],
                           };
 
@@ -1369,16 +1422,26 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">
-                    Agent Name
-                  </label>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Agent Name</label>
                   <input
                     name="name"
                     type="text"
+                    required
+                    pattern="^[a-z][a-z0-9_]*$"
                     value={adkConfig.name}
                     onChange={handleAdkConfigChange}
-                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
+                    className={`bg-gray-700 border rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] focus:outline-none ${
+                      !adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name)
+                        ? 'border-red-500 focus:ring-1 focus:ring-red-500'
+                        : 'border-gray-600 focus:ring-1 focus:ring-blue-500'
+                    }`}
                   />
+                  {(!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name)) && (
+                    <p className="text-red-400 text-xs mt-1">
+                      Required. Must start with a lowercase letter and contain only lowercase
+                      letters, numbers, and underscores.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1">
@@ -1412,18 +1475,16 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                   </label>
                   <select
                     name="adkVersion"
-                    value={adkConfig.adkVersion || "1.35.1"}
+                    value={adkConfig.adkVersion || '1.35.1'}
                     onChange={handleAdkConfigChange}
                     className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
                   >
                     <option value="1.35.1">ADK 1.35.1 (Legacy)</option>
-                    <option value="2.2">ADK 2.2 (Antigravity SDK)</option>
+                    {/* ADK 2.2 (Antigravity SDK) option removed until deployment logic is fixed. */}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">
-                    Model
-                  </label>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Model</label>
                   <select
                     name="model"
                     value={adkConfig.model}
@@ -1431,12 +1492,16 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                     className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
                   >
                     <optgroup label="Auto-Updating & Cutting-Edge (Global)">
-                      <option value="gemini-flash-latest">Gemini Flash (Latest Auto-Updating)</option>
+                      <option value="gemini-flash-latest">
+                        Gemini Flash (Latest Auto-Updating)
+                      </option>
                       <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
                       <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended)</option>
                       <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
                       <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
-                      <option value="gemini-3-flash-preview">Gemini 3.0 Flash (Preview - Legacy)</option>
+                      <option value="gemini-3-flash-preview">
+                        Gemini 3.0 Flash (Preview - Legacy)
+                      </option>
                     </optgroup>
                     <optgroup label="Stable Regional (us-central1)">
                       <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
@@ -1480,22 +1545,18 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                     </button>
                   </div>
                   {!stagingBucket && (
-                    <p className="text-xs text-yellow-500 mt-1">
-                      Required for deployment.
-                    </p>
+                    <p className="text-xs text-yellow-500 mt-1">Required for deployment.</p>
                   )}
                 </div>
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <label className="block text-sm font-medium text-gray-400">
-                      Instruction
-                    </label>
+                    <label className="block text-sm font-medium text-gray-400">Instruction</label>
                     <button
-                      onClick={() => handleRewrite("instruction")}
-                      disabled={rewritingField === "instruction"}
+                      onClick={() => handleRewrite('instruction')}
+                      disabled={rewritingField === 'instruction'}
                       className="text-xs text-blue-400 hover:text-blue-300"
                     >
-                      {rewritingField === "instruction" ? "..." : "AI Rewrite"}
+                      {rewritingField === 'instruction' ? '...' : 'AI Rewrite'}
                     </button>
                   </div>
 
@@ -1516,15 +1577,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={handleAdkConfigChange}
                       className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                     />
-                    <span className="text-sm text-gray-300">
-                      Enable Google Search Tool
-                    </span>
+                    <span className="text-sm text-gray-300">Enable Google Search Tool</span>
                   </label>
 
                   <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
-                    <h4 className="text-xs font-semibold text-gray-400">
-                      Agent Capabilities
-                    </h4>
+                    <h4 className="text-xs font-semibold text-gray-400">Agent Capabilities</h4>
                     <div className="flex items-center space-x-2">
                       <label className="flex items-center space-x-3 cursor-pointer">
                         <input
@@ -1534,20 +1591,19 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                           onChange={handleAdkConfigChange}
                           className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                         />
-                        <span className="text-sm text-gray-300">
-                          Enable Thinking Details
-                        </span>
+                        <span className="text-sm text-gray-300">Enable Thinking Details</span>
                       </label>
                       {adkConfig.enableThinking && (
                         <div className="flex items-center gap-2">
                           {adkConfig.model &&
-                            (adkConfig.model.startsWith("gemini-3") || adkConfig.model.includes("3.5")) &&
-                            !adkConfig.model.includes("latest") ? (
+                          (adkConfig.model.startsWith('gemini-3') ||
+                            adkConfig.model.includes('3.5')) &&
+                          !adkConfig.model.includes('latest') ? (
                             <div className="flex items-center gap-1.5">
                               <span className="text-xs text-gray-400">Level:</span>
                               <select
                                 name="thinkingLevel"
-                                value={adkConfig.thinkingLevel || "HIGH"}
+                                value={adkConfig.thinkingLevel || 'HIGH'}
                                 onChange={handleAdkConfigChange}
                                 title="Thinking depth for Gemini 3 models"
                                 className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-28"
@@ -1583,9 +1639,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         onChange={handleAdkConfigChange}
                         className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                       />
-                      <span className="text-sm text-gray-300">
-                        Enable Streaming Responses
-                      </span>
+                      <span className="text-sm text-gray-300">Enable Streaming Responses</span>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
@@ -1595,9 +1649,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         onChange={handleAdkConfigChange}
                         className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                       />
-                      <span className="text-sm text-gray-300">
-                        Enable Code Execution Sub-Agent
-                      </span>
+                      <span className="text-sm text-gray-300">Enable Code Execution Sub-Agent</span>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
@@ -1607,18 +1659,14 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         onChange={handleAdkConfigChange}
                         className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                       />
-                      <span className="text-sm text-gray-300">
-                        Enable Graphviz Local Renderer
-                      </span>
+                      <span className="text-sm text-gray-300">Enable Graphviz Local Renderer</span>
                     </label>
                   </div>
 
                   <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
-                    <h4 className="text-xs font-semibold text-gray-400">
-                      Integrations (Tools)
-                    </h4>
+                    <h4 className="text-xs font-semibold text-gray-400">Integrations (Tools)</h4>
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="bigquery.googleapis.com"
                       mcpEndpoint="https://bigquery.googleapis.com/mcp"
                       label="BigQuery Managed MCP"
@@ -1626,15 +1674,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableBigQueryMcp",
-                            type: "checkbox",
+                            name: 'enableBigQueryMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
                       }
                     />
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="logging.googleapis.com"
                       mcpEndpoint="https://logging.googleapis.com/mcp"
                       label="Cloud Logging Managed MCP"
@@ -1642,15 +1690,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableCloudLoggingMcp",
-                            type: "checkbox",
+                            name: 'enableCloudLoggingMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
                       }
                     />
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="bigtableadmin.googleapis.com"
                       mcpEndpoint="https://bigtableadmin.googleapis.com/mcp"
                       label="Bigtable Admin MCP"
@@ -1658,15 +1706,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableBigtableAdminMcp",
-                            type: "checkbox",
+                            name: 'enableBigtableAdminMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
                       }
                     />
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="sqladmin.googleapis.com"
                       mcpEndpoint="https://sqladmin.googleapis.com/mcp"
                       label="Cloud SQL Admin MCP"
@@ -1674,15 +1722,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableCloudSqlMcp",
-                            type: "checkbox",
+                            name: 'enableCloudSqlMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
                       }
                     />
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="monitoring.googleapis.com"
                       mcpEndpoint="https://monitoring.googleapis.com/mcp"
                       label="Cloud Monitoring MCP"
@@ -1690,15 +1738,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableCloudMonitoringMcp",
-                            type: "checkbox",
+                            name: 'enableCloudMonitoringMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
                       }
                     />
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="compute.googleapis.com"
                       mcpEndpoint="https://compute.googleapis.com/mcp"
                       label="Compute Engine MCP"
@@ -1706,15 +1754,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableComputeEngineMcp",
-                            type: "checkbox",
+                            name: 'enableComputeEngineMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
                       }
                     />
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="firestore.googleapis.com"
                       mcpEndpoint="https://firestore.googleapis.com/mcp"
                       label="Firestore MCP"
@@ -1722,15 +1770,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableFirestoreMcp",
-                            type: "checkbox",
+                            name: 'enableFirestoreMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
                       }
                     />
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="container.googleapis.com"
                       mcpEndpoint="https://container.googleapis.com/mcp"
                       label="GKE MCP"
@@ -1738,15 +1786,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableGkeMcp",
-                            type: "checkbox",
+                            name: 'enableGkeMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
                       }
                     />
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="cloudresourcemanager.googleapis.com"
                       mcpEndpoint="https://cloudresourcemanager.googleapis.com/mcp"
                       label="Resource Manager MCP"
@@ -1754,15 +1802,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableResourceManagerMcp",
-                            type: "checkbox",
+                            name: 'enableResourceManagerMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
                       }
                     />
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="spanner.googleapis.com"
                       mcpEndpoint="https://spanner.googleapis.com/mcp"
                       label="Spanner MCP"
@@ -1770,18 +1818,16 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableSpannerMcp",
-                            type: "checkbox",
+                            name: 'enableSpannerMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
                       }
                     />
-                    <h4 className="text-xs font-semibold text-gray-400 mt-2">
-                      Google MCPs
-                    </h4>
+                    <h4 className="text-xs font-semibold text-gray-400 mt-2">Google MCPs</h4>
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="developerknowledge.googleapis.com"
                       mcpEndpoint="https://developerknowledge.googleapis.com/mcp"
                       label="Developer Knowledge MCP"
@@ -1789,15 +1835,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableDeveloperKnowledgeMcp",
-                            type: "checkbox",
+                            name: 'enableDeveloperKnowledgeMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
                       }
                     />
                     <McpServiceCheck
-                      projectId={deployProjectId || ""}
+                      projectId={deployProjectId || ''}
                       serviceName="mapstools.googleapis.com"
                       mcpEndpoint="https://mapstools.googleapis.com/mcp"
                       label="Maps Grounding Lite MCP"
@@ -1805,8 +1851,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={(checked) =>
                         handleAdkConfigChange({
                           target: {
-                            name: "enableMapsGroundingMcp",
-                            type: "checkbox",
+                            name: 'enableMapsGroundingMcp',
+                            type: 'checkbox',
                             checked,
                           },
                         } as any)
@@ -1843,8 +1889,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                                   onChange={(e) =>
                                     handleUpdateCustomMcp(
                                       index,
-                                      "name",
-                                      e.target.value.replace(/\s+/g, "_"),
+                                      'name',
+                                      e.target.value.replace(/\s+/g, '_')
                                     )
                                   }
                                   className="w-full bg-gray-900 text-white p-2 rounded border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-xs"
@@ -1859,30 +1905,24 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                                   placeholder="e.g., https://your-mcp-server.internal"
                                   value={endpoint.url}
                                   onChange={(e) =>
-                                    handleUpdateCustomMcp(
-                                      index,
-                                      "url",
-                                      e.target.value,
-                                    )
+                                    handleUpdateCustomMcp(index, 'url', e.target.value)
                                   }
                                   className="w-full bg-gray-900 text-white p-2 rounded border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-xs font-mono"
                                 />
                               </div>
                               <div className="flex items-center justify-between mt-1">
                                 <button
-                                  onClick={() =>
-                                    handleVerifyCustomMcp(index, endpoint.url)
-                                  }
+                                  onClick={() => handleVerifyCustomMcp(index, endpoint.url)}
                                   className="px-2 py-1 bg-green-600 hover:bg-green-500 text-white rounded text-xs transition-colors"
                                 >
                                   Verify
                                 </button>
                                 {customMcpStatus[index] && (
                                   <span
-                                    className={`text-xs ${customMcpStatus[index].error ? "text-red-400" : "text-green-400"}`}
+                                    className={`text-xs ${customMcpStatus[index].error ? 'text-red-400' : 'text-green-400'}`}
                                   >
                                     {customMcpStatus[index].loading
-                                      ? "Loading..."
+                                      ? 'Loading...'
                                       : customMcpStatus[index].error
                                         ? `Error: ${customMcpStatus[index].error}`
                                         : `Ready (${customMcpStatus[index].tools?.length || 0} tools)`}
@@ -1930,9 +1970,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         onChange={handleAdkConfigChange}
                         className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                       />
-                      <span className="text-sm text-gray-300">
-                        Enable Recommender Tool
-                      </span>
+                      <span className="text-sm text-gray-300">Enable Recommender Tool</span>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
@@ -1942,9 +1980,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         onChange={handleAdkConfigChange}
                         className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                       />
-                      <span className="text-sm text-gray-300">
-                        Enable Service Health Tool
-                      </span>
+                      <span className="text-sm text-gray-300">Enable Service Health Tool</span>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
@@ -1954,9 +1990,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         onChange={handleAdkConfigChange}
                         className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                       />
-                      <span className="text-sm text-gray-300">
-                        Enable Network Management Tool
-                      </span>
+                      <span className="text-sm text-gray-300">Enable Network Management Tool</span>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
@@ -1966,9 +2000,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         onChange={handleAdkConfigChange}
                         className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                       />
-                      <span className="text-sm text-gray-300">
-                        Enable Cloud Logging (API)
-                      </span>
+                      <span className="text-sm text-gray-300">Enable Cloud Logging (API)</span>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
@@ -1978,9 +2010,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         onChange={handleAdkConfigChange}
                         className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                       />
-                      <span className="text-sm text-gray-300">
-                        Enable Cloud Monitoring (API)
-                      </span>
+                      <span className="text-sm text-gray-300">Enable Cloud Monitoring (API)</span>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
@@ -2002,9 +2032,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         onChange={handleAdkConfigChange}
                         className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                       />
-                      <span className="text-sm text-gray-300">
-                        Enable Resource Manager (API)
-                      </span>
+                      <span className="text-sm text-gray-300">Enable Resource Manager (API)</span>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
@@ -2038,9 +2066,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         onChange={handleAdkConfigChange}
                         className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                       />
-                      <span className="text-sm text-gray-300">
-                        Enable Gemini Cloud Assist
-                      </span>
+                      <span className="text-sm text-gray-300">Enable Gemini Cloud Assist</span>
                     </label>
 
                     <label className="flex items-center space-x-3 cursor-pointer">
@@ -2051,9 +2077,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         onChange={handleAdkConfigChange}
                         className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                       />
-                      <span className="text-sm text-gray-300">
-                        Enable Email Sending Tool
-                      </span>
+                      <span className="text-sm text-gray-300">Enable Email Sending Tool</span>
                     </label>
 
                     <div className="flex flex-col gap-2 mt-2">
@@ -2066,14 +2090,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                             onChange={handleAdkConfigChange}
                             className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                           />
-                          <span className="text-sm text-gray-300">
-                            Enable OAuth Flow
-                          </span>
+                          <span className="text-sm text-gray-300">Enable OAuth Flow</span>
                         </label>
                         {adkConfig.enableOAuth && (
                           <div className="flex items-center space-x-2">
-                            {authInputMode === "select" &&
-                              authorizations.length > 0 ? (
+                            {authInputMode === 'select' && authorizations.length > 0 ? (
                               <select
                                 name="authId"
                                 value={adkConfig.authId}
@@ -2082,7 +2103,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                               >
                                 <option value="">-- Select Auth ID --</option>
                                 {authorizations.map((auth) => {
-                                  const aId = auth.name.split("/").pop() || "";
+                                  const aId = auth.name.split('/').pop() || '';
                                   return (
                                     <option key={auth.name} value={aId}>
                                       {auth.displayName || aId}
@@ -2105,14 +2126,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                                 type="button"
                                 onClick={() =>
                                   setAuthInputMode((prev) =>
-                                    prev === "select" ? "manual" : "select",
+                                    prev === 'select' ? 'manual' : 'select'
                                   )
                                 }
                                 className="text-xs text-blue-400 hover:text-blue-300 underline font-semibold shrink-0"
                               >
-                                {authInputMode === "select"
-                                  ? "Manual Input"
-                                  : "Select Existing"}
+                                {authInputMode === 'select' ? 'Manual Input' : 'Select Existing'}
                               </button>
                             )}
                           </div>
@@ -2139,9 +2158,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                   </div>
 
                   <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
-                    <h4 className="text-xs font-semibold text-gray-400">
-                      Observability
-                    </h4>
+                    <h4 className="text-xs font-semibold text-gray-400">Observability</h4>
                     <label
                       className="flex items-center space-x-3 cursor-pointer"
                       title="Populates the agent observability dashboard and traces pages."
@@ -2187,9 +2204,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={handleAdkConfigChange}
                       className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                     />
-                    <span className="text-sm text-gray-300">
-                      Enable Evaluation Configs
-                    </span>
+                    <span className="text-sm text-gray-300">Enable Evaluation Configs</span>
                   </label>
 
                   <label className="flex items-center space-x-3 cursor-pointer">
@@ -2200,9 +2215,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={handleAdkConfigChange}
                       className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                     />
-                    <span className="text-sm text-gray-300">
-                      Enable CI/CD Scaffolding
-                    </span>
+                    <span className="text-sm text-gray-300">Enable CI/CD Scaffolding</span>
                   </label>
 
                   {adkConfig.enableCiCd && (
@@ -2219,9 +2232,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         >
                           <option value="none">None</option>
                           <option value="github_actions">GitHub Actions</option>
-                          <option value="google_cloud_build">
-                            Google Cloud Build
-                          </option>
+                          <option value="google_cloud_build">Google Cloud Build</option>
                         </select>
                       </div>
                       <div>
@@ -2238,7 +2249,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                           <option value="cloud_run">Cloud Run</option>
                         </select>
                       </div>
-                      {adkConfig.ciCdRunner === "github_actions" && (
+                      {adkConfig.ciCdRunner === 'github_actions' && (
                         <div className="pt-2 space-y-2 border-t border-gray-600 mt-2">
                           <div>
                             <div className="flex items-center justify-between mb-1">
@@ -2253,23 +2264,21 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                                 className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
                               >
                                 {showWifInstructions
-                                  ? "Hide setup instructions"
-                                  : "How to set up WIF"}
+                                  ? 'Hide setup instructions'
+                                  : 'How to set up WIF'}
                               </button>
                             </div>
                             {wifProviders.length > 0 ? (
                               <select
                                 name="githubWifProvider"
-                                value={adkConfig.githubWifProvider || ""}
+                                value={adkConfig.githubWifProvider || ''}
                                 onChange={handleAdkConfigChange}
                                 className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
                               >
-                                <option value="">
-                                  Select a WIF Provider...
-                                </option>
+                                <option value="">Select a WIF Provider...</option>
                                 {wifProviders.map((p) => (
                                   <option key={p.name} value={p.name}>
-                                    {p.displayName || p.name.split("/").pop()}
+                                    {p.displayName || p.name.split('/').pop()}
                                   </option>
                                 ))}
                               </select>
@@ -2277,7 +2286,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                               <input
                                 type="text"
                                 name="githubWifProvider"
-                                value={adkConfig.githubWifProvider || ""}
+                                value={adkConfig.githubWifProvider || ''}
                                 onChange={handleAdkConfigChange}
                                 placeholder="projects/123.../providers/my-provider"
                                 className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
@@ -2291,13 +2300,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                             {serviceAccounts.length > 0 ? (
                               <select
                                 name="githubServiceAccount"
-                                value={adkConfig.githubServiceAccount || ""}
+                                value={adkConfig.githubServiceAccount || ''}
                                 onChange={handleAdkConfigChange}
                                 className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
                               >
-                                <option value="">
-                                  Select a Service Account...
-                                </option>
+                                <option value="">Select a Service Account...</option>
                                 {serviceAccounts.map((sa) => (
                                   <option key={sa.email} value={sa.email}>
                                     {sa.email}
@@ -2308,19 +2315,19 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                               <input
                                 type="email"
                                 name="githubServiceAccount"
-                                value={adkConfig.githubServiceAccount || ""}
+                                value={adkConfig.githubServiceAccount || ''}
                                 onChange={handleAdkConfigChange}
                                 placeholder="sa@my-project.iam.gserviceaccount.com"
                                 className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
                               />
                             )}
                           </div>
-                          {validationStatus !== "unchecked" && (
+                          {validationStatus !== 'unchecked' && (
                             <div
-                              className={`text-xs mt-1 ${validationStatus === "valid" ? "text-green-400" : validationStatus === "testing" ? "text-yellow-400" : "text-red-400"}`}
+                              className={`text-xs mt-1 ${validationStatus === 'valid' ? 'text-green-400' : validationStatus === 'testing' ? 'text-yellow-400' : 'text-red-400'}`}
                             >
-                              {validationStatus === "testing"
-                                ? "Validating connection..."
+                              {validationStatus === 'testing'
+                                ? 'Validating connection...'
                                 : validationMessage}
                             </div>
                           )}
@@ -2329,44 +2336,35 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                             <div className="p-3 bg-gray-800 rounded border border-gray-600 mt-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre">
                               <div># 1. Create a Workload Identity Pool</div>
                               <div className="text-gray-400">
-                                gcloud iam workload-identity-pools create
-                                &quot;github-actions&quot; \<br />{" "}
-                                --project=&quot;YOUR_PROJECT_ID&quot; \<br />{" "}
-                                --location=&quot;global&quot; \<br />{" "}
-                                --display-name=&quot;GitHub Actions Pool&quot;
+                                gcloud iam workload-identity-pools create &quot;github-actions&quot;
+                                \<br /> --project=&quot;YOUR_PROJECT_ID&quot; \<br />{' '}
+                                --location=&quot;global&quot; \<br /> --display-name=&quot;GitHub
+                                Actions Pool&quot;
                               </div>
                               <br />
                               <div># 2. Create a WIF Provider in that pool</div>
                               <div className="text-gray-400">
-                                gcloud iam workload-identity-pools providers
-                                create-oidc &quot;my-repo&quot; \<br />{" "}
-                                --project=&quot;YOUR_PROJECT_ID&quot; \<br />{" "}
-                                --location=&quot;global&quot; \<br />{" "}
+                                gcloud iam workload-identity-pools providers create-oidc
+                                &quot;my-repo&quot; \<br /> --project=&quot;YOUR_PROJECT_ID&quot; \
+                                <br /> --location=&quot;global&quot; \<br />{' '}
                                 --workload-identity-pool=&quot;github-actions&quot; \
-                                <br /> --display-name=&quot;My GitHub repo Provider&quot;
-                                \<br />{" "}
+                                <br /> --display-name=&quot;My GitHub repo Provider&quot; \<br />{' '}
                                 --attribute-mapping=&quot;google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository_owner=assertion.repository_owner&quot;
-                                \<br />{" "}
-                                --attribute-condition=&quot;attribute.repository_owner
-                                == &apos;YOUR_ORG&apos;&quot; \<br />{" "}
+                                \<br /> --attribute-condition=&quot;attribute.repository_owner ==
+                                &apos;YOUR_ORG&apos;&quot; \<br />{' '}
                                 --issuer-uri=&quot;https://token.actions.githubusercontent.com&quot;
                               </div>
                               <br />
                               <div># 3. Create a Service Account</div>
                               <div className="text-gray-400">
-                                gcloud iam service-accounts create
-                                &quot;github-actions-sa&quot; \<br />{" "}
-                                --project=&quot;YOUR_PROJECT_ID&quot; \<br />{" "}
+                                gcloud iam service-accounts create &quot;github-actions-sa&quot; \
+                                <br /> --project=&quot;YOUR_PROJECT_ID&quot; \<br />{' '}
                                 --display-name=&quot;GitHub Actions Service Account&quot;
                               </div>
                               <br />
-                              <div>
-                                # 4. Bind the Service Account to the WIF
-                                Provider
-                              </div>
+                              <div># 4. Bind the Service Account to the WIF Provider</div>
                               <div className="text-gray-400">
-                                gcloud iam service-accounts
-                                add-iam-policy-binding
+                                gcloud iam service-accounts add-iam-policy-binding
                                 &quot;github-actions-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com&quot;
                                 \<br />
                                 --project=&quot;YOUR_PROJECT_ID&quot; \<br />
@@ -2379,12 +2377,17 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                           <div className="pt-2 flex justify-end">
                             <button
                               onClick={() => setIsGithubModalOpen(true)}
-                              className="text-xs bg-gray-600 hover:bg-gray-500 text-white py-1.5 px-3 rounded flex items-center gap-1 transition-colors border border-gray-500"
+                              disabled={
+                                !adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name)
+                              }
+                              title={
+                                !adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name)
+                                  ? 'Enter a valid agent name before setting up CI/CD.'
+                                  : undefined
+                              }
+                              className="text-xs bg-gray-600 hover:bg-gray-500 text-white py-1.5 px-3 rounded flex items-center gap-1 transition-colors border border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-gray-600"
                             >
-                              <svg
-                                viewBox="0 0 16 16"
-                                className="w-3 h-3 fill-current"
-                              >
+                              <svg viewBox="0 0 16 16" className="w-3 h-3 fill-current">
                                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
                               </svg>
                               Automated CI/CD Workflow Setup
@@ -2410,41 +2413,29 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                     </div>
                     <div className="flex items-center space-x-2">
                       <span
-                        className={
-                          adkConfig.enableEvaluation
-                            ? "text-green-400"
-                            : "text-gray-600"
-                        }
+                        className={adkConfig.enableEvaluation ? 'text-green-400' : 'text-gray-600'}
                       >
-                        {adkConfig.enableEvaluation ? "✓" : "○"}
+                        {adkConfig.enableEvaluation ? '✓' : '○'}
                       </span>
                       <span
-                        className={`text-xs ${adkConfig.enableEvaluation ? "text-gray-300" : "text-gray-500"}`}
+                        className={`text-xs ${adkConfig.enableEvaluation ? 'text-gray-300' : 'text-gray-500'}`}
                       >
                         Evaluation Configured
                       </span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <span
-                        className={
-                          adkConfig.enableCiCd
-                            ? "text-green-400"
-                            : "text-gray-600"
-                        }
-                      >
-                        {adkConfig.enableCiCd ? "✓" : "○"}
+                      <span className={adkConfig.enableCiCd ? 'text-green-400' : 'text-gray-600'}>
+                        {adkConfig.enableCiCd ? '✓' : '○'}
                       </span>
                       <span
-                        className={`text-xs ${adkConfig.enableCiCd ? "text-gray-300" : "text-gray-500"}`}
+                        className={`text-xs ${adkConfig.enableCiCd ? 'text-gray-300' : 'text-gray-500'}`}
                       >
                         CI/CD Pipeline Configured
                       </span>
                     </div>
                     <div className="flex items-center space-x-2">
                       <span className="text-green-400">✓</span>
-                      <span className="text-xs text-gray-300">
-                        Design Spec Generated
-                      </span>
+                      <span className="text-xs text-gray-300">Design Spec Generated</span>
                     </div>
                   </div>
                 </div>
@@ -2452,15 +2443,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
             ) : (
               <>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">
-                    Project ID
-                  </label>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Project ID</label>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       value={deployProjectId}
                       onChange={(e) => setDeployProjectId(e.target.value)}
-                      className={`bg-gray-700 border rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] ${/^\d+$/.test(deployProjectId) ? "border-yellow-500" : "border-gray-600"}`}
+                      className={`bg-gray-700 border rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] ${/^\d+$/.test(deployProjectId) ? 'border-yellow-500' : 'border-gray-600'}`}
                       placeholder="e.g. my-project-id"
                     />
                     <button
@@ -2468,7 +2457,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       disabled={isResolvingId}
                       className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-md text-white disabled:opacity-50"
                     >
-                      {isResolvingId ? "..." : "↻"}
+                      {isResolvingId ? '...' : '↻'}
                     </button>
                   </div>
                 </div>
@@ -2509,9 +2498,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">
-                    Model
-                  </label>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Model</label>
                   <select
                     name="model"
                     value={a2aConfig.model}
@@ -2519,12 +2506,16 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                     className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
                   >
                     <optgroup label="Auto-Updating & Cutting-Edge (Global)">
-                      <option value="gemini-flash-latest">Gemini Flash (Latest Auto-Updating)</option>
+                      <option value="gemini-flash-latest">
+                        Gemini Flash (Latest Auto-Updating)
+                      </option>
                       <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
                       <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended)</option>
                       <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
                       <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
-                      <option value="gemini-3-flash-preview">Gemini 3.0 Flash (Preview - Legacy)</option>
+                      <option value="gemini-3-flash-preview">
+                        Gemini 3.0 Flash (Preview - Legacy)
+                      </option>
                     </optgroup>
                     <optgroup label="Stable Regional (us-central1)">
                       <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
@@ -2535,9 +2526,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">
-                    Region
-                  </label>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Region</label>
                   <select
                     name="region"
                     value={a2aConfig.region}
@@ -2555,11 +2544,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       System Instruction
                     </label>
                     <button
-                      onClick={() => handleRewrite("instruction")}
-                      disabled={rewritingField === "instruction"}
+                      onClick={() => handleRewrite('instruction')}
+                      disabled={rewritingField === 'instruction'}
                       className="text-xs text-blue-400 hover:text-blue-300"
                     >
-                      {rewritingField === "instruction" ? "..." : "AI Rewrite"}
+                      {rewritingField === 'instruction' ? '...' : 'AI Rewrite'}
                     </button>
                   </div>
                   <textarea
@@ -2579,18 +2568,14 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={handleA2aConfigChange}
                       className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                     />
-                    <span className="text-sm text-gray-300">
-                      Enable Google Search Tool
-                    </span>
+                    <span className="text-sm text-gray-300">Enable Google Search Tool</span>
                   </label>
                 </div>
               </>
             )}
 
             <div className="pt-4 border-t border-gray-700">
-              <h3 className="text-sm font-medium text-gray-300 mb-2">
-                Add Tools
-              </h3>
+              <h3 className="text-sm font-medium text-gray-300 mb-2">Add Tools</h3>
               <div className="bg-gray-700/50 p-3 rounded-md space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-400 mb-1">
@@ -2624,10 +2609,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                               ds.displayName
                                 .toLowerCase()
                                 .includes(dataStoreSearchTerm.toLowerCase()) ||
-                              ds.name.includes(dataStoreSearchTerm),
+                              ds.name.includes(dataStoreSearchTerm)
                           )
                           .map((ds) => {
-                            const dsId = ds.name.split("/").pop();
+                            const dsId = ds.name.split('/').pop();
                             return (
                               <option key={ds.name} value={ds.name}>
                                 {ds.displayName} ({dsId}) - {ds.location}
@@ -2638,9 +2623,9 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       <button
                         onClick={() =>
                           handleAddTool({
-                            type: "VertexAiSearchTool",
+                            type: 'VertexAiSearchTool',
                             dataStoreId: toolBuilderConfig.dataStoreId,
-                            variableName: `search_tool_${(builderTab === "a2a" ? a2aConfig.tools : adkConfig.tools).length + 1}`,
+                            variableName: `search_tool_${(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).length + 1}`,
                           })
                         }
                         disabled={!toolBuilderConfig.dataStoreId}
@@ -2675,22 +2660,20 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                           .filter(
                             (s) =>
                               !a2aSearchTerm ||
-                              s.name
-                                .toLowerCase()
-                                .includes(a2aSearchTerm.toLowerCase()),
+                              s.name.toLowerCase().includes(a2aSearchTerm.toLowerCase())
                           )
                           .map((s) => (
                             <option key={s.name} value={s.uri}>
-                              {s.name.split("/").pop()}
+                              {s.name.split('/').pop()}
                             </option>
                           ))}
                       </select>
                       <button
                         onClick={() =>
                           handleAddTool({
-                            type: "A2AClientTool",
+                            type: 'A2AClientTool',
                             url: selectedA2aService,
-                            variableName: `a2a_agent_${(builderTab === "a2a" ? a2aConfig.tools : adkConfig.tools).length + 1}`,
+                            variableName: `a2a_agent_${(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).length + 1}`,
                           })
                         }
                         disabled={!selectedA2aService}
@@ -2704,37 +2687,31 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
               </div>
 
               <div className="mt-3 space-y-2">
-                {(builderTab === "a2a" ? a2aConfig.tools : adkConfig.tools).map(
-                  (tool, i) => (
-                    <div
-                      key={i}
-                      className="flex justify-between items-center bg-gray-900 px-3 py-2 rounded border border-gray-700"
-                    >
-                      <div className="text-xs text-gray-300">
-                        <span className="font-bold text-teal-400">
-                          {tool.type === "VertexAiSearchTool"
-                            ? "Search"
-                            : "A2A"}
-                        </span>
-                        : {tool.variableName}
-                      </div>
-                      <button
-                        onClick={() => handleRemoveTool(i)}
-                        className="text-xs text-red-400 hover:text-red-300"
-                      >
-                        Remove
-                      </button>
+                {(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).map((tool, i) => (
+                  <div
+                    key={i}
+                    className="flex justify-between items-center bg-gray-900 px-3 py-2 rounded border border-gray-700"
+                  >
+                    <div className="text-xs text-gray-300">
+                      <span className="font-bold text-teal-400">
+                        {tool.type === 'VertexAiSearchTool' ? 'Search' : 'A2A'}
+                      </span>
+                      : {tool.variableName}
                     </div>
-                  ),
-                )}
+                    <button
+                      onClick={() => handleRemoveTool(i)}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
 
-            {builderTab === "a2a" && (
+            {builderTab === 'a2a' && (
               <div className="pt-4 border-t border-gray-700">
-                <h3 className="text-sm font-medium text-gray-300 mb-2">
-                  Testing Options
-                </h3>
+                <h3 className="text-sm font-medium text-gray-300 mb-2">Testing Options</h3>
                 <div className="space-y-2">
                   <label className="flex items-center space-x-3 cursor-pointer">
                     <input
@@ -2744,9 +2721,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                       onChange={handleA2aConfigChange}
                       className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
                     />
-                    <span className="text-sm text-gray-300">
-                      Allow unauthenticated invocations
-                    </span>
+                    <span className="text-sm text-gray-300">Allow unauthenticated invocations</span>
                   </label>
                   <label className="flex items-center space-x-3 cursor-pointer">
                     <input
@@ -2772,26 +2747,26 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
             </h2>
             <div className="flex justify-between items-center mb-2 shrink-0">
               <div className="flex border-b border-gray-700">
-                {(builderTab === "adk"
+                {(builderTab === 'adk'
                   ? ADK_TABS.filter(
-                    (t) =>
-                      (t.id !== "auth" || adkConfig.enableOAuth) &&
-                      (t.id !== "tools" || hasAnyTools(adkConfig)),
-                  )
+                      (t) =>
+                        (t.id !== 'auth' || adkConfig.enableOAuth) &&
+                        (t.id !== 'tools' || hasAnyTools(adkConfig))
+                    )
                   : A2A_TABS
                 ).map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() =>
-                      builderTab === "adk"
+                      builderTab === 'adk'
                         ? setAdkActiveTab(tab.id as any)
                         : setA2aActiveTab(tab.id as any)
                     }
-                    className={`px-3 py-2 text-xs font-medium transition-colors ${(builderTab === "adk" ? adkActiveTab : a2aActiveTab) ===
-                        tab.id
-                        ? "border-b-2 border-blue-500 text-white"
-                        : "text-gray-400 hover:text-white"
-                      }`}
+                    className={`px-3 py-2 text-xs font-medium transition-colors ${
+                      (builderTab === 'adk' ? adkActiveTab : a2aActiveTab) === tab.id
+                        ? 'border-b-2 border-blue-500 text-white'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
                   >
                     {tab.label}
                   </button>
@@ -2802,23 +2777,18 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
               <button
                 onClick={() =>
                   handleCopy(
-                    builderTab === "adk" ? adkCodeDisplay : a2aCodeDisplay,
-                    builderTab === "adk"
-                      ? setAdkCopySuccess
-                      : setA2aCopySuccess,
+                    builderTab === 'adk' ? adkCodeDisplay : a2aCodeDisplay,
+                    builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess
                   )
                 }
                 className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
               >
-                {(builderTab === "adk" ? adkCopySuccess : a2aCopySuccess) ||
-                  "Copy"}
+                {(builderTab === 'adk' ? adkCopySuccess : a2aCopySuccess) || 'Copy'}
               </button>
             </div>
             <div className="bg-gray-900 rounded-b-md flex-1 overflow-auto border border-gray-700">
               <pre className="p-4 text-xs text-gray-300 whitespace-pre-wrap">
-                <code>
-                  {builderTab === "adk" ? adkCodeDisplay : a2aCodeDisplay}
-                </code>
+                <code>{builderTab === 'adk' ? adkCodeDisplay : a2aCodeDisplay}</code>
               </pre>
             </div>
           </div>
@@ -2833,12 +2803,21 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                   Option A: Cloud Build (Automated)
                 </h3>
                 <button
+                  disabled={
+                    builderTab === 'adk' &&
+                    (!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name))
+                  }
                   onClick={() =>
-                    builderTab === "adk"
+                    builderTab === 'adk'
                       ? setIsAdkDeployModalOpen(true)
                       : setIsA2aDeployModalOpen(true)
                   }
-                  className="w-full mt-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-teal-500 text-white font-bold rounded-md shadow-lg flex items-center justify-center gap-2"
+                  className={`w-full mt-2 px-4 py-2 font-bold rounded-md shadow-lg flex items-center justify-center gap-2 ${
+                    builderTab === 'adk' &&
+                    (!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name))
+                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-blue-600 to-teal-500 text-white'
+                  }`}
                 >
                   Deploy with Cloud Build
                 </button>
@@ -2846,38 +2825,37 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
               <div className="bg-gray-900/50 p-4 rounded-md border border-gray-700 flex-1 flex flex-col min-h-[150px]">
                 <div className="flex justify-between items-center mb-2 shrink-0">
                   <h3 className="text-sm font-bold text-gray-200">
-                    {builderTab === "adk"
-                      ? "Option B: Manual Deployment (README)"
-                      : "Option B: Manual Deployment (CLI Script)"}
+                    {builderTab === 'adk'
+                      ? 'Option B: Manual Deployment (README)'
+                      : 'Option B: Manual Deployment (CLI Script)'}
                   </h3>
                   <div className="flex gap-2">
                     <button
-                      onClick={
-                        builderTab === "adk"
-                          ? handleDownloadAdkZip
-                          : handleDownloadA2a
+                      disabled={
+                        builderTab === 'adk' &&
+                        (!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name))
                       }
-                      className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
+                      onClick={builderTab === 'adk' ? handleDownloadAdkZip : handleDownloadA2a}
+                      className={`px-3 py-1 text-xs rounded ${
+                        builderTab === 'adk' &&
+                        (!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name))
+                          ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                          : 'bg-gray-600 text-white hover:bg-gray-500'
+                      }`}
                     >
                       Download .zip
                     </button>
                     <button
                       onClick={() =>
                         handleCopy(
-                          builderTab === "adk"
-                            ? adkGeneratedCode.readme
-                            : a2aGeneratedCode.gcloud,
-                          builderTab === "adk"
-                            ? setAdkCopySuccess
-                            : setA2aCopySuccess,
+                          builderTab === 'adk' ? adkGeneratedCode.readme : a2aGeneratedCode.gcloud,
+                          builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess
                         )
                       }
                       className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
                     >
-                      {(builderTab === "adk"
-                        ? adkCopySuccess
-                        : a2aCopySuccess) ||
-                        (builderTab === "adk" ? "Copy README" : "Copy Script")}
+                      {(builderTab === 'adk' ? adkCopySuccess : a2aCopySuccess) ||
+                        (builderTab === 'adk' ? 'Copy README' : 'Copy Script')}
                     </button>
                   </div>
                 </div>

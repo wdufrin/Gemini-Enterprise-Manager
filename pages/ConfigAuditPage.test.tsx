@@ -19,12 +19,12 @@ describe('ConfigAuditPage', () => {
         return {
           engines: [
             {
-              name: 'projects/180054373655/locations/global/collections/default_collection/engines/test-destination_1780931139203',
+              name: 'projects/123456789012/locations/global/collections/default_collection/engines/test-destination_1780931139203',
               displayName: 'test_destination',
               solutionType: 'SOLUTION_TYPE_SEARCH',
             },
             {
-              name: 'projects/180054373655/locations/global/collections/default_collection/engines/testing-jira_1766765338880',
+              name: 'projects/123456789012/locations/global/collections/default_collection/engines/testing-jira_1766765338880',
               displayName: 'Testing Jira',
               solutionType: 'SOLUTION_TYPE_SEARCH',
             },
@@ -36,8 +36,8 @@ describe('ConfigAuditPage', () => {
 
     render(
       <ConfigAuditPage
-        projectNumber="180054373655"
-        projectId="ancient-sandbox-322523"
+        projectNumber="123456789012"
+        projectId="my-project-123456"
         accessToken="mock-token"
       />
     );

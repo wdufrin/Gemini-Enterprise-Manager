@@ -14,11 +14,43 @@
  * limitations under the License.
  */
 
-import { Config, ConfigAuditItem, ConfigAuditSummary, AppEngine, DataStore, RegistrySkill, Authorization } from '../types';
+import {
+  Config,
+  ConfigAuditItem,
+  ConfigAuditSummary,
+  AppEngine,
+  DataStore,
+  RegistrySkill,
+  Authorization,
+} from '../types';
 import * as api from './apiService';
 
 export interface AuditProgressCallback {
   (step: string, percent: number): void;
+}
+
+/**
+ * Distinguishes "the resource is genuinely absent" from "we were not allowed
+ * to look".
+ *
+ * This matters because the two are reported very differently: a 404 really is
+ * drift or a missing resource, but a 403 tells us nothing about the target's
+ * configuration. Reporting a permission error as DRIFT / MISSING_IN_TARGET
+ * invents a finding the auditor never actually observed.
+ *
+ * Returns `true` only when the failure is clearly an access problem.
+ */
+function isAccessFailure(err: unknown): boolean {
+  const e = err as { status?: number; code?: number; message?: string } | null;
+  if (!e) return false;
+
+  const status = e.status ?? e.code;
+  if (status === 401 || status === 403) return true;
+
+  const message = String(e.message ?? '');
+  return /\b(401|403)\b|PERMISSION_DENIED|UNAUTHENTICATED|permission denied|forbidden|insufficient(?: authentication)? scopes?/i.test(
+    message
+  );
 }
 
 export async function runConfigAudit(
@@ -40,8 +72,10 @@ export async function runConfigAudit(
     const cid = engine.widgetConfigConfigId || engine.commonConfig?.companyName || engine.cid || '';
     const isWif = engine.isExternalIdp || !!cid || engine.name?.includes('wif');
     return {
-      type: isWif ? 'Workforce Identity Federation (WiF / Entra ID)' : 'Google Workspace / Cloud Identity',
-      cid: cid || undefined
+      type: isWif
+        ? 'Workforce Identity Federation (WiF / Entra ID)'
+        : 'Google Workspace / Cloud Identity',
+      cid: cid || undefined,
     };
   };
 
@@ -56,32 +90,38 @@ export async function runConfigAudit(
   try {
     sourceEngine = await api.getEngine(sourceConfig.appId, sourceConfig);
   } catch (err: any) {
+    const inaccessible = isAccessFailure(err);
     items.push({
       id: 'src-engine-inaccessible',
       category: 'Engine & IdP',
       name: `Source Engine (${sourceConfig.appId})`,
-      sourceValue: 'INACCESSIBLE / NOT FOUND',
+      sourceValue: inaccessible ? 'ACCESS DENIED' : 'INACCESSIBLE / NOT FOUND',
       targetValue: 'N/A',
-      status: 'DRIFT',
+      status: inaccessible ? 'UNKNOWN' : 'DRIFT',
       severity: 'ERROR',
       details: err.message || 'Could not fetch source engine details.',
-      remediation: 'Verify Source Project ID, App Location, and Engine ID permissions.'
+      remediation: inaccessible
+        ? 'Grant the signed-in principal read access to the source engine, then re-run the audit. This check was skipped, not passed.'
+        : 'Verify Source Project ID, App Location, and Engine ID permissions.',
     });
   }
 
   try {
     targetEngine = await api.getEngine(targetConfig.appId, targetConfig);
   } catch (err: any) {
+    const inaccessible = isAccessFailure(err);
     items.push({
       id: 'tgt-engine-inaccessible',
       category: 'Engine & IdP',
       name: `Destination Engine (${targetConfig.appId})`,
       sourceValue: sourceEngine ? 'Accessible' : 'N/A',
-      targetValue: 'INACCESSIBLE / NOT FOUND',
-      status: 'MISSING_IN_TARGET',
+      targetValue: inaccessible ? 'ACCESS DENIED' : 'INACCESSIBLE / NOT FOUND',
+      status: inaccessible ? 'UNKNOWN' : 'MISSING_IN_TARGET',
       severity: 'ERROR',
       details: err.message || 'Could not fetch destination engine details.',
-      remediation: 'Ensure Destination Engine is created and provisioned in the target project.'
+      remediation: inaccessible
+        ? 'Grant the signed-in principal read access to the destination engine, then re-run the audit. This check was skipped, not failed.'
+        : 'Ensure Destination Engine is created and provisioned in the target project.',
     });
   }
 
@@ -98,8 +138,12 @@ export async function runConfigAudit(
       targetValue: tgtSolution,
       status: isSolutionMatch ? 'MATCH' : 'DRIFT',
       severity: isSolutionMatch ? 'OK' : 'ERROR',
-      details: isSolutionMatch ? 'Both engines use identical solution types.' : 'Engine solution types differ, which may cause feature incompatibility.',
-      remediation: isSolutionMatch ? undefined : `Re-provision target engine with solution type: ${srcSolution}.`
+      details: isSolutionMatch
+        ? 'Both engines use identical solution types.'
+        : 'Engine solution types differ, which may cause feature incompatibility.',
+      remediation: isSolutionMatch
+        ? undefined
+        : `Re-provision target engine with solution type: ${srcSolution}.`,
     });
 
     // 2. Search Tier / Features
@@ -114,8 +158,12 @@ export async function runConfigAudit(
       targetValue: tgtTier,
       status: isTierMatch ? 'MATCH' : 'DRIFT',
       severity: isTierMatch ? 'OK' : 'WARNING',
-      details: isTierMatch ? 'Search tiers match.' : `Search tier differs (Source: ${srcTier} vs Target: ${tgtTier}).`,
-      remediation: isTierMatch ? undefined : 'Align Search Engine Tier in target settings if advanced features are required.'
+      details: isTierMatch
+        ? 'Search tiers match.'
+        : `Search tier differs (Source: ${srcTier} vs Target: ${tgtTier}).`,
+      remediation: isTierMatch
+        ? undefined
+        : 'Align Search Engine Tier in target settings if advanced features are required.',
     });
 
     // 3. IdP & CID
@@ -130,10 +178,12 @@ export async function runConfigAudit(
       targetValue: tgtIdp.type,
       status: isIdpMatch ? 'MATCH' : 'DRIFT',
       severity: isIdpMatch ? 'OK' : 'WARNING',
-      details: isIdpMatch 
-        ? `Both environments use ${srcIdp.type}.` 
+      details: isIdpMatch
+        ? `Both environments use ${srcIdp.type}.`
         : `IdP migration mode active: Migrating from ${srcIdp.type} to ${tgtIdp.type}.`,
-      remediation: isIdpMatch ? undefined : 'Ensure identity mapping rules (idpMapping / domainRules) are defined in migration-config.json.'
+      remediation: isIdpMatch
+        ? undefined
+        : 'Ensure identity mapping rules (idpMapping / domainRules) are defined in migration-config.json.',
     });
 
     if (srcIdp.cid || tgtIdp.cid) {
@@ -146,8 +196,12 @@ export async function runConfigAudit(
         targetValue: tgtIdp.cid || '(None)',
         status: isCidMatch ? 'MATCH' : 'DRIFT',
         severity: isCidMatch ? 'OK' : 'WARNING',
-        details: isCidMatch ? 'Widget config CIDs match.' : 'Widget Config ID varies between source and target engines.',
-        remediation: isCidMatch ? undefined : 'Ensure target assistant widgetConfig is mapped in migration target configuration.'
+        details: isCidMatch
+          ? 'Widget config CIDs match.'
+          : 'Widget Config ID varies between source and target engines.',
+        remediation: isCidMatch
+          ? undefined
+          : 'Ensure target assistant widgetConfig is mapped in migration target configuration.',
       });
     }
 
@@ -161,8 +215,12 @@ export async function runConfigAudit(
       targetValue: targetConfig.appLocation,
       status: isLocationMatch ? 'MATCH' : 'DRIFT',
       severity: isLocationMatch ? 'OK' : 'WARNING',
-      details: isLocationMatch ? `Both engines reside in '${sourceConfig.appLocation}'.` : `Cross-region migration (${sourceConfig.appLocation} -> ${targetConfig.appLocation}).`,
-      remediation: isLocationMatch ? undefined : 'Cross-region migration may introduce cross-region network latency during one-time transfer.'
+      details: isLocationMatch
+        ? `Both engines reside in '${sourceConfig.appLocation}'.`
+        : `Cross-region migration (${sourceConfig.appLocation} -> ${targetConfig.appLocation}).`,
+      remediation: isLocationMatch
+        ? undefined
+        : 'Cross-region migration may introduce cross-region network latency during one-time transfer.',
     });
   }
 
@@ -178,15 +236,19 @@ export async function runConfigAudit(
     const srcDsRes = await api.listResources('dataStores', sourceConfig, undefined, 100, true);
     sourceDataStores = srcDsRes?.dataStores || [];
   } catch (err: any) {
+    // A failed listing tells us nothing about the source config, so it cannot
+    // be drift. Record it as unknown so it is excluded from the score.
     items.push({
       id: 'src-datastores-error',
       category: 'Grounding DataStores',
       name: 'Source DataStores Discovery',
-      sourceValue: 'ERROR',
+      sourceValue: 'NOT CHECKED',
       targetValue: 'N/A',
-      status: 'DRIFT',
+      status: 'UNKNOWN',
       severity: 'WARNING',
-      details: `Could not list source DataStores: ${err.message}`
+      details: `Could not list source DataStores: ${err.message}`,
+      remediation:
+        'Re-run the audit with read access to the source project. Source datastores were not compared.',
     });
   }
 
@@ -194,22 +256,25 @@ export async function runConfigAudit(
     const tgtDsRes = await api.listResources('dataStores', targetConfig, undefined, 100, true);
     targetDataStores = tgtDsRes?.dataStores || [];
   } catch (err: any) {
+    // Same reasoning as above: an unreadable list is not a missing list.
     items.push({
       id: 'tgt-datastores-error',
       category: 'Grounding DataStores',
       name: 'Destination DataStores Discovery',
       sourceValue: 'N/A',
-      targetValue: 'ERROR',
-      status: 'DRIFT',
+      targetValue: 'NOT CHECKED',
+      status: 'UNKNOWN',
       severity: 'WARNING',
-      details: `Could not list destination DataStores: ${err.message}`
+      details: `Could not list destination DataStores: ${err.message}`,
+      remediation:
+        'Re-run the audit with read access to the destination project. Destination datastores were not compared.',
     });
   }
 
   const targetDsMap = new Map<string, DataStore>();
   const targetDsByName = new Map<string, DataStore>();
 
-  targetDataStores.forEach(ds => {
+  targetDataStores.forEach((ds) => {
     const id = getResourceId(ds.name);
     targetDsMap.set(id, ds);
     if (ds.displayName) {
@@ -226,13 +291,15 @@ export async function runConfigAudit(
       targetValue: `${targetDataStores.length} DataStores`,
       status: 'INFO',
       severity: 'OK',
-      details: 'No DataStores found in source project. Agents do not depend on enterprise document grounding.'
+      details:
+        'No DataStores found in source project. Agents do not depend on enterprise document grounding.',
     });
   } else {
     for (const srcDs of sourceDataStores) {
       const dsId = getResourceId(srcDs.name);
       const dsName = srcDs.displayName || dsId;
-      const matchedTarget = targetDsMap.get(dsId) || targetDsByName.get(dsName.toLowerCase().trim());
+      const matchedTarget =
+        targetDsMap.get(dsId) || targetDsByName.get(dsName.toLowerCase().trim());
 
       if (matchedTarget) {
         const targetDsId = getResourceId(matchedTarget.name);
@@ -250,7 +317,7 @@ export async function runConfigAudit(
             : `Matched by display name, but target ID differs (${dsId} -> ${targetDsId}).`,
           remediation: isExactId
             ? undefined
-            : `Map "${dsId}": "${targetDsId}" under datastoreMapping in migration-config.json.`
+            : `Map "${dsId}": "${targetDsId}" under datastoreMapping in migration-config.json.`,
         });
       } else {
         items.push({
@@ -262,7 +329,7 @@ export async function runConfigAudit(
           status: 'MISSING_IN_TARGET',
           severity: 'ERROR',
           details: `Source DataStore "${dsName}" (${dsId}) does not exist in the destination environment. Agents referencing this DataStore will fail or skip grounding.`,
-          remediation: `Create a DataStore in the destination project with ID "${dsId}" or configure an explicit mapping in datastoreMapping.`
+          remediation: `Create a DataStore in the destination project with ID "${dsId}" or configure an explicit mapping in datastoreMapping.`,
         });
       }
     }
@@ -279,17 +346,35 @@ export async function runConfigAudit(
   try {
     sourceSkills = await api.listRegistrySkills(sourceConfig);
   } catch (err: any) {
-    // Many environments do not have Agent Registry enabled, which is fine
+    items.push({
+      id: 'src-skills-error',
+      category: 'Skills & Tools',
+      name: 'Source Skills Discovery',
+      sourceValue: 'ERROR',
+      targetValue: 'N/A',
+      status: 'UNKNOWN',
+      severity: 'WARNING',
+      details: `Could not list source skills: ${err.message || 'Unknown error'}`,
+    });
   }
 
   try {
     targetSkills = await api.listRegistrySkills(targetConfig);
   } catch (err: any) {
-    // Graceful fallback
+    items.push({
+      id: 'tgt-skills-error',
+      category: 'Skills & Tools',
+      name: 'Destination Skills Discovery',
+      sourceValue: 'N/A',
+      targetValue: 'ERROR',
+      status: 'UNKNOWN',
+      severity: 'WARNING',
+      details: `Could not list destination skills: ${err.message || 'Unknown error'}`,
+    });
   }
 
   const targetSkillMap = new Map<string, RegistrySkill>();
-  targetSkills.forEach(s => {
+  targetSkills.forEach((s) => {
     const id = s.skillId || s.name.split('/').pop() || s.displayName;
     targetSkillMap.set(id, s);
     if (s.displayName) {
@@ -306,13 +391,14 @@ export async function runConfigAudit(
       targetValue: `${targetSkills.length} Skills`,
       status: 'INFO',
       severity: 'OK',
-      details: 'No Agent Registry skills detected in source project.'
+      details: 'No Agent Registry skills detected in source project.',
     });
   } else {
     for (const srcSkill of sourceSkills) {
       const skillId = srcSkill.skillId || srcSkill.name.split('/').pop() || srcSkill.displayName;
       const skillTitle = srcSkill.displayName || skillId;
-      const matchedSkill = targetSkillMap.get(skillId) || targetSkillMap.get(skillTitle.toLowerCase().trim());
+      const matchedSkill =
+        targetSkillMap.get(skillId) || targetSkillMap.get(skillTitle.toLowerCase().trim());
 
       if (matchedSkill) {
         items.push({
@@ -323,7 +409,7 @@ export async function runConfigAudit(
           targetValue: `State: ${matchedSkill.state || 'ACTIVE'}`,
           status: 'MATCH',
           severity: 'OK',
-          details: 'Skill exists in destination Agent Registry.'
+          details: 'Skill exists in destination Agent Registry.',
         });
       } else {
         items.push({
@@ -335,7 +421,7 @@ export async function runConfigAudit(
           status: 'MISSING_IN_TARGET',
           severity: 'WARNING',
           details: `Source skill "${skillTitle}" is not registered in destination. Agents requiring this skill must have it published to target.`,
-          remediation: `Publish "${skillTitle}" to destination Agent Registry or use gemini-migrate v1.3.0 Tool Migrator.`
+          remediation: `Publish "${skillTitle}" to destination Agent Registry or use gemini-migrate v1.3.0 Tool Migrator.`,
         });
       }
     }
@@ -353,18 +439,36 @@ export async function runConfigAudit(
     const res = await api.listAuthorizations(sourceConfig);
     sourceAuths = res?.authorizations || [];
   } catch (err: any) {
-    // Authorizations endpoint may return 404 or empty if none exist
+    items.push({
+      id: 'src-auths-error',
+      category: 'Authorizations',
+      name: 'Source Authorizations Discovery',
+      sourceValue: 'ERROR',
+      targetValue: 'N/A',
+      status: 'UNKNOWN',
+      severity: 'WARNING',
+      details: `Could not list source authorizations: ${err.message || 'Unknown error'}`,
+    });
   }
 
   try {
     const res = await api.listAuthorizations(targetConfig);
     targetAuths = res?.authorizations || [];
   } catch (err: any) {
-    // Graceful fallback
+    items.push({
+      id: 'tgt-auths-error',
+      category: 'Authorizations',
+      name: 'Destination Authorizations Discovery',
+      sourceValue: 'N/A',
+      targetValue: 'ERROR',
+      status: 'UNKNOWN',
+      severity: 'WARNING',
+      details: `Could not list destination authorizations: ${err.message || 'Unknown error'}`,
+    });
   }
 
   const targetAuthMap = new Map<string, Authorization>();
-  targetAuths.forEach(a => {
+  targetAuths.forEach((a) => {
     const id = getResourceId(a.name);
     targetAuthMap.set(id, a);
     const clientId = a.serverSideOauth2?.clientId || a.serverClientId;
@@ -377,7 +481,8 @@ export async function runConfigAudit(
     for (const srcAuth of sourceAuths) {
       const authId = getResourceId(srcAuth.name);
       const srcClientId = srcAuth.serverSideOauth2?.clientId || srcAuth.serverClientId;
-      const matchedAuth = targetAuthMap.get(authId) || (srcClientId ? targetAuthMap.get(srcClientId) : undefined);
+      const matchedAuth =
+        targetAuthMap.get(authId) || (srcClientId ? targetAuthMap.get(srcClientId) : undefined);
 
       if (matchedAuth) {
         items.push({
@@ -388,7 +493,7 @@ export async function runConfigAudit(
           targetValue: 'Configured',
           status: 'MATCH',
           severity: 'OK',
-          details: 'Matching tool authorization exists in target environment.'
+          details: 'Matching tool authorization exists in target environment.',
         });
       } else {
         items.push({
@@ -400,7 +505,7 @@ export async function runConfigAudit(
           status: 'MISSING_IN_TARGET',
           severity: 'WARNING',
           details: `Authorization "${authId}" is missing in the destination project. Third-party tools relying on this authorization will need to be re-authorized.`,
-          remediation: `Provision tool authorization "${authId}" in target project before migrating connected agents.`
+          remediation: `Provision tool authorization "${authId}" in target project before migrating connected agents.`,
         });
       }
     }
@@ -419,8 +524,14 @@ export async function runConfigAudit(
     const tgtLicenses = tgtLicenseStats?.licenseConfigUsageStats || [];
 
     if (srcLicenses.length > 0 || tgtLicenses.length > 0) {
-      const srcTotalUsed = srcLicenses.reduce((acc: number, l: any) => acc + (Number(l.usedLicenseCount) || 0), 0);
-      const tgtTotalUsed = tgtLicenses.reduce((acc: number, l: any) => acc + (Number(l.usedLicenseCount) || 0), 0);
+      const srcTotalUsed = srcLicenses.reduce(
+        (acc: number, l: any) => acc + (Number(l.usedLicenseCount) || 0),
+        0
+      );
+      const tgtTotalUsed = tgtLicenses.reduce(
+        (acc: number, l: any) => acc + (Number(l.usedLicenseCount) || 0),
+        0
+      );
 
       items.push({
         id: 'license-stats-active',
@@ -430,11 +541,20 @@ export async function runConfigAudit(
         targetValue: `${tgtTotalUsed} Assigned Users`,
         status: 'INFO',
         severity: 'OK',
-        details: `Source has ${srcTotalUsed} active assigned user seats. Destination currently has ${tgtTotalUsed} seats allocated.`
+        details: `Source has ${srcTotalUsed} active assigned user seats. Destination currently has ${tgtTotalUsed} seats allocated.`,
       });
     }
   } catch (err: any) {
-    // License stats are project-level and may fail if caller lacks roles/discoveryengine.admin
+    items.push({
+      id: 'license-stats-error',
+      category: 'Licenses & Quotas',
+      name: 'License Stats Discovery',
+      sourceValue: 'ERROR',
+      targetValue: 'ERROR',
+      status: 'UNKNOWN',
+      severity: 'WARNING',
+      details: `Could not fetch license stats: ${err.message || 'Unknown error'}`,
+    });
   }
 
   onProgress?.('Audit Complete.', 100);
@@ -443,18 +563,27 @@ export async function runConfigAudit(
   // Calculate Overall Alignment Score & Summary
   // -------------------------------------------------------------
   const totalChecks = items.length;
-  const matchedCount = items.filter(i => i.status === 'MATCH' || i.status === 'INFO').length;
-  const driftCount = items.filter(i => i.status === 'DRIFT').length;
-  const missingCount = items.filter(i => i.status === 'MISSING_IN_TARGET').length;
+  const matchedCount = items.filter((i) => i.status === 'MATCH' || i.status === 'INFO').length;
+  const driftCount = items.filter((i) => i.status === 'DRIFT').length;
+  const missingCount = items.filter((i) => i.status === 'MISSING_IN_TARGET').length;
+  const unknownCount = items.filter((i) => i.status === 'UNKNOWN').length;
+  const actionableChecks = items.filter(
+    (i) => i.status === 'MATCH' || i.status === 'DRIFT' || i.status === 'MISSING_IN_TARGET'
+  ).length;
 
   // Score formula: Start at 100, deduct 15 for each missing blocker, 5 for each drift
-  let score = 100 - (missingCount * 15) - (driftCount * 5);
+  let score: number | null = 100 - missingCount * 15 - driftCount * 5;
   if (score < 0) score = 0;
-  if (totalChecks === 0) score = 100;
+
+  // If we couldn't run any meaningful checks (only INFO or UNKNOWN items)
+  if (actionableChecks === 0) {
+    score = null;
+  }
 
   return {
     overallScore: score,
     totalChecks,
+    unknownCount,
     matchedCount,
     driftCount,
     missingCount,
@@ -463,7 +592,7 @@ export async function runConfigAudit(
     sourceEngine: sourceConfig.appId,
     targetEngine: targetConfig.appId,
     items,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   };
 }
 
@@ -473,42 +602,67 @@ export async function runConfigAudit(
 export function generateAuditMarkdown(summary: ConfigAuditSummary): string {
   const lines: string[] = [];
 
-  const readinessPill = summary.overallScore >= 90
-    ? '🟢 READY FOR CUTOVER'
-    : summary.overallScore >= 70
-    ? '🟡 REMEDIATION RECOMMENDED'
-    : '🔴 BLOCKERS DETECTED';
+  const readinessPill =
+    summary.overallScore === null
+      ? '⚪ UNABLE TO ASSESS'
+      : summary.overallScore >= 90
+        ? '🟢 READY FOR CUTOVER'
+        : summary.overallScore >= 70
+          ? '🟡 REMEDIATION RECOMMENDED'
+          : '🔴 BLOCKERS DETECTED';
 
   lines.push(`# 📊 Gemini Enterprise Pre-Cutover Configuration Audit`);
   lines.push(`**Generated**: \`${summary.timestamp}\`  `);
-  lines.push(`**Source Environment**: \`${summary.sourceProject}\` (Engine: \`${summary.sourceEngine}\`)  `);
-  lines.push(`**Destination Environment**: \`${summary.targetProject}\` (Engine: \`${summary.targetEngine}\`)  `);
-  lines.push(`**Readiness Status**: **${readinessPill}** (Parity Score: **${summary.overallScore}%**)  `);
+  lines.push(
+    `**Source Environment**: \`${summary.sourceProject}\` (Engine: \`${summary.sourceEngine}\`)  `
+  );
+  lines.push(
+    `**Destination Environment**: \`${summary.targetProject}\` (Engine: \`${summary.targetEngine}\`)  `
+  );
+
+  const scoreDisplay = summary.overallScore === null ? '?' : `${summary.overallScore}%`;
+  lines.push(`**Readiness Status**: **${readinessPill}** (Parity Score: **${scoreDisplay}**)  `);
   lines.push('');
 
   lines.push(`---`);
   lines.push(`## 1. Executive Summary`);
   lines.push(`| Metric | Count | Assessment |`);
   lines.push(`| :--- | :---: | :--- |`);
-  lines.push(`| **Total Configurations Audited** | \`${summary.totalChecks}\` | Comprehensive 5-pillar scan |`);
-  lines.push(`| **✅ Identical / Compatible Matches** | \`${summary.matchedCount}\` | Ready for migration |`);
-  lines.push(`| **🟡 Configuration Drift / Warnings** | \`${summary.driftCount}\` | Operational adjustments recommended |`);
-  lines.push(`| **🔴 Missing in Destination** | \`${summary.missingCount}\` | Potential cutover blockers |`);
+  lines.push(
+    `| **Total Configurations Audited** | \`${summary.totalChecks}\` | Comprehensive 5-pillar scan |`
+  );
+  lines.push(
+    `| **✅ Identical / Compatible Matches** | \`${summary.matchedCount}\` | Ready for migration |`
+  );
+  lines.push(
+    `| **🟡 Configuration Drift / Warnings** | \`${summary.driftCount}\` | Operational adjustments recommended |`
+  );
+  lines.push(
+    `| **🔴 Missing in Destination** | \`${summary.missingCount}\` | Potential cutover blockers |`
+  );
+  if (summary.unknownCount > 0) {
+    lines.push(
+      `| **⚪ Unknown / Failed Checks** | \`${summary.unknownCount}\` | Manual verification required |`
+    );
+  }
   lines.push('');
 
   lines.push(`---`);
   lines.push(`## 2. Granular Audit Matrix`);
-  lines.push(`| Pillar | Component / Asset | Source Setting | Destination Setting | Parity Status | Guidance / Remediation |`);
+  lines.push(
+    `| Pillar | Component / Asset | Source Setting | Destination Setting | Parity Status | Guidance / Remediation |`
+  );
   lines.push(`| :--- | :--- | :--- | :--- | :---: | :--- |`);
 
   for (const item of summary.items) {
-    const statusBadge = item.status === 'MATCH'
-      ? '✅ MATCH'
-      : item.status === 'DRIFT'
-      ? '🟡 DRIFT'
-      : item.status === 'MISSING_IN_TARGET'
-      ? '🔴 MISSING'
-      : 'ℹ️ INFO';
+    const statusBadge =
+      item.status === 'MATCH'
+        ? '✅ MATCH'
+        : item.status === 'DRIFT'
+          ? '🟡 DRIFT'
+          : item.status === 'MISSING_IN_TARGET'
+            ? '🔴 MISSING'
+            : 'ℹ️ INFO';
 
     const remediation = item.remediation ? `**Action:** ${item.remediation}` : item.details || 'OK';
 
@@ -521,13 +675,19 @@ export function generateAuditMarkdown(summary: ConfigAuditSummary): string {
   lines.push(`---`);
   lines.push(`## 3. Recommended Cutover Actions`);
   if (summary.missingCount === 0 && summary.driftCount === 0) {
-    lines.push(`- ✅ All configuration checks passed. The target environment is fully prepared for one-time cutover with \`gemini-migrate\`.`);
+    lines.push(
+      `- ✅ All configuration checks passed. The target environment is fully prepared for one-time cutover with \`gemini-migrate\`.`
+    );
   } else {
     if (summary.missingCount > 0) {
-      lines.push(`- 🔴 **Resolve Missing Assets**: Create or map the flagged DataStores and Tools in destination project \`${summary.targetProject}\` prior to starting batch user transfer.`);
+      lines.push(
+        `- 🔴 **Resolve Missing Assets**: Create or map the flagged DataStores and Tools in destination project \`${summary.targetProject}\` prior to starting batch user transfer.`
+      );
     }
     if (summary.driftCount > 0) {
-      lines.push(`- 🟡 **Verify Drift Mappings**: Ensure \`idpMapping\` or \`datastoreMapping\` in \`migration-config.json\` accounts for differing IDs or IdP modes.`);
+      lines.push(
+        `- 🟡 **Verify Drift Mappings**: Ensure \`idpMapping\` or \`datastoreMapping\` in \`migration-config.json\` accounts for differing IDs or IdP modes.`
+      );
     }
   }
 

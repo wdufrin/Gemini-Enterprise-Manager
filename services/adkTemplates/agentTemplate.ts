@@ -1,5 +1,49 @@
 import { AdkAgentConfig } from "./types";
 
+/**
+ * Renders an arbitrary user string as a Python triple-quoted literal.
+ *
+ * Agent instructions and descriptions are free text typed by the user and are
+ * interpolated straight into generated Python, so anything this function gets
+ * wrong becomes a `SyntaxError` the user only discovers at deploy time.
+ *
+ * The order of the passes below is load-bearing:
+ *   1. Backslashes first. Doing this later would double-escape the backslashes
+ *      introduced by the subsequent passes.
+ *   2. `"""` sequences, which would otherwise terminate the literal.
+ *   3. A single trailing `"`, which would merge with the closing delimiter and
+ *      produce an unterminated string.
+ *   4. Control characters that are not legal raw inside a literal. `\n` and
+ *      `\t` are deliberately left as-is: they are valid inside triple quotes
+ *      and keeping them readable matters for long instructions.
+ */
+export function formatPythonString(str: string): string {
+  if (str === null || str === undefined) return '""';
+  if (str === "") return '""';
+
+  let escaped = str.replace(/\\/g, "\\\\");
+  escaped = escaped.replace(/"""/g, '\\"\\"\\"');
+  escaped = escaped.replace(/"$/g, '\\"');
+  escaped = escaped.replace(/[\0\b\f\r\v]/g, (match) => {
+    switch (match) {
+      case "\0":
+        return "\\0";
+      case "\b":
+        return "\\b";
+      case "\f":
+        return "\\f";
+      case "\r":
+        return "\\r";
+      case "\v":
+        return "\\v";
+      default:
+        return match;
+    }
+  });
+
+  return `"""${escaped}"""`;
+}
+
 export const generateAdk22PythonCode = (
   config: AdkAgentConfig,
   useRelativeImports: boolean = false,
@@ -100,14 +144,7 @@ export const generateAdk22PythonCode = (
     toolListForAgent.push("check_database_fleet_health");
   }
 
-  const formatPythonString = (str: string) => {
-    const needsTripleQuotes = str.includes("\n") || str.includes('"');
-    if (needsTripleQuotes) {
-      const escapedStr = str.replace(/"""/g, '\\"\\"\\"');
-      return `"""${escapedStr}"""`;
-    }
-    return `"${str.replace(/"/g, '\\"')}"`;
-  };
+
 
   const finalInstruction = config.instruction;
   if (config.enableGraphvizRendering) {
@@ -678,14 +715,7 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     toolListForAgent.push("check_database_fleet_health");
   }
 
-  const formatPythonString = (str: string) => {
-    const needsTripleQuotes = str.includes("\n") || str.includes('"');
-    if (needsTripleQuotes) {
-      const escapedStr = str.replace(/"""/g, '\\"\\"\\"');
-      return `"""${escapedStr}"""`;
-    }
-    return `"${str.replace(/"/g, '\\"')}"`;
-  };
+
 
   let finalInstruction = config.instruction;
   if (toolListForAgent.length > 0) {
@@ -1206,7 +1236,7 @@ def create_agent():
       : ""
     }
         ),
-        tools=[${toolListForAgent.join(", ")}],${pluginList.length > 0 ? `\n        plugins=[${pluginList.join(", ")}],` : ""}
+        tools=[${toolListForAgent.join(", ")}],
         # planner=BuiltInPlanner() # Default planner
     )
 

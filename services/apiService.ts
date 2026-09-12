@@ -45,6 +45,12 @@ import {
   ListRegistrySkillRevisionsResponse,
 } from "../types";
 import { getGapiClient } from "./gapiService";
+import {
+  isGoogleApiEndpoint,
+  mayReceiveGoogleCredentials,
+  buildValidatedUrl,
+} from "./urlSecurity";
+import { assertValidGcpResourceName } from "./shellSafety";
 
 const DISCOVERY_API_VERSION = "v1alpha";
 const DISCOVERY_API_BETA = "v1beta";
@@ -1229,7 +1235,7 @@ export const getWorkforcePoolProviders = async (
   poolName: string,
   config: Config,
 ) => {
-  // poolName is typically formatted as: "locations/global/workforcePools/wdufrin-okta"
+  // poolName is typically formatted as: "locations/global/workforcePools/example-okta"
   const poolId = poolName.split("/").pop();
   if (!poolId) return { workforcePoolProviders: [] };
 
@@ -2867,7 +2873,7 @@ const extractCloudRunServiceName = (url: string): string | null => {
     const parsed = new URL(url);
     if (!parsed.hostname.endsWith(".run.app")) return null;
     const subdomains = parsed.hostname.split(".");
-    const firstPart = subdomains[0]; // e.g., "oracle-mcp-server-180054373655" or "multi-mcp-vpaohjgvxq-uc"
+    const firstPart = subdomains[0]; // e.g., "oracle-mcp-server-123456789012" or "multi-mcp-vpaohjgvxq-uc"
     const parts = firstPart.split("-");
 
     if (parts.length <= 1) return firstPart;
@@ -3070,6 +3076,14 @@ export const deleteVanityUrl = async (
   projectId: string,
   serviceName: string,
 ) => {
+  // SECURITY (F-01): `serviceName` is interpolated into a `bash -c` script that
+  // runs in Cloud Build with the build service account. It is derived from
+  // Compute Engine forwarding-rule names returned by the API, but "the API
+  // would never return that" is not a security control. Validate against the
+  // GCP resource-name allowlist -- which every legitimate forwarding-rule base
+  // name already satisfies -- so no shell metacharacter can reach the script.
+  // The validated (trimmed) value is what gets interpolated below.
+  serviceName = assertValidGcpResourceName(serviceName, "Service name");
   const buildConfig = {
     steps: [
       {
@@ -3278,12 +3292,30 @@ export const fetchA2aAgentCard = async (
   serviceUrl: string,
   accessToken: string,
 ) => {
-  const url = `${serviceUrl.replace(/\/$/, "")}/.well-known/agent.json`;
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const url = buildValidatedUrl(serviceUrl, "/.well-known/agent.json");
+  if (!url) {
+    throw new Error(
+      `A2A Discovery Error: invalid or non-HTTPS URL: ${serviceUrl}`,
+    );
+  }
+  // SECURITY: only attach the Google bearer token to Google-hosted origins.
+  // Other hosts are still reachable -- self-hosted A2A agents are a legitimate
+  // case -- they simply do not receive the user's cloud-platform credentials.
+  const sendCredentials = mayReceiveGoogleCredentials(url);
+  const headers: Record<string, string> = {};
+  if (sendCredentials) {
+    headers["Authorization"] = `Bearer ${accessToken}`;
+  }
+
+  const response = await fetch(url, { method: "GET", headers });
   if (!response.ok) {
+    if (!sendCredentials && (response.status === 401 || response.status === 403)) {
+      throw new Error(
+        `A2A Discovery Error: ${response.status}. Google credentials are not sent to ` +
+          `non-Google hosts, so this endpoint must accept unauthenticated discovery ` +
+          `or be hosted on *.run.app / *.cloudfunctions.net / *.googleapis.com.`,
+      );
+    }
     throw new Error(
       `A2A Discovery Error: ${response.status} - ${await response.text()}`,
     );
@@ -3296,28 +3328,51 @@ export const invokeA2aAgent = async (
   prompt: string,
   accessToken: string,
 ) => {
-  const url = `${serviceUrl.replace(/\/$/, "")}/invoke`;
+  const url = buildValidatedUrl(serviceUrl, "/invoke");
+  if (!url) {
+    throw new Error(
+      `A2A Invocation Error: invalid or non-HTTPS URL: ${serviceUrl}`,
+    );
+  }
+  // SECURITY: see fetchA2aAgentCard. Same trust boundary, same reasoning.
+  const sendCredentials = mayReceiveGoogleCredentials(url);
+
+  // SECURITY: the access token is deliberately NOT included in `params.state`.
+  // It previously appeared there as both `AUTH_ID` and `gcp_access_token`,
+  // putting a live cloud-platform credential into a JSON-RPC payload that the
+  // receiving agent may log, persist, or echo back. Verified unnecessary: the
+  // generated A2A server authenticates from the Authorization header, and
+  // `AUTH_ID` is an env-var key name rather than a token value.
   const body = {
     jsonrpc: "2.0",
     method: "chat",
     params: {
       message: { role: "user", parts: [{ text: prompt }] },
-      state: {
-        AUTH_ID: accessToken,
-        gcp_access_token: accessToken,
-      },
+      state: {},
     },
     id: "1",
   };
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (sendCredentials) {
+    headers["Authorization"] = `Bearer ${accessToken}`;
+  }
+
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify(body),
   });
   if (!response.ok) {
+    if (!sendCredentials && (response.status === 401 || response.status === 403)) {
+      throw new Error(
+        `A2A Invocation Error: ${response.status}. Google credentials are not sent to ` +
+          `non-Google hosts. Deploy the agent to *.run.app (or another Google-hosted ` +
+          `origin) if it needs to authenticate with your Google identity.`,
+      );
+    }
     throw new Error(
       `A2A Invocation Error: ${response.status} - ${await response.text()}`,
     );
@@ -11664,15 +11719,16 @@ export const listMcpTools = async (
     let response;
     if (
       mcpEndpointUrl.startsWith("https://") &&
-      !mcpEndpointUrl.includes(".googleapis.com")
+      !isGoogleApiEndpoint(mcpEndpointUrl)
     ) {
-      // Custom endpoint, use fetch to avoid gapi CORS/handling issues
-      // SECURITY: Do not leak GCP OAuth Bearer token to external endpoints.
-      // Only attach Google credentials if targeting googleapis.com or trusted Google-managed run domains.
-      const isTrustedGoogleHost =
-        mcpEndpointUrl.includes(".googleapis.com") ||
-        mcpEndpointUrl.includes(".run.app") ||
-        mcpEndpointUrl.includes(".cloudfunctions.net");
+      // Custom endpoint, use fetch to avoid gapi CORS/handling issues.
+      //
+      // SECURITY: do not leak the GCP OAuth bearer token to external endpoints.
+      // This MUST be a parsed-hostname check. The previous implementation used
+      // `mcpEndpointUrl.includes(".run.app")`, which happily matched
+      // `https://untrusted.example.com/.run.app` and handed the user's cloud-platform token
+      // to an attacker. See services/urlSecurity.ts.
+      const isTrustedGoogleHost = mayReceiveGoogleCredentials(mcpEndpointUrl);
 
       const headers: Record<string, string> = {
         "Content-Type": "application/json",

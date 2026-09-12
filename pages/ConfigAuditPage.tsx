@@ -588,18 +588,22 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
               {/* Readiness Score */}
               <div className="flex items-center gap-4">
                 <div className={`w-16 h-16 rounded-full flex items-center justify-center font-bold text-xl border-4 ${
-                  auditSummary.overallScore >= 90
+                  auditSummary.overallScore === null
+                    ? 'border-gray-500 text-gray-400 bg-gray-950/30'
+                    : auditSummary.overallScore >= 90
                     ? 'border-emerald-500 text-emerald-400 bg-emerald-950/30'
                     : auditSummary.overallScore >= 70
                     ? 'border-amber-500 text-amber-400 bg-amber-950/30'
                     : 'border-red-500 text-red-400 bg-red-950/30'
                 }`}>
-                  {auditSummary.overallScore}%
+                  {auditSummary.overallScore === null ? '?' : `${auditSummary.overallScore}%`}
                 </div>
                 <div>
                   <div className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Parity Readiness</div>
                   <div className="text-lg font-bold text-white">
-                    {auditSummary.overallScore >= 90
+                    {auditSummary.overallScore === null
+                      ? 'Unable to assess'
+                      : auditSummary.overallScore >= 90
                       ? 'Ready for Cutover'
                       : auditSummary.overallScore >= 70
                       ? 'Minor Remediations Recommended'
@@ -607,6 +611,11 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
                   </div>
                   <div className="text-xs text-gray-400 mt-0.5">
                     {auditSummary.totalChecks} configurations audited across 5 dimensions
+                    {auditSummary.unknownCount > 0 && (
+                      <span className="text-amber-400 ml-1">
+                        ({auditSummary.unknownCount} unknown)
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -627,6 +636,13 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
                   <div className="text-xs text-red-400 font-medium">Missing in Target</div>
                   <div className="text-xl font-bold text-red-300">{auditSummary.missingCount}</div>
                 </div>
+
+                {auditSummary.unknownCount > 0 && (
+                  <div className="flex-1 md:flex-initial px-4 py-2.5 rounded-lg bg-gray-800 border border-gray-700 text-center">
+                    <div className="text-xs text-gray-400 font-medium">Unknown</div>
+                    <div className="text-xl font-bold text-gray-300">{auditSummary.unknownCount}</div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -726,11 +742,11 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
                                 </span>
                               )}
                             </td>
-                            <td className="py-3 px-4 font-mono text-[11px] text-gray-400 max-w-[180px] truncate" title={String(item.sourceValue)}>
-                              {String(item.sourceValue ?? 'N/A')}
+                            <td className="py-3 px-4 font-mono text-[11px] text-gray-400 max-w-[180px] truncate" title={typeof item.sourceValue === 'object' && item.sourceValue !== null ? JSON.stringify(item.sourceValue) : String(item.sourceValue ?? 'N/A')}>
+                              {typeof item.sourceValue === 'object' && item.sourceValue !== null ? JSON.stringify(item.sourceValue) : String(item.sourceValue ?? 'N/A')}
                             </td>
-                            <td className="py-3 px-4 font-mono text-[11px] text-gray-400 max-w-[180px] truncate" title={String(item.targetValue)}>
-                              {String(item.targetValue ?? 'N/A')}
+                            <td className="py-3 px-4 font-mono text-[11px] text-gray-400 max-w-[180px] truncate" title={typeof item.targetValue === 'object' && item.targetValue !== null ? JSON.stringify(item.targetValue) : String(item.targetValue ?? 'N/A')}>
+                              {typeof item.targetValue === 'object' && item.targetValue !== null ? JSON.stringify(item.targetValue) : String(item.targetValue ?? 'N/A')}
                             </td>
                             <td className="py-3 px-4 text-center whitespace-nowrap">
                               {item.status === 'MATCH' && (
@@ -751,6 +767,11 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
                               {item.status === 'INFO' && (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-700 text-gray-300">
                                   INFO
+                                </span>
+                              )}
+                              {item.status === 'UNKNOWN' && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-400 border border-gray-600">
+                                  UNKNOWN
                                 </span>
                               )}
                             </td>

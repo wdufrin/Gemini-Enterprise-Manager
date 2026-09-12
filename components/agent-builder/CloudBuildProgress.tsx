@@ -98,19 +98,12 @@ const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buil
         return () => clearInterval(intervalId);
     }, [projectId, buildId, isPolling]);
 
-    // Auto-close on success after a short delay
-    useEffect(() => {
-        if (status === 'SUCCESS' && onClose) {
-            const timer = setTimeout(() => {
-                onClose();
-            }, 5000); 
-            return () => clearTimeout(timer);
-        }
-    }, [status, onClose]);
-
     const isFinished = !isPolling;
     const isSuccess = status === 'SUCCESS';
     const isFailure = ['FAILURE', 'INTERNAL_ERROR', 'TIMEOUT', 'CANCELLED', 'EXPIRED'].includes(status);
+
+    const resourceNameMatch = logs.find(log => log.includes('Resource Name: '));
+    const resourceName = resourceNameMatch ? resourceNameMatch.split('Resource Name: ')[1]?.trim() : null;
 
     const getStatusColor = () => {
         if (status === 'SUCCESS') return 'text-green-400';
@@ -129,7 +122,9 @@ const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buil
     };
 
     const getStatusText = () => {
-        if (status === 'SUCCESS') return 'Success';
+        if (status === 'SUCCESS') {
+            return resourceName ? `Success: ${resourceName}` : 'Build completed — verify resource';
+        }
         if (['FAILURE', 'INTERNAL_ERROR', 'TIMEOUT', 'CANCELLED', 'EXPIRED'].includes(status)) return 'Failed';
         if (['QUEUED', 'PENDING'].includes(status)) return 'Queued...';
         if (['WORKING', 'BUILDING'].includes(status)) return 'Building...';
@@ -178,7 +173,7 @@ const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buil
     return (
         <div 
             onClick={() => setIsExpanded(true)}
-            className={`bg-gray-800 rounded-full shadow-lg border ${getBorderColor()} p-1 pl-4 pr-2 flex items-center gap-3 cursor-pointer hover:bg-gray-700 transition-all w-fit max-w-sm relative overflow-hidden`}
+            className={`bg-gray-800 rounded-full shadow-lg border ${getBorderColor()} p-1 pl-4 pr-2 flex items-center gap-3 cursor-pointer hover:bg-gray-700 transition-all w-fit max-w-lg relative overflow-hidden`}
         >
 
 
@@ -186,21 +181,34 @@ const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buil
                 {!isFinished ? (
                     <div className={`animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 ${['QUEUED', 'PENDING'].includes(status) ? 'border-yellow-400' : 'border-blue-400'}`}></div>
                 ) : isSuccess ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
                 ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
                 )}
-                <span className="text-sm font-medium text-white whitespace-nowrap">
-                    {getStatusText()}
-                </span>
+                <div className="flex flex-col py-1">
+                    <span className="text-sm font-medium text-white truncate">
+                        {getStatusText()}
+                    </span>
+                    {isSuccess && (
+                        <a 
+                            href={`https://console.cloud.google.com/vertex-ai/reasoning-engines?project=${projectId}`} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            className="text-xs text-blue-400 hover:underline inline-block mt-0.5" 
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            View in Cloud Console
+                        </a>
+                    )}
+                </div>
             </div>
             <button 
                 onClick={(e) => { e.stopPropagation(); onClose && onClose(); }}
-                className="p-1 rounded-full hover:bg-gray-600 text-gray-400 hover:text-white relative z-10"
+                className="p-1 rounded-full hover:bg-gray-600 text-gray-400 hover:text-white relative z-10 flex-shrink-0"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />

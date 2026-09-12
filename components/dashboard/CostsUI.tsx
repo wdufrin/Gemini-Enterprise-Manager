@@ -9,7 +9,7 @@ interface Props {
 
 const CostsUI: React.FC<Props> = ({ projectNumber }) => {
     const [edition, setEdition] = useState<'Standard' | 'Plus'>('Standard');
-    const [licenses, setLicenses] = useState<number | ''>(10);
+    const [licenses, setLicenses] = useState<number | ''>('');
     const [showInstructions, setShowInstructions] = useState(false);
 
     // API State
@@ -46,7 +46,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 }
             } catch (err: any) {
                 console.error("Failed to fetch billing accounts:", err);
-                setError("Failed to load billing accounts.");
+                setError(err.message || "Failed to load billing accounts.");
             } finally {
                 setIsLoading(false);
             }
@@ -77,7 +77,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 }
             } catch (err: any) {
                 console.error("Failed to fetch license configs:", err);
-                setError("Failed to load subscription profiles.");
+                setError(err.message || "Failed to load subscription profiles.");
             } finally {
                 setIsLoading(false);
             }
@@ -359,6 +359,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
 
     const QuotaCard = ({ title, value, usage, unit, tooltip }: any) => {
         const isUnavailable = usage === undefined || usage === null;
+        const noLicenses = licenses === '';
         const percentage = !isUnavailable && value > 0 ? Math.min(100, Math.round((usage / value) * 100)) : 0;
         return (
         <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700 flex flex-col justify-between">
@@ -372,10 +373,10 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 ) : (
                     <span className="text-3xl font-bold text-blue-400">{usage.toLocaleString()}</span>
                 )}
-                <span className="text-gray-500 text-sm font-medium">/ {value.toLocaleString()}</span>
+                <span className="text-gray-500 text-sm font-medium">/ {noLicenses ? '-' : value.toLocaleString()}</span>
                 {unit && <span className="text-gray-400 text-sm ml-1">{unit}</span>}
             </div>
-            {!isUnavailable && (
+            {!isUnavailable && !noLicenses && (
                 <div className="mt-3 w-full bg-gray-700 rounded-full h-1.5 border border-gray-600">
                     <div 
                         className={`h-1.5 rounded-full ${percentage > 90 ? 'bg-red-500' : percentage > 75 ? 'bg-yellow-500' : 'bg-blue-500'}`} 

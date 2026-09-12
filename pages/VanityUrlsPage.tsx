@@ -150,10 +150,6 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
                 });
 
             setVanityUrls(combined.sort((a,b) => new Date(b.creationTimestamp).getTime() - new Date(a.creationTimestamp).getTime()));
-            
-            if (combined.length === 0) {
-                setError("No Redirect URLs found in this project.");
-            }
         } catch (err: any) {
             setError(err.message || 'Failed to fetch redirect URLs.');
         } finally {

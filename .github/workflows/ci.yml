@@ -50,9 +50,9 @@ jobs:
 
       # Fails on ESLint *errors*. Warnings are tolerated but ratcheted:
       # --max-warnings is a ceiling that should only ever be lowered.
-      # Current baseline: 1350 warnings (mostly @typescript-eslint/no-explicit-any).
+      # Current baseline: 1355 warnings (mostly @typescript-eslint/no-explicit-any).
       - name: Lint
-        run: npm run lint -- --max-warnings 1350
+        run: npm run lint -- --max-warnings 1348
 
       # NOTE: tsconfig.json currently has "strict": false, so this check is
       # much weaker than it looks. Tightening it is tracked in Phase 2.
@@ -72,3 +72,47 @@ jobs:
           name: dist
           path: dist/
           retention-days: 7
+
+  # ADK Studio hands users Python to deploy. A syntax check is not enough --
+  # `Agent(plugins=[...])` is syntactically perfect and only fails when pydantic
+  # validates it at import. This job does the real import.
+  codegen-import:
+    name: ADK codegen import check
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      # These transitive deps are installed explicitly on purpose. The matrix
+      # SKIPS any case whose import dies on a missing module -- which is how
+      # the task 1.10 regression guard silently stopped running locally until
+      # bigquery-storage and pyarrow were installed. Pinning them here keeps the
+      # guard honest. Bump google-adk deliberately, not automatically.
+      - name: Install ADK runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            'google-adk==2.3.0' \
+            'google-cloud-bigquery-storage' \
+            'pyarrow'
+
+      - name: Generate and import every template permutation
+        env:
+          ADK_IMPORT_CHECK: '1'
+        run: npx vitest run tests/codegen/codegenMatrix.test.ts

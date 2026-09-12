@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import CloudConsoleButton from '../components/CloudConsoleButton';
-import { listLoggingSinks, listBigQueryTables, runBigQueryQuery } from '../services/apiService';
+import { listLoggingSinks, listBigQueryTables, runBigQueryQuery, gapiRequest } from '../services/apiService';
 import ObservabilityDashboard from '../components/dashboard/ObservabilityDashboard';
 import { OperationalAnalyticsDashboard } from '../components/dashboard/operational/OperationalAnalyticsDashboard';
 
@@ -24,20 +24,28 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
 
     // 1. Fetch Log Router Sinks (only on mount / projectNumber change)
     useEffect(() => {
-        if (!projectNumber) return;
+        if (!projectNumber) {
+            setSinks([]);
+            setSelectedSinkName(null);
+            return;
+        }
+        setSinks([]);
+        setSelectedSinkName(null);
+        let isCurrent = true;
         const fetchSinks = async () => {
             setSinksLoading(true);
             setError(null);
             try {
                 const sinksResponse = await listLoggingSinks(projectNumber);
-                setSinks(sinksResponse.sinks || []);
+                if (isCurrent) setSinks(sinksResponse.sinks || []);
             } catch (err: any) {
-                setError(err.message || 'Failed to fetch log sinks');
+                if (isCurrent) setError(err.message || 'Failed to fetch log sinks');
             } finally {
-                setSinksLoading(false);
+                if (isCurrent) setSinksLoading(false);
             }
         };
         fetchSinks();
+        return () => { isCurrent = false; };
     }, [projectNumber]);
 
     const bqSinks = useMemo(() => {
@@ -104,17 +112,24 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
         return () => {
             isCurrent = false;
         };
-    }, [projectNumber, datasetId]);
+    }, [projectNumber, projectId, datasetId]);
 
     // 3. Query Dashboard Metrics (optimized query with subquery JSON serialization & in-memory caching)
     useEffect(() => {
-        if (!projectId || !datasetId || tables.length === 0) return;
+        if (!projectId || !datasetId || tables.length === 0) {
+            setDashboardData(null);
+            return;
+        }
 
         const cacheKey = `${projectId}:${datasetId}:${timeRange}`;
         if (queryCache.current.has(cacheKey)) {
             setDashboardData(queryCache.current.get(cacheKey));
             return;
         }
+        
+        setDashboardData(null);
+
+        const abortController = new AbortController();
 
         const runQuery = async () => {
             setQueryLoading(true);
@@ -379,7 +394,41 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         FROM base_activity
                     `;
 
-                    const result = await runBigQueryQuery(projectId, consolidatedQuery, true);
+                    let result = await runBigQueryQuery(projectId, consolidatedQuery, true);
+
+                    if (result.error || (result.errors && result.errors.length > 0)) {
+                        throw new Error(result.error?.message || result.errors?.[0]?.message || 'BigQuery query failed');
+                    }
+
+                    let attempt = 0;
+                    while (result.jobComplete === false && attempt < 30) {
+                        if (abortController.signal.aborted) return;
+                        
+                        await new Promise(r => setTimeout(r, 1500));
+                        if (abortController.signal.aborted) return;
+                        
+                        const { jobId, location } = result.jobReference ?? {};
+                        if (!jobId) {
+                            // Without a job reference there is nothing to poll.
+                            // Say so rather than falling through and rendering zeros.
+                            throw new Error(
+                                'BigQuery reported the query as incomplete but returned no job reference to poll.'
+                            );
+                        }
+                        const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${jobId}${location ? `?location=${encodeURIComponent(location)}` : ''}`;
+                        result = await gapiRequest<any>(url, 'GET', projectId, undefined, undefined, undefined, true);
+                        
+                        if (result.error || (result.errors && result.errors.length > 0)) {
+                            throw new Error(result.error?.message || result.errors?.[0]?.message || 'BigQuery polling failed');
+                        }
+                        
+                        attempt++;
+                    }
+
+                    if (result.jobComplete === false) {
+                        throw new Error("BigQuery query timed out after multiple polling attempts.");
+                    }
+
                     const rows = result?.rows || [];
 
                     rows.forEach((row: any) => {
@@ -410,16 +459,19 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     dashboardData.uniqueAgents = dashboardData.agentData.length;
                 }
 
+                if (abortController.signal.aborted) return;
                 queryCache.current.set(cacheKey, dashboardData);
                 setDashboardData(dashboardData);
             } catch (err: any) {
+                if (abortController.signal.aborted) return;
                 setError(err.message || 'Failed to fetch dashboard data');
             } finally {
-                setQueryLoading(false);
+                if (!abortController.signal.aborted) setQueryLoading(false);
             }
         };
 
         runQuery();
+        return () => abortController.abort();
     }, [projectId, datasetId, timeRange, tables]);
 
     const refreshTables = useCallback(async () => {

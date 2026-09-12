@@ -17,6 +17,11 @@
 import React, { useState, useEffect } from 'react';
 import * as api from '../services/apiService';
 import { Config } from '../types';
+import {
+    assertValidBucketPath,
+    assertValidGcpResourceName,
+    assertValidOpaqueId,
+} from '../services/shellSafety';
 import ProjectInput from '../components/ProjectInput';
 import WizardStepper from '../components/agent-starter-pack/WizardStepper';
 import StepTemplate from '../components/agent-starter-pack/StepTemplate';
@@ -386,6 +391,38 @@ jobs:
     const handleDeploy = async () => {
         setIsDeploying(true);
         try {
+            // SECURITY (F-01): `command` is spliced into `bash -c` below, so every
+            // user-controlled value that feeds it must be allowlist-validated first.
+            // Validate here -- before the build config is assembled -- so a bad value
+            // can never reach Cloud Build. These helpers throw, and the catch below
+            // surfaces err.message to the user via alert().
+            //
+            // `location` comes from a fixed <select>, and `model` from MODEL_OPTIONS,
+            // but both are still checked: a constant today is not a guarantee tomorrow.
+            // DELIBERATE: assertValidOpaqueId, not assertValidProjectIdentifier -- the
+            // latter's PROJECT_IDENTIFIER_PATTERN enforces a 6-character minimum and
+            // would start rejecting short project IDs that work today. Do not "tidy".
+            assertValidOpaqueId(projectId, 'Project ID / Number');
+            assertValidGcpResourceName(location, 'Region');
+            assertValidGcpResourceName(
+                model.toLowerCase().replace(/ /g, '-').replace('.', '-'),
+                'Model'
+            );
+
+            if (sourceType === 'template') {
+                // agentName is free text from the Configuration step.
+                assertValidGcpResourceName(agentName, 'Agent Name');
+            } else if (selectedSample) {
+                // selectedSample.name is a directory name from the GitHub API. It is
+                // not user-typed, but "the API would never return that" is not a
+                // security control -- it is interpolated into `cd .../${name}`.
+                assertValidOpaqueId(selectedSample.name, 'Sample name');
+            }
+
+            // Both are free text from the Capabilities step and are optional.
+            if (gcsBucket) assertValidBucketPath(gcsBucket, 'GCS Bucket URI');
+            if (dataStoreId) assertValidOpaqueId(dataStoreId, 'Data Store ID');
+
             // Construct Cloud Build Config
             const buildConfig: any = {
                 steps: [

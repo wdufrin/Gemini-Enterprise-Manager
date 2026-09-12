@@ -37,6 +37,16 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/setupTests.ts',
+    // `scratch/` and `examples/` are gitignored. Without this, a throwaway
+    // *.test.ts dropped in there joins the suite locally but does not exist in
+    // CI -- so the two disagree about what "all tests pass" means.
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.venv/**',
+      '**/scratch/**',
+      '**/examples/**'
+    ],
   },
   build: {
     outDir: 'dist',
