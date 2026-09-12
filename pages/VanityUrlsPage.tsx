@@ -4,6 +4,8 @@ import { GlobalForwardingRule, ManagedSslCertificate, AppEngine, Config } from '
 import ProjectInput from '../components/ProjectInput';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 import VanityUrlDeploymentForm from '../components/assistants/VanityUrlDeploymentForm';
+import DestructiveConfirmModal from '../components/DestructiveConfirmModal';
+import { toErrorMessage } from '../utils/errors';
 
 interface VanityUrlsPageProps {
   projectNumber: string;
@@ -47,6 +49,8 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
     const [availableEngines, setAvailableEngines] = useState<{ engine: AppEngine; config: Config }[]>([]);
     const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
     const [selectedEngineIdx, setSelectedEngineIdx] = useState<number>(0);
+    const [urlToDelete, setUrlToDelete] = useState<CombinedVanityUrl | null>(null);
+    const [deletingServiceNames, setDeletingServiceNames] = useState<Set<string>>(new Set());
 
     const fetchVanityUrls = async () => {
         if (!projectId) return;
@@ -163,10 +167,9 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
         }
     }, [projectId]);
 
-    const handleDelete = async (serviceName: string) => {
-        if (!window.confirm(`Are you sure you want to permanently delete the redirect URL infrastructure for '${serviceName}'? This will dismantle the Global Load Balancer, SSL Certificate, URL Map, and Target Proxy.`)) {
-            return;
-        }
+    const handleConfirmDelete = async () => {
+        if (!urlToDelete) return;
+        const serviceName = urlToDelete.serviceName;
 
         setIsDeleting(serviceName);
         setError(null);
@@ -177,10 +180,12 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
                 onBuildTriggered(buildId, projectId);
             }
             
-            // Optimistically remove from list
-            setVanityUrls(prev => prev.filter(v => v.name !== serviceName));
-        } catch(e: any) {
-            setError(e.message || `Failed to initiate deletion for ${serviceName}`);
+            // Task 3.5: Stop optimistic row removal on Redirect URLs.
+            // Mark as "Deleting..." with an active status badge until Cloud Build finishes.
+            setDeletingServiceNames(prev => new Set(prev).add(serviceName));
+            setUrlToDelete(null);
+        } catch(e: unknown) {
+            setError(toErrorMessage(e, `Failed to initiate deletion for ${serviceName}`));
         } finally {
             setIsDeleting(null);
         }
@@ -333,24 +338,31 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
                                         {url.ipAddress}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                            url.certStatus === 'ACTIVE' ? 'bg-green-900/40 text-green-300 border border-green-800' :
-                                            url.certStatus === 'PROVISIONING' ? 'bg-yellow-900/40 text-yellow-300 border border-yellow-800' :
-                                            url.certStatus === 'FAILED' ? 'bg-red-900/40 text-red-300 border border-red-800' :
-                                            'bg-gray-700 text-gray-400 border border-gray-600'
-                                        }`}>
-                                            {url.certStatus}
-                                        </span>
+                                        {deletingServiceNames.has(url.serviceName) ? (
+                                            <span className="px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-md border bg-amber-900/40 text-amber-300 border-amber-800 animate-pulse flex items-center gap-1.5 w-fit">
+                                                <div className="animate-spin rounded-full h-2.5 w-2.5 border border-amber-300/30 border-t-amber-300" />
+                                                Dismantling...
+                                            </span>
+                                        ) : (
+                                            <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                                url.certStatus === 'ACTIVE' ? 'bg-green-900/40 text-green-300 border border-green-800' :
+                                                url.certStatus === 'PROVISIONING' ? 'bg-yellow-900/40 text-yellow-300 border border-yellow-800' :
+                                                url.certStatus === 'FAILED' ? 'bg-red-900/40 text-red-300 border border-red-800' :
+                                                'bg-gray-700 text-gray-400 border border-gray-600'
+                                            }`}>
+                                                {url.certStatus}
+                                            </span>
+                                        )}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-gray-400 text-xs">
                                         {new Date(url.creationTimestamp).toLocaleDateString()} {new Date(url.creationTimestamp).toLocaleTimeString()}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         <button
-                                            onClick={() => handleDelete(url.serviceName)}
-                                            disabled={isDeleting === url.serviceName}
+                                            onClick={() => setUrlToDelete(url)}
+                                            disabled={isDeleting === url.serviceName || deletingServiceNames.has(url.serviceName)}
                                             className="text-red-400 hover:text-red-300 disabled:text-gray-600 transition-colors tooltip-wrapper"
-                                            title="Delete Redirect URL Infrastructure"
+                                            title={deletingServiceNames.has(url.serviceName) ? "Teardown build triggered" : "Delete Redirect URL Infrastructure"}
                                         >
                                             {isDeleting === url.serviceName ? (
                                                 <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-red-400"></div>
@@ -367,6 +379,30 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
                     </table>
                 </div>
             </div>
+
+            <DestructiveConfirmModal
+                isOpen={!!urlToDelete}
+                onClose={() => setUrlToDelete(null)}
+                onConfirm={handleConfirmDelete}
+                title="Dismantle Redirect URL Infrastructure"
+                resourceType="Redirect URL"
+                resources={urlToDelete ? [
+                    {
+                        name: urlToDelete.serviceName,
+                        details: urlToDelete.domains.length > 0 ? urlToDelete.domains.join(', ') : urlToDelete.ipAddress,
+                    }
+                ] : []}
+                confirmKeyword={urlToDelete ? urlToDelete.serviceName : 'DELETE'}
+                confirmButtonText="Dismantle Infrastructure"
+                isLoading={!!isDeleting}
+                description="This initiates a Cloud Build teardown pipeline to permanently remove all networking and load balancing infrastructure."
+                consequences={[
+                    "Global or Regional Forwarding Rules, Target Proxies, and URL Maps will be deleted.",
+                    "Google-managed SSL certificates for associated domains will be decommissioned.",
+                    "Incoming traffic on these vanity domains will immediately fail with connection refused or DNS errors.",
+                    "Private Service Connect endpoints and managed DNS zones (if configured) will be dismantled."
+                ]}
+            />
         </div>
     );
 };

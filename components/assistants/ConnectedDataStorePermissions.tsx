@@ -20,6 +20,7 @@ import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import SetDataStoreIamPolicyModal, { ResourceType } from './SetDataStoreIamPolicyModal';
 import DataStorePermissionsScriptModal from './DataStorePermissionsScriptModal';
+import DestructiveConfirmModal from '../DestructiveConfirmModal';
 
 interface ConnectedDataStorePermissionsProps {
   engine: AppEngine;
@@ -134,6 +135,13 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     policy: any;
   } | null>(null);
   const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<{
+    member: string;
+    resourceType: ResourceType;
+    resourceId: string;
+    resourceDesc: string;
+  } | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
 
   // Search & Filters for Matrix
   const [searchQuery, setSearchQuery] = useState('');
@@ -989,14 +997,20 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
   };
 
   // Quick Revoke Member from a specific resource
-  const handleRevoke = async (
+  const handleRevoke = (
     member: string,
     resourceType: ResourceType,
     resourceId: string,
     resourceDesc: string
   ) => {
-    if (!confirm(`Are you sure you want to revoke '${member}' from ${resourceDesc}?`)) return;
+    setRevokeTarget({ member, resourceType, resourceId, resourceDesc });
+  };
 
+  const confirmRevoke = async () => {
+    if (!revokeTarget) return;
+    const { member, resourceType, resourceId, resourceDesc } = revokeTarget;
+
+    setIsRevoking(true);
     setIsLoading(true);
     setError(null);
     try {
@@ -1028,9 +1042,12 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
 
       await setFn({ etag, bindings });
       setSuccessMessage(`Revoked '${member}' from ${resourceDesc}.`);
+      setRevokeTarget(null);
       refreshAll();
     } catch (err: any) {
       setError(`Failed to revoke access: ${err.message}`);
+    } finally {
+      setIsRevoking(false);
       setIsLoading(false);
     }
   };
@@ -2376,6 +2393,23 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
           </div>
         </div>
       )}
+
+      <DestructiveConfirmModal
+        isOpen={!!revokeTarget}
+        onClose={() => setRevokeTarget(null)}
+        onConfirm={confirmRevoke}
+        title="Revoke Member Access"
+        resourceType="IAM Binding"
+        resources={revokeTarget ? [{ name: revokeTarget.member, details: revokeTarget.resourceDesc }] : []}
+        confirmKeyword="REVOKE"
+        confirmButtonText="Revoke Access"
+        description={`You are about to revoke access for "${revokeTarget?.member}" from ${revokeTarget?.resourceDesc}.`}
+        consequences={[
+          `The principal "${revokeTarget?.member}" will immediately lose search and query access to this resource.`,
+          "This updates the resource IAM policy bindings directly in Google Cloud."
+        ]}
+        isLoading={isRevoking}
+      />
     </div>
   );
 };

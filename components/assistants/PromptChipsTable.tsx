@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as api from '../../services/apiService';
 import PromptChipModal from './PromptChipModal';
+import DestructiveConfirmModal from '../DestructiveConfirmModal';
 
 interface PromptChip {
     name: string;
@@ -23,6 +24,8 @@ const PromptChipsTable: React.FC<PromptChipsTableProps> = ({ engineName }) => {
     const [filterText, setFilterText] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedChip, setSelectedChip] = useState<any | null>(null);
+    const [chipToDelete, setChipToDelete] = useState<PromptChip | null>(null);
+    const [isDeletingChip, setIsDeletingChip] = useState(false);
     const [reloadTrigger, setReloadTrigger] = useState(0);
 
     const triggerReload = () => setReloadTrigger(prev => prev + 1);
@@ -143,17 +146,7 @@ const PromptChipsTable: React.FC<PromptChipsTableProps> = ({ engineName }) => {
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                             </button>
                                             <button 
-                                                onClick={async () => {
-                                                    if (confirm(`Are you sure you want to delete prompt chip "${chip.name}"?`)) {
-                                                        try {
-                                                            await api.deletePromptChip(engineName, chip.name);
-                                                            triggerReload();
-                                                        } catch (err) {
-                                                            console.error("Failed to delete", err);
-                                                            alert("Failed to delete chip");
-                                                        }
-                                                    }
-                                                }}
+                                                onClick={() => setChipToDelete(chip)}
                                                 className="text-gray-400 hover:text-red-400" 
                                                 title="Delete"
                                             >
@@ -174,6 +167,36 @@ const PromptChipsTable: React.FC<PromptChipsTableProps> = ({ engineName }) => {
                 engineName={engineName}
                 chip={selectedChip}
                 onSuccess={triggerReload}
+            />
+
+            <DestructiveConfirmModal
+                isOpen={!!chipToDelete}
+                onClose={() => setChipToDelete(null)}
+                onConfirm={async () => {
+                    if (!chipToDelete) return;
+                    setIsDeletingChip(true);
+                    try {
+                        await api.deletePromptChip(engineName, chipToDelete.name);
+                        setChipToDelete(null);
+                        triggerReload();
+                    } catch (err) {
+                        console.error("Failed to delete", err);
+                        alert("Failed to delete chip: " + (err instanceof Error ? err.message : String(err)));
+                    } finally {
+                        setIsDeletingChip(false);
+                    }
+                }}
+                title="Delete Prompt Chip"
+                resourceType="Prompt Chip"
+                resources={chipToDelete ? [{ name: chipToDelete.title || chipToDelete.name, details: chipToDelete.name }] : []}
+                confirmKeyword={chipToDelete?.name || 'DELETE'}
+                confirmButtonText="Delete Prompt Chip"
+                description={`Are you sure you want to delete prompt chip "${chipToDelete?.title || chipToDelete?.name}"?`}
+                consequences={[
+                    "This prompt chip will be permanently deleted from the assistant engine.",
+                    "Users will no longer see this suggested prompt chip in the conversation interface."
+                ]}
+                isLoading={isDeletingChip}
             />
         </div>
     );

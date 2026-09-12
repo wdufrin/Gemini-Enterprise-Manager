@@ -3026,7 +3026,21 @@ export const setAgentIamPolicy = async (
 ) => {
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
   const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}:setIamPolicy`;
-  return gapiRequest<any>(url, "POST", config.projectId, undefined, { policy });
+
+  // Read-modify-write concurrency protection: if etag is missing, fetch current policy first to obtain etag
+  const finalPolicy = { ...policy };
+  if (!finalPolicy.etag) {
+    try {
+      const current = await getAgentIamPolicy(name, config);
+      if (current?.etag) {
+        finalPolicy.etag = current.etag;
+      }
+    } catch (fetchErr) {
+      console.warn("Could not fetch current agent IAM policy for etag concurrency check:", fetchErr);
+    }
+  }
+
+  return gapiRequest<any>(url, "POST", config.projectId, undefined, { policy: finalPolicy });
 };
 
 // --- Compute Engine ---
@@ -3100,37 +3114,67 @@ export const deleteVanityUrl = async (
           "-c",
           `
 echo "========== STARTING REDIRECT URL & PRIVATE ROUTING INFRASTRUCTURE DISMANTLING =========="
-CLEAN_SUFFIX=$(echo "${serviceName}" | sed 's/assistant-//' | tr -d '_' | tr '[:upper:]' '[:lower:]' | cut -c1-12)
-ALPHA_SUFFIX=$(echo "${serviceName}" | sed 's/assistant-//' | tr -d '_' | tr -d '-' | tr '[:upper:]' '[:lower:]' | cut -c1-14)
+CLEAN_SUFFIX=$$(echo "${serviceName}" | sed 's/assistant-//' | tr -d '_' | tr '[:upper:]' '[:lower:]' | cut -c1-12)
+ALPHA_SUFFIX=$$(echo "${serviceName}" | sed 's/assistant-//' | tr -d '_' | tr -d '-' | tr '[:upper:]' '[:lower:]' | cut -c1-14)
+
+FAILURES=0
+SKIPPED=0
+DELETED=0
+
+teardown_resource() {
+  local res_type="$$1"
+  local res_name="$$2"
+  shift 2
+  echo "Dismantling $$res_type: $$res_name..."
+  local out
+  if out=$$("$$@" 2>&1); then
+    echo "[SUCCESS] Deleted $$res_type: $$res_name"
+    DELETED=$$((DELETED + 1))
+  elif echo "$$out" | grep -qE "was not found|NOT_FOUND|notFound|could not be found"; then
+    echo "[SKIPPED] $$res_type $$res_name was not present"
+    SKIPPED=$$((SKIPPED + 1))
+  else
+    echo "[FAILED] Failed to delete $$res_type $$res_name:" >&2
+    echo "$$out" >&2
+    FAILURES=$$((FAILURES + 1))
+  fi
+}
 
 # 1. Dismantling Public Global Load Balancer (if exists)
 echo "1. Dismantling Global Forwarding Rules and certificates..."
-gcloud compute forwarding-rules delete "${serviceName}-fwd-rule" --global --quiet || true
-gcloud compute target-https-proxies delete "${serviceName}-https-proxy" --global --quiet || true
-gcloud compute url-maps delete "${serviceName}-url-map" --global --quiet || true
-gcloud compute ssl-certificates delete "${serviceName}-cert" --global --quiet || true
+teardown_resource "Forwarding Rule" "${serviceName}-fwd-rule" gcloud compute forwarding-rules delete "${serviceName}-fwd-rule" --global --quiet
+teardown_resource "Target HTTPS Proxy" "${serviceName}-https-proxy" gcloud compute target-https-proxies delete "${serviceName}-https-proxy" --global --quiet
+teardown_resource "URL Map" "${serviceName}-url-map" gcloud compute url-maps delete "${serviceName}-url-map" --global --quiet
+teardown_resource "SSL Certificate" "${serviceName}-cert" gcloud compute ssl-certificates delete "${serviceName}-cert" --global --quiet
 
 # 2. Dismantling Regional Internal Load Balancer (if exists)
 echo "2. Dismantling Regional Forwarding Rules and subnets..."
 LOCATION="us-central1"
-gcloud compute forwarding-rules delete "${serviceName}-internal-fwd-rule" --region=$$LOCATION --quiet || true
-gcloud compute target-http-proxies delete "${serviceName}-internal-target-proxy" --region=$$LOCATION --quiet || true
-gcloud compute url-maps delete "${serviceName}-internal-map" --region=$$LOCATION --quiet || true
-gcloud compute networks subnets delete "${serviceName}-proxy-subnet" --region=$$LOCATION --quiet || true
+teardown_resource "Internal Forwarding Rule" "${serviceName}-internal-fwd-rule" gcloud compute forwarding-rules delete "${serviceName}-internal-fwd-rule" --region="$$LOCATION" --quiet
+teardown_resource "Internal Target HTTP Proxy" "${serviceName}-internal-target-proxy" gcloud compute target-http-proxies delete "${serviceName}-internal-target-proxy" --region="$$LOCATION" --quiet
+teardown_resource "Internal URL Map" "${serviceName}-internal-map" gcloud compute url-maps delete "${serviceName}-internal-map" --region="$$LOCATION" --quiet
+teardown_resource "Proxy Subnet" "${serviceName}-proxy-subnet" gcloud compute networks subnets delete "${serviceName}-proxy-subnet" --region="$$LOCATION" --quiet
 
 # 3. Dismantling Private Service Connect (PSC) (if exists)
 echo "3. Dismantling Private Service Connect (PSC) endpoints and IPs..."
-gcloud compute forwarding-rules delete "pscrldefa$$ALPHA_SUFFIX" --global --quiet || true
-gcloud compute forwarding-rules delete "pscrltest$$ALPHA_SUFFIX" --global --quiet || true
-gcloud compute addresses delete "psc-ip-default-$$CLEAN_SUFFIX" --global --quiet || true
-gcloud compute addresses delete "psc-ip-testcr-$$CLEAN_SUFFIX" --global --quiet || true
+teardown_resource "PSC Forwarding Rule (default)" "pscrldefa$$ALPHA_SUFFIX" gcloud compute forwarding-rules delete "pscrldefa$$ALPHA_SUFFIX" --global --quiet
+teardown_resource "PSC Forwarding Rule (testcr)" "pscrltest$$ALPHA_SUFFIX" gcloud compute forwarding-rules delete "pscrltest$$ALPHA_SUFFIX" --global --quiet
+teardown_resource "PSC Address (default)" "psc-ip-default-$$CLEAN_SUFFIX" gcloud compute addresses delete "psc-ip-default-$$CLEAN_SUFFIX" --global --quiet
+teardown_resource "PSC Address (testcr)" "psc-ip-testcr-$$CLEAN_SUFFIX" gcloud compute addresses delete "psc-ip-testcr-$$CLEAN_SUFFIX" --global --quiet
 
 # 4. Dismantling Cloud DNS Zones (if exists)
 echo "4. Dismantling Private DNS Zones..."
-gcloud dns managed-zones delete "${serviceName}-custom-dns" --quiet || true
-gcloud dns managed-zones delete "${serviceName}-apis-dns" --quiet || true
-gcloud dns managed-zones delete "${serviceName}-cloud-dns" --quiet || true
-gcloud dns managed-zones delete "${serviceName}-com-dns" --quiet || true
+teardown_resource "DNS Zone (custom)" "${serviceName}-custom-dns" gcloud dns managed-zones delete "${serviceName}-custom-dns" --quiet
+teardown_resource "DNS Zone (apis)" "${serviceName}-apis-dns" gcloud dns managed-zones delete "${serviceName}-apis-dns" --quiet
+teardown_resource "DNS Zone (cloud)" "${serviceName}-cloud-dns" gcloud dns managed-zones delete "${serviceName}-cloud-dns" --quiet
+teardown_resource "DNS Zone (com)" "${serviceName}-com-dns" gcloud dns managed-zones delete "${serviceName}-com-dns" --quiet
+
+echo "--------------------------------------------------"
+echo "Teardown Summary: Deleted=$$DELETED, Skipped=$$SKIPPED, Failures=$$FAILURES"
+if [ "$$FAILURES" -gt 0 ]; then
+  echo "ERROR: Infrastructure dismantling completed with $$FAILURES failure(s)." >&2
+  exit 1
+fi
 
 echo "========== INFRASTRUCTURE DISMANTLING COMPLETE =========="
 `,

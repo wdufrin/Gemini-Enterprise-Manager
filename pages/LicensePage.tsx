@@ -23,6 +23,8 @@ import Spinner from '../components/Spinner';
 import JsonViewModal from '../components/license/JsonViewModal';
 import PruneLicensesModal from '../components/license/PruneLicensesModal';
 import ConfirmationModal from '../components/ConfirmationModal';
+import DestructiveConfirmModal from '../components/DestructiveConfirmModal';
+import { toErrorMessage } from '../utils/errors';
 import PrunerDeploymentModal from '../components/license/PrunerDeploymentModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 import DistributeLicenseModal from '../components/license/DistributeLicenseModal';
@@ -135,9 +137,12 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
     const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
     const [bulkActionConfig, setBulkActionConfig] = useState<string>('');
     const [isBulkActionLoading, setIsBulkActionLoading] = useState(false);
+    const [isBulkConfirmOpen, setIsBulkConfirmOpen] = useState(false);
 
     // Cloud Run Services State for Group Assignments
     const [groupServices, setGroupServices] = useState<any[]>([]);
+    const [serviceToDelete, setServiceToDelete] = useState<string | null>(null);
+    const [isDeletingService, setIsDeletingService] = useState(false);
     const [isServicesLoading, setIsServicesLoading] = useState(false);
     const [servicesError, setServicesError] = useState<string | null>(null);
     const [selectedServiceForEdit, setSelectedServiceForEdit] = useState<any | null>(null);
@@ -719,7 +724,42 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
       setSelectedUsers(newSelected);
   };
 
-  const handleBulkAction = async () => {
+  const handleBulkActionClick = () => {
+      if (selectedUsers.size === 0 || !projectNumber || !bulkActionConfig) return;
+      if (bulkActionConfig === 'REVOKE' || bulkActionConfig === 'DELETE') {
+          setIsBulkConfirmOpen(true);
+          return;
+      }
+      void executeBulkAction();
+  };
+
+  const exportSelectedUsersCsv = () => {
+      const principals = Array.from(selectedUsers);
+      const csv = ['User Principal,Action,Project Number', ...principals.map(p => `"${p}","${bulkActionConfig}","${projectNumber}"`)].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `license_bulk_${bulkActionConfig.toLowerCase()}_${principals.length}_users.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+  };
+
+  const confirmDeleteService = async () => {
+      if (!serviceToDelete) return;
+      setIsDeletingService(true);
+      try {
+          await api.deleteCloudRunService(serviceToDelete, { projectId: projectNumber } as any);
+          await fetchGroupServices();
+          setServiceToDelete(null);
+      } catch (err: unknown) {
+          alert("Failed to delete service: " + toErrorMessage(err));
+      } finally {
+          setIsDeletingService(false);
+      }
+  };
+
+  const executeBulkAction = async () => {
       if (selectedUsers.size === 0 || !projectNumber || !bulkActionConfig) return;
       
       setIsBulkActionLoading(true);
@@ -1104,7 +1144,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                         })}
                     </select>
                     <button 
-                        onClick={handleBulkAction} 
+                        onClick={handleBulkActionClick} 
                         disabled={isBulkActionLoading || selectedUsers.size === 0 || !bulkActionConfig}
                         className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center whitespace-nowrap h-[38px]"
                     >
@@ -1696,13 +1736,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                                                           Edit
                                                       </button>
                                                       <button
-                                                          onClick={() => {
-                                                              if (window.confirm("Are you sure you want to delete this service?")) {
-                                                                  api.deleteCloudRunService(name, { projectId: projectNumber } as any)
-                                                                      .then(() => fetchGroupServices())
-                                                                      .catch(err => alert("Failed to delete service: " + err.message));
-                                                              }
-                                                          }}
+                                                          onClick={() => setServiceToDelete(name)}
                                                           className="text-red-400 hover:text-red-300"
                                                       >
                                                           Delete
@@ -1736,6 +1770,48 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
               />
           )}
 
+          <DestructiveConfirmModal
+              isOpen={isBulkConfirmOpen}
+              onClose={() => setIsBulkConfirmOpen(false)}
+              onConfirm={() => {
+                  setIsBulkConfirmOpen(false);
+                  void executeBulkAction();
+              }}
+              title={`Confirm Bulk ${bulkActionConfig === 'DELETE' ? 'Deletion' : 'Revocation'}`}
+              resourceType="User License"
+              resources={Array.from(selectedUsers).map(u => ({ name: u }))}
+              confirmKeyword={bulkActionConfig === 'DELETE' ? 'DELETE' : 'REVOKE'}
+              confirmButtonText={bulkActionConfig === 'DELETE' ? `Delete ${selectedUsers.size} Licenses` : `Revoke ${selectedUsers.size} Licenses`}
+              description={bulkActionConfig === 'DELETE' 
+                  ? `You are about to permanently delete license assignments for ${selectedUsers.size} user${selectedUsers.size === 1 ? '' : 's'}.`
+                  : `You are about to revoke license access for ${selectedUsers.size} user${selectedUsers.size === 1 ? '' : 's'}.`}
+              consequences={[
+                  `This will ${bulkActionConfig === 'DELETE' ? 'permanently delete' : 'revoke'} license bindings for ${selectedUsers.size} selected user${selectedUsers.size === 1 ? '' : 's'}.`,
+                  "Affected users will immediately lose access to Gemini Enterprise licenses assigned through this configuration.",
+                  "This action modifies Cloud IAM permissions directly in Google Cloud and cannot be automatically rolled back."
+              ]}
+              onExport={exportSelectedUsersCsv}
+              exportButtonText="Export Selected Users (CSV)"
+              isLoading={isBulkActionLoading}
+          />
+
+          <DestructiveConfirmModal
+              isOpen={!!serviceToDelete}
+              onClose={() => setServiceToDelete(null)}
+              onConfirm={confirmDeleteService}
+              title="Delete Group Licensing Service"
+              resourceType="Cloud Run Service"
+              resources={serviceToDelete ? [{ name: serviceToDelete }] : []}
+              confirmKeyword={serviceToDelete || 'DELETE'}
+              confirmButtonText="Delete Service"
+              description={`You are about to delete the Cloud Run group synchronization service "${serviceToDelete}".`}
+              consequences={[
+                  `The Cloud Run service "${serviceToDelete}" will be permanently deleted from project ${projectNumber}.`,
+                  "Automated synchronization jobs and Cloud Scheduler triggers targeting this service will fail.",
+                  "Any automatic group-to-license mapping managed by this service will stop running."
+              ]}
+              isLoading={isDeletingService}
+          />
 
       </div>
   );

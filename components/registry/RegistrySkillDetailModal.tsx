@@ -19,6 +19,7 @@ import { Config, RegistrySkill, RegistrySkillRevision } from '../../types';
 import * as api from '../../services/apiService';
 import { createZipBase64 } from '../../utils/zipUtils';
 import JSZip from 'jszip';
+import DestructiveConfirmModal from '../DestructiveConfirmModal';
 
 interface RegistrySkillDetailModalProps {
   skill: RegistrySkill | null;
@@ -43,6 +44,7 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
   const [isUpdating, setIsUpdating] = useState(false);
   const [deploySuccess, setDeploySuccess] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (isOpen && skill) {
@@ -231,18 +233,16 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`,
     }
   };
 
-  const handleDeleteSkill = async () => {
-    if (!window.confirm(`Are you sure you want to delete "${skill.displayName}" from Google Cloud Agent Registry? This will remove it from the organization catalog.`)) {
-      return;
-    }
+  const confirmDeleteSkill = async () => {
     setIsUpdating(true);
     try {
       await api.deleteRegistrySkill(skill.name, config);
+      setIsDeleteConfirmOpen(false);
       onSkillUpdated();
       onClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to delete skill:', err);
-      alert(`Failed to delete skill: ${err.message || 'Unknown error'}`);
+      alert(`Failed to delete skill: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setIsUpdating(false);
     }
@@ -426,7 +426,7 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`,
         {/* Footer Actions */}
         <div className="px-6 py-4 bg-gray-900 border-t border-gray-700 flex justify-between items-center">
           <button
-            onClick={handleDeleteSkill}
+            onClick={() => setIsDeleteConfirmOpen(true)}
             disabled={isUpdating}
             className="px-3.5 py-2 text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors flex items-center gap-1.5"
           >
@@ -493,6 +493,24 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`,
           </div>
         </div>
       </div>
+
+      <DestructiveConfirmModal
+        isOpen={isDeleteConfirmOpen}
+        onClose={() => setIsDeleteConfirmOpen(false)}
+        onConfirm={confirmDeleteSkill}
+        title="Delete Skill from Registry"
+        resourceType="Skill"
+        resources={[{ name: skill.displayName, details: skill.name }]}
+        confirmKeyword={skill.displayName || 'DELETE'}
+        confirmButtonText="Delete Skill"
+        description={`You are about to delete "${skill.displayName}" from Google Cloud Agent Registry.`}
+        consequences={[
+          "This skill will be permanently removed from the Google Cloud Agent Registry.",
+          "The skill will no longer appear in the organization catalog or be discoverable by agents.",
+          "Existing agent workflows referencing this specific skill revision may encounter errors."
+        ]}
+        isLoading={isUpdating}
+      />
     </div>
   );
 };

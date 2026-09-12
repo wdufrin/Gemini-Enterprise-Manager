@@ -24,6 +24,115 @@ import ChatHistoryArchiveViewer from '../components/backup/ChatHistoryArchiveVie
 import ClientSecretPrompt from '../components/backup/ClientSecretPrompt';
 import CurlInfoModal from '../components/CurlInfoModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
+import DestructiveConfirmModal from '../components/DestructiveConfirmModal';
+
+export function validateBackupSchema(data: unknown, section: string): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!data || typeof data !== 'object') {
+    return { valid: false, errors: ['Backup content is not a valid JSON object.'] };
+  }
+  const obj = data as Record<string, unknown>;
+
+  if (obj.type !== section) {
+    errors.push(`Invalid backup type: expected '${section}', got '${String(obj.type)}'.`);
+  }
+
+  switch (section) {
+    case 'DiscoveryResources':
+      if (!Array.isArray(obj.collections)) {
+        errors.push("Missing or invalid 'collections' array in DiscoveryResources backup.");
+      }
+      break;
+    case 'ReasoningEngine':
+      if (!obj.engine || typeof obj.engine !== 'object') {
+        errors.push("Missing or invalid 'engine' object in ReasoningEngine backup.");
+      }
+      break;
+    case 'Assistant':
+      if (!obj.assistant || typeof obj.assistant !== 'object') {
+        errors.push("Missing or invalid 'assistant' object in Assistant backup.");
+      } else {
+        const assistant = obj.assistant as Record<string, unknown>;
+        if (assistant.agents && !Array.isArray(assistant.agents)) {
+          errors.push("Invalid 'agents' property in Assistant backup (must be an array).");
+        }
+      }
+      break;
+    case 'Agents':
+      if (!Array.isArray(obj.agents)) {
+        errors.push("Missing or invalid 'agents' array in Agents backup.");
+      }
+      break;
+    case 'DataStores':
+      if (!Array.isArray(obj.dataStores)) {
+        errors.push("Missing or invalid 'dataStores' array in DataStores backup.");
+      }
+      break;
+    case 'Authorizations':
+      if (!Array.isArray(obj.authorizations)) {
+        errors.push("Missing or invalid 'authorizations' array in Authorizations backup.");
+      }
+      break;
+    case 'ChatHistory':
+      if (!Array.isArray(obj.discoverySessions) && !Array.isArray(obj.reasoningSessions)) {
+        errors.push("ChatHistory backup must contain either 'discoverySessions' or 'reasoningSessions' array.");
+      }
+      break;
+    case 'NotebookLM':
+      if (!Array.isArray(obj.notebooks)) {
+        errors.push("Missing or invalid 'notebooks' array in NotebookLM backup.");
+      }
+      break;
+    default:
+      break;
+  }
+
+  const checkAgents = (agents: unknown[]) => {
+    agents.forEach((a, idx) => {
+      if (a && typeof a === 'object') {
+        const agentObj = a as Record<string, unknown>;
+        if ('iamPolicy' in agentObj && agentObj.iamPolicy !== undefined && agentObj.iamPolicy !== null) {
+          if (typeof agentObj.iamPolicy !== 'object') {
+            errors.push(`Agent at index ${idx} has invalid 'iamPolicy' (not an object).`);
+          } else {
+            const policy = agentObj.iamPolicy as Record<string, unknown>;
+            if ('bindings' in policy && policy.bindings !== undefined && policy.bindings !== null) {
+              if (!Array.isArray(policy.bindings)) {
+                errors.push(`Agent '${String(agentObj.displayName ?? idx)}' has invalid 'iamPolicy.bindings' (must be an array).`);
+              } else {
+                policy.bindings.forEach((binding, bIdx) => {
+                  if (!binding || typeof binding !== 'object') {
+                    errors.push(`Agent '${String(agentObj.displayName ?? idx)}' binding ${bIdx} is not an object.`);
+                  } else {
+                    const b = binding as Record<string, unknown>;
+                    if (typeof b.role !== 'string' || !b.role.trim()) {
+                      errors.push(`Agent '${String(agentObj.displayName ?? idx)}' binding ${bIdx} is missing a valid 'role'.`);
+                    }
+                    if (!Array.isArray(b.members) || !b.members.every(m => typeof m === 'string')) {
+                      errors.push(`Agent '${String(agentObj.displayName ?? idx)}' binding ${bIdx} has invalid 'members' (must be array of strings).`);
+                    }
+                  }
+                });
+              }
+            }
+          }
+        }
+      }
+    });
+  };
+
+  if (Array.isArray(obj.agents)) {
+    checkAgents(obj.agents);
+  }
+  if (obj.assistant && typeof obj.assistant === 'object') {
+    const ast = obj.assistant as Record<string, unknown>;
+    if (Array.isArray(ast.agents)) {
+      checkAgents(ast.agents);
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
 
 interface BackupPageProps {
   accessToken: string;
@@ -46,7 +155,7 @@ interface BackupRestoreCardProps {
   title: string;
   onBackup: () => Promise<void>;
   onRestore: (section: string, processor: (data: any) => Promise<void>) => Promise<void>;
-  onDeleteBackup?: (section: string) => Promise<void>;
+  onDeleteBackup?: (section: string) => void | Promise<void>;
   onDownloadBackup?: (section: string) => Promise<void>;
   processor: (data: any) => Promise<void>;
   availableBackups: string[];
@@ -208,6 +317,14 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   const [modalData, setModalData] = useState<{
     section: string;
     title: string;
+    items: any[];
+    processor: (data: any) => Promise<void>;
+    originalData: any;
+  } | null>(null);
+
+  const [backupToDelete, setBackupToDelete] = useState<{ section: string; filename: string } | null>(null);
+  const [restoreConfirmData, setRestoreConfirmData] = useState<{
+    section: string;
     items: any[];
     processor: (data: any) => Promise<void>;
     originalData: any;
@@ -786,16 +903,19 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
   // --- Restore Handlers & Processors ---
 
-  const handleDeleteBackup = async (section: string) => {
+  const handleDeleteBackup = (section: string) => {
     const filename = selectedRestoreFiles[section];
     if (!filename || !selectedBucket) {
       setError(`Please select a bucket and a backup file for ${section} to delete.`);
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to delete ${filename}?`)) {
-      return;
-    }
+    setBackupToDelete({ section, filename });
+  };
+
+  const confirmDeleteBackup = async () => {
+    if (!backupToDelete || !selectedBucket) return;
+    const { section, filename } = backupToDelete;
 
     executeOperation(`DeleteBackup${section}`, async () => {
       addLog(`Deleting ${filename} from ${selectedBucket}...`);
@@ -810,6 +930,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       });
       fetchBackups();
     });
+    setBackupToDelete(null);
   };
 
 
@@ -825,13 +946,19 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       addLog(`Downloading file: gs://${selectedBucket}/${filename}...`);
       
       const fileContent = await api.getGcsObjectContent(selectedBucket, filename, apiConfig.projectId);
-      const backupData = JSON.parse(fileContent);
-      
-      if (backupData.type !== section) {
-        // Allow backward compatibility or relaxed checking if needed, but for now strict.
-        // Actually, some backups might be old format?
-        // ChatHistory backups have type 'ChatHistory'.
-        throw new Error(`Invalid backup file type. Expected '${section}', but found '${backupData.type}'.`);
+      let backupData: any;
+      try {
+        backupData = JSON.parse(fileContent);
+      } catch (parseErr: any) {
+        throw new Error(`Failed to parse backup JSON from gs://${selectedBucket}/${filename}: ${parseErr.message}`);
+      }
+
+      // Validate full backup schema before replaying IAM bindings or restoring
+      const validation = validateBackupSchema(backupData, section);
+      if (!validation.valid) {
+        addLog(`      - ERROR: Backup schema validation failed for ${section}:`);
+        validation.errors.forEach(err => addLog(`        * ${err}`));
+        throw new Error(`Invalid backup schema for ${section}:\n- ${validation.errors.join('\n- ')}`);
       }
 
       if (section === 'ChatHistory') {
@@ -851,7 +978,15 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   };
 
   const handleConfirmRestore = (section: string, items: any[], processor: (data: any) => Promise<void>, originalData: any) => {
-    setModalData(null); // Close the modal first
+    setModalData(null); // Close selection modal
+    // Route to typed confirmation modal naming target project/engine before destructive apply
+    setRestoreConfirmData({ section, items, processor, originalData });
+  };
+
+  const executeConfirmedRestore = () => {
+    if (!restoreConfirmData) return;
+    const { section, items, processor, originalData } = restoreConfirmData;
+    setRestoreConfirmData(null);
 
     const sectionName = section.replace(/[A-Z]/g, ' $&').trim();
     executeOperation(`Restore${section}`, async () => {
@@ -863,7 +998,6 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
               dataToRestore.collections = originalData.collections.filter((c: Collection) => items.some(item => item.name === c.name));
               break;
           case 'ReasoningEngine':
-              // It's a single item select for now
               dataToRestore.engine = items.length > 0 ? items[0] : null; 
               break;
           case 'Assistant':
@@ -1706,6 +1840,47 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
           </pre>
         </div>
       )}
+
+      {/* Destructive Confirm Modal for Backup Deletion */}
+      <DestructiveConfirmModal
+        isOpen={!!backupToDelete}
+        onClose={() => setBackupToDelete(null)}
+        onConfirm={confirmDeleteBackup}
+        title="Delete Backup File from Cloud Storage"
+        resourceType="Backup File"
+        resources={backupToDelete ? [{ name: backupToDelete.filename, details: `gs://${selectedBucket}/${backupToDelete.filename}` }] : []}
+        confirmKeyword={backupToDelete?.filename || 'DELETE'}
+        confirmButtonText="Delete Backup"
+        description={`You are about to delete the backup file "${backupToDelete?.filename}" from Cloud Storage bucket "gs://${selectedBucket}".`}
+        consequences={[
+          "This backup file will be permanently deleted from Google Cloud Storage.",
+          "Any snapshots, agents, and configuration versions saved in this file cannot be recovered.",
+          "Active systems will not be affected, but you will lose this historical restore point."
+        ]}
+      />
+
+      {/* Destructive Confirm Modal for Selective Restore */}
+      <DestructiveConfirmModal
+        isOpen={!!restoreConfirmData}
+        onClose={() => setRestoreConfirmData(null)}
+        onConfirm={executeConfirmedRestore}
+        title={`Confirm Restore: ${restoreConfirmData ? restoreConfirmData.section.replace(/[A-Z]/g, ' $&').trim() : ''}`}
+        resourceType={restoreConfirmData ? restoreConfirmData.section.replace(/[A-Z]/g, ' $&').trim() : 'Resource'}
+        resources={restoreConfirmData ? restoreConfirmData.items.map((it: any) => ({
+          name: it.displayName || it.name?.split('/').pop() || it.name || 'Item',
+          details: it.name || undefined,
+        })) : []}
+        confirmKeyword={apiConfig.projectId || 'RESTORE'}
+        confirmButtonText={`Restore into ${apiConfig.projectId || 'Project'}`}
+        description={`You are about to restore ${restoreConfirmData?.items.length || 0} item(s) from backup into target project "${apiConfig.projectId}" (Location: ${apiConfig.appLocation}).`}
+        consequences={[
+          `Target project "${apiConfig.projectId}" will have existing resources overwritten or augmented with data from this backup.`,
+          "Any IAM policy bindings and roles contained in the backup snapshot will be written directly to the target resources.",
+          "Existing agents or configurations with conflicting names or IDs may be impacted.",
+          "This action executes live Google Cloud mutations and cannot be automatically rolled back."
+        ]}
+        isLoading={isLoading}
+      />
 
     </div>
   );
