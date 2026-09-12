@@ -834,6 +834,15 @@ export const listLoggingSinks = async (projectId: string): Promise<any> => {
 
 // --- Discovery Engine Resources ---
 
+export const listDiscoveryEngines = async (
+  config: Config,
+  pageToken?: string,
+  pageSize: number = 200,
+  suppressErrorLog?: boolean,
+) => {
+  return listResources("engines", config, pageToken, pageSize, suppressErrorLog);
+};
+
 export const listResources = async (
   resourceType:
     | "agents"
@@ -1535,6 +1544,8 @@ export const createAgent = async (
   }
   return gapiRequest<Agent>(url, "POST", projectId, undefined, payload, undefined, suppressErrorLog);
 };
+
+export const createDiscoveryAgent = createAgent;
 
 export const updateAgent = async (
   agent: Agent,

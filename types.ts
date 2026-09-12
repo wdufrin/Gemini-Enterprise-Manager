@@ -37,7 +37,6 @@ export enum Page {
   ARCHITECTURE = 'Architecture',
   LICENSE = 'Licenses',
   CONNECTORS = 'Connectors',
-  AGENT_STARTER_PACK = 'Agent Starter Pack',
   GE_QUOTA_USAGE = 'GE Quota Usage',
   VANITY_URLS = 'Redirect URLs',
   CONFIG_AUDIT = 'App Config Audit',

@@ -658,27 +658,6 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
           }
         ]
   },
-  [Page.AGENT_STARTER_PACK]: {
-    description: "The Agent Starter Pack generates scaffolding for robust agents and triggers deployment via Cloud Build using GitHub repos and Storage buckets.",
-    commands: [
-            {
-        title: 'Fetch GitHub Repo Contents',
-                command: `curl -X GET \\
-  "https://api.github.com/repos/google/adk-samples/contents/python/agents?ref=main"`
-      },
-      {
-        title: 'Trigger Cloud Build (Deploy Agent)',
-        command: `curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  -d '{
-        "steps": [ ... ]
-      }' \\
-  "https://cloudbuild.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/builds"`
-            }
-        ]
-    },
     [Page.CLOUD_RUN_AGENTS]: {
       description: "This page lists and inspects Cloud Run services to identify potential agents using Gemini AI and labels. It uses the Cloud Run Admin API v2 and Vertex AI generating content endpoints.",
         commands: [

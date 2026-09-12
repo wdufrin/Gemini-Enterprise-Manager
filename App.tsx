@@ -32,7 +32,6 @@ import AgentBuilderPage from './pages/AgentBuilderPage';
 import A2aTesterPage from './pages/A2aTesterPage';
 import McpServersPage from './pages/McpServersPage';
 import AgentCatalogPage from './pages/AgentCatalogPage';
-import AgentStarterPackPage from './pages/AgentStarterPackPage';
 import CloudRunAgentsPage from './pages/CloudRunAgentsPage';
 import DialogflowAgentsPage from './pages/DialogflowAgentsPage';
 import ConnectorsPage from './pages/ConnectorsPage';
@@ -886,8 +885,6 @@ const InnerApp: React.FC = () => {
         return <AgentBuilderPage {...projectProps} context={pageContext} onBuildTriggered={handleBuildTriggered} />;
       case Page.AGENT_CATALOG:
             return <AgentCatalogPage {...projectProps} accessToken={accessToken} onBuildTriggered={(id) => handleBuildTriggered(id, projectNumber)} />;
-        case Page.AGENT_STARTER_PACK:
-            return <AgentStarterPackPage {...projectProps} accessToken={accessToken} onBuildTriggered={handleBuildTriggered} />;
       case Page.CLOUD_RUN_AGENTS:
         return <CloudRunAgentsPage {...projectProps} />;
       case Page.DIALOGFLOW_AGENTS:

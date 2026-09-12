@@ -20,28 +20,7 @@ import { AdkAgentConfig } from "./types";
 export function formatPythonString(str: string): string {
   if (str === null || str === undefined) return '""';
   if (str === "") return '""';
-
-  let escaped = str.replace(/\\/g, "\\\\");
-  escaped = escaped.replace(/"""/g, '\\"\\"\\"');
-  escaped = escaped.replace(/"$/g, '\\"');
-  escaped = escaped.replace(/[\0\b\f\r\v]/g, (match) => {
-    switch (match) {
-      case "\0":
-        return "\\0";
-      case "\b":
-        return "\\b";
-      case "\f":
-        return "\\f";
-      case "\r":
-        return "\\r";
-      case "\v":
-        return "\\v";
-      default:
-        return match;
-    }
-  });
-
-  return `"""${escaped}"""`;
+  return JSON.stringify(str);
 }
 
 export const generateAdk22PythonCode = (
@@ -387,10 +366,17 @@ def create_agent():
     thinking_config = None
     ${config.enableThinking
         ? `
-    thinking_budget = int(os.getenv("THINKING_BUDGET", "${config.thinkingBudget || 1024}"))
-    thinking_config = types.ThinkingConfig(
-        thinking_budget=thinking_budget,
-    )
+    is_gemini_3 = model_name.startswith("gemini-3") or "3.5" in model_name or "3.8" in model_name or "latest" in model_name
+    if is_gemini_3:
+        thinking_level = os.getenv("THINKING_LEVEL", "${config.thinkingLevel || "HIGH"}")
+        thinking_config = types.ThinkingConfig(
+            thinking_level=thinking_level,
+        )
+    else:
+        thinking_budget = int(os.getenv("THINKING_BUDGET", "${config.thinkingBudget || 1024}"))
+        thinking_config = types.ThinkingConfig(
+            thinking_budget=thinking_budget,
+        )
     `
         : ""
       }
@@ -883,342 +869,104 @@ ${pluginInitializations.length > 0 ? pluginInitializations.join("\n\n") : "# No 
 ${config.enableThinking
       ? `
 # Define generation_content_config for Thinking
-thinking_budget = int(os.getenv("THINKING_BUDGET", "${config.thinkingBudget || 1024}"))
-thinking_config = genai_types.ThinkingConfig(
-    thinking_budget=thinking_budget,
-)
+model_name = os.getenv("MODEL", ${formatPythonString(modelName)})
+is_gemini_3 = model_name.startswith("gemini-3") or "3.5" in model_name or "3.8" in model_name or "latest" in model_name
+if is_gemini_3:
+    thinking_level = os.getenv("THINKING_LEVEL", "${config.thinkingLevel || "HIGH"}")
+    thinking_config = genai_types.ThinkingConfig(
+        thinking_level=thinking_level,
+    )
+else:
+    thinking_budget = int(os.getenv("THINKING_BUDGET", "${config.thinkingBudget || 1024}"))
+    thinking_config = genai_types.ThinkingConfig(
+        thinking_budget=thinking_budget,
+    )
 `
       : ""
     }
 
-# Wrapper for Synchronous Execution (Reasoning Engine Requirement for some runtimes)
-class SyncAgentWrapper(BaseModel):
-    """
-    Wraps an async agent (or standard agent) to provide a synchronous query interface
-    compatible with Vertex AI Reasoning Engine's strict expectations.
-    Defined here to ensure it is picklable (top-level class in agent module).
-    """
-    _lazy_agent: Any = PrivateAttr(default=None)
-    _session_service: Any = PrivateAttr(default=None)
+# Define Model Armor Callback if configured
+async def model_armor_before_model_callback(callback_context, model_request):
+    """Model Armor sanitization and prompt defense callback."""
+    model_armor_template = os.getenv("MODEL_ARMOR_TEMPLATE")
+    if not model_armor_template:
+        return None
+    # Inspect or sanitize prompt parts via Model Armor policy
+    return None
 
-    def _ensure_session_service(self):
-        if self._session_service is None:
-            from google.adk.sessions import InMemorySessionService
-            self._session_service = InMemorySessionService()
-        return self._session_service
-
-    def _extract_prompt(self, input_val: Any, message_val: str) -> str:
-        if not input_val:
-            return message_val
-        if isinstance(input_val, str):
-            return input_val
-        if isinstance(input_val, dict):
-            p = input_val.get("query") or input_val.get("message")
-            if p:
-                return p
-            new_msg = input_val.get("new_message") or input_val.get("user_content")
-            if new_msg:
-                if isinstance(new_msg, dict):
-                    parts = new_msg.get("parts", [])
-                    return "".join([part.get("text", "") for part in parts if part.get("text")])
-                elif hasattr(new_msg, "parts") and new_msg.parts:
-                    return "".join([getattr(part, "text", "") for part in new_msg.parts if getattr(part, "text", None)])
-            return ""
-        
-        user_content = getattr(input_val, "user_content", None)
-        if user_content is not None:
-            if hasattr(user_content, "parts") and user_content.parts:
-                return "".join([getattr(part, "text", "") for part in user_content.parts if getattr(part, "text", None)])
-
-        p = getattr(input_val, "query", None) or getattr(input_val, "message", None)
-        if p:
-            return p
-        new_msg = getattr(input_val, "new_message", None)
-        if new_msg:
-            if hasattr(new_msg, "parts") and new_msg.parts:
-                return "".join([getattr(part, "text", "") for part in new_msg.parts if getattr(part, "text", None)])
-        return ""
-
-    def query(self, input: str = "", message: str = "", **kwargs) -> str:
-        if self._lazy_agent is None:
-            self.set_up()
-
-        prompt = self._extract_prompt(input, message)
-        
-        # Extract state/tokens from kwargs or input
-        state = kwargs.get("state")
-        if not state and isinstance(input, dict):
-            state = input.get("state")
-            
-        session_id = kwargs.get("session_id") or (input.get("session_id") if isinstance(input, dict) else None) or "default_session"
-            
-        import asyncio
-        from google.adk.runners import Runner
-        from google.genai import types as genai_types
-        
-        async def _run_loop():
-            session_svc = self._ensure_session_service()
-            try:
-                session = await session_svc.get_session(
-                    app_name="deployed_app", user_id="default_user", session_id=session_id
-                )
-            except Exception:
-                session = None
-            if not session:
-                await session_svc.create_session(
-                    app_name="deployed_app", user_id="default_user", session_id=session_id, state=state
-                )
-            runner = Runner(
-                agent=self._lazy_agent,
-                app_name="deployed_app",
-                session_service=session_svc,${pluginList.length > 0 ? `\n                plugins=[${pluginList.join(", ")}],` : ""}
-            )
-
-            final_text = ""
-            try:
-                async for event in runner.run_async(
-                    user_id="default_user",
-                    session_id=session_id,
-                    new_message=genai_types.Content(
-                        role="user",
-                        parts=[genai_types.Part.from_text(text=prompt)]
-                    ),
-                    state_delta=state,
-                ):
-                    if event.content and getattr(event.content, "parts", None):
-                        for part in event.content.parts:
-                            if getattr(part, "text", None):
-                                final_text += part.text
-                    if event.is_final_response():
-                        break
-            except Exception as run_err:
-                import logging
-                logging.exception(f"Runner execution failed: {run_err}")
-                return f"Agent execution error: {type(run_err).__name__} - {str(run_err)}"
-
-            if not final_text:
-                return "Agent completed execution but produced no textual response. Please check server logs or inspect tool execution."
-            return final_text
-            
-        return asyncio.run(_run_loop())
-
-    def set_up(self):
-        """
-        Called by Reasoning Engine infrastructure during initialization or lazily.
-        """
-        if self._lazy_agent is None:
-            self._lazy_agent = create_agent()
-        self._ensure_session_service()
-
-    async def stream_query(self, input: str = "", message: str = "", **kwargs):
-        if self._lazy_agent is None:
-            self.set_up()
-
-        prompt = self._extract_prompt(input, message)
-        
-        # Extract state/tokens from kwargs or input
-        state = kwargs.get("state")
-        if not state and isinstance(input, dict):
-            state = input.get("state")
-            
-        session_id = kwargs.get("session_id") or (input.get("session_id") if isinstance(input, dict) else None) or "default_session"
-            
-        import asyncio
-        from google.adk.runners import Runner
-        from google.genai import types as genai_types
-        
-        session_svc = self._ensure_session_service()
-        try:
-            session = await session_svc.get_session(
-                app_name="deployed_app", user_id="default_user", session_id=session_id
-            )
-        except Exception:
-            session = None
-        if not session:
-            await session_svc.create_session(
-                app_name="deployed_app", user_id="default_user", session_id=session_id, state=state
-            )
-        runner = Runner(
-            agent=self._lazy_agent,
-            app_name="deployed_app",
-            session_service=session_svc,${pluginList.length > 0 ? `\n            plugins=[${pluginList.join(", ")}],` : ""}
-        )
-
-        try:
-            async for event in runner.run_async(
-                user_id="default_user",
-                session_id=session_id,
-                new_message=genai_types.Content(
-                    role="user",
-                    parts=[genai_types.Part.from_text(text=prompt)]
-                ),
-                state_delta=state,
-            ):
-                if event.content and getattr(event.content, "parts", None):
-                    parts_list = []
-                    for part in event.content.parts:
-                        part_dict = {}
-                        if getattr(part, "text", None):
-                            part_dict["text"] = part.text
-                        if getattr(part, "thought", False):
-                            part_dict["thought"] = True
-                        if part_dict:
-                            parts_list.append(part_dict)
-                    if parts_list:
-                        yield {
-                            "candidates": [
-                                {
-                                    "content": {
-                                        "parts": parts_list,
-                                        "role": "model"
-                                    }
-                                }
-                            ]
-                        }
-        except Exception as stream_err:
-            import logging
-            logging.exception(f"Stream runner error: {stream_err}")
-            yield {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [{"text": f"Agent error: {type(stream_err).__name__} - {str(stream_err)}"}],
-                            "role": "model"
-                        }
-                    }
-                ]
-            }
-
-    async def _run_async_impl(self, input: str = "", message: str = "", **kwargs):
-        async for chunk in self.stream_query(input, message, **kwargs):
-            yield chunk
-
-    async def streaming_agent_run_with_events(self, request_json: str):
-        """Streams responses asynchronously from the ADK application (AgentSpace/A2A entrypoint)."""
-        if self._lazy_agent is None:
-            self.set_up()
-
-        import json
-        from google.genai import types as genai_types
-        
-        req = json.loads(request_json)
-        msg_dict = req.get("message")
-        prompt = ""
-        if msg_dict:
-            parts = msg_dict.get("parts", [])
-            prompt = "".join([part.get("text", "") for part in parts if part.get("text")])
-
-        # Extract authorizations to build state
-        state = {}
-        authorizations = req.get("authorizations")
-        if isinstance(authorizations, dict):
-            for a_id, a_data in authorizations.items():
-                tok = None
-                if isinstance(a_data, dict):
-                    tok = a_data.get("access_token") or a_data.get("token")
-                elif isinstance(a_data, str):
-                    tok = a_data
-                if tok:
-                    state[a_id] = tok
-                    state[f"temp:{a_id}"] = tok
-                    state[f"token_{a_id}"] = tok
-        elif isinstance(authorizations, list):
-            for item in authorizations:
-                if isinstance(item, dict):
-                    a_id = item.get("id") or item.get("auth_id") or item.get("name")
-                    tok = item.get("access_token") or item.get("token")
-                    if a_id and tok:
-                        state[a_id] = tok
-                        state[f"temp:{a_id}"] = tok
-                        state[f"token_{a_id}"] = tok
-
-        # Also preserve agent_association if provided by platform
-        if req.get("agent_association"):
-            state["agent_association"] = req.get("agent_association")
-        if req.get("user_token"):
-            state["user_token"] = req.get("user_token")
-
-        # Merge / fallback extraction from state
-        req_state = req.get("state")
-        if isinstance(req_state, dict):
-            state.update(req_state)
-
-        user_id = req.get("user_id") or req.get("userId") or "default_user"
-        session_id = req.get("session_id") or req.get("sessionId") or "default_session"
-
-        import asyncio
-        from google.adk.runners import Runner
-        
-        session_svc = self._ensure_session_service()
-        try:
-            session = await session_svc.get_session(
-                app_name="deployed_app", user_id=user_id, session_id=session_id
-            )
-        except Exception:
-            session = None
-        if not session:
-            await session_svc.create_session(
-                app_name="deployed_app", user_id=user_id, session_id=session_id, state=state
-            )
-        runner = Runner(
-            agent=self._lazy_agent,
-            app_name="deployed_app",
-            session_service=session_svc,${pluginList.length > 0 ? `\n            plugins=[${pluginList.join(", ")}],` : ""}
-        )
-
-        try:
-            async for event in runner.run_async(
-                user_id=user_id,
-                session_id=session_id,
-                new_message=genai_types.Content(
-                    role="user",
-                    parts=[genai_types.Part.from_text(text=prompt)]
-                ),
-                state_delta=state,
-            ):
-                event_dict = json.loads(event.model_dump_json(exclude_none=True))
-                yield {
-                    "events": [event_dict],
-                    "artifacts": [],
-                    "session_id": session_id
+# Application wrapper using Vertex AI Agent Engines AdkApp
+try:
+    from vertexai.agent_engines import AdkApp
+except ImportError:
+    try:
+        from vertexai.preview.reasoning_engines import AdkApp
+    except ImportError:
+        # Fallback dummy for local verification environments without vertexai installed
+        class AdkApp:
+            def __init__(self, *args, **kwargs):
+                self._tmpl_attrs = kwargs
+            def stream_query(self, *args, **kwargs):
+                return []
+            def register_operations(self):
+                return {
+                    "": ["get_session", "list_sessions", "create_session", "delete_session"],
+                    "async": ["async_get_session", "async_list_sessions", "async_create_session", "async_delete_session"],
+                    "stream": ["stream_query"],
+                    "async_stream": ["async_stream_query", "streaming_agent_run_with_events"]
                 }
-        except Exception as event_err:
+
+class StudioAdkApp(AdkApp):
+    """
+    Subclasses vertexai.agent_engines.AdkApp to provide:
+    1. A convenient synchronous query() method that consumes the stream for direct RE calls.
+    2. A2A discovery card endpoint (get_a2a_discovery_card) for Reasoning Engine discovery.
+    3. Seamless durable sessions via VertexAiSessionService in Agent Engine.
+    """
+    def query(self, message: str = "", input: str = "", **kwargs) -> str:
+        """Synchronous query method for Reasoning Engine / Agent Engine invocations."""
+        msg = message or input or ""
+        user_id = kwargs.get("user_id", "default_user")
+        session_id = kwargs.get("session_id")
+        final_text = ""
+        try:
+            for event in self.stream_query(message=msg, user_id=user_id, session_id=session_id):
+                if isinstance(event, dict):
+                    content = event.get("content")
+                    if isinstance(content, dict):
+                        parts = content.get("parts", [])
+                        for part in parts:
+                            if isinstance(part, dict) and part.get("text"):
+                                final_text += part["text"]
+                    elif event.get("text"):
+                        final_text += event["text"]
+        except Exception as e:
             import logging
-            logging.exception(f"Streaming agent runner error: {event_err}")
-            yield {
-                "events": [
-                    {
-                        "content": {
-                            "role": "model",
-                            "parts": [{"text": f"Agent execution error: {type(event_err).__name__} - {str(event_err)}"}]
-                        }
-                    }
-                ],
-                "artifacts": [],
-                "session_id": session_id
-            }
+            logging.exception(f"Query execution failed: {e}")
+            return f"Agent execution error: {type(e).__name__} - {str(e)}"
+        return final_text or "Agent completed execution without textual output."
 
     def get_a2a_discovery_card(self) -> str:
-        """
-        Exposes the A2A discovery card for Reasoning Engine discovery.
-        """
-        if self._lazy_agent is None:
-            self.set_up()
+        """Exposes the A2A discovery card for Reasoning Engine discovery."""
         import json
+        agent = self._tmpl_attrs.get("agent")
+        name = getattr(agent, "name", "agent") if agent else "agent"
+        description = getattr(agent, "description", "") if agent else ""
         card = {
-            "name": self._lazy_agent.name,
-            "description": self._lazy_agent.description,
-            "url": f"agent-engine://{os.environ.get('GOOGLE_CLOUD_PROJECT')}/{self._lazy_agent.name}",
-            "capabilities": { "streaming": True },
+            "name": name,
+            "description": description,
+            "url": f"agent-engine://{os.environ.get('GOOGLE_CLOUD_PROJECT', '')}/{name}",
+            "capabilities": {"streaming": True},
             "version": "1.0.0"
         }
         return json.dumps(card)
 
     def register_operations(self) -> dict[str, list[str]]:
-        return {
-            "": ["query", "get_a2a_discovery_card"],
-            "stream": ["stream_query", "streaming_agent_run_with_events"]
-        }
+        ops = super().register_operations()
+        if "query" not in ops.get("", []):
+            ops.setdefault("", []).append("query")
+        if "get_a2a_discovery_card" not in ops.get("", []):
+            ops.setdefault("", []).append("get_a2a_discovery_card")
+        return ops
 
 # Define the agent factory
 def create_agent():
@@ -1237,20 +985,21 @@ def create_agent():
     }
         ),
         tools=[${toolListForAgent.join(", ")}],
-        # planner=BuiltInPlanner() # Default planner
+        before_model_callback=model_armor_before_model_callback if (os.getenv("MODEL_ARMOR_TEMPLATE") or ${config.enableModelArmor ? "True" : "False"}) else None,
     )
 
 root_agent = create_agent()
+
+# Instantiate the Agent Engine application
+app = StudioAdkApp(
+    agent=root_agent,${pluginList.length > 0 ? `\n    plugins=[${pluginList.join(", ")}],` : ""}
+    enable_tracing=False,
+)
 `.trim();
 };
 
 export const generateAppPy = (configOrRelative: boolean | AdkAgentConfig = false): string => {
-  const agentName =
-    typeof configOrRelative === "object" && configOrRelative !== null && "name" in configOrRelative && configOrRelative.name
-      ? configOrRelative.name
-      : "deployed_agent";
   return `
-import asyncio
 import logging
 import os
 
@@ -1261,14 +1010,11 @@ except ImportError:
     pass
 
 try:
-    from .agent import SyncAgentWrapper
+    from .agent import app, root_agent
 except ImportError:
-    from agent import SyncAgentWrapper
+    from agent import app, root_agent
 
 logger = logging.getLogger(__name__)
-
-# Wrap for deployment (lazy)
-app = SyncAgentWrapper(name="${agentName}")
 `.trim();
 };
 

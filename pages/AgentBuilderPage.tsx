@@ -8,6 +8,7 @@ import A2aDeployModal from '../components/a2a/A2aDeployModal';
 import InfoTooltip from '../components/InfoTooltip';
 import CloudBuildProgress from '../components/agent-builder/CloudBuildProgress';
 import GitHubDeployModal from '../components/agent-builder/GitHubDeployModal';
+import AgentRegisterModal from '../components/agent-builder/AgentRegisterModal';
 import ProjectInput from '../components/ProjectInput';
 import { McpServiceCheck } from '../components/McpServiceCheck';
 import CloudConsoleButton from '../components/CloudConsoleButton';
@@ -110,6 +111,83 @@ __pycache__/
 *.pkl
 node_modules/
 `;
+
+/**
+ * Plain-English component role pedagogy for each generated project artifact.
+ * Explains architectural purpose to end users exploring their generated agent.
+ */
+const COMPONENT_PEDAGOGY: Record<string, { title: string; icon: string; description: string }> = {
+  app: {
+    title: 'app.py — Enterprise Server (Durable Sessions)',
+    icon: '🖥️',
+    description: 'Wraps your agent in StudioAdkApp (vertexai.agent_engines.AdkApp) providing persistent Vertex AI sessions, session CRUD, and synchronous endpoints.',
+  },
+  agent: {
+    title: 'agent.py — The Brain (Agent Orchestrator)',
+    icon: '🧠',
+    description: 'Defines root agent instructions, model parameters, and tool orchestration using Google ADK (google.adk).',
+  },
+  tools: {
+    title: 'tools.py — The Hands (Tool Integrations & MCP)',
+    icon: '🛠️',
+    description: 'Implements Python callables, Model Armor defense callbacks, MCP protocol connectors, and Gemini Enterprise Discovery Engine search.',
+  },
+  auth: {
+    title: 'auth.py — Enterprise Authentication',
+    icon: '🛂',
+    description: 'Handles OAuth 2.0 user delegation for identity propagation with application default credentials fallback.',
+  },
+  deploy_re: {
+    title: 'deploy_re.py — Agent Engine Deployer',
+    icon: '🚀',
+    description: 'Programmatic deployment script for Vertex AI Agent Engine with remote serialization.',
+  },
+  requirements: {
+    title: 'requirements.txt — Pinned Dependencies',
+    icon: '📦',
+    description: 'Pinned Python dependencies ensuring reproducible local execution and Cloud Build deployments.',
+  },
+  makefile: {
+    title: 'Makefile — Developer Shortcuts',
+    icon: '⚡',
+    description: 'Standardized CLI commands (make run, make test, make deploy) for fast developer iteration.',
+  },
+  readme: {
+    title: 'README.md — Developer Guide',
+    icon: '📖',
+    description: 'Step-by-step instructions for running locally, testing, and deploying to Google Cloud.',
+  },
+  env: {
+    title: '.env — Runtime Environment',
+    icon: '⚙️',
+    description: 'Local runtime configuration, project identifiers, and credentials (never committed to version control).',
+  },
+  init: {
+    title: '__init__.py — Package Initializer',
+    icon: '📄',
+    description: 'Marks the directory as a Python package for clean modular imports.',
+  },
+  dockerfile: {
+    title: 'Dockerfile — Container Image',
+    icon: '🐳',
+    description: 'Container specification for Cloud Run deployment with FastAPI & Uvicorn.',
+  },
+  cloudbuild: {
+    title: 'cloudbuild.yaml — CI/CD Pipeline',
+    icon: '🏗️',
+    description: 'Automated build and test steps for Google Cloud Build.',
+  },
+  github_deploy: {
+    title: '.github/workflows/deploy.yml — GitHub Actions',
+    icon: '🐙',
+    description: 'Reusable GitHub Actions workflow for continuous integration, evaluation, and deployment.',
+  },
+  main: {
+    title: 'main.py — A2A Server',
+    icon: '🧠',
+    description: 'FastAPI service implementing the Agent-to-Agent protocol (/invoke, /.well-known/agent.json).',
+  },
+};
 
 /**
  * Three-way Cloud Run access picker (remediation 2.7).
@@ -245,8 +323,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
   const [showWifInstructions, setShowWifInstructions] = useState(false);
 
-  // --- ADK State ---
-  const [adkConfig, setAdkConfig] = useState<AdkAgentConfig>({
+  const DEFAULT_ADK_CONFIG: AdkAgentConfig = {
     adkVersion: '1.35.1',
     name: '',
     description: 'An agent that can do awesome things.',
@@ -304,13 +381,52 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     enableCiCd: false,
     ciCdRunner: 'none',
     deploymentTarget: 'agent_engine',
-    // SECURITY (2.7): the generated Makefile's `gcloud run deploy` line used to
-    // hardcode --allow-unauthenticated. It now follows this field.
     cloudRunAccess: 'authenticated',
     githubWifProvider: '',
     githubServiceAccount: '',
     customMcpEndpoints: [],
+  };
+
+  // --- ADK State ---
+  const [adkConfig, setAdkConfig] = useState<AdkAgentConfig>(() => {
+    try {
+      const saved = sessionStorage.getItem('adk_studio_draft');
+      if (saved) {
+        return { ...DEFAULT_ADK_CONFIG, ...JSON.parse(saved) };
+      }
+    } catch (e) {
+      console.warn('Failed to parse adk_studio_draft from sessionStorage', e);
+    }
+    return DEFAULT_ADK_CONFIG;
   });
+
+  const [lastTriggeredBuildId, setLastTriggeredBuildId] = useState<string | null>(null);
+
+  // Register in Gemini Enterprise Modal State
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  const [registrationNotice, setRegistrationNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      try {
+        sessionStorage.setItem('adk_studio_draft', JSON.stringify(adkConfig));
+      } catch (e) {
+        console.warn('Failed to save adk_studio_draft to sessionStorage', e);
+      }
+    }, 400);
+    return () => clearTimeout(handler);
+  }, [adkConfig]);
+
+  const handleClearDraft = () => {
+    if (window.confirm('Reset all builder fields to default? Any unsaved draft changes will be lost.')) {
+      try {
+        sessionStorage.removeItem('adk_studio_draft');
+      } catch (e) {
+        console.warn('Failed to remove adk_studio_draft from sessionStorage', e);
+      }
+      setAdkConfig(DEFAULT_ADK_CONFIG);
+    }
+  };
 
   // IAM & WIF State
   const [serviceAccounts, setServiceAccounts] = useState<any[]>([]);
@@ -846,6 +962,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         ...prev,
         thinkingBudget: isNaN(numVal) ? 1024 : numVal,
       }));
+    } else if (name === 'thinkingLevel') {
+      setAdkConfig((prev) => ({
+        ...prev,
+        thinkingLevel: value,
+      }));
     } else if (name === 'name') {
       setAdkConfig((prev) => ({ ...prev, [name]: value }));
     } else {
@@ -1079,6 +1200,16 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         scriptsFolder.file('deploy.sh', generateAdkDeployBashWrapper());
       }
 
+      if (adkConfig.enableGraphvizRendering) {
+        const installScriptsFolder = zip.folder('installation_scripts');
+        if (installScriptsFolder) {
+          installScriptsFolder.file(
+            'install_graphviz.sh',
+            '#!/bin/bash\napt-get update && apt-get install -y graphviz\n'
+          );
+        }
+      }
+
       if (adkConfig.ciCdRunner === 'google_cloud_build') {
         zip.file(
           'cloudbuild.yaml',
@@ -1142,8 +1273,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   const adkCodeDisplay = {
     app: adkGeneratedCode.app,
     agent: adkGeneratedCode.agent,
+    deploy_re: adkGeneratedCode.deploy_re,
     env: adkGeneratedCode.env,
     requirements: adkGeneratedCode.requirements,
+    readme: adkGeneratedCode.readme,
     auth: adkGeneratedCode.auth,
     tools: adkGeneratedCode.tools,
     init: adkGeneratedCode.init,
@@ -1162,6 +1295,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     env: a2aGeneratedCode.yaml,
   }[a2aActiveTab];
 
+  const activeTabKey = builderTab === 'adk' ? adkActiveTab : a2aActiveTab;
+  const activeComponentInfo = COMPONENT_PEDAGOGY[activeTabKey] || {
+    title: `${activeTabKey} — Component File`,
+    icon: '📄',
+    description: 'Component file for runtime agent configuration.',
+  };
+
   const gitignoreContent = GENERATED_GITIGNORE;
   const gcloudignoreContent = GENERATED_GCLOUDIGNORE;
 
@@ -1175,6 +1315,14 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     { name: 'deploy_re.py', content: adkGeneratedCode.deploy_re },
     ...(adkConfig.deploymentTarget === 'cloud_run'
       ? [{ name: 'Dockerfile', content: generateDockerfile(adkConfig) }]
+      : []),
+    ...(adkConfig.enableGraphvizRendering
+      ? [
+          {
+            name: 'installation_scripts/install_graphviz.sh',
+            content: '#!/bin/bash\napt-get update && apt-get install -y graphviz\n',
+          },
+        ]
       : []),
     { name: '.gitignore', content: gitignoreContent },
     { name: '.gcloudignore', content: gcloudignoreContent },
@@ -1190,6 +1338,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   ];
 
   const handleBuildTriggered = (id: string) => {
+    setLastTriggeredBuildId(id);
+    setBuildId(id);
+    setIsBuildVisible(true);
+
     // Use Global Handler
     const pid = deployProjectId || projectNumber;
     if (onBuildTriggered) onBuildTriggered(id, pid);
@@ -1207,13 +1359,30 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     let foundAny = false;
 
     try {
-      // Check for running builds first
+      if (lastTriggeredBuildId) {
+        try {
+          const specific = await api.getCloudBuild(pid, lastTriggeredBuildId);
+          if (specific && specific.id) {
+            console.log('handleCheckBuildStatus: FOUND specific triggered build:', specific.id, specific.status);
+            setBuildId(specific.id);
+            setIsBuildVisible(true);
+            if (onBuildTriggered) onBuildTriggered(specific.id, pid);
+            foundAny = true;
+          }
+        } catch (err) {
+          console.warn(`Could not get specific build ${lastTriggeredBuildId}:`, err);
+        }
+      }
+
+      // Check for running builds
       const running = await api.listCloudBuilds(pid, 'status="WORKING"');
       if (running.builds && running.builds.length > 0) {
         console.log(`handleCheckBuildStatus: FOUND ${running.builds.length} WORKING builds`);
         running.builds.forEach((b: any) => {
           if (onBuildTriggered) onBuildTriggered(b.id, pid);
         });
+        setBuildId(running.builds[0].id);
+        setIsBuildVisible(true);
         foundAny = true;
       }
 
@@ -1224,20 +1393,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         queued.builds.forEach((b: any) => {
           if (onBuildTriggered) onBuildTriggered(b.id, pid);
         });
-        foundAny = true;
-      }
-
-      // Fallback: Fetch latest if nothing active found yet
-      if (!foundAny) {
-        console.log('No active (WORKING/QUEUED) builds. Fetching recent history...');
-        const recent = await api.listCloudBuilds(pid);
-        const build = recent.builds?.[0];
-
-        if (build) {
-          console.log('handleCheckBuildStatus: FOUND recent build:', build.id, build.status);
-          if (onBuildTriggered) onBuildTriggered(build.id, pid);
-          foundAny = true;
+        if (!foundAny) {
+          setBuildId(queued.builds[0].id);
+          setIsBuildVisible(true);
         }
+        foundAny = true;
       }
 
       if (!foundAny) {
@@ -1251,8 +1411,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   const ADK_TABS = [
     { id: 'app', label: 'app.py' },
     { id: 'agent', label: 'agent.py' },
+    { id: 'deploy_re', label: 'deploy_re.py' },
     { id: 'env', label: '.env' },
     { id: 'requirements', label: 'requirements.txt' },
+    { id: 'readme', label: 'README.md' },
     { id: 'auth', label: 'auth.py' },
     { id: 'tools', label: 'tools.py' },
     { id: 'init', label: '__init__.py' },
@@ -1297,6 +1459,14 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
       path: 'tests/eval/evalsets/basic.evalset.json',
       content: generateEvalSet(),
     },
+    ...(adkConfig.enableGraphvizRendering
+      ? [
+          {
+            path: 'installation_scripts/install_graphviz.sh',
+            content: '#!/bin/bash\napt-get update && apt-get install -y graphviz\n',
+          },
+        ]
+      : []),
   ];
 
   if (adkConfig.enableOAuth) {
@@ -1353,13 +1523,22 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
           </button>
         </div>
 
-        <button
-          onClick={handleCheckBuildStatus}
-          className="ml-4 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 rounded border border-gray-600"
-          title="Check for active builds if status window is missing"
-        >
-          Check Build Status
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleClearDraft}
+            className="px-3 py-1 bg-red-900/30 hover:bg-red-900/50 text-xs text-red-300 rounded border border-red-700/60 transition-colors"
+            title="Reset form to default state"
+          >
+            Clear Draft
+          </button>
+          <button
+            onClick={handleCheckBuildStatus}
+            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 rounded border border-gray-600 transition-colors"
+            title="Check for active builds if status window is missing"
+          >
+            Check Build Status
+          </button>
+        </div>
       </div>
 
       {/* Deploy Modals */}
@@ -1393,6 +1572,19 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
         generateCallerGithubWorkflow={generateCallerGithubWorkflow}
       />
 
+      <AgentRegisterModal
+        isOpen={isRegisterModalOpen}
+        onClose={() => setIsRegisterModalOpen(false)}
+        projectId={deployProjectId}
+        projectNumber={projectNumber}
+        builderTab={builderTab}
+        agentName={builderTab === 'adk' ? adkConfig.name : a2aConfig.serviceName}
+        agentDescription={builderTab === 'adk' ? adkConfig.description : a2aConfig.instruction}
+        onSuccess={(msg) => {
+          setRegistrationNotice(msg);
+        }}
+      />
+
       {isFixMode && builderTab === 'a2a' && (
         <div className="bg-yellow-900/30 border border-yellow-700 p-4 rounded-lg shrink-0">
           <h3 className="text-yellow-400 font-bold mb-1">
@@ -1405,7 +1597,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
       {/* Layout Container */}
       <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
         {/* Left Column: Configuration (Box 1) */}
-        <div className="bg-gray-800 p-4 rounded-lg shadow-md lg:w-1/3 flex flex-col overflow-y-auto border border-gray-700">
+        <div className="bg-gray-800 p-4 rounded-lg shadow-md lg:w-2/5 flex flex-col overflow-y-auto border border-gray-700">
           <div className="flex justify-between items-center mb-3 shrink-0">
             <h2 className="text-lg font-semibold text-white">1. Configure Agent</h2>
             <CloudConsoleButton
@@ -1569,17 +1761,14 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1">
-                    ADK Version
+                    ADK Framework
                   </label>
-                  <select
-                    name="adkVersion"
-                    value={adkConfig.adkVersion || '1.35.1'}
-                    onChange={handleAdkConfigChange}
-                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
-                  >
-                    <option value="1.35.1">ADK 1.35.1 (Legacy)</option>
-                    {/* ADK 2.2 (Antigravity SDK) option removed until deployment logic is fixed. */}
-                  </select>
+                  <div className="bg-gray-700/60 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 h-[42px] flex items-center justify-between">
+                    <span className="font-medium text-blue-400">Google ADK 2.x</span>
+                    <span className="text-[10px] bg-blue-900/60 text-blue-300 border border-blue-700 px-2 py-0.5 rounded font-mono">
+                      google-adk &ge; 2.3.0
+                    </span>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1">Model</label>
@@ -1692,53 +1881,43 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                         <span className="text-sm text-gray-300">Enable Thinking Details</span>
                       </label>
                       {adkConfig.enableThinking && (
-                        <div className="flex items-center gap-2">
-                          {adkConfig.model &&
-                          (adkConfig.model.startsWith('gemini-3') ||
-                            adkConfig.model.includes('3.5')) &&
-                          !adkConfig.model.includes('latest') ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs text-gray-400">Level:</span>
-                              <select
-                                name="thinkingLevel"
-                                value={adkConfig.thinkingLevel || 'HIGH'}
-                                onChange={handleAdkConfigChange}
-                                title="Thinking depth for Gemini 3 models"
-                                className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-28"
-                              >
-                                <option value="MINIMAL">Minimal</option>
-                                <option value="LOW">Low</option>
-                                <option value="MEDIUM">Medium</option>
-                                <option value="HIGH">High</option>
-                              </select>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs text-gray-400">Budget:</span>
-                              <input
-                                type="number"
-                                name="thinkingBudget"
-                                value={adkConfig.thinkingBudget || 1024}
-                                onChange={handleAdkConfigChange}
-                                placeholder="Limit (-1)"
-                                title="Token limit for thinking process (-1 for unlimited)"
-                                className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-24"
-                              />
-                            </div>
-                          )}
-                        </div>
+                        (adkConfig.model?.startsWith('gemini-3') ||
+                         adkConfig.model?.includes('3.5') ||
+                         adkConfig.model?.includes('3.8') ||
+                         adkConfig.model?.includes('latest')) ? (
+                          <div className="flex items-center gap-1.5 ml-2">
+                            <span className="text-xs text-gray-400">Level:</span>
+                            <select
+                              name="thinkingLevel"
+                              aria-label="Thinking Level"
+                              value={adkConfig.thinkingLevel || 'HIGH'}
+                              onChange={handleAdkConfigChange}
+                              title="Thinking reasoning depth level (MINIMAL, LOW, MEDIUM, HIGH)"
+                              className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200"
+                            >
+                              <option value="HIGH">HIGH (Deep Reasoning)</option>
+                              <option value="MEDIUM">MEDIUM (Balanced)</option>
+                              <option value="LOW">LOW (Fast)</option>
+                              <option value="MINIMAL">MINIMAL (Shallow)</option>
+                            </select>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 ml-2">
+                            <span className="text-xs text-gray-400">Budget:</span>
+                            <input
+                              type="number"
+                              name="thinkingBudget"
+                              aria-label="Thinking Budget"
+                              value={adkConfig.thinkingBudget || 1024}
+                              onChange={handleAdkConfigChange}
+                              placeholder="Limit (-1)"
+                              title="Token limit for thinking process (-1 for unlimited)"
+                              className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-24"
+                            />
+                          </div>
+                        )
                       )}
                     </div>
-                    <label className="flex items-center space-x-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="enableStreaming"
-                        checked={adkConfig.enableStreaming}
-                        onChange={handleAdkConfigChange}
-                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
-                      />
-                      <span className="text-sm text-gray-300">Enable Streaming Responses</span>
-                    </label>
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
                         type="checkbox"
@@ -2516,45 +2695,56 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                 </div>
 
                 {/* Validation Panel */}
-                <div className="mt-4 p-3 bg-gray-900 rounded-lg border border-gray-700">
-                  <h4 className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">
-                    ADK Standards Validation
-                  </h4>
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-green-400">✓</span>
-                      <span className="text-xs text-gray-300">
-                        Standard Folder Structure (app/, tests/)
-                      </span>
+                {(() => {
+                  const isSpecValid = isValidAdkAgentName(adkConfig.name) && Boolean(adkConfig.instruction?.trim());
+                  return (
+                    <div className="mt-4 p-3 bg-gray-900 rounded-lg border border-gray-700">
+                      <h4 className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">
+                        ADK Standards Validation
+                      </h4>
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className={isSpecValid ? 'text-green-400' : 'text-gray-600'}>
+                            {isSpecValid ? '✓' : '○'}
+                          </span>
+                          <span className={`text-xs ${isSpecValid ? 'text-gray-300' : 'text-gray-500'}`}>
+                            Standard Folder Structure (app/, tests/)
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span
+                            className={adkConfig.enableEvaluation ? 'text-green-400' : 'text-gray-600'}
+                          >
+                            {adkConfig.enableEvaluation ? '✓' : '○'}
+                          </span>
+                          <span
+                            className={`text-xs ${adkConfig.enableEvaluation ? 'text-gray-300' : 'text-gray-500'}`}
+                          >
+                            Evaluation Configured
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className={adkConfig.enableCiCd ? 'text-green-400' : 'text-gray-600'}>
+                            {adkConfig.enableCiCd ? '✓' : '○'}
+                          </span>
+                          <span
+                            className={`text-xs ${adkConfig.enableCiCd ? 'text-gray-300' : 'text-gray-500'}`}
+                          >
+                            CI/CD Pipeline Configured
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className={isSpecValid ? 'text-green-400' : 'text-gray-600'}>
+                            {isSpecValid ? '✓' : '○'}
+                          </span>
+                          <span className={`text-xs ${isSpecValid ? 'text-gray-300' : 'text-gray-500'}`}>
+                            Design Spec Generated
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <span
-                        className={adkConfig.enableEvaluation ? 'text-green-400' : 'text-gray-600'}
-                      >
-                        {adkConfig.enableEvaluation ? '✓' : '○'}
-                      </span>
-                      <span
-                        className={`text-xs ${adkConfig.enableEvaluation ? 'text-gray-300' : 'text-gray-500'}`}
-                      >
-                        Evaluation Configured
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className={adkConfig.enableCiCd ? 'text-green-400' : 'text-gray-600'}>
-                        {adkConfig.enableCiCd ? '✓' : '○'}
-                      </span>
-                      <span
-                        className={`text-xs ${adkConfig.enableCiCd ? 'text-gray-300' : 'text-gray-500'}`}
-                      >
-                        CI/CD Pipeline Configured
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-green-400">✓</span>
-                      <span className="text-xs text-gray-300">Design Spec Generated</span>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
               </>
             ) : (
               <>
@@ -2858,133 +3048,150 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Code & Deploy (Box 2 & 3) */}
-        <div className="flex flex-col gap-6 flex-1 min-h-0">
-          <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col flex-1 min-h-0 border border-gray-700">
-            <h2 className="text-lg font-semibold text-white mb-3 shrink-0">
-              2. Generated Source Code
-            </h2>
-            <div className="flex justify-between items-center mb-2 shrink-0">
-              <div className="flex border-b border-gray-700">
-                {(builderTab === 'adk'
-                  ? ADK_TABS.filter(
-                      (t) =>
-                        (t.id !== 'auth' || adkConfig.enableOAuth) &&
-                        (t.id !== 'tools' || hasAnyTools(adkConfig))
-                    )
-                  : A2A_TABS
-                ).map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() =>
-                      builderTab === 'adk'
-                        ? setAdkActiveTab(tab.id as any)
-                        : setA2aActiveTab(tab.id as any)
-                    }
-                    className={`px-3 py-2 text-xs font-medium transition-colors ${
-                      (builderTab === 'adk' ? adkActiveTab : a2aActiveTab) === tab.id
-                        ? 'border-b-2 border-blue-500 text-white'
-                        : 'text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+        {/* Right Column: Component & Code Explorer (Box 2) */}
+        <div className="flex-1 lg:w-3/5 flex flex-col min-h-0 bg-gray-800 rounded-lg shadow-md border border-gray-700 overflow-hidden">
+          {/* Explorer Header / Actions Toolbar */}
+          <div className="p-3.5 border-b border-gray-700 flex flex-wrap items-center justify-between gap-3 bg-gray-850 shrink-0">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <span>2. Component & Code Explorer</span>
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-300 border border-blue-700 font-mono font-normal">
+                  {builderTab.toUpperCase()}
+                </span>
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Inspect how each component works, explore the architecture, or export for local development.
+              </p>
+            </div>
 
-              {/* Location */}
+            {/* Header Action Buttons */}
+            <div className="flex items-center gap-2 flex-wrap">
               <button
+                type="button"
                 onClick={() =>
                   handleCopy(
                     builderTab === 'adk' ? adkCodeDisplay : a2aCodeDisplay,
                     builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess
                   )
                 }
-                className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
+                className="px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 hover:text-white text-xs font-medium rounded border border-gray-600 flex items-center gap-1.5 transition-colors"
+                title="Copy active file content to clipboard"
               >
-                {(builderTab === 'adk' ? adkCopySuccess : a2aCopySuccess) || 'Copy'}
+                <span>📋</span>
+                <span>{(builderTab === 'adk' ? adkCopySuccess : a2aCopySuccess) || 'Copy File'}</span>
               </button>
-            </div>
-            <div className="bg-gray-900 rounded-b-md flex-1 overflow-auto border border-gray-700">
-              <pre className="p-4 text-xs text-gray-300 whitespace-pre-wrap">
-                <code>{builderTab === 'adk' ? adkCodeDisplay : a2aCodeDisplay}</code>
-              </pre>
+
+              <button
+                type="button"
+                disabled={builderTab === 'adk' && !isValidAdkAgentName(adkConfig.name)}
+                onClick={builderTab === 'adk' ? handleDownloadAdkZip : handleDownloadA2a}
+                className={`px-3 py-1.5 text-xs font-semibold rounded border flex items-center gap-1.5 transition-colors ${
+                  builderTab === 'adk' && !isValidAdkAgentName(adkConfig.name)
+                    ? 'bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed'
+                    : 'bg-gray-700 hover:bg-gray-600 text-white border-gray-600'
+                }`}
+                title="Download full project archive (.zip)"
+              >
+                <span>📥</span>
+                <span>Download .zip</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={builderTab === 'adk' && !isValidAdkAgentName(adkConfig.name)}
+                onClick={() =>
+                  builderTab === 'adk'
+                    ? setIsAdkDeployModalOpen(true)
+                    : setIsA2aDeployModalOpen(true)
+                }
+                className={`px-3.5 py-1.5 text-xs font-bold rounded shadow flex items-center gap-1.5 transition-all ${
+                  builderTab === 'adk' && !isValidAdkAgentName(adkConfig.name)
+                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-500 hover:to-teal-400 text-white shadow-blue-900/30'
+                }`}
+                title="Deploy to Google Cloud using Cloud Build"
+              >
+                <span>🚀</span>
+                <span>Deploy...</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsRegisterModalOpen(true)}
+                className="px-3.5 py-1.5 text-xs font-bold rounded shadow flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/30 transition-colors"
+                title="Register in Gemini Enterprise Discovery Engine"
+              >
+                <span>🔗</span>
+                <span>Register in GE...</span>
+              </button>
             </div>
           </div>
 
-          <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col flex-1 min-h-0 border border-gray-700">
-            <h2 className="text-lg font-semibold text-white mb-3 shrink-0">
-              3. Deployment Options
-            </h2>
-            <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto">
-              <div className="bg-blue-900/20 p-4 rounded-md border border-blue-800 shrink-0">
-                <h3 className="text-sm font-bold text-blue-300 mb-1">
-                  Option A: Cloud Build (Automated)
-                </h3>
+          {/* Registration Notice if recently registered */}
+          {registrationNotice && (
+            <div className="mx-4 mt-3 p-2.5 bg-emerald-900/30 border border-emerald-700 rounded-lg text-xs text-emerald-200 flex items-center justify-between shrink-0">
+              <span>{registrationNotice}</span>
+              <button
+                type="button"
+                onClick={() => setRegistrationNotice(null)}
+                className="text-emerald-400 hover:text-emerald-200 font-bold ml-2"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* File Tabs Bar */}
+          <div className="flex items-center gap-1 px-3 pt-2 bg-gray-900 border-b border-gray-700 overflow-x-auto shrink-0">
+            {(builderTab === 'adk'
+              ? ADK_TABS.filter(
+                  (t) =>
+                    (t.id !== 'auth' || adkConfig.enableOAuth) &&
+                    (t.id !== 'tools' || hasAnyTools(adkConfig))
+                )
+              : A2A_TABS
+            ).map((tab) => {
+              const isActive =
+                (builderTab === 'adk' ? adkActiveTab : a2aActiveTab) === tab.id;
+              return (
                 <button
-                  disabled={
-                    builderTab === 'adk' &&
-                    (!isValidAdkAgentName(adkConfig.name))
-                  }
+                  key={tab.id}
+                  type="button"
                   onClick={() =>
                     builderTab === 'adk'
-                      ? setIsAdkDeployModalOpen(true)
-                      : setIsA2aDeployModalOpen(true)
+                      ? setAdkActiveTab(tab.id as any)
+                      : setA2aActiveTab(tab.id as any)
                   }
-                  className={`w-full mt-2 px-4 py-2 font-bold rounded-md shadow-lg flex items-center justify-center gap-2 ${
-                    builderTab === 'adk' &&
-                    (!isValidAdkAgentName(adkConfig.name))
-                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-blue-600 to-teal-500 text-white'
+                  className={`px-3 py-2 text-xs font-mono font-medium rounded-t-md transition-colors flex items-center gap-1.5 border-t-2 ${
+                    isActive
+                      ? 'bg-gray-950 text-blue-400 border-blue-500 shadow-inner'
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/60 border-transparent'
                   }`}
                 >
-                  Deploy with Cloud Build
+                  <span>{tab.label}</span>
                 </button>
-              </div>
-              <div className="bg-gray-900/50 p-4 rounded-md border border-gray-700 flex-1 flex flex-col min-h-[150px]">
-                <div className="flex justify-between items-center mb-2 shrink-0">
-                  <h3 className="text-sm font-bold text-gray-200">
-                    {builderTab === 'adk'
-                      ? 'Option B: Manual Deployment (README)'
-                      : 'Option B: Manual Deployment (CLI Script)'}
-                  </h3>
-                  <div className="flex gap-2">
-                    <button
-                      disabled={
-                        builderTab === 'adk' &&
-                        (!isValidAdkAgentName(adkConfig.name))
-                      }
-                      onClick={builderTab === 'adk' ? handleDownloadAdkZip : handleDownloadA2a}
-                      className={`px-3 py-1 text-xs rounded ${
-                        builderTab === 'adk' &&
-                        (!isValidAdkAgentName(adkConfig.name))
-                          ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                          : 'bg-gray-600 text-white hover:bg-gray-500'
-                      }`}
-                    >
-                      Download .zip
-                    </button>
-                    <button
-                      onClick={() =>
-                        handleCopy(
-                          builderTab === 'adk' ? adkGeneratedCode.readme : a2aGeneratedCode.gcloud,
-                          builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess
-                        )
-                      }
-                      className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
-                    >
-                      {(builderTab === 'adk' ? adkCopySuccess : a2aCopySuccess) ||
-                        (builderTab === 'adk' ? 'Copy README' : 'Copy Script')}
-                    </button>
-                  </div>
-                </div>
-                <div className="bg-black rounded-md flex-1 min-h-0 border border-gray-800 flex items-center justify-center p-4">
-                  <p className="text-sm text-gray-400 text-center">
-                    Export as .zip for manual inspection or deployment.
-                  </p>
-                </div>
-              </div>
+              );
+            })}
+          </div>
+
+          {/* Plain-English Component Pedagogy Banner */}
+          <div className="px-4 py-2 bg-blue-950/40 border-b border-blue-900/50 flex items-center gap-3 shrink-0">
+            <span className="text-lg shrink-0">{activeComponentInfo.icon}</span>
+            <div className="flex-1 min-w-0">
+              <span className="text-xs font-bold text-blue-300 mr-2">
+                {activeComponentInfo.title}:
+              </span>
+              <span className="text-xs text-gray-300">
+                {activeComponentInfo.description}
+              </span>
             </div>
+          </div>
+
+          {/* Code Canvas (100% full vertical height, zero squishing) */}
+          <div className="bg-gray-950 flex-1 min-h-0 overflow-auto font-mono text-xs">
+            <pre className="p-4 text-gray-300 whitespace-pre-wrap leading-relaxed">
+              <code>{builderTab === 'adk' ? adkCodeDisplay : a2aCodeDisplay}</code>
+            </pre>
           </div>
         </div>
       </div>

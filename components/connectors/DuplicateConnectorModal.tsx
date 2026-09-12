@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from "react";
-import WizardStepper from "../agent-starter-pack/WizardStepper";
+import WizardStepper from "../WizardStepper";
 import * as api from "../../services/apiService";
 import { Config } from "../../types";
 import InfoTooltip from "../InfoTooltip";

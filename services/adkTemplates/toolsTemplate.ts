@@ -64,14 +64,13 @@ except ImportError:
         class StreamableHTTPConnectionParams:
             def __init__(self, *args, **kwargs): pass`}
 
-try:
-    ${isV2 ? "from google.antigravity.types import FileChange as Artifact # Dummy mapping" : "from google.adk.tools import Artifact"}
-except ImportError:
-    from pydantic import BaseModel, Field
-    class Artifact(BaseModel):
-        uri: str
-        mime_type: str = "image/png"
-        description: str = ""
+from pydantic import BaseModel, Field
+
+class Artifact(BaseModel):
+    """Represents a generated or referenced artifact (e.g. chart, document)."""
+    uri: str
+    mime_type: str = "image/png"
+    description: str = ""
 
 try:
     from .auth import get_user_credentials

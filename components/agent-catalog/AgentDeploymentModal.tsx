@@ -784,12 +784,10 @@ if __name__ == "__main__":
 FROM python:3.11-slim
 WORKDIR /app
 # Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake && rm -rf /var/lib/apt/lists/*
 COPY . .
-RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
-# Ensure uvicorn is installed
-RUN pip install uvicorn
+# Ensure uvicorn and fastapi are installed
+RUN pip install --no-cache-dir uvicorn fastapi
 CMD ["python", "main.py"]
 `,
           );
@@ -913,8 +911,8 @@ try:
     is_already_adk_app = (
         hasattr(app_obj, 'agent') or 
         hasattr(app_obj, '_agent') or 
-        app_obj.__class__.__name__ == 'AdkApp' or
-        app_obj.__class__.__name__ == 'SyncAgentWrapper'
+        app_obj.__class__.__name__ in ('AdkApp', 'StudioAdkApp', 'SyncAgentWrapper') or
+        (hasattr(agent_engines, 'AdkApp') and isinstance(app_obj, agent_engines.AdkApp))
     )
     
     if is_already_adk_app:

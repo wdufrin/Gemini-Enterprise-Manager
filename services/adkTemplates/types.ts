@@ -270,6 +270,8 @@ export interface AdkAgentConfig {
   cloudRunAccess?: CloudRunAccessMode;
   githubWifProvider?: string;
   githubServiceAccount?: string;
+  enableModelArmor?: boolean;
+  modelArmorTemplate?: string;
   customMcpEndpoints: { name: string; url: string }[];
 }
 

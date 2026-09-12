@@ -107,6 +107,30 @@ describe('AgentBuilderPage - Helper Functions', () => {
       const output = generateAdkEnvFile(baseAdkConfig, '123456789', 'us-central1', 'gs://my-staging-bucket');
       expect(output).toContain('ADK_DISABLE_JSON_SCHEMA_FOR_FUNC_DECL="1"');
     });
+
+    it('should emit THINKING_LEVEL="HIGH" for Gemini 3 models when thinking is enabled', () => {
+      const config = {
+        ...baseAdkConfig,
+        model: 'gemini-3.8-flash',
+        enableThinking: true,
+        thinkingLevel: 'HIGH',
+      };
+      const output = generateAdkEnvFile(config, '123456789', 'us-central1', 'gs://my-staging-bucket');
+      expect(output).toContain('THINKING_LEVEL="HIGH"');
+      expect(output).not.toContain('THINKING_BUDGET=');
+    });
+
+    it('should emit THINKING_BUDGET="2048" for Gemini 2.5 models when thinking is enabled', () => {
+      const config = {
+        ...baseAdkConfig,
+        model: 'gemini-2.5-flash',
+        enableThinking: true,
+        thinkingBudget: 2048,
+      };
+      const output = generateAdkEnvFile(config, '123456789', 'us-central1', 'gs://my-staging-bucket');
+      expect(output).toContain('THINKING_BUDGET="2048"');
+      expect(output).not.toContain('THINKING_LEVEL=');
+    });
   });
 
   describe('generateGithubWorkflow', () => {
@@ -256,6 +280,36 @@ describe('AgentBuilderPage - Helper Functions', () => {
       expect(
         screen.getByText(/OAuth clients cannot be created programmatically/)
       ).toBeDefined();
+    });
+
+    it('renders Thinking Level selector for Gemini 3 and Thinking Budget for Gemini 2', () => {
+      const { container } = render(
+        <AgentBuilderPage
+          projectNumber="123456789"
+          setProjectNumber={() => {}}
+        />
+      );
+
+      // Enable thinking
+      const thinkingCheckbox = container.querySelector('input[name="enableThinking"]') as HTMLInputElement;
+      expect(thinkingCheckbox).toBeDefined();
+      act(() => {
+        fireEvent.click(thinkingCheckbox);
+      });
+
+      // Default model in initial state is gemini-2.5-flash -> should show Budget input
+      expect(container.querySelector('input[name="thinkingBudget"]')).toBeDefined();
+      expect(container.querySelector('select[name="thinkingLevel"]')).toBeNull();
+
+      // Switch model to Gemini 3.8 Flash
+      const modelSelect = container.querySelector('select[name="model"]') as HTMLSelectElement;
+      act(() => {
+        fireEvent.change(modelSelect, { target: { value: 'gemini-3.8-flash' } });
+      });
+
+      // Should now show Thinking Level selector and hide Budget input
+      expect(container.querySelector('select[name="thinkingLevel"]')).toBeDefined();
+      expect(container.querySelector('input[name="thinkingBudget"]')).toBeNull();
     });
   });
 

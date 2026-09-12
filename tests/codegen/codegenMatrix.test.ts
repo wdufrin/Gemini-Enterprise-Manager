@@ -323,6 +323,55 @@ describe('ADK Studio codegen matrix', () => {
       });
       expect(script).not.toContain('agent_engines.create');
     });
+
+    it('passes env_vars as a dict to prevent Vertex AI SDK duplicate EnvVar bug', () => {
+      const script = generateAdkDeployScript({
+        ...BASE,
+        adkVersion: '1.35.1',
+        deploymentTarget: 'agent_engine',
+      });
+      expect(script).toContain('env_vars = {}');
+      expect(script).toContain('env_vars[key] = value');
+      expect(script).not.toContain('env_vars.append(key)');
+    });
+  });
+
+  describe('thinking config generation', () => {
+    it('emits thinking_level for Gemini 3 models', () => {
+      const code = generateAdkPythonCode({
+        ...BASE,
+        model: 'gemini-3.8-flash',
+        enableThinking: true,
+        thinkingLevel: 'HIGH',
+      });
+      expect(code).toContain('thinking_level = os.getenv("THINKING_LEVEL", "HIGH")');
+      expect(code).toContain('thinking_config = genai_types.ThinkingConfig(');
+      expect(code).toContain('thinking_level=thinking_level');
+    });
+
+    it('emits thinking_budget for Gemini 2.5 models', () => {
+      const code = generateAdkPythonCode({
+        ...BASE,
+        model: 'gemini-2.5-flash',
+        enableThinking: true,
+        thinkingBudget: 1024,
+      });
+      expect(code).toContain('thinking_budget = int(os.getenv("THINKING_BUDGET", "1024"))');
+      expect(code).toContain('thinking_config = genai_types.ThinkingConfig(');
+      expect(code).toContain('thinking_budget=thinking_budget');
+    });
+
+    it('emits thinking_level in ADK 2.2 for Gemini 3 models', () => {
+      const code = generateAdk22PythonCode({
+        ...BASE,
+        adkVersion: '2.2',
+        model: 'gemini-3.5-flash',
+        enableThinking: true,
+        thinkingLevel: 'MEDIUM',
+      });
+      expect(code).toContain('thinking_level = os.getenv("THINKING_LEVEL", "MEDIUM")');
+      expect(code).toContain('thinking_level=thinking_level');
+    });
   });
 
   it.each(CASES.map((c) => [c.name, c] as const))(

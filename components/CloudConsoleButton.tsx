@@ -20,7 +20,6 @@ const CloudConsoleButton: React.FC<CloudConsoleButtonProps> = ({ currentPage, pr
             case Page.AGENT_BUILDER:
             case Page.AGENT_ENGINES:
             case Page.AGENT_CATALOG:
-            case Page.AGENT_STARTER_PACK:
             case Page.ARCHITECTURE:
             case Page.ASSISTANT:
                 return `https://console.cloud.google.com/gen-app-builder/engines?project=${projectId}`;

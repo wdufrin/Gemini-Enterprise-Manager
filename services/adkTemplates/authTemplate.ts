@@ -259,7 +259,7 @@ import logging
 from typing import Optional, Dict, Any
 from collections.abc import Mapping
 from google.oauth2.credentials import Credentials
-from google.adk.tools import ToolContext, tool
+from google.adk.tools import ToolContext
 
 logger = logging.getLogger(__name__)
 
@@ -377,7 +377,6 @@ def get_user_credentials(
     return None
 
 
-@tool
 def call_authorized_api(tool_context: ToolContext, endpoint_path: str) -> Dict[str, Any]:
     """
     Calls a downstream API on behalf of the user using their delegated OAuth credentials.
