@@ -85,7 +85,10 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
     const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
     const [selectedInputTemplate, setSelectedInputTemplate] = useState('');
     const [selectedOutputTemplate, setSelectedOutputTemplate] = useState('');
-    const [failureMode, setFailureMode] = useState('FAIL_OPEN');
+    // Google's API default: an unset `failureMode` behaves as FAIL_CLOSED
+    // (FailureMode.FAILURE_MODE_UNSPECIFIED -> "default behavior is FAIL_CLOSED").
+    // Defaulting the control to FAIL_OPEN would silently downgrade that.
+    const [failureMode, setFailureMode] = useState('FAIL_CLOSED');
 
     useEffect(() => {
         const loadTemplates = async () => {
@@ -115,7 +118,10 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         
         setSelectedInputTemplate(armorConfig.userPromptTemplate || '');
         setSelectedOutputTemplate(armorConfig.responseTemplate || '');
-        setFailureMode(armorConfig.failureMode || 'FAIL_OPEN');
+        // An absent `failureMode` is FAIL_CLOSED per the discoveryengine API, so
+        // surfacing it as FAIL_OPEN both misreports the live state and lets an
+        // unrelated edit write a real FAIL_OPEN downgrade into customerPolicy.
+        setFailureMode(armorConfig.failureMode || 'FAIL_CLOSED');
 
         // Use sessionTtl from currentEngine if available, otherwise default to empty
         const retention = currentEngine?.sessionConfig?.sessionTtl?.days !== undefined 
@@ -207,6 +213,9 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         setFailureMode(val);
         updateArmorPolicy(selectedInputTemplate, selectedOutputTemplate, val);
     };
+
+    // `failureMode` is only meaningful once a template is actually bound.
+    const armorEnabled = Boolean(selectedInputTemplate || selectedOutputTemplate);
 
     useEffect(() => {
         const fetchCurrentEngine = async () => {
@@ -667,10 +676,10 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                     />
                 </div>
                 <div className="space-y-4 pt-2 border-t border-gray-700">
-                    <label htmlFor="customerPolicy" className="flex items-center text-sm font-medium text-gray-300">
-                        Customer Policy & Model Armor Settings
+                    <span className="flex items-center text-sm font-medium text-gray-300">
+                        Customer Policy &amp; Model Armor Settings
                         <InfoTooltip text="Configure Model Armor protection templates or edit the raw policy JSON configuration directly." />
-                    </label>
+                    </span>
 
                     <div className="bg-gray-800/40 p-4 rounded-lg border border-gray-700/60 space-y-4">
                         <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -682,8 +691,9 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                         
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
-                                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Input Template (User Prompts)</label>
+                                <label htmlFor="armorInputTemplate" className="block text-xs font-semibold text-gray-400 mb-1.5">Input Template (User Prompts)</label>
                                 <select 
+                                    id="armorInputTemplate"
                                     value={selectedInputTemplate} 
                                     onChange={handleInputTemplateChange}
                                     className="w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-xs text-white py-2 focus:ring-blue-500 animate-fade-in"
@@ -700,8 +710,9 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                             </div>
                             
                             <div>
-                                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Output Template (Model Responses)</label>
+                                <label htmlFor="armorOutputTemplate" className="block text-xs font-semibold text-gray-400 mb-1.5">Output Template (Model Responses)</label>
                                 <select 
+                                    id="armorOutputTemplate"
                                     value={selectedOutputTemplate} 
                                     onChange={handleOutputTemplateChange}
                                     className="w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-xs text-white py-2 focus:ring-blue-500 animate-fade-in"
@@ -718,23 +729,55 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                             </div>
 
                             <div>
-                                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Failure Mode</label>
+                                <label htmlFor="armorFailureMode" className="block text-xs font-semibold text-gray-400 mb-1.5">Failure Mode</label>
                                 <select 
+                                    id="armorFailureMode"
                                     value={failureMode} 
                                     onChange={handleFailureModeChange}
                                     disabled={!selectedInputTemplate && !selectedOutputTemplate}
                                     className="w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-xs text-white py-2 focus:ring-blue-500 disabled:opacity-50"
                                 >
-                                    <option value="FAIL_OPEN">Fail Open (Continue Chat)</option>
-                                    <option value="FAIL_CLOSED">Fail Closed (Block Chat)</option>
+                                    <option value="FAIL_CLOSED">Fail Closed &ndash; block the request (recommended)</option>
+                                    <option value="FAIL_OPEN">Fail Open &ndash; let the request through unfiltered</option>
                                 </select>
                             </div>
                         </div>
+
+                        {armorEnabled && failureMode === 'FAIL_CLOSED' && (
+                            <div className="bg-gray-900/40 border border-gray-700 rounded-md p-3 text-xs text-gray-300 flex gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <div>
+                                    <strong className="text-gray-200">This can break chat during a Model Armor outage.</strong>{' '}
+                                    If Model Armor cannot evaluate a prompt or a response, the request is rejected and the
+                                    user gets an error instead of an answer. That is the intended tradeoff for a safety
+                                    filter, and it is also Google&apos;s own default (an unset <code>failureMode</code> behaves
+                                    as <code>FAIL_CLOSED</code>).
+                                </div>
+                            </div>
+                        )}
+
+                        {armorEnabled && failureMode === 'FAIL_OPEN' && (
+                            <div className="bg-red-900/30 border border-red-800 rounded-md p-3 text-xs text-red-200 flex gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                <div>
+                                    <strong>Fail Open disables your protection whenever Model Armor is unavailable.</strong>{' '}
+                                    Prompts and responses are passed through with no filtering at all, so unsafe content
+                                    and prompt injections can reach the model and your users. Chat stays up; the filter
+                                    does not. Choose this only if availability genuinely outranks safety for this app.
+                                </div>
+                            </div>
+                        )}
                     </div>
 
+
                     <div>
-                        <span className="block text-xs font-semibold text-gray-400 mb-1.5">Customer Policy (JSON Editor)</span>
+                        <label htmlFor="customerPolicy" className="block text-xs font-semibold text-gray-400 mb-1.5">Customer Policy (JSON Editor)</label>
                         <textarea 
+                            id="customerPolicy"
                             name="customerPolicy" 
                             value={formData.customerPolicy} 
                             onChange={handleChange} 

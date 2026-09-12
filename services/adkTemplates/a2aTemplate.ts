@@ -1,4 +1,11 @@
-import { A2aConfig, AdkAgentConfig } from "./types";
+import {
+  A2aConfig,
+  AdkAgentConfig,
+  cloudRunAccessCommentBlock,
+  cloudRunAccessFlags,
+  cloudRunAccessLabel,
+  resolveCloudRunAccess,
+} from "./types";
 
 export const generateMainPy = (config: A2aConfig): string => {
   const { instruction, enableCors, useGoogleSearch, tools } = config;
@@ -350,14 +357,41 @@ export const generateGcloudCommand = (
   config: A2aConfig,
   projectId: string,
 ): string => {
-  const authFlag = config.allowUnauthenticated
-    ? "--allow-unauthenticated"
-    : "--no-allow-unauthenticated";
+  // SECURITY (2.7): three-way access mode replaces the old boolean, whose
+  // default was `true` (public). `undefined` now resolves to IAM-only.
+  const accessMode = resolveCloudRunAccess(config.cloudRunAccess);
+  const authFlag = cloudRunAccessFlags(accessMode);
+  const accessNotes = cloudRunAccessCommentBlock(accessMode, {
+    serviceName: config.serviceName || "SERVICE_NAME",
+    region: config.region || "REGION",
+  });
+
+  // Post-deploy reminder for IAP, which cannot be finished by this script:
+  // the OAuth client has to be created in the Console and the IAP service
+  // agent needs roles/run.invoker. Plain echo lines -- no `$`, no backticks.
+  const iapReminder =
+    accessMode === "iap"
+      ? `
+echo ""
+echo "=============================================================="
+echo "IAP is enabled on this service, but it is NOT usable yet."
+echo "1. Grant roles/run.invoker to the IAP service agent:"
+echo "   service-PROJECT_NUMBER@gcp-sa-iap.iam.gserviceaccount.com"
+echo "2. If this is the first IAP resource in a project without an"
+echo "   organization, create the OAuth client in the Cloud Console."
+echo "   OAuth clients cannot be created programmatically."
+echo "3. Grant your users roles/iap.httpsResourceAccessor."
+echo "=============================================================="
+`
+      : "";
 
   return `
 #!/bin/bash
 # This script deploys the Cloud Run service and then updates it
 # with its own public URL, enabling self-discovery for the agent.json endpoint.
+
+# --- Access control: ${cloudRunAccessLabel(accessMode)} ---
+${accessNotes}
 
 # Exit immediately if a command exits with a non-zero status.
 set -e
@@ -408,6 +442,6 @@ gcloud run services update "$SERVICE_NAME" \\
 
 echo "Deployment and configuration complete."
 echo "Your A2A function is now available at: $SERVICE_URL"
-`;
+${iapReminder}`;
 };
 

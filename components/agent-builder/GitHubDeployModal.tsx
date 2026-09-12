@@ -203,15 +203,48 @@ export WORKLOAD_IDENTITY_POOL_ID=$(gcloud iam workload-identity-pools describe $
 # 4. Create the OIDC Provider for GitHub in that Pool
 export PROVIDER_ID="github-provider"
 export OWNER="${owner}" # Your GitHub Organization or username
+export REPO="${repoName}" # The single repository allowed to deploy
+export REPO_FULL_NAME="$OWNER/$REPO"
 
+# Scoped to THIS repository only. 'assertion.repository' is the full
+# "owner/repo" string GitHub puts in every Actions OIDC token, so a token
+# minted by any other repository -- including a brand new one, or a
+# compromised one, under the same owner -- is rejected by the provider before
+# IAM is ever consulted.
 gcloud iam workload-identity-pools providers create-oidc $PROVIDER_ID \\
   --project="${projectId}" \\
   --location="global" \\
   --workload-identity-pool=$POOL_ID \\
   --display-name="GitHub Provider" \\
-  --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository_owner=assertion.repository_owner" \\
+  --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \\
   --issuer-uri="https://token.actions.githubusercontent.com" \\
-  --attribute-condition="assertion.repository_owner == '$OWNER'"
+  --attribute-condition="assertion.repository == '$REPO_FULL_NAME'"
+
+# ---------------------------------------------------------------------------
+# ALREADY RAN AN OLDER VERSION OF THIS SCRIPT?
+# 'create-oidc' does NOT update an existing provider -- it fails with
+# ALREADY_EXISTS and leaves the old owner-wide condition in place. If that
+# happens, run the update below instead. It is the same mapping and the same
+# condition, applied to the provider that already exists:
+#
+# gcloud iam workload-identity-pools providers update-oidc $PROVIDER_ID \\
+#   --project="${projectId}" \\
+#   --location="global" \\
+#   --workload-identity-pool=$POOL_ID \\
+#   --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \\
+#   --attribute-condition="assertion.repository == '$REPO_FULL_NAME'"
+#
+# --attribute-mapping REPLACES the whole map, so 'attribute.repository_owner'
+# disappears from the provider. That is deliberate: any leftover
+# '.../attribute.repository_owner/$OWNER' IAM binding stops granting anything,
+# which is exactly the over-broad access this change removes. Step 5 below
+# deletes that binding explicitly as well.
+#
+# This pool and provider are shared by every repo you set up with this wizard,
+# and a provider has ONE condition. To authorize more than one repository,
+# list them instead of overwriting:
+#   --attribute-condition="assertion.repository in ['$OWNER/repo-a','$OWNER/repo-b']"
+# ---------------------------------------------------------------------------
 
 export WORKLOAD_IDENTITY_PROVIDER=$(gcloud iam workload-identity-pools providers describe $PROVIDER_ID \\
   --project="${projectId}" \\
@@ -249,7 +282,16 @@ gcloud projects add-iam-policy-binding "${projectId}" \\
 gcloud iam service-accounts add-iam-policy-binding $SERVICE_ACCOUNT \\
   --project="${projectId}" \\
   --role="roles/iam.workloadIdentityUser" \\
-  --member="principalSet://iam.googleapis.com/$WORKLOAD_IDENTITY_POOL_ID/attribute.repository_owner/$OWNER"
+  --member="principalSet://iam.googleapis.com/$WORKLOAD_IDENTITY_POOL_ID/attribute.repository/$REPO_FULL_NAME"
+
+# Revoke the old owner-wide grant, if an earlier run of this script created it.
+# That binding let EVERY repository under "$OWNER" impersonate this service
+# account. Failure here just means it was never created -- safe to ignore.
+gcloud iam service-accounts remove-iam-policy-binding $SERVICE_ACCOUNT \\
+  --project="${projectId}" \\
+  --role="roles/iam.workloadIdentityUser" \\
+  --member="principalSet://iam.googleapis.com/$WORKLOAD_IDENTITY_POOL_ID/attribute.repository_owner/$OWNER" \\
+  2>/dev/null || echo "No legacy owner-wide binding to remove."
 
 # Optional: Grant Roles to Cloud Build Service Account (If using Cloud Build)
 export PROJECT_NUMBER=$(gcloud projects describe "${projectId}" --format="value(projectNumber)")
@@ -485,7 +527,14 @@ echo "Service Account: $SERVICE_ACCOUNT"
                                     <>
                                         <h3 className="text-lg font-bold text-white mb-2">Final Step: Configure GCP IAM (WIF)</h3>
                                         <p className="text-gray-400 text-sm mb-4">To allow GitHub Actions to securely deploy to Google Cloud without storing long-lived JSON keys, you must set up Workload Identity Federation. Run this script in your Cloud Shell or local terminal to provision it automatically.</p>
-                                        
+
+                                        <div className="bg-gray-800 border border-gray-700 border-l-4 border-l-blue-500 p-4 rounded-lg mb-4">
+                                            <h4 className="text-sm font-semibold text-gray-200 mb-1">Scope: this repository only</h4>
+                                            <p className="text-xs text-gray-400 leading-relaxed">
+                                                The script grants deploy access to <code className="bg-gray-900 px-1 rounded text-gray-300">{owner || 'owner'}/{repoName || 'repo'}</code> and nothing else. An earlier version scoped the grant to the whole <code className="bg-gray-900 px-1 rounded text-gray-300">repository_owner</code>, which let any repository under that account &mdash; including ones created later &mdash; mint deploy credentials for this service account.
+                                            </p>
+                                        </div>
+
                                         <div className="relative">
                                             <pre className="bg-gray-900 p-4 rounded-lg overflow-x-auto text-xs text-gray-300 font-mono border border-gray-700">
                                                 {wifScript.trim()}
@@ -497,7 +546,22 @@ echo "Service Account: $SERVICE_ACCOUNT"
                                                 Copy Script
                                             </button>
                                         </div>
-                                        
+
+                                        <div className="bg-yellow-900/20 border border-yellow-700/60 p-4 rounded-lg mt-4">
+                                            <h4 className="text-sm font-semibold text-yellow-300 mb-2">If you have run this script before</h4>
+                                            <ul className="text-xs text-yellow-200/80 space-y-1 list-disc pl-4 leading-relaxed">
+                                                <li>
+                                                    <code className="bg-gray-900 px-1 rounded">providers create-oidc</code> will fail with <code className="bg-gray-900 px-1 rounded">ALREADY_EXISTS</code> against a provider from a previous run and will leave the old owner-wide condition in place. Run the commented-out <code className="bg-gray-900 px-1 rounded">providers update-oidc</code> command in step 4 instead &mdash; the attribute mapping and condition on an existing provider can be updated in place.
+                                                </li>
+                                                <li>
+                                                    That update replaces the whole attribute mapping, so <code className="bg-gray-900 px-1 rounded">attribute.repository_owner</code> is removed. Any other repository that relied on the old owner-wide binding will stop deploying until you add it to the condition list shown in step 4.
+                                                </li>
+                                                <li>
+                                                    The final command in step 5 deletes the old owner-wide IAM binding. If it was never created, the script prints a notice and continues.
+                                                </li>
+                                            </ul>
+                                        </div>
+
                                         <p className="text-yellow-400/80 text-xs mt-4 italic">
                                             <span className="font-bold mr-1">Note:</span> 
                                             After running this script, it will output the <code>WIF Provider</code> and <code>Service Account</code> values. Copy those values back into the &quot;Lifecycle Management&quot; settings in the Agent Designer!

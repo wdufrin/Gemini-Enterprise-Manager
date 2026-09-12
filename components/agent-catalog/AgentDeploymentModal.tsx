@@ -25,6 +25,14 @@ import {
   shellSingleQuote,
 } from "../../services/shellSafety";
 import { GcsBucket } from "../../types";
+import {
+  CLOUD_RUN_ACCESS_OPTIONS,
+  CloudRunAccessMode,
+  DEFAULT_CLOUD_RUN_ACCESS,
+  cloudRunAccessCommentBlock,
+  cloudRunAccessFlags,
+  cloudRunAccessLabel,
+} from "../../services/adkTemplates/types";
 
 declare let JSZip: any;
 
@@ -93,6 +101,11 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
     "reasoning_engine",
   );
   const [region, setRegion] = useState("us-central1");
+  // SECURITY (2.7): the Cloud Run deploy script used to hardcode
+  // --allow-unauthenticated. It now follows this choice, which starts locked.
+  const [accessMode, setAccessMode] = useState<CloudRunAccessMode>(
+    DEFAULT_CLOUD_RUN_ACCESS,
+  );
   const [tools, setTools] = useState<string[]>([]);
   const [readmeContent, setReadmeContent] = useState<string>("");
   const [leftTab, setLeftTab] = useState<
@@ -517,10 +530,32 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
       `STAGING_BUCKET=${shellSingleQuote(`gs://${selectedBucket || "[STAGING_BUCKET]"}`)}`,
     );
 
+    // SECURITY (2.7): this line used to hardcode `--allow-unauthenticated`,
+    // publishing every catalog agent to the internet with no way to opt out.
+    const accessFlags = cloudRunAccessFlags(accessMode);
+    const accessNotes = cloudRunAccessCommentBlock(accessMode, {
+      serviceName,
+      region,
+    });
+    // IAP cannot be completed by this script: the OAuth client is Console-only
+    // and the IAP service agent still needs roles/run.invoker.
+    const iapReminder =
+      accessMode === "iap"
+        ? `
+echo ""
+echo "IAP is enabled, but the service is not reachable yet:"
+echo " - grant roles/run.invoker to service-PROJECT_NUMBER@gcp-sa-iap.iam.gserviceaccount.com"
+echo " - create the OAuth client in the Cloud Console if this is the first"
+echo "   IAP resource in a project without an organization"
+echo " - grant your users roles/iap.httpsResourceAccessor"`
+        : "";
+
     return `#!/bin/bash
 set -e
-echo "Deploying Cloud Run service '${serviceName}'..."
-gcloud run deploy ${serviceName} --image ${imageName} --region ${region} --allow-unauthenticated --set-env-vars ${envStrings.join(",")}
+# Access control: ${cloudRunAccessLabel(accessMode)}
+${accessNotes}
+echo "Deploying Cloud Run service '${serviceName}' (${cloudRunAccessLabel(accessMode)})..."
+gcloud run deploy ${serviceName} --image ${imageName} --region ${region} ${accessFlags} --set-env-vars ${envStrings.join(",")}
 
 echo "Fetching Service URL..."
 SERVICE_URL=$(gcloud run services describe ${serviceName} --region ${region} --format='value(status.url)')
@@ -534,7 +569,7 @@ echo "Detected Service URL: $SERVICE_URL"
 echo "Updating service with AGENT_URL for self-discovery..."
 gcloud run services update ${serviceName} --region ${region} --update-env-vars=AGENT_URL=$SERVICE_URL
 
-echo "Deployment Complete."`;
+echo "Deployment Complete."${iapReminder}`;
   };
 
   const handleDeploy = async () => {
@@ -1327,6 +1362,87 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                   </label>
                 </div>
               </div>
+
+              {/* Access control -- Cloud Run only. Agent Engine is governed by
+                  Vertex AI IAM, not by run.invoker. */}
+              {target === "cloud_run" && (
+                <div>
+                  <h3 className="text-lg font-medium text-white mb-1">
+                    Who can call this service?
+                  </h3>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Sets the authentication flags on the generated{" "}
+                    <code className="font-mono">gcloud run deploy</code> command.
+                  </p>
+                  <div className="space-y-2">
+                    {CLOUD_RUN_ACCESS_OPTIONS.map((option) => {
+                      const selected = accessMode === option.value;
+                      const selectedClasses = option.dangerous
+                        ? "border-red-500 bg-red-900/20"
+                        : "border-blue-500 bg-blue-900/20";
+                      return (
+                        <label
+                          key={option.value}
+                          className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                            selected
+                              ? selectedClasses
+                              : "border-gray-600 bg-gray-700/30 hover:border-gray-500"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="cloudRunAccess"
+                            value={option.value}
+                            checked={selected}
+                            onChange={() => setAccessMode(option.value)}
+                            className="mt-1 h-4 w-4 bg-gray-700 border-gray-600"
+                          />
+                          <span>
+                            <span
+                              className={`block font-medium ${
+                                option.dangerous && selected
+                                  ? "text-red-300"
+                                  : "text-white"
+                              }`}
+                            >
+                              {option.label}
+                            </span>
+                            <span className="block text-xs text-gray-400 mt-0.5">
+                              {option.summary}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  {accessMode === "public" && (
+                    <div className="mt-2 bg-red-900/30 border border-red-800 rounded-md p-3 text-xs text-red-300">
+                      <span className="font-semibold">
+                        This publishes the agent to the internet.
+                      </span>{" "}
+                      Anyone who learns the URL can invoke it with no login.
+                    </div>
+                  )}
+
+                  {accessMode === "iap" && (
+                    <div className="mt-2 bg-yellow-900/20 border border-yellow-800 rounded-md p-3 text-xs text-yellow-200 space-y-1">
+                      <p className="font-semibold">
+                        IAP needs manual setup that this build cannot do for you.
+                      </p>
+                      <p>
+                        Grant <code className="font-mono">roles/run.invoker</code> to{" "}
+                        <code className="font-mono break-all">
+                          service-PROJECT_NUMBER@gcp-sa-iap.iam.gserviceaccount.com
+                        </code>
+                        , and create the OAuth client in the Cloud Console -- OAuth clients
+                        cannot be created programmatically, so this Cloud Build step will
+                        fail if IAP has never been enabled in the project.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Location */}
               <div>

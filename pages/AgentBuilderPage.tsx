@@ -20,6 +20,8 @@ import {
   AgentTool,
   A2aConfig,
   AdkAgentConfig,
+  CloudRunAccessMode,
+  CLOUD_RUN_ACCESS_OPTIONS,
   DiscoveryConfig,
   ADK_TABS,
   A2A_TABS,
@@ -109,6 +111,93 @@ __pycache__/
 node_modules/
 `;
 
+/**
+ * Three-way Cloud Run access picker (remediation 2.7).
+ *
+ * Deliberately not a checkbox: "public vs not public" cannot express the case
+ * that is actually the common one here -- a service invoked by Gemini Enterprise
+ * or by another agent with a service-account token, which is neither public nor
+ * behind IAP's browser sign-in.
+ *
+ * Pure presentation; it cannot throw, so it is safe on the render path.
+ */
+const CloudRunAccessSelector: React.FC<{
+  value: CloudRunAccessMode;
+  onChange: (mode: CloudRunAccessMode) => void;
+  /** Distinguishes the ADK and A2A radio groups on the same page. */
+  groupName: string;
+}> = ({ value, onChange, groupName }) => (
+  <div className="space-y-2">
+    {CLOUD_RUN_ACCESS_OPTIONS.map((option) => {
+      const selected = option.value === value;
+      const selectedClasses = option.dangerous
+        ? 'border-red-500 bg-red-900/20'
+        : 'border-blue-500 bg-blue-900/20';
+      return (
+        <label
+          key={option.value}
+          className={`flex items-start gap-3 p-3 rounded-md border cursor-pointer transition-colors ${
+            selected
+              ? selectedClasses
+              : 'border-gray-700 bg-gray-900/50 hover:border-gray-600'
+          }`}
+        >
+          <input
+            type="radio"
+            name={`${groupName}-cloud-run-access`}
+            value={option.value}
+            checked={selected}
+            onChange={() => onChange(option.value)}
+            className="mt-0.5 h-4 w-4 bg-gray-700 border-gray-600"
+          />
+          <span>
+            <span
+              className={`block text-sm font-medium ${
+                option.dangerous && selected ? 'text-red-300' : 'text-gray-200'
+              }`}
+            >
+              {option.label}
+            </span>
+            <span className="block text-xs text-gray-500 mt-0.5">{option.summary}</span>
+          </span>
+        </label>
+      );
+    })}
+
+    {value === 'public' && (
+      <div className="bg-red-900/30 border border-red-800 rounded-md p-3 text-xs text-red-300">
+        <span className="font-semibold">This service will be open to the internet.</span>{' '}
+        The generated command passes <code className="font-mono">--allow-unauthenticated</code>,
+        so anyone who learns the URL can invoke the agent, read whatever it can read and
+        spend your model quota. Use it only for a deliberately public demo.
+      </div>
+    )}
+
+    {value === 'iap' && (
+      <div className="bg-yellow-900/20 border border-yellow-800 rounded-md p-3 text-xs text-yellow-200 space-y-1">
+        <p className="font-semibold">IAP is not one-click. Two manual steps remain:</p>
+        <p>
+          1. Grant <code className="font-mono">roles/run.invoker</code> to the IAP service
+          agent{' '}
+          <code className="font-mono break-all">
+            service-PROJECT_NUMBER@gcp-sa-iap.iam.gserviceaccount.com
+          </code>
+          .
+        </p>
+        <p>
+          2. OAuth clients cannot be created programmatically. The first time you enable IAP
+          in a project that is not in an organization, you must do it in the Cloud Console
+          (Security &rarr; Identity-Aware Proxy). By default IAP only admits users from your
+          own organization; external users need a custom OAuth client.
+        </p>
+        <p className="text-yellow-300/80">
+          The exact commands are repeated as comments in the generated files.
+        </p>
+      </div>
+    )}
+  </div>
+);
+
 const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   projectNumber,
   setProjectNumber,
@@ -127,7 +216,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     memory: '1Gi',
     instruction:
       'You are a helpful assistant that responds to user queries directly and concisely.',
-    allowUnauthenticated: true,
+    // BEHAVIOUR CHANGE (2.7): this used to be `allowUnauthenticated: true`,
+    // i.e. every generated A2A service defaulted to callable by the entire
+    // internet. The default is now IAM-only; "Public" is an explicit choice.
+    cloudRunAccess: 'authenticated',
     enableCors: true,
     useGoogleSearch: false,
     tools: [],
@@ -212,6 +304,9 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
     enableCiCd: false,
     ciCdRunner: 'none',
     deploymentTarget: 'agent_engine',
+    // SECURITY (2.7): the generated Makefile's `gcloud run deploy` line used to
+    // hardcode --allow-unauthenticated. It now follows this field.
+    cloudRunAccess: 'authenticated',
     githubWifProvider: '',
     githubServiceAccount: '',
     customMcpEndpoints: [],
@@ -1392,6 +1487,9 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                             enableCiCd: false,
                             ciCdRunner: 'none',
                             deploymentTarget: 'agent_engine',
+                            // Applying a template resets access to the secure
+                            // default; a template may override it explicitly.
+                            cloudRunAccess: 'authenticated',
                             githubWifProvider: '',
                             githubServiceAccount: '',
                             customMcpEndpoints: [],
@@ -2194,6 +2292,24 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
                 <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
                   <h4 className="text-xs font-semibold text-gray-400">
+                    Cloud Run Access
+                  </h4>
+                  <p className="text-xs text-gray-500">
+                    Controls the <code className="font-mono">gcloud run deploy</code> flags in
+                    the generated Makefile (<code className="font-mono">make deploy-cloud-run</code>
+                    ), used by both CI/CD runners.
+                  </p>
+                  <CloudRunAccessSelector
+                    groupName="adk"
+                    value={adkConfig.cloudRunAccess ?? 'authenticated'}
+                    onChange={(mode) =>
+                      setAdkConfig((prev) => ({ ...prev, cloudRunAccess: mode }))
+                    }
+                  />
+                </div>
+
+                <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
+                  <h4 className="text-xs font-semibold text-gray-400">
                     Lifecycle Management (WIP)
                   </h4>
                   <label className="flex items-center space-x-3 cursor-pointer">
@@ -2711,18 +2827,21 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
             {builderTab === 'a2a' && (
               <div className="pt-4 border-t border-gray-700">
-                <h3 className="text-sm font-medium text-gray-300 mb-2">Testing Options</h3>
-                <div className="space-y-2">
-                  <label className="flex items-center space-x-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      name="allowUnauthenticated"
-                      checked={a2aConfig.allowUnauthenticated}
-                      onChange={handleA2aConfigChange}
-                      className="h-4 w-4 bg-gray-700 border-gray-600 rounded"
+                <h3 className="text-sm font-medium text-gray-300 mb-2">Access &amp; Testing</h3>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Controls the <code className="font-mono">gcloud run deploy</code> flags in
+                      the generated deploy script.
+                    </p>
+                    <CloudRunAccessSelector
+                      groupName="a2a"
+                      value={a2aConfig.cloudRunAccess ?? 'authenticated'}
+                      onChange={(mode) =>
+                        setA2aConfig((prev) => ({ ...prev, cloudRunAccess: mode }))
+                      }
                     />
-                    <span className="text-sm text-gray-300">Allow unauthenticated invocations</span>
-                  </label>
+                  </div>
                   <label className="flex items-center space-x-3 cursor-pointer">
                     <input
                       type="checkbox"

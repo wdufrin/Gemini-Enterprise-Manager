@@ -41,7 +41,7 @@ describe('AgentBuilderPage - Helper Functions', () => {
       region: 'us-central1',
       memory: '512Mi',
       instruction: 'hello',
-      allowUnauthenticated: true,
+      cloudRunAccess: 'authenticated',
       enableCors: true,
       useGoogleSearch: false,
       tools: [],
@@ -201,6 +201,61 @@ describe('AgentBuilderPage - Helper Functions', () => {
         fireEvent.change(nameInput, { target: { value: 'GCP_BigQuery_Orchestrator' } });
       });
       expect(screen.queryByText(ADK_AGENT_NAME_HINT)).toBeNull();
+    });
+
+    /**
+     * Remediation 2.7. The generated Makefile used to hardcode
+     * `--allow-unauthenticated`, so the builder shipped world-callable agents
+     * with no way to say otherwise. The picker must exist, must start on the
+     * locked-down option, and must shout when the user picks public.
+     */
+    it('defaults Cloud Run access to authenticated and warns on public', () => {
+      const { container } = render(
+        <AgentBuilderPage
+          projectNumber="123456789"
+          setProjectNumber={() => {}}
+        />
+      );
+
+      const radios = Array.from(
+        container.querySelectorAll('input[name="adk-cloud-run-access"]')
+      ) as HTMLInputElement[];
+      expect(radios.length).toBe(3);
+
+      const checked = radios.filter((r) => r.checked).map((r) => r.value);
+      expect(checked).toEqual(['authenticated']);
+
+      // No warning banner until the user opts in.
+      expect(screen.queryByText(/open to the internet/i)).toBeNull();
+
+      const publicRadio = radios.find((r) => r.value === 'public');
+      act(() => {
+        fireEvent.click(publicRadio as HTMLInputElement);
+      });
+      expect(screen.getByText(/open to the internet/i)).toBeDefined();
+    });
+
+    it('surfaces the IAP caveats instead of pretending IAP is one-click', () => {
+      const { container } = render(
+        <AgentBuilderPage
+          projectNumber="123456789"
+          setProjectNumber={() => {}}
+        />
+      );
+
+      const iapRadio = container.querySelector(
+        'input[name="adk-cloud-run-access"][value="iap"]'
+      ) as HTMLInputElement;
+      act(() => {
+        fireEvent.click(iapRadio);
+      });
+
+      expect(
+        screen.getByText(/service-PROJECT_NUMBER@gcp-sa-iap.iam.gserviceaccount.com/)
+      ).toBeDefined();
+      expect(
+        screen.getByText(/OAuth clients cannot be created programmatically/)
+      ).toBeDefined();
     });
   });
 

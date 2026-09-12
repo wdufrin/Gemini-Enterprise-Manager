@@ -18,9 +18,61 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Config, LogEntry } from '../types';
 import * as api from '../services/apiService';
+import { toErrorMessage } from '../utils/errors';
 import Spinner from '../components/Spinner';
 import ProjectInput from '../components/ProjectInput';
 import CloudConsoleButton from '../components/CloudConsoleButton';
+
+// --- Attached-state model ---
+//
+// A Model Armor template only protects anything once it is referenced by an
+// assistant's `customerPolicy.modelArmorConfig`. Reading that back can fail
+// (permissions, a location that is not enabled, a transient error). When it
+// fails we must not render "not attached" - that is indistinguishable from a
+// verified-clean result and is exactly the kind of confident lie this page
+// used to tell. `ScanStatus` keeps the two apart.
+type ScanStatus = 'ok' | 'unknown';
+
+interface AssistantArmorState {
+    /** Full resource name, e.g. projects/p/locations/global/.../assistants/default_assistant */
+    name: string;
+    assistantId: string;
+    userPromptTemplate: string;
+    responseTemplate: string;
+    /** '' means the field is absent, which the API treats as FAIL_CLOSED. */
+    failureMode: string;
+    customerPolicy: Record<string, unknown>;
+}
+
+interface EngineArmorState {
+    /** Full engine resource name. */
+    name: string;
+    engineId: string;
+    displayName: string;
+    location: string;
+    status: ScanStatus;
+    /** Populated only when status === 'unknown'. */
+    error?: string;
+    assistants: AssistantArmorState[];
+}
+
+/**
+ * Google's discoveryengine API treats an absent `failureMode` as FAIL_CLOSED
+ * (FailureMode.FAILURE_MODE_UNSPECIFIED: "default behavior is FAIL_CLOSED").
+ */
+const DEFAULT_FAILURE_MODE = 'FAIL_CLOSED';
+
+/**
+ * Safely reads `customerPolicy.modelArmorConfig` off an API payload of unknown
+ * shape. Returns `{}` rather than throwing so a malformed response degrades to
+ * "nothing attached" instead of blanking the page.
+ */
+const readArmorConfig = (value: unknown): Record<string, string> => {
+    const policy = (value as { customerPolicy?: { modelArmorConfig?: Record<string, string> } } | null | undefined)
+        ?.customerPolicy;
+    return policy?.modelArmorConfig ?? {};
+};
+
 
 // --- Icons ---
 
@@ -212,10 +264,12 @@ const LogEntryCard: React.FC<{ log: LogEntry }> = ({ log }) => {
 
 interface PolicyGeneratorProps {
     projectId: string;
-    engines: any[];
+    engines: EngineArmorState[];
+    /** Re-runs the live scan so the user can see the result of an attach. */
+    onRefresh: () => void;
 }
 
-const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines }) => {
+const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines, onRefresh }) => {
     const [policyName, setPolicyName] = useState('my-safety-policy-input');
     const [config, setConfig] = useState({
         pii: true,
@@ -228,8 +282,17 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
     });
     const [selectedEngineIndex, setSelectedEngineIndex] = useState(-1);
     const [policyType, setPolicyType] = useState<'input' | 'output' | 'both'>('input');
+    const [failureMode, setFailureMode] = useState(DEFAULT_FAILURE_MODE);
     const [copySuccess, setCopySuccess] = useState('');
     const [copyAttachSuccess, setCopyAttachSuccess] = useState('');
+
+    // Real-action state. `*Result` is only ever set from an API response.
+    const [isCreating, setIsCreating] = useState(false);
+    const [createError, setCreateError] = useState<string | null>(null);
+    const [createResult, setCreateResult] = useState<string | null>(null);
+    const [isAttaching, setIsAttaching] = useState(false);
+    const [attachError, setAttachError] = useState<string | null>(null);
+    const [attachResult, setAttachResult] = useState<string | null>(null);
 
     const toggle = (key: 'pii' | 'jailbreak' | 'maliciousUris') => setConfig(prev => ({ ...prev, [key]: !prev[key] }));
 
@@ -288,7 +351,7 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
     };
 
     const generatedJson = useMemo(() => {
-        const filters: any[] = [];
+        const filters: Array<Record<string, unknown>> = [];
         
         if (config.pii) {
             filters.push({
@@ -301,7 +364,7 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
             });
         }
         
-        const raiFilters: any[] = [];
+        const raiFilters: Array<Record<string, string>> = [];
         if (config.hateSpeech !== 'OFF') raiFilters.push({ "filterType": "HATE_SPEECH", "confidenceLevel": config.hateSpeech });
         if (config.harassment !== 'OFF') raiFilters.push({ "filterType": "HARASSMENT", "confidenceLevel": config.harassment });
         if (config.sexuallyExplicit !== 'OFF') raiFilters.push({ "filterType": "SEXUALLY_EXPLICIT", "confidenceLevel": config.sexuallyExplicit });
@@ -322,9 +385,52 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
                 "maliciousUriFilterSettings": {
                     "filterEnforcement": config.maliciousUris ? "ENABLED" : "DISABLED"
                 }
+            },
+            // The Model Armor template API has no fail-open/fail-closed field of
+            // its own. `ignorePartialInvocationFailures: false` is the closest
+            // equivalent: a detector that cannot run fails the whole invocation
+            // instead of being silently skipped. The request-level open/closed
+            // decision lives on the assistant (see `failureMode` below).
+            "templateMetadata": {
+                "ignorePartialInvocationFailures": false,
+                "enforcementType": "INSPECT_AND_BLOCK"
             }
         };
     }, [config]);
+
+    const templateResourceName = `projects/${projectId}/locations/global/templates/${policyName}`;
+
+    const selectedEngine = selectedEngineIndex >= 0 ? engines[selectedEngineIndex] ?? null : null;
+
+    /**
+     * The assistant that actually carries `customerPolicy`. Prefers
+     * `default_assistant` because that is what Gemini Enterprise provisions,
+     * but falls back to whatever the engine really reports.
+     */
+    const targetAssistant = useMemo(() => {
+        if (!selectedEngine || selectedEngine.status !== 'ok') return null;
+        return (
+            selectedEngine.assistants.find(a => a.assistantId === 'default_assistant') ??
+            selectedEngine.assistants[0] ??
+            null
+        );
+    }, [selectedEngine]);
+
+    /**
+     * Merges this template into whatever modelArmorConfig already exists so an
+     * input-only attach does not silently drop a configured output template.
+     */
+    const buildModelArmorConfig = useCallback((existing: Record<string, unknown>): Record<string, unknown> => {
+        const next: Record<string, unknown> = { ...existing };
+        if (policyType === 'input' || policyType === 'both') {
+            next.userPromptTemplate = templateResourceName;
+        }
+        if (policyType === 'output' || policyType === 'both') {
+            next.responseTemplate = templateResourceName;
+        }
+        next.failureMode = failureMode;
+        return next;
+    }, [policyType, templateResourceName, failureMode]);
 
     const generatedCommand = `curl -X POST \\
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
@@ -333,32 +439,31 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
   "https://modelarmor.googleapis.com/v1/projects/${projectId}/locations/global/templates?templateId=${policyName}"`;
 
     const attachCommand = useMemo(() => {
-        if (selectedEngineIndex < 0 || !engines[selectedEngineIndex]) return '';
-        const eng = engines[selectedEngineIndex];
-        const engineId = eng.name.split("/").pop();
-        const loc = eng.location;
-        const templateResourceName = `projects/${projectId}/locations/global/templates/${policyName}`;
-        
-        const modelArmorConfig: any = {};
-        if (policyType === 'input' || policyType === 'both') {
-            modelArmorConfig.userPromptTemplate = templateResourceName;
-        }
-        if (policyType === 'output' || policyType === 'both') {
-            modelArmorConfig.responseTemplate = templateResourceName;
-        }
-        
+        if (!selectedEngine) return '';
+        const assistantName = targetAssistant
+            ? targetAssistant.name
+            : `projects/${projectId}/locations/${selectedEngine.location}/collections/default_collection/engines/${selectedEngine.engineId}/assistants/default_assistant`;
+
         const payload = {
             customerPolicy: {
-                modelArmorConfig
+                modelArmorConfig: buildModelArmorConfig(
+                    targetAssistant
+                        ? ((targetAssistant.customerPolicy.modelArmorConfig as Record<string, unknown>) ?? {})
+                        : {},
+                ),
             }
         };
-        
+
+        const host = selectedEngine.location === 'global'
+            ? 'discoveryengine.googleapis.com'
+            : `${selectedEngine.location}-discoveryengine.googleapis.com`;
+
         return `curl -X PATCH \\
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
   -H "Content-Type: application/json" \\
   -d '${JSON.stringify(payload)}' \\
-  "https://${loc === 'global' ? '' : loc + '-'}discoveryengine.googleapis.com/v1alpha/projects/${projectId}/locations/${loc}/collections/default_collection/engines/${engineId}/assistants/default_assistant?updateMask=customerPolicy"`;
-    }, [selectedEngineIndex, engines, policyName, projectId, policyType]);
+  "https://${host}/v1alpha/${assistantName}?updateMask=customerPolicy"`;
+    }, [selectedEngine, targetAssistant, projectId, buildModelArmorConfig]);
 
     const handleCopy = () => {
         navigator.clipboard.writeText(generatedCommand);
@@ -370,6 +475,99 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
         navigator.clipboard.writeText(attachCommand);
         setCopyAttachSuccess('Copied!');
         setTimeout(() => setCopyAttachSuccess(''), 2000);
+    };
+
+    const handleCreateTemplate = async () => {
+        setCreateError(null);
+        setCreateResult(null);
+        if (!projectId || projectId.startsWith('[')) {
+            setCreateError('Set a Project ID before creating a template.');
+            return;
+        }
+        if (!policyName.trim()) {
+            setCreateError('Template ID is required.');
+            return;
+        }
+        setIsCreating(true);
+        try {
+            const created = await api.createModelArmorTemplate(
+                projectId,
+                'global',
+                policyName.trim(),
+                generatedJson,
+            );
+            const createdName = (created as { name?: string } | null)?.name;
+            setCreateResult(
+                createdName
+                    ? `Created ${createdName}.`
+                    : 'The API accepted the request but returned no template name. Use "Refresh List" above to confirm it exists.',
+            );
+            onRefresh();
+        } catch (err) {
+            setCreateError(toErrorMessage(err, 'Failed to create the Model Armor template.'));
+        } finally {
+            setIsCreating(false);
+        }
+    };
+
+    const handleAttach = async () => {
+        setAttachError(null);
+        setAttachResult(null);
+        if (!selectedEngine) {
+            setAttachError('Select a target app first.');
+            return;
+        }
+        if (!targetAssistant) {
+            setAttachError(
+                selectedEngine.status === 'unknown'
+                    ? `Cannot attach: this app's assistant configuration could not be read${selectedEngine.error ? ` (${selectedEngine.error})` : ''}. Use the command below instead.`
+                    : 'Cannot attach: this app reports no assistants, so there is nothing to attach the template to. Use the command below instead.',
+            );
+            return;
+        }
+        setIsAttaching(true);
+        try {
+            const nextPolicy: Record<string, unknown> = { ...targetAssistant.customerPolicy };
+            nextPolicy.modelArmorConfig = buildModelArmorConfig(
+                (targetAssistant.customerPolicy.modelArmorConfig as Record<string, unknown>) ?? {},
+            );
+
+            const updated = await api.updateAssistant(
+                targetAssistant.name,
+                { customerPolicy: nextPolicy },
+                ['customerPolicy'],
+                {
+                    projectId,
+                    appLocation: selectedEngine.location,
+                    collectionId: 'default_collection',
+                    appId: selectedEngine.engineId,
+                    assistantId: targetAssistant.assistantId,
+                },
+            );
+
+            // Trust the response, not the request. If the server did not echo
+            // the template back, the app is not protected and we say so.
+            const armor = readArmorConfig(updated);
+            const wantsInput = policyType === 'input' || policyType === 'both';
+            const wantsOutput = policyType === 'output' || policyType === 'both';
+            const inputOk = !wantsInput || armor.userPromptTemplate === templateResourceName;
+            const outputOk = !wantsOutput || armor.responseTemplate === templateResourceName;
+
+            if (inputOk && outputOk) {
+                setAttachResult(
+                    `Verified from the API response: ${targetAssistant.assistantId} on ${selectedEngine.displayName} now reports this template (failure mode: ${armor.failureMode || DEFAULT_FAILURE_MODE}).`,
+                );
+            } else {
+                setAttachError(
+                    'The API accepted the update but its response does not show this template attached. Treat this app as unprotected and re-check with "Refresh List".',
+                );
+            }
+            onRefresh();
+        } catch (err) {
+            setAttachError(toErrorMessage(err, 'Failed to attach the template to this app.'));
+        } finally {
+            setIsAttaching(false);
+        }
     };
 
     return (
@@ -423,13 +621,14 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
 
                         {engines.length > 0 && (
                             <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Target App to Associate</label>
+                                <label htmlFor="ma-target-app" className="block text-sm font-medium text-gray-300 mb-2">Target App to Attach To</label>
                                 <select
+                                    id="ma-target-app"
                                     value={selectedEngineIndex}
                                     onChange={(e) => setSelectedEngineIndex(Number(e.target.value))}
                                     className="w-full bg-gray-900 border border-gray-600 rounded-md px-3 py-2 text-white text-sm focus:ring-blue-500"
                                 >
-                                    <option value={-1}>-- Do not generate attach command --</option>
+                                    <option value={-1}>-- Create template only, do not attach --</option>
                                     {engines.map((eng, idx) => (
                                         <option key={eng.name} value={idx}>
                                             {eng.displayName || eng.name.split("/").pop()} ({eng.location})
@@ -471,9 +670,76 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
                                             onChange={() => setPolicyType('both')}
                                             className="bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500 w-4 h-4"
                                         />
-                                        Both (Prompt & Response)
+                                        Both (Prompt &amp; Response)
                                     </label>
                                 </div>
+
+                                <div className="mt-4">
+                                    <label htmlFor="ma-failure-mode" className="block text-sm font-medium text-gray-300 mb-2">
+                                        If Model Armor cannot evaluate a request
+                                    </label>
+                                    <select
+                                        id="ma-failure-mode"
+                                        value={failureMode}
+                                        onChange={(e) => setFailureMode(e.target.value)}
+                                        className="w-full md:w-auto bg-gray-900 border border-gray-600 rounded-md px-3 py-2 text-white text-sm focus:ring-blue-500"
+                                    >
+                                        <option value="FAIL_CLOSED">Fail Closed &ndash; reject the request (recommended)</option>
+                                        <option value="FAIL_OPEN">Fail Open &ndash; let it through unfiltered</option>
+                                    </select>
+                                    {failureMode === 'FAIL_CLOSED' ? (
+                                        <p className="text-xs text-gray-400 mt-2 max-w-prose">
+                                            During a Model Armor outage this app will reject chat requests and users will
+                                            see an error instead of an answer. That is the intended tradeoff for a safety
+                                            filter, and it matches Google&apos;s own default for an unset{' '}
+                                            <code className="text-gray-300">failureMode</code>.
+                                        </p>
+                                    ) : (
+                                        <p className="text-xs text-red-300 mt-2 max-w-prose">
+                                            <strong>Warning:</strong> during a Model Armor outage this app will pass prompts
+                                            and responses through with no filtering at all. Chat stays up, your protection
+                                            does not.
+                                        </p>
+                                    )}
+                                </div>
+
+                                {selectedEngine && (
+                                    <div className="mt-4 text-xs bg-gray-900/40 border border-gray-700/60 rounded-lg p-3 space-y-1">
+                                        {selectedEngine.status === 'unknown' ? (
+                                            <p className="text-amber-300">
+                                                Current protection: <strong>Unknown</strong> &ndash; this app&apos;s assistant
+                                                configuration could not be read
+                                                {selectedEngine.error ? ` (${selectedEngine.error})` : ''}.
+                                            </p>
+                                        ) : targetAssistant ? (
+                                            <>
+                                                <p className="text-gray-400">
+                                                    Will patch assistant{' '}
+                                                    <span className="font-mono text-gray-300">{targetAssistant.assistantId}</span>
+                                                </p>
+                                                <p className="text-gray-400">
+                                                    Currently attached &ndash; input:{' '}
+                                                    <span className="font-mono text-gray-300">
+                                                        {targetAssistant.userPromptTemplate.split('/').pop() || 'none'}
+                                                    </span>
+                                                    {', '}output:{' '}
+                                                    <span className="font-mono text-gray-300">
+                                                        {targetAssistant.responseTemplate.split('/').pop() || 'none'}
+                                                    </span>
+                                                    {', '}failure mode:{' '}
+                                                    <span className="font-mono text-gray-300">
+                                                        {targetAssistant.failureMode || `${DEFAULT_FAILURE_MODE} (unset)`}
+                                                    </span>
+                                                </p>
+                                            </>
+                                        ) : (
+                                            <p className="text-amber-300">
+                                                This app reports no assistants, so there is nothing here to attach a
+                                                template to.
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -558,15 +824,40 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
                     </div>
                 </div>
 
-                {/* Right: Code Preview Panel */}
+                {/* Right: Actions + Command Preview Panel */}
                 <div className="bg-black p-6 border-l border-gray-700 flex flex-col justify-between overflow-y-auto max-h-[600px] custom-scrollbar">
                     <div className="space-y-6">
                         <div>
-                            <div className="flex justify-between items-center mb-3">
-                                <h4 className="text-sm font-semibold text-gray-300">1. Create Safety Template Command</h4>
-                                <button 
+                            <div className="flex justify-between items-center mb-3 gap-2">
+                                <h4 className="text-sm font-semibold text-gray-300">1. Create Safety Template</h4>
+                                <button
+                                    type="button"
+                                    onClick={handleCreateTemplate}
+                                    disabled={isCreating}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-md transition-colors"
+                                >
+                                    {isCreating && <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />}
+                                    {isCreating ? 'Creating…' : 'Create Template'}
+                                </button>
+                            </div>
+
+                            {createError && (
+                                <div className="mb-3 p-3 rounded-md bg-red-950/30 border border-red-900/60 text-xs text-red-300">
+                                    {createError}
+                                </div>
+                            )}
+                            {createResult && (
+                                <div className="mb-3 p-3 rounded-md bg-green-950/30 border border-green-900/60 text-xs text-green-300">
+                                    {createResult}
+                                </div>
+                            )}
+
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="text-xs text-gray-500">Or run it yourself:</span>
+                                <button
+                                    type="button"
                                     onClick={handleCopy}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-md transition-colors"
+                                    className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold rounded border border-gray-700 transition-colors"
                                 >
                                     <CopyIcon />
                                     {copySuccess || 'Copy Command'}
@@ -576,17 +867,50 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
                                 {generatedCommand}
                             </div>
                             <p className="text-xs text-gray-500 mt-2">
-                                Run this command in your terminal to create the template. Once created, attach it to your Agent Engine or Chat App.
+                                Copying this command does not create anything. Paste it into a terminal and run it, or
+                                use the Create Template button above.
                             </p>
                         </div>
 
-                        {attachCommand && (
+                        {selectedEngine && (
                             <div className="pt-6 border-t border-gray-800">
-                                <div className="flex justify-between items-center mb-3">
-                                    <h4 className="text-sm font-semibold text-gray-300">2. Attach Policy to Selected App</h4>
-                                    <button 
+                                <div className="flex justify-between items-center mb-3 gap-2">
+                                    <h4 className="text-sm font-semibold text-gray-300">2. Attach Template to Selected App</h4>
+                                    <button
+                                        type="button"
+                                        onClick={handleAttach}
+                                        disabled={isAttaching || !targetAssistant}
+                                        title={targetAssistant ? undefined : 'The target assistant could not be read, so this app cannot be patched from here.'}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-md transition-colors"
+                                    >
+                                        {isAttaching && <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />}
+                                        {isAttaching ? 'Attaching…' : 'Attach Now'}
+                                    </button>
+                                </div>
+
+                                {attachError && (
+                                    <div className="mb-3 p-3 rounded-md bg-red-950/30 border border-red-900/60 text-xs text-red-300">
+                                        {attachError}
+                                    </div>
+                                )}
+                                {attachResult && (
+                                    <div className="mb-3 p-3 rounded-md bg-green-950/30 border border-green-900/60 text-xs text-green-300">
+                                        {attachResult}
+                                    </div>
+                                )}
+
+                                <p className="text-xs text-gray-500 mb-3">
+                                    Attach Now patches <code className="text-gray-400">customerPolicy</code> on the target
+                                    assistant and then re-reads the response to confirm. It does not create the template
+                                    &ndash; do step 1 first, or the app will point at a template that does not exist.
+                                </p>
+
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-xs text-gray-500">Or run it yourself:</span>
+                                    <button
+                                        type="button"
                                         onClick={handleCopyAttach}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-md transition-colors"
+                                        className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold rounded border border-gray-700 transition-colors"
                                     >
                                         <CopyIcon />
                                         {copyAttachSuccess || 'Copy Attach Command'}
@@ -596,7 +920,7 @@ const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines })
                                     {attachCommand}
                                 </div>
                                 <p className="text-xs text-gray-500 mt-2">
-                                    Run this command in your terminal to associate the template with your app&apos;s assistant config.
+                                    Copying this command does not attach anything. Paste it into a terminal and run it.
                                 </p>
                             </div>
                         )}
@@ -637,13 +961,16 @@ const formatConfidenceLevel = (level: string) => {
 interface ActivePoliciesViewerProps {
     templates: any[];
     associations: Record<string, string[]>;
+    /** False when at least one app lookup failed, so "no association" is unproven. */
+    associationsComplete: boolean;
+    scanWarnings: string[];
     isLoading: boolean;
     error: string | null;
     onRefresh: () => void;
     onClone: (template: any) => void;
 }
 
-const ActivePoliciesViewer: React.FC<ActivePoliciesViewerProps> = ({ templates, associations, isLoading, error, onRefresh, onClone }) => {
+const ActivePoliciesViewer: React.FC<ActivePoliciesViewerProps> = ({ templates, associations, associationsComplete, scanWarnings, isLoading, error, onRefresh, onClone }) => {
     return (
         <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-md p-6 space-y-4">
             <div className="flex justify-between items-center border-b border-gray-700 pb-3">
@@ -662,6 +989,20 @@ const ActivePoliciesViewer: React.FC<ActivePoliciesViewerProps> = ({ templates, 
             </div>
 
             {error && <div className="text-sm text-red-400 p-3 bg-red-950/20 rounded border border-red-900/50">{error}</div>}
+
+            {!isLoading && scanWarnings.length > 0 && (
+                <div className="text-xs text-amber-200 p-3 bg-amber-950/20 rounded border border-amber-900/50 space-y-1">
+                    <p className="font-semibold">
+                        Some apps could not be read, so &quot;Associated Apps&quot; below is incomplete. Anything shown as
+                        Unknown may or may not be protected.
+                    </p>
+                    <ul className="list-disc list-inside text-amber-300/90">
+                        {scanWarnings.map((warning) => (
+                            <li key={warning}>{warning}</li>
+                        ))}
+                    </ul>
+                </div>
+            )}
 
             {isLoading && templates.length === 0 ? (
                 <div className="flex items-center justify-center p-12"><Spinner /></div>
@@ -741,9 +1082,19 @@ const ActivePoliciesViewer: React.FC<ActivePoliciesViewerProps> = ({ templates, 
                                                         </span>
                                                     ))}
                                                 </div>
+                                            ) : associationsComplete ? (
+                                                <span
+                                                    className="px-2.5 py-0.5 rounded text-[10px] font-semibold bg-gray-700/60 text-gray-400 border border-gray-650"
+                                                    title="No assistant in this project references this template."
+                                                >
+                                                    Not attached
+                                                </span>
                                             ) : (
-                                                <span className="px-2.5 py-0.5 rounded text-[10px] font-semibold bg-gray-700/60 text-gray-400 border border-gray-650">
-                                                    Unused
+                                                <span
+                                                    className="px-2.5 py-0.5 rounded text-[10px] font-semibold bg-amber-900/50 text-amber-200 border border-amber-800"
+                                                    title="At least one app could not be read, so we cannot say whether this template is attached."
+                                                >
+                                                    Unknown
                                                 </span>
                                             )}
                                         </td>
@@ -761,6 +1112,143 @@ const ActivePoliciesViewer: React.FC<ActivePoliciesViewerProps> = ({ templates, 
                                         </td>
                                     </tr>
                                 );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- Live Attached-State Panel ---
+
+const StatusPill: React.FC<{ tone: 'on' | 'off' | 'unknown'; children: React.ReactNode }> = ({ tone, children }) => {
+    const toneClass =
+        tone === 'on'
+            ? 'bg-green-900/60 text-green-200 border-green-800/60'
+            : tone === 'off'
+                ? 'bg-gray-700/60 text-gray-300 border-gray-650'
+                : 'bg-amber-900/50 text-amber-200 border-amber-800';
+    return (
+        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${toneClass}`}>{children}</span>
+    );
+};
+
+interface AttachedProtectionPanelProps {
+    engines: EngineArmorState[];
+    isLoading: boolean;
+}
+
+/**
+ * Per-app view of what Model Armor is actually doing right now. Everything here
+ * comes from the assistant's live `customerPolicy`; nothing is inferred from
+ * what the user just asked us to do.
+ */
+const AttachedProtectionPanel: React.FC<AttachedProtectionPanelProps> = ({ engines, isLoading }) => {
+    return (
+        <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-md p-6 space-y-4">
+            <div className="border-b border-gray-700 pb-3">
+                <h3 className="text-lg font-bold text-white">Protection Status by App</h3>
+                <p className="text-sm text-gray-400 mt-0.5">
+                    Read live from each assistant&apos;s <code className="text-gray-300">customerPolicy</code>. An app is
+                    only protected if a template is listed here.
+                </p>
+            </div>
+
+            {isLoading && engines.length === 0 ? (
+                <div className="flex items-center justify-center p-12"><Spinner /></div>
+            ) : engines.length === 0 ? (
+                <div className="text-center p-8 text-gray-500 bg-gray-900/30 rounded border border-gray-800">
+                    No apps found in the global, us or eu locations for this project.
+                </div>
+            ) : (
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="border-b border-gray-800 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                                <th className="pb-3 pl-3">App</th>
+                                <th className="pb-3">Status</th>
+                                <th className="pb-3">Input Template</th>
+                                <th className="pb-3">Output Template</th>
+                                <th className="pb-3 pr-3">On Model Armor Failure</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-800 text-sm text-gray-300">
+                            {engines.map((engine) => {
+                                if (engine.status === 'unknown') {
+                                    return (
+                                        <tr key={engine.name} className="hover:bg-gray-800/20 transition-colors">
+                                            <td className="py-4 pl-3">
+                                                <div className="font-semibold text-white truncate max-w-[220px]" title={engine.displayName}>{engine.displayName}</div>
+                                                <div className="text-xs text-gray-500 font-mono mt-0.5">{engine.location}</div>
+                                            </td>
+                                            <td className="py-4"><StatusPill tone="unknown">Unknown</StatusPill></td>
+                                            <td className="py-4 text-xs text-amber-300" colSpan={3}>
+                                                Could not read this app&apos;s assistant configuration
+                                                {engine.error ? `: ${engine.error}` : '.'}
+                                            </td>
+                                        </tr>
+                                    );
+                                }
+
+                                if (engine.assistants.length === 0) {
+                                    return (
+                                        <tr key={engine.name} className="hover:bg-gray-800/20 transition-colors">
+                                            <td className="py-4 pl-3">
+                                                <div className="font-semibold text-white truncate max-w-[220px]" title={engine.displayName}>{engine.displayName}</div>
+                                                <div className="text-xs text-gray-500 font-mono mt-0.5">{engine.location}</div>
+                                            </td>
+                                            <td className="py-4"><StatusPill tone="unknown">Unknown</StatusPill></td>
+                                            <td className="py-4 text-xs text-gray-500" colSpan={3}>
+                                                This app reports no assistants, so there is no policy to inspect.
+                                            </td>
+                                        </tr>
+                                    );
+                                }
+
+                                return engine.assistants.map((assistant) => {
+                                    const isProtected = Boolean(assistant.userPromptTemplate || assistant.responseTemplate);
+                                    return (
+                                        <tr key={assistant.name} className="hover:bg-gray-800/20 transition-colors">
+                                            <td className="py-4 pl-3">
+                                                <div className="font-semibold text-white truncate max-w-[220px]" title={engine.displayName}>{engine.displayName}</div>
+                                                <div className="text-xs text-gray-500 font-mono mt-0.5">
+                                                    {engine.location} / {assistant.assistantId}
+                                                </div>
+                                            </td>
+                                            <td className="py-4">
+                                                <StatusPill tone={isProtected ? 'on' : 'off'}>
+                                                    {isProtected ? 'Protected' : 'Not protected'}
+                                                </StatusPill>
+                                            </td>
+                                            <td className="py-4 text-xs font-mono">
+                                                {assistant.userPromptTemplate
+                                                    ? <span className="text-gray-200" title={assistant.userPromptTemplate}>{assistant.userPromptTemplate.split('/').pop()}</span>
+                                                    : <span className="text-gray-600 italic">none</span>}
+                                            </td>
+                                            <td className="py-4 text-xs font-mono">
+                                                {assistant.responseTemplate
+                                                    ? <span className="text-gray-200" title={assistant.responseTemplate}>{assistant.responseTemplate.split('/').pop()}</span>
+                                                    : <span className="text-gray-600 italic">none</span>}
+                                            </td>
+                                            <td className="py-4 pr-3 text-xs">
+                                                {!isProtected ? (
+                                                    <span className="text-gray-600 italic">n/a</span>
+                                                ) : assistant.failureMode === 'FAIL_OPEN' ? (
+                                                    <span className="text-red-300" title="Traffic is passed through unfiltered when Model Armor cannot evaluate it.">
+                                                        Fail open &ndash; traffic passes unfiltered
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-gray-300">
+                                                        Fail closed &ndash; request rejected
+                                                        {assistant.failureMode ? '' : ' (unset, API default)'}
+                                                    </span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                });
                             })}
                         </tbody>
                     </table>
@@ -926,7 +1414,13 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
   // Policies and Associations state
   const [templates, setTemplates] = useState<any[]>([]);
   const [associations, setAssociations] = useState<Record<string, string[]>>({});
-  const [enginesList, setEnginesList] = useState<any[]>([]);
+  const [enginesList, setEnginesList] = useState<EngineArmorState[]>([]);
+  /**
+   * False when any engine or location lookup failed. While false, a template
+   * with no known association is "Unknown", not "Unused".
+   */
+  const [associationsComplete, setAssociationsComplete] = useState(true);
+  const [scanWarnings, setScanWarnings] = useState<string[]>([]);
   const [isPoliciesLoading, setIsPoliciesLoading] = useState(false);
   const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [cloningTemplate, setCloningTemplate] = useState<any | null>(null);
@@ -934,7 +1428,10 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
       appLocation: 'global',
-      collectionId: '',
+      // discoveryengine assistant/agent URLs interpolate collectionId directly
+      // with no fallback, so an empty string here produced `collections//engines`
+      // and a guaranteed 404 on every assistant lookup.
+      collectionId: 'default_collection',
       appId: '',
       assistantId: '',
   }), [projectNumber]);
@@ -951,58 +1448,84 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
 
       // 2. Fetch engines across all discovery locations
       const newAssociations: Record<string, string[]> = {};
-      const allFetchedEngines: any[] = [];
+      const allFetchedEngines: EngineArmorState[] = [];
+      const warnings: string[] = [];
+      let complete = true;
 
       for (const loc of ["global", "us", "eu"]) {
+        const locConfig = { ...apiConfig, appLocation: loc };
+        let engines: Array<{ name?: string; displayName?: string }> = [];
         try {
-          const locConfig = { ...apiConfig, appLocation: loc };
           const enginesRes = await api.listResources("engines", { ...locConfig, appId: "" });
-          const engines = enginesRes.engines || [];
-          
-          for (const engine of engines) {
-            allFetchedEngines.push({ ...engine, location: loc });
-            const engineId = engine.name.split("/").pop();
-            if (!engineId) continue;
-            
-            try {
-              const assistantsRes = await api.listResources("assistants", { ...locConfig, appId: engineId });
-              const assistants = assistantsRes.assistants || [];
-              
-              for (const assistant of assistants) {
-                const assistantId = assistant.name.split("/").pop();
-                const config = assistant.customerPolicy?.modelArmorConfig;
-                if (config) {
-                  const userPrompt = config.userPromptTemplate;
-                  const responseTemp = config.responseTemplate;
-                  
-                  const appLabel = `${engine.displayName || engineId} (${loc.toUpperCase()} / Assistant: ${assistantId})`;
-                  
-                  if (userPrompt) {
-                    newAssociations[userPrompt] = newAssociations[userPrompt] || [];
-                    if (!newAssociations[userPrompt].includes(appLabel)) {
-                      newAssociations[userPrompt].push(appLabel);
-                    }
-                  }
-                  if (responseTemp) {
-                    newAssociations[responseTemp] = newAssociations[responseTemp] || [];
-                    if (!newAssociations[responseTemp].includes(appLabel)) {
-                      newAssociations[responseTemp].push(appLabel);
-                    }
-                  }
+          engines = enginesRes.engines || [];
+        } catch (err) {
+          complete = false;
+          warnings.push(`Could not list apps in "${loc}": ${toErrorMessage(err, 'request failed')}`);
+          continue;
+        }
+
+        for (const engine of engines) {
+          const engineName = engine.name;
+          if (!engineName) continue;
+          const engineId = engineName.split("/").pop();
+          if (!engineId) continue;
+
+          const engineState: EngineArmorState = {
+            name: engineName,
+            engineId,
+            displayName: engine.displayName || engineId,
+            location: loc,
+            status: 'ok',
+            assistants: [],
+          };
+
+          try {
+            const assistantsRes = await api.listResources("assistants", { ...locConfig, appId: engineId });
+            const assistants: Array<{ name?: string; customerPolicy?: Record<string, unknown> }> =
+              assistantsRes.assistants || [];
+
+            for (const assistant of assistants) {
+              if (!assistant.name) continue;
+              const assistantId = assistant.name.split("/").pop() || assistant.name;
+              const customerPolicy = assistant.customerPolicy ?? {};
+              const armor = readArmorConfig(assistant);
+
+              engineState.assistants.push({
+                name: assistant.name,
+                assistantId,
+                userPromptTemplate: armor.userPromptTemplate || '',
+                responseTemplate: armor.responseTemplate || '',
+                failureMode: armor.failureMode || '',
+                customerPolicy,
+              });
+
+              const appLabel = `${engineState.displayName} (${loc.toUpperCase()} / Assistant: ${assistantId})`;
+              for (const templateName of [armor.userPromptTemplate, armor.responseTemplate]) {
+                if (!templateName) continue;
+                newAssociations[templateName] = newAssociations[templateName] || [];
+                if (!newAssociations[templateName].includes(appLabel)) {
+                  newAssociations[templateName].push(appLabel);
                 }
               }
-            } catch (err) {
-              console.warn(`Failed to fetch assistants for engine ${engineId} in ${loc}`, err);
             }
+          } catch (err) {
+            complete = false;
+            engineState.status = 'unknown';
+            engineState.error = toErrorMessage(err, 'request failed');
+            warnings.push(`Could not read assistant config for "${engineState.displayName}" (${loc}): ${engineState.error}`);
           }
-        } catch (err) {
-          console.warn(`Failed to fetch engines in location ${loc}`, err);
+
+          allFetchedEngines.push(engineState);
         }
       }
       setEnginesList(allFetchedEngines);
       setAssociations(newAssociations);
-    } catch (err: any) {
-      setPoliciesError(err.message || "Failed to fetch policies and associations.");
+      setAssociationsComplete(complete);
+      setScanWarnings(warnings);
+    } catch (err) {
+      // The template list itself failed, so we know nothing about attachment.
+      setAssociationsComplete(false);
+      setPoliciesError(toErrorMessage(err, "Failed to fetch policies and associations."));
     } finally {
       setIsPoliciesLoading(false);
     }
@@ -1209,14 +1732,21 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
                     <ActivePoliciesViewer
                         templates={templates}
                         associations={associations}
+                        associationsComplete={associationsComplete}
+                        scanWarnings={scanWarnings}
                         isLoading={isPoliciesLoading}
                         error={policiesError}
                         onRefresh={fetchPoliciesAndAssociations}
                         onClone={setCloningTemplate}
                     />
+                    <AttachedProtectionPanel
+                        engines={enginesList}
+                        isLoading={isPoliciesLoading}
+                    />
                     <PolicyGenerator 
                         projectId={projectNumber || '[YOUR_PROJECT_ID]'} 
                         engines={enginesList}
+                        onRefresh={fetchPoliciesAndAssociations}
                     />
                     {cloningTemplate && (
                         <CloneTemplateModal

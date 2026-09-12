@@ -1,6 +1,18 @@
-import { AdkAgentConfig } from "./types";
+import {
+  AdkAgentConfig,
+  cloudRunAccessCommentBlock,
+  cloudRunAccessFlags,
+  cloudRunAccessLabel,
+} from "./types";
 import { assertValidGcpResourceName } from "../shellSafety";
 import { toCloudRunServiceName } from "./agentName";
+
+/**
+ * Region used by the generated `make deploy-cloud-run` recipe. It was already
+ * hardcoded to us-central1 here; it is now a named constant so the access-mode
+ * guidance can quote the same value in its `add-iam-policy-binding` example.
+ */
+const CLOUD_RUN_DEPLOY_REGION = "us-central1";
 
 export const generateTestConfigJson = (config: AdkAgentConfig): string => {
   return JSON.stringify(
@@ -89,6 +101,16 @@ export const generateMakefile = (config: AdkAgentConfig): string => {
   if (cloudRunServiceName) {
     assertValidGcpResourceName(cloudRunServiceName, "Agent name");
   }
+  // SECURITY (2.7): this line used to hardcode `--allow-unauthenticated`, so
+  // every agent built here was reachable by the whole internet and the user was
+  // never asked. The flags now follow the access mode, which defaults to
+  // IAM-only. `cloudRunAccessFlags` never throws -- this generator runs on the
+  // Agent Builder render path.
+  const accessFlags = cloudRunAccessFlags(config.cloudRunAccess);
+  const accessNotes = cloudRunAccessCommentBlock(config.cloudRunAccess, {
+    serviceName: cloudRunServiceName || "SERVICE_NAME",
+    region: CLOUD_RUN_DEPLOY_REGION,
+  });
   return `# ADK Makefile
 SHELL := /bin/bash
 
@@ -118,10 +140,12 @@ deploy-agent-engine:
 	@echo "Deploying to Agent Engine..."
 	python -m app.deploy_re
 
+# Cloud Run access mode: ${cloudRunAccessLabel(config.cloudRunAccess)}
+${accessNotes}
 .PHONY: deploy-cloud-run
 deploy-cloud-run:
-	@echo "Deploying to Cloud Run..."
-	gcloud run deploy ${cloudRunServiceName} --source . --region us-central1 --allow-unauthenticated
+	@echo "Deploying to Cloud Run (${cloudRunAccessLabel(config.cloudRunAccess)})..."
+	gcloud run deploy ${cloudRunServiceName} --source . --region ${CLOUD_RUN_DEPLOY_REGION} ${accessFlags}
 `;
 };
 

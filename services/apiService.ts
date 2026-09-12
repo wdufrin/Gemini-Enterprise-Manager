@@ -51,6 +51,7 @@ import {
   buildValidatedUrl,
 } from "./urlSecurity";
 import { assertValidGcpResourceName } from "./shellSafety";
+import { redactRequestBody } from "./redaction";
 
 const DISCOVERY_API_VERSION = "v1alpha";
 const DISCOVERY_API_BETA = "v1beta";
@@ -134,12 +135,18 @@ export const gapiRequest = async <T>(
       logHeaders["Authorization"] = `Bearer $(gcloud auth print-access-token)`; // Use placeholder for cleaner display
     }
 
-    const curlCommand = generateCurlCommand(path, method, logHeaders, body);
+    // Display-only copy. Bodies for Authorizations (OAuth client secrets),
+    // connectors (client_secret / refresh_token) and data store configs carry
+    // live credentials, and this panel gets screenshotted into bug reports.
+    // `body` itself is untouched and is what actually goes out below.
+    const logBody = redactRequestBody(body);
+
+    const curlCommand = generateCurlCommand(path, method, logHeaders, logBody);
     debugLogger({
       method,
       url: path,
       headers: logHeaders,
-      body,
+      body: logBody,
       curlCommand,
     });
   }

