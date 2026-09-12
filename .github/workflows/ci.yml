@@ -50,7 +50,7 @@ jobs:
 
       # Fails on ESLint *errors*. Warnings are tolerated but ratcheted:
       # --max-warnings is a ceiling that should only ever be lowered.
-      # Current baseline: 1355 warnings (mostly @typescript-eslint/no-explicit-any).
+      # Current baseline: 1348 warnings (mostly @typescript-eslint/no-explicit-any).
       - name: Lint
         run: npm run lint -- --max-warnings 1348
 
