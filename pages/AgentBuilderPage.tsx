@@ -1,4 +1,5 @@
 import { toErrorMessage } from '../utils/errors';
+import { isValidAdkAgentName, ADK_AGENT_NAME_HINT } from "../services/adkTemplates/agentName";
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Config, DataStore, CloudRunService, GcsBucket } from '../types';
 import * as api from '../services/apiService';
@@ -476,10 +477,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
 
   // ADK Code Generation
   useEffect(() => {
-    if (!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name)) {
+    if (!isValidAdkAgentName(adkConfig.name)) {
       setAdkGeneratedCode({
         agent:
-          '# Please enter a valid Agent Name (lowercase letters, numbers, underscores) to generate code.',
+          '# Please enter a valid Agent Name (letters, numbers, underscores) to generate code.',
         env: '',
         requirements: '',
         readme: '',
@@ -1427,19 +1428,18 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                     name="name"
                     type="text"
                     required
-                    pattern="^[a-z][a-z0-9_]*$"
+                    pattern="^[A-Za-z_][A-Za-z0-9_]*$"
                     value={adkConfig.name}
                     onChange={handleAdkConfigChange}
                     className={`bg-gray-700 border rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] focus:outline-none ${
-                      !adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name)
+                      !isValidAdkAgentName(adkConfig.name)
                         ? 'border-red-500 focus:ring-1 focus:ring-red-500'
                         : 'border-gray-600 focus:ring-1 focus:ring-blue-500'
                     }`}
                   />
-                  {(!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name)) && (
+                  {!isValidAdkAgentName(adkConfig.name) && (
                     <p className="text-red-400 text-xs mt-1">
-                      Required. Must start with a lowercase letter and contain only lowercase
-                      letters, numbers, and underscores.
+                      {ADK_AGENT_NAME_HINT}
                     </p>
                   )}
                 </div>
@@ -2378,10 +2378,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                             <button
                               onClick={() => setIsGithubModalOpen(true)}
                               disabled={
-                                !adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name)
+                                !isValidAdkAgentName(adkConfig.name)
                               }
                               title={
-                                !adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name)
+                                !isValidAdkAgentName(adkConfig.name)
                                   ? 'Enter a valid agent name before setting up CI/CD.'
                                   : undefined
                               }
@@ -2805,7 +2805,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                 <button
                   disabled={
                     builderTab === 'adk' &&
-                    (!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name))
+                    (!isValidAdkAgentName(adkConfig.name))
                   }
                   onClick={() =>
                     builderTab === 'adk'
@@ -2814,7 +2814,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                   }
                   className={`w-full mt-2 px-4 py-2 font-bold rounded-md shadow-lg flex items-center justify-center gap-2 ${
                     builderTab === 'adk' &&
-                    (!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name))
+                    (!isValidAdkAgentName(adkConfig.name))
                       ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                       : 'bg-gradient-to-r from-blue-600 to-teal-500 text-white'
                   }`}
@@ -2833,12 +2833,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                     <button
                       disabled={
                         builderTab === 'adk' &&
-                        (!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name))
+                        (!isValidAdkAgentName(adkConfig.name))
                       }
                       onClick={builderTab === 'adk' ? handleDownloadAdkZip : handleDownloadA2a}
                       className={`px-3 py-1 text-xs rounded ${
                         builderTab === 'adk' &&
-                        (!adkConfig.name || !/^[a-z][a-z0-9_]*$/.test(adkConfig.name))
+                        (!isValidAdkAgentName(adkConfig.name))
                           ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                           : 'bg-gray-600 text-white hover:bg-gray-500'
                       }`}

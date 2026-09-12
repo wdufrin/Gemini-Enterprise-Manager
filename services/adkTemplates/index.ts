@@ -15,6 +15,7 @@
  */
 
 export * from './types';
+export * from './agentName';
 export * from './authTemplate';
 export * from './toolsTemplate';
 export * from './agentTemplate';

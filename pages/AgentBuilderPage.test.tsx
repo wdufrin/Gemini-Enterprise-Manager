@@ -9,6 +9,12 @@ import AgentBuilderPage, {
   A2aConfig,
   AdkAgentConfig
 } from './AgentBuilderPage';
+import {
+  isValidAdkAgentName,
+  toCloudRunServiceName,
+  ADK_AGENT_NAME_HINT,
+} from '../services/adkTemplates/agentName';
+import { TEMPLATES } from '../services/adkTemplates/starterTemplates';
 
 // Mock apiService
 vi.mock('../services/apiService', () => ({
@@ -174,19 +180,65 @@ describe('AgentBuilderPage - Helper Functions', () => {
       expect(nameInput).toBeDefined();
 
       // Ensure error is shown when empty (initial state is empty)
-      expect(screen.getByText(/Required\. Must start with a lowercase letter and contain only lowercase letters, numbers, and underscores\./)).toBeDefined();
+      expect(screen.getByText(ADK_AGENT_NAME_HINT)).toBeDefined();
 
-      // Type an invalid name
+      // Hyphens are genuinely invalid: ADK requires a Python identifier.
       act(() => {
         fireEvent.change(nameInput, { target: { value: 'Invalid-Name' } });
       });
-      expect(screen.getByText(/Required\. Must start with a lowercase letter/)).toBeDefined();
+      expect(screen.getByText(ADK_AGENT_NAME_HINT)).toBeDefined();
 
       // Type a valid name
       act(() => {
         fireEvent.change(nameInput, { target: { value: 'valid_name' } });
       });
-      expect(screen.queryByText(/Required\. Must start with a lowercase letter/)).toBeNull();
+      expect(screen.queryByText(ADK_AGENT_NAME_HINT)).toBeNull();
+
+      // REGRESSION: uppercase is valid. ADK accepts any Python identifier, and
+      // every shipped starter template uses names like GCP_BigQuery_Orchestrator.
+      // A previous lowercase-only rule rejected all five of them.
+      act(() => {
+        fireEvent.change(nameInput, { target: { value: 'GCP_BigQuery_Orchestrator' } });
+      });
+      expect(screen.queryByText(ADK_AGENT_NAME_HINT)).toBeNull();
     });
+  });
+
+  // The bug this guards against shipped because the validation rule and the
+  // starter templates were written independently and never checked against
+  // each other. Every template the product ships must satisfy the product's
+  // own validation.
+  //
+  // NOTE: `t.name` is the human-readable label ("GCP Logs Reader", with
+  // spaces). The agent name that reaches ADK is `t.config.name`.
+  describe('starter templates satisfy agent-name validation', () => {
+    it('has at least one template (guards against an empty import)', () => {
+      expect(TEMPLATES.length).toBeGreaterThan(0);
+    });
+
+    it.each(TEMPLATES.map((t) => [t.id, t.config.name] as const))(
+      'template %s defines an agent name',
+      (_id, agentName) => {
+        expect(agentName).toBeTruthy();
+      },
+    );
+
+    it.each(TEMPLATES.map((t) => [t.id, t.config.name] as const))(
+      'template %s has a valid ADK agent name',
+      (_id, agentName) => {
+        expect(isValidAdkAgentName(agentName)).toBe(true);
+      },
+    );
+
+    it.each(TEMPLATES.map((t) => [t.id, t.config.name] as const))(
+      'template %s yields a valid Cloud Run service name',
+      (_id, agentName) => {
+        const serviceName = toCloudRunServiceName(agentName);
+        // Cloud Run service names are DNS labels: lowercase alphanumerics and
+        // hyphens, starting with a letter, 63 characters maximum.
+        expect(serviceName).toMatch(/^[a-z]([-a-z0-9]*[a-z0-9])?$/);
+        expect(serviceName.length).toBeLessThanOrEqual(63);
+      },
+    );
   });
 });

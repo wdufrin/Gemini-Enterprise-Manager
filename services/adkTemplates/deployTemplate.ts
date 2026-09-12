@@ -1,5 +1,6 @@
 import { AdkAgentConfig } from "./types";
 import { assertValidGcpResourceName } from "../shellSafety";
+import { toCloudRunServiceName } from "./agentName";
 
 export const generateTestConfigJson = (config: AdkAgentConfig): string => {
   return JSON.stringify(
@@ -80,7 +81,11 @@ export const generateMakefile = (config: AdkAgentConfig): string => {
   // allowlist -- every name Cloud Run would actually accept already passes.
   // An empty name means the builder form is not filled in yet (this template is
   // regenerated on every keystroke), so only a non-empty name is checked.
-  const cloudRunServiceName = config.name ? config.name.replace(/_/g, "-") : "";
+  //
+  // toCloudRunServiceName lowercases as well as replacing underscores: ADK
+  // allows uppercase in the Python identifier but a Cloud Run service name is a
+  // DNS label and cannot contain it.
+  const cloudRunServiceName = toCloudRunServiceName(config.name);
   if (cloudRunServiceName) {
     assertValidGcpResourceName(cloudRunServiceName, "Agent name");
   }
@@ -134,7 +139,7 @@ export const generateCloudBuildYaml = (
   // template at all, and legacy domain-scoped IDs ("example.com:proj") would fail
   // the allowlist for no security benefit.
   if (config.name && config.name.trim()) {
-    assertValidGcpResourceName(config.name.replace(/_/g, "-"), "Agent name");
+    assertValidGcpResourceName(toCloudRunServiceName(config.name), "Agent name");
   }
   return `steps:
   # Install dependencies and run evaluation
