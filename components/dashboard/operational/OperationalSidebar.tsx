@@ -6,13 +6,15 @@ interface Props {
     onViewChange: (viewId: string) => void;
     installedViews: Set<string>;
     totalDeployedCount: number;
+    viewRowCounts?: Record<string, number>;
 }
 
 export const OperationalSidebar: React.FC<Props> = ({
     activeViewId,
     onViewChange,
     installedViews,
-    totalDeployedCount
+    totalDeployedCount,
+    viewRowCounts
 }) => {
     return (
         <aside className="w-full lg:w-64 shrink-0 bg-gray-900 border border-gray-700/80 rounded-xl p-3.5 space-y-4 shadow-sm">
@@ -73,25 +75,37 @@ export const OperationalSidebar: React.FC<Props> = ({
                                         </div>
 
                                         {/* Count or Live badge */}
-                                        {item.badge ? (
-                                            <span
-                                                className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-semibold shrink-0 ${
-                                                    isActive
-                                                        ? 'bg-blue-700 text-blue-100'
-                                                        : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                                                }`}
-                                            >
-                                                {item.badge}
-                                            </span>
-                                        ) : item.count !== undefined ? (
-                                            <span
-                                                className={`text-[10px] font-mono px-1 rounded shrink-0 ${
-                                                    isActive ? 'text-blue-100' : 'text-gray-500'
-                                                }`}
-                                            >
-                                                {item.count}
-                                            </span>
-                                        ) : null}
+                                        {(() => {
+                                            const displayCount = viewRowCounts?.[item.id] !== undefined
+                                                ? viewRowCounts[item.id]
+                                                : item.count;
+                                            if (item.badge) {
+                                                return (
+                                                    <span
+                                                        className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-semibold shrink-0 ${
+                                                            isActive
+                                                                ? 'bg-blue-700 text-blue-100'
+                                                                : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                                        }`}
+                                                    >
+                                                        {item.badge}
+                                                    </span>
+                                                );
+                                            }
+                                            return (
+                                                <span
+                                                    className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-semibold shrink-0 ${
+                                                        isActive
+                                                            ? 'bg-blue-700 text-blue-100'
+                                                            : isInstalled
+                                                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                                            : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                                                    }`}
+                                                >
+                                                    {isInstalled ? 'Live' : 'Mock'}
+                                                </span>
+                                            );
+                                        })()}
                                     </button>
                                 );
                             })}

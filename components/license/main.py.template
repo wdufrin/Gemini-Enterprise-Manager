@@ -62,7 +62,9 @@ def list_group_members(session, group_email):
         resp = session.get(full_url)
         if resp.status_code != 200:
             print(f"Error listing members for {group_email}: {resp.text}")
-            break
+            if resp.status_code in (401, 403):
+                raise PermissionError(f"Directory API permission denied ({resp.status_code}): Ensure Cloud Run Service Account has Domain-Wide Delegation to query {group_email}.")
+            raise RuntimeError(f"Unexpected Directory API error ({resp.status_code}): {resp.text}")
         data = resp.json()
         print(f"Fetched raw members data: {data}")
         members.extend(data.get("members", []))
@@ -78,6 +80,10 @@ def has_member(session, group_email, user_email):
     resp = session.get(url)
     if resp.status_code == 200:
         return resp.json().get("isMember", False)
+    elif resp.status_code in (401, 403):
+        raise PermissionError(f"Directory API permission denied ({resp.status_code}): Ensure Cloud Run Service Account has Domain-Wide Delegation to query {group_email}.")
+    elif resp.status_code != 404:
+        raise RuntimeError(f"Unexpected Directory API error ({resp.status_code}): {resp.text}")
     return False
 
 def batch_update_licenses(session, base_url, parent, updates):

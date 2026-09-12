@@ -20,7 +20,7 @@ import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
 import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
 
-declare var JSZip: any;
+import JSZip from 'jszip';
 
 interface AgentCatalogPageProps {
   projectNumber: string;

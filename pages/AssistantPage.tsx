@@ -362,6 +362,14 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                     const assistant = await api.getAssistant(assistantName, assistantConfig);
                     return { engine, assistant };
                 } catch (e: any) {
+                    try {
+                        const listRes = await api.listAssistants(assistantConfig, 1);
+                        if (listRes.assistants && listRes.assistants.length > 0) {
+                            return { engine, assistant: listRes.assistants[0] };
+                        }
+                    } catch {
+                        // Fallback attempt failed, preserve primary error
+                    }
                     return { engine, assistant: null, error: e.message };
                 }
             });
@@ -380,9 +388,13 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
   }, [searchQuery, config.appLocation]);
 
   // Fetch Agents for a specific Assistant (Detail View)
-  const fetchAgentsForAssistant = useCallback(async (appId: string) => {
+  const fetchAgentsForAssistant = useCallback(async (appId: string, customAssistantId?: string) => {
       setIsDetailLoading(true);
-      const detailConfig = { ...baseApiConfig, appId };
+      const detailConfig = { 
+          ...baseApiConfig, 
+          appId,
+          ...(customAssistantId ? { assistantId: customAssistantId } : {})
+      };
       try {
           const agentsResponse = await api.listResources('agents', detailConfig);
           const baseAgents = agentsResponse.agents || [];
@@ -395,50 +407,43 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                 const viewResult = agentViewResults[index];
                 let agentType = viewResult.status === 'fulfilled' && viewResult.value?.agentView ? viewResult.value.agentView.agentType : undefined;
                 let agentOrigin = viewResult.status === 'fulfilled' && viewResult.value?.agentView ? viewResult.value.agentView.agentOrigin : undefined;
-
-                if (!agentType) {
-                    if (agent.adkAgentDefinition) {
-                        agentType = 'ADK';
-                    } else if (agent.a2aAgentDefinition) {
-                        agentType = 'A2A';
-                    } else if (agent.lowCodeAgentDefinition || agent.workflowAgentDefinition) {
-                        agentType = 'LOW_CODE';
-                    } else if (!agent.state || (agent.state !== 'ENABLED' && agent.state !== 'DISABLED')) {
-                        agentType = 'LOW_CODE';
-                    }
-                }
-
                 return {
                     ...agent,
                     agentType,
-                    agentOrigin,
+                    agentOrigin
                 };
             });
             setAgents(enrichedAgents);
           } else {
-              setAgents([]);
+            setAgents([]);
           }
-      } catch (e) {
-          console.error("Failed to fetch agents", e);
-          setAgents([]);
+      } catch (err: any) {
+          console.error("Failed to fetch agents for assistant", err);
+          setListError("Failed to load agents for this assistant.");
       } finally {
           setIsDetailLoading(false);
       }
   }, [baseApiConfig]);
 
   const handleRowClick = (row: AssistantRowData) => {
-      if (!row.assistant) return; // Cannot edit if assistant fetch failed
+      if (!row.assistant) {
+          alert(`This engine (${row.engine.displayName}) has not been fully initialized with an assistant yet. Please open the Assistant configuration or check Discovery Engine status.`);
+          return;
+      }
       setSelectedRow(row);
-      fetchAgentsForAssistant(row.engine.name.split('/').pop()!);
+      const assistantId = row.assistant.name ? row.assistant.name.split('/').pop() : undefined;
+      fetchAgentsForAssistant(row.engine.name.split('/').pop()!, assistantId);
   };
 
   const handleChatClick = (row: AssistantRowData, e: React.MouseEvent) => {
       e.stopPropagation();
       const engineId = row.engine.name.split('/').pop()!;
+      const assistantId = row.assistant ? row.assistant.name.split('/').pop()! : 'default_assistant';
       // Create a full config for this specific engine
       const chatConfig: Config = {
           ...baseApiConfig,
           appId: engineId,
+          assistantId: assistantId,
       };
       setActiveChatConfig({
           displayName: row.engine.displayName,
@@ -662,6 +667,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
       const currentConfig = { 
           ...baseApiConfig, 
           appId: selectedRow.engine.name.split('/').pop()!,
+          assistantId: selectedRow.assistant ? selectedRow.assistant.name.split('/').pop()! : 'default_assistant',
           engineName: selectedRow.engine.name,
           projectNumber: projectNumber,
       };
@@ -757,22 +763,28 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                                   </>
                               )}
 
-                              {activeTab === 'agents' && (
-                                  <AgentListForAssistant 
-                                      agents={agents} 
-                                      config={currentConfig} 
-                                      onRefreshAgents={() => fetchAgentsForAssistant(selectedRow.engine.name.split('/').pop()!)}
-                                  />
-                              )}
+                               {activeTab === 'agents' && (
+                                   <AgentListForAssistant 
+                                       agents={agents} 
+                                       config={currentConfig} 
+                                       onRefreshAgents={() => fetchAgentsForAssistant(
+                                           selectedRow.engine.name.split('/').pop()!,
+                                           selectedRow.assistant ? selectedRow.assistant.name.split('/').pop() : undefined
+                                       )}
+                                   />
+                               )}
 
-                              {activeTab === 'skills' && (
-                                  <SkillsViewer
-                                      agents={agents}
-                                      config={currentConfig}
-                                      userProfile={userProfile}
-                                      onRefreshSkills={() => fetchAgentsForAssistant(selectedRow.engine.name.split('/').pop()!)}
-                                  />
-                              )}
+                               {activeTab === 'skills' && (
+                                   <SkillsViewer
+                                       agents={agents}
+                                       config={currentConfig}
+                                       userProfile={userProfile}
+                                       onRefreshSkills={() => fetchAgentsForAssistant(
+                                           selectedRow.engine.name.split('/').pop()!,
+                                           selectedRow.assistant ? selectedRow.assistant.name.split('/').pop() : undefined
+                                       )}
+                                   />
+                               )}
 
                               {activeTab === 'memories' && (
                                   <UserMemoriesViewer 

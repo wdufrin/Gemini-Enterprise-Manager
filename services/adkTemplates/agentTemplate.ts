@@ -162,9 +162,15 @@ class SyncAgentWrapper(BaseModel):
         prompt = input or message
         
         async def _run_loop():
-            async with self._lazy_agent as agent:
-                response = await agent.chat(prompt)
-                return await response.text()
+            try:
+                async with self._lazy_agent as agent:
+                    response = await agent.chat(prompt)
+                    text = await response.text()
+                    return text or "Agent executed successfully but produced no text response."
+            except Exception as e:
+                import logging
+                logging.exception(f"Agent execution error: {e}")
+                return f"Agent execution error: {type(e).__name__} - {str(e)}"
             
         return asyncio.run(_run_loop())
 
@@ -258,6 +264,13 @@ class SyncAgentWrapper(BaseModel):
             prompt = "".join([part.get("text", "") for part in parts if part.get("text")])
 
         session_id = req.get("session_id") or req.get("sessionId") or "default_session"
+        authorizations = req.get("authorizations")
+        if isinstance(authorizations, dict):
+            for a_id, a_data in authorizations.items():
+                tok = a_data.get("access_token") or a_data.get("token") if isinstance(a_data, dict) else (a_data if isinstance(a_data, str) else None)
+                if tok:
+                    os.environ[a_id] = tok
+                    os.environ[f"temp:{a_id}"] = tok
 
         async with self._lazy_agent as agent:
             response = await agent.chat(prompt)
@@ -337,18 +350,10 @@ def create_agent():
     thinking_config = None
     ${config.enableThinking
         ? `
-    if (model_name.startswith("gemini-3") or "3.5" in model_name) and "latest" not in model_name:
-        thinking_level = os.getenv("THINKING_LEVEL", "${config.thinkingLevel || "HIGH"}")
-        thinking_config = types.ThinkingConfig(
-            include_thoughts=True,
-            thinking_level=thinking_level,
-        )
-    elif model_name.startswith("gemini-2.5") or "thinking" in model_name or "latest" in model_name:
-        thinking_budget = int(os.getenv("THINKING_BUDGET", "${config.thinkingBudget || 1024}"))
-        thinking_config = types.ThinkingConfig(
-            include_thoughts=True,
-            thinking_budget=thinking_budget,
-        )
+    thinking_budget = int(os.getenv("THINKING_BUDGET", "${config.thinkingBudget || 1024}"))
+    thinking_config = types.ThinkingConfig(
+        thinking_budget=thinking_budget,
+    )
     `
         : ""
       }
@@ -451,9 +456,55 @@ code_exec_tool = AgentTool(code_executor_agent())`);
   });
 
   if (config.useGoogleSearch) {
+    const hasOtherTools =
+      Boolean(config.enableCodeExecution) ||
+      Boolean(config.enableGraphvizRendering) ||
+      Boolean(config.enableBigQueryMcp) ||
+      Boolean(config.enableCloudLoggingMcp) ||
+      Boolean(config.enableCloudMonitoringMcp) ||
+      Boolean(config.enableResourceManagerMcp) ||
+      Boolean(config.enableComputeEngineMcp) ||
+      Boolean(config.enableGkeMcp) ||
+      Boolean(config.enableCloudSqlMcp) ||
+      Boolean(config.enableBigtableAdminMcp) ||
+      Boolean(config.enableSpannerMcp) ||
+      Boolean(config.enableFirestoreMcp) ||
+      Boolean(config.enableDeveloperKnowledgeMcp) ||
+      Boolean(config.enableMapsGroundingMcp) ||
+      Boolean(config.enableCloudLoggingApi) ||
+      Boolean(config.enableCloudMonitoringApi) ||
+      Boolean(config.enableCloudRunApi) ||
+      Boolean(config.enableResourceManagerApi) ||
+      Boolean(config.enableAdminActivityApi) ||
+      Boolean(config.enableDatabaseFleetApi) ||
+      Boolean(config.enableSecurityCommandCenterApi) ||
+      Boolean(config.enableRecommenderApi) ||
+      Boolean(config.enableServiceHealthApi) ||
+      Boolean(config.enableNetworkManagementApi) ||
+      Boolean(config.enableCloudAssistApi) ||
+      Boolean(config.enableEmailTool) ||
+      Boolean(config.enableDiscoveryApi) ||
+      Boolean(config.customMcpEndpoints && config.customMcpEndpoints.length > 0) ||
+      Boolean(config.tools && config.tools.length > 0);
+
     toolImports.add("from google.adk.tools import google_search_tool");
-    toolInitializations.push(`google_search = google_search_tool.GoogleSearchTool()`);
-    toolListForAgent.push("google_search");
+    if (hasOtherTools) {
+      toolImports.add("from google.adk.tools import AgentTool");
+      toolInitializations.push(`def web_search_subagent():
+    return Agent(
+        name="web_search_agent",
+        model="${config.model || "gemini-2.5-flash"}",
+        description="Search the web for real-time external information, documentation, and reference material.",
+        tools=[google_search_tool.GoogleSearchTool()],
+        instruction="You are a web search assistant. Search the web and return concise, factual summaries with sources."
+    )
+
+web_search_tool = AgentTool(web_search_subagent())`);
+      toolListForAgent.push("web_search_tool");
+    } else {
+      toolInitializations.push(`google_search = google_search_tool.GoogleSearchTool()`);
+      toolListForAgent.push("google_search");
+    }
   }
 
   if (config.enableBqAnalytics) {
@@ -715,39 +766,47 @@ if model_name.startswith("gemini-3") or "3.5" in model_name or "latest" in model
 # --- ADK Resilience Patch ---
 # Prevents the entire agent stream from crashing if an MCP server returns an HTTP error (e.g. 400 Bad Request)
 # The error happens deep inside an anyio.TaskGroup, so we must monkey-patch the streamable transport.
-import logging
-import httpx
-from mcp.client.streamable_http import StreamableHTTPTransport
+try:
+    import logging
+    import httpx
+    from mcp.client.streamable_http import StreamableHTTPTransport
 
-_original_handle_post_request = StreamableHTTPTransport._handle_post_request
+    _original_handle_post_request = StreamableHTTPTransport._handle_post_request
 
-async def _safe_handle_post_request(self, ctx):
-    try:
-        await _original_handle_post_request(self, ctx)
-    except httpx.HTTPStatusError as e:
-        logging.error(f"MCP HTTPStatusError caught: {e.response.status_code} - {e.response.text}")
-        # Send a synthetic JSONRPCError back through the memory stream so the client gets a clean rejection
-        from mcp.types import JSONRPCError, ErrorData, JSONRPCMessage
-        from mcp.shared.message import SessionMessage
-        
-        request_id = getattr(ctx.session_message.message.root, "id", None)
-        if request_id is not None:
-            jsonrpc_error = JSONRPCError(
-                jsonrpc="2.0",
-                id=request_id,
-                error=ErrorData(
-                    code=-32000, 
-                    message=f"Google MCP API Error ({e.response.status_code}): {e.response.text}"
-                ),
-            )
+    async def _safe_handle_post_request(self, ctx):
+        try:
+            await _original_handle_post_request(self, ctx)
+        except httpx.HTTPStatusError as e:
             try:
-                await ctx.read_stream_writer.send(SessionMessage(JSONRPCMessage(jsonrpc_error)))
-                return
-            except Exception as send_err:
-                logging.error(f"Failed to send synthetic error back to stream: {send_err}")
-        raise e
+                await e.response.aread()
+                resp_text = e.response.text
+            except Exception:
+                resp_text = str(e)
+            logging.error(f"MCP HTTPStatusError caught: {e.response.status_code} - {resp_text}")
+            # Send a synthetic JSONRPCError back through the memory stream so the client gets a clean rejection
+            from mcp.types import JSONRPCError, ErrorData, JSONRPCMessage
+            from mcp.shared.message import SessionMessage
+            
+            request_id = getattr(ctx.session_message.message.root, "id", None)
+            if request_id is not None:
+                jsonrpc_error = JSONRPCError(
+                    jsonrpc="2.0",
+                    id=request_id,
+                    error=ErrorData(
+                        code=-32000, 
+                        message=f"Google MCP API Error ({e.response.status_code}): {resp_text}"
+                    ),
+                )
+                try:
+                    await ctx.read_stream_writer.send(SessionMessage(JSONRPCMessage(jsonrpc_error)))
+                    return
+                except Exception as send_err:
+                    logging.error(f"Failed to send synthetic error back to stream: {send_err}")
+            raise e
 
-StreamableHTTPTransport._handle_post_request = _safe_handle_post_request
+    StreamableHTTPTransport._handle_post_request = _safe_handle_post_request
+except ImportError:
+    pass
 # ----------------------------
 
 # --- ADK Schema Recursion Patch ---
@@ -794,20 +853,10 @@ ${pluginInitializations.length > 0 ? pluginInitializations.join("\n\n") : "# No 
 ${config.enableThinking
       ? `
 # Define generation_content_config for Thinking
-model_name = os.getenv("MODEL", "${config.model || "gemini-3.5-flash"}")
-thinking_config = None
-if (model_name.startswith("gemini-3") or "3.5" in model_name) and "latest" not in model_name:
-    thinking_level = os.getenv("THINKING_LEVEL", "${config.thinkingLevel || "HIGH"}")
-    thinking_config = genai_types.ThinkingConfig(
-        include_thoughts=True,
-        thinking_level=thinking_level,
-    )
-elif model_name.startswith("gemini-2.5") or "thinking" in model_name or "latest" in model_name:
-    thinking_budget = int(os.getenv("THINKING_BUDGET", "${config.thinkingBudget || 1024}"))
-    thinking_config = genai_types.ThinkingConfig(
-        include_thoughts=True,
-        thinking_budget=thinking_budget,
-    )
+thinking_budget = int(os.getenv("THINKING_BUDGET", "${config.thinkingBudget || 1024}"))
+thinking_config = genai_types.ThinkingConfig(
+    thinking_budget=thinking_budget,
+)
 `
       : ""
     }
@@ -896,21 +945,29 @@ class SyncAgentWrapper(BaseModel):
             )
 
             final_text = ""
-            async for event in runner.run_async(
-                user_id="default_user",
-                session_id=session_id,
-                new_message=genai_types.Content(
-                    role="user",
-                    parts=[genai_types.Part.from_text(text=prompt)]
-                ),
-                state_delta=state,
-            ):
-                if event.content and getattr(event.content, "parts", None):
-                    for part in event.content.parts:
-                        if getattr(part, "text", None):
-                            final_text += part.text
-                if event.is_final_response():
-                    break
+            try:
+                async for event in runner.run_async(
+                    user_id="default_user",
+                    session_id=session_id,
+                    new_message=genai_types.Content(
+                        role="user",
+                        parts=[genai_types.Part.from_text(text=prompt)]
+                    ),
+                    state_delta=state,
+                ):
+                    if event.content and getattr(event.content, "parts", None):
+                        for part in event.content.parts:
+                            if getattr(part, "text", None):
+                                final_text += part.text
+                    if event.is_final_response():
+                        break
+            except Exception as run_err:
+                import logging
+                logging.exception(f"Runner execution failed: {run_err}")
+                return f"Agent execution error: {type(run_err).__name__} - {str(run_err)}"
+
+            if not final_text:
+                return "Agent completed execution but produced no textual response. Please check server logs or inspect tool execution."
             return final_text
             
         return asyncio.run(_run_loop())
@@ -957,36 +1014,50 @@ class SyncAgentWrapper(BaseModel):
             session_service=session_svc,${pluginList.length > 0 ? `\n            plugins=[${pluginList.join(", ")}],` : ""}
         )
 
-        async for event in runner.run_async(
-            user_id="default_user",
-            session_id=session_id,
-            new_message=genai_types.Content(
-                role="user",
-                parts=[genai_types.Part.from_text(text=prompt)]
-            ),
-            state_delta=state,
-        ):
-            if event.content and getattr(event.content, "parts", None):
-                parts_list = []
-                for part in event.content.parts:
-                    part_dict = {}
-                    if getattr(part, "text", None):
-                        part_dict["text"] = part.text
-                    if getattr(part, "thought", False):
-                        part_dict["thought"] = True
-                    if part_dict:
-                        parts_list.append(part_dict)
-                if parts_list:
-                    yield {
-                        "candidates": [
-                            {
-                                "content": {
-                                    "parts": parts_list,
-                                    "role": "model"
+        try:
+            async for event in runner.run_async(
+                user_id="default_user",
+                session_id=session_id,
+                new_message=genai_types.Content(
+                    role="user",
+                    parts=[genai_types.Part.from_text(text=prompt)]
+                ),
+                state_delta=state,
+            ):
+                if event.content and getattr(event.content, "parts", None):
+                    parts_list = []
+                    for part in event.content.parts:
+                        part_dict = {}
+                        if getattr(part, "text", None):
+                            part_dict["text"] = part.text
+                        if getattr(part, "thought", False):
+                            part_dict["thought"] = True
+                        if part_dict:
+                            parts_list.append(part_dict)
+                    if parts_list:
+                        yield {
+                            "candidates": [
+                                {
+                                    "content": {
+                                        "parts": parts_list,
+                                        "role": "model"
+                                    }
                                 }
-                            }
-                        ]
+                            ]
+                        }
+        except Exception as stream_err:
+            import logging
+            logging.exception(f"Stream runner error: {stream_err}")
+            yield {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [{"text": f"Agent error: {type(stream_err).__name__} - {str(stream_err)}"}],
+                            "role": "model"
+                        }
                     }
+                ]
+            }
 
     async def _run_async_impl(self, input: str = "", message: str = "", **kwargs):
         async for chunk in self.stream_query(input, message, **kwargs):
@@ -1010,15 +1081,37 @@ class SyncAgentWrapper(BaseModel):
         # Extract authorizations to build state
         state = {}
         authorizations = req.get("authorizations")
-        if authorizations:
-            for auth_id, auth_data in authorizations.items():
-                access_token = auth_data.get("access_token") or auth_data.get("token")
-                if access_token:
-                    state[auth_id] = access_token
-                    
-        # Fallback extraction
-        if not state:
-            state = req.get("state") or {}
+        if isinstance(authorizations, dict):
+            for a_id, a_data in authorizations.items():
+                tok = None
+                if isinstance(a_data, dict):
+                    tok = a_data.get("access_token") or a_data.get("token")
+                elif isinstance(a_data, str):
+                    tok = a_data
+                if tok:
+                    state[a_id] = tok
+                    state[f"temp:{a_id}"] = tok
+                    state[f"token_{a_id}"] = tok
+        elif isinstance(authorizations, list):
+            for item in authorizations:
+                if isinstance(item, dict):
+                    a_id = item.get("id") or item.get("auth_id") or item.get("name")
+                    tok = item.get("access_token") or item.get("token")
+                    if a_id and tok:
+                        state[a_id] = tok
+                        state[f"temp:{a_id}"] = tok
+                        state[f"token_{a_id}"] = tok
+
+        # Also preserve agent_association if provided by platform
+        if req.get("agent_association"):
+            state["agent_association"] = req.get("agent_association")
+        if req.get("user_token"):
+            state["user_token"] = req.get("user_token")
+
+        # Merge / fallback extraction from state
+        req_state = req.get("state")
+        if isinstance(req_state, dict):
+            state.update(req_state)
 
         user_id = req.get("user_id") or req.get("userId") or "default_user"
         session_id = req.get("session_id") or req.get("sessionId") or "default_session"
@@ -1043,18 +1136,34 @@ class SyncAgentWrapper(BaseModel):
             session_service=session_svc,${pluginList.length > 0 ? `\n            plugins=[${pluginList.join(", ")}],` : ""}
         )
 
-        async for event in runner.run_async(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=genai_types.Content(
-                role="user",
-                parts=[genai_types.Part.from_text(text=prompt)]
-            ),
-            state_delta=state,
-        ):
-            event_dict = json.loads(event.model_dump_json(exclude_none=True))
+        try:
+            async for event in runner.run_async(
+                user_id=user_id,
+                session_id=session_id,
+                new_message=genai_types.Content(
+                    role="user",
+                    parts=[genai_types.Part.from_text(text=prompt)]
+                ),
+                state_delta=state,
+            ):
+                event_dict = json.loads(event.model_dump_json(exclude_none=True))
+                yield {
+                    "events": [event_dict],
+                    "artifacts": [],
+                    "session_id": session_id
+                }
+        except Exception as event_err:
+            import logging
+            logging.exception(f"Streaming agent runner error: {event_err}")
             yield {
-                "events": [event_dict],
+                "events": [
+                    {
+                        "content": {
+                            "role": "model",
+                            "parts": [{"text": f"Agent execution error: {type(event_err).__name__} - {str(event_err)}"}]
+                        }
+                    }
+                ],
                 "artifacts": [],
                 "session_id": session_id
             }

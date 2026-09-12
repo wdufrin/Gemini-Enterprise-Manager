@@ -914,8 +914,8 @@ export const IndividualViewDetail: React.FC<Props> = ({
             case 'v_admin_feedback_review': {
                 const posCount = data.filter((d) => isPositiveFeedback(d.feedback_type)).length;
                 const negCount = data.filter((d) => isNegativeFeedback(d.feedback_type)).length || (data.length - posCount);
-                const total = posCount + negCount || data.length || 4;
-                const posRate = total > 0 ? Math.round((posCount / total) * 100) : 25;
+                const total = posCount + negCount || data.length;
+                const posRate = total > 0 ? Math.round((posCount / total) * 100) : 0;
 
                 const reasonsMap: Record<string, number> = {};
                 data.forEach((d) => {
@@ -933,7 +933,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                                 <div className="text-xs text-gray-400 uppercase tracking-wide">Total Reviews</div>
-                                <div className="text-2xl font-light text-white mt-1">{data.length || 4}</div>
+                                <div className="text-2xl font-light text-white mt-1">{data.length}</div>
                                 <div className="text-[11px] text-blue-400 mt-1">Processed feedback logs</div>
                             </div>
                             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
@@ -1025,9 +1025,9 @@ export const IndividualViewDetail: React.FC<Props> = ({
                     : data.filter((d) => isNegativeFeedback(d.feedback)).length;
                 const totalRatings = overviewLiveData?.feedback
                     ? overviewLiveData.feedback.reduce((acc: number, f: any) => acc + (f.total || 0), 0)
-                    : (totalPos + totalNeg || data.length || 4);
+                    : (totalPos + totalNeg || data.length);
 
-                const satisfaction = totalRatings > 0 ? Math.round((totalPos / totalRatings) * 100) : 25;
+                const satisfaction = totalRatings > 0 ? Math.round((totalPos / totalRatings) * 100) : 0;
 
                 const feedbackByAgent = overviewLiveData?.feedback && overviewLiveData.feedback.length > 0
                     ? overviewLiveData.feedback
@@ -1076,7 +1076,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
                             <div className="h-64 w-full">
                                 <ResponsiveContainer width="100%" height={256}>
                                     <BarChart data={feedbackByAgent.length > 0 ? feedbackByAgent : [
-                                        { agent: 'Enterprise Data Agent', thumbsUp: 1, thumbsDown: 3 }
+                                        { agent: 'Enterprise Data Agent', thumbsUp: 1, thumbsDown: 1 }
                                     ]}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                                         <XAxis dataKey="agent" stroke="#9CA3AF" fontSize={11} />
@@ -1094,13 +1094,13 @@ export const IndividualViewDetail: React.FC<Props> = ({
             }
 
             case 'v_agent_feedback_detailed': {
-                const total = data.length || 4;
+                const total = data.length;
                 const avgPrompt = total
                     ? Math.round(data.reduce((acc, d) => acc + (d.prompt ? d.prompt.length : 0), 0) / total)
-                    : 62;
+                    : 0;
                 const avgResult = total
                     ? Math.round(data.reduce((acc, d) => acc + (d.result ? d.result.length : 0), 0) / total)
-                    : 340;
+                    : 0;
 
                 const lengthData = data.map((d, i) => ({
                     turn: `Turn #${i + 1}`,

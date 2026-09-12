@@ -24,9 +24,10 @@ import McpServerDetails from '../components/mcp-servers/McpServerDetails';
 
 interface McpServersPageProps {
   projectNumber: string;
+  projectId?: string;
 }
 
-const McpServersPage: React.FC<McpServersPageProps> = ({ projectNumber }) => {
+const McpServersPage: React.FC<McpServersPageProps> = ({ projectNumber, projectId }) => {
   const [location, setLocation] = useState('us-central1');
   const [services, setServices] = useState<CloudRunService[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -36,13 +37,13 @@ const McpServersPage: React.FC<McpServersPageProps> = ({ projectNumber }) => {
   const [selectedService, setSelectedService] = useState<CloudRunService | null>(null);
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
-      projectId: projectNumber,
+      projectId: projectId || projectNumber,
       // Dummy values for other required config properties
       appLocation: 'global',
       collectionId: '',
       appId: '',
       assistantId: '',
-  }), [projectNumber]);
+  }), [projectNumber, projectId]);
 
   const handleScan = useCallback(async () => {
     if (!projectNumber) {

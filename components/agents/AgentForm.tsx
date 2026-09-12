@@ -49,7 +49,7 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     createdBy: '',
     additionalInfo: '',
     reasoningEngineLocation: 'us-central1',
-    reasoningEngineId: '901164128171720704',
+    reasoningEngineId: '',
       authIds: [''],
     starterPrompts: [''],
     // A2A Specific

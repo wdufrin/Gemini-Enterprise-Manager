@@ -24,7 +24,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
     const [error, setError] = useState<string | null>(null);
 
     // Monitoring State
-    const [usageMetrics, setUsageMetrics] = useState<Record<string, number>>({});
+    const [usageMetrics, setUsageMetrics] = useState<Record<string, number> | null>(null);
     const [isFetchingMetrics, setIsFetchingMetrics] = useState(false);
     const [metricsError, setMetricsError] = useState<string | null>(null);
 
@@ -301,6 +301,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     ideaGeneration: 0,
                     deepResearch: 0
                 };
+                const failedResults = results.filter(r => r.status === 'rejected');
                 let hasAuthError = false;
                 
                 results.forEach(result => {
@@ -310,29 +311,44 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             res.timeSeries.forEach((series: any) => {
                                 const points = series.points;
                                 if (points && points.length > 0) {
-                                    points.forEach((point: any) => {
-                                        const valObj = point.value;
-                                        const val = parseInt(valObj.int64Value || valObj.doubleValue || "0", 10);
-                                        usages[key] += val;
-                                    });
+                                    // With ALIGN_SUM 86400s, point[0] holds the aggregated 24h total for this series
+                                    const point = points[0];
+                                    const valObj = point.value;
+                                    const val = parseInt(valObj.int64Value || valObj.doubleValue || "0", 10);
+                                    usages[key] += val;
                                 }
                             });
                         }
                     } else {
-                        // If one fails with 403, flag it
+                        // If one fails with 403 or permission error, flag it
                         const err = result.reason;
-                        if (err?.message?.includes('403') || err?.status === 403) {
+                        const errMsg = (err?.message || (typeof err === 'string' ? err : '')).toLowerCase();
+                        if (
+                            err?.status === 403 ||
+                            err?.code === 403 ||
+                            errMsg.includes('403') ||
+                            errMsg.includes('permission') ||
+                            errMsg.includes('denied') ||
+                            errMsg.includes('the caller does not have permission')
+                        ) {
                             hasAuthError = true;
                         }
                     }
                 });
 
-                setUsageMetrics(usages);
                 if (hasAuthError) {
+                    setUsageMetrics(null);
                     setMetricsError("Missing 'monitoring.timeSeries.list' permission to view live usage.");
+                } else if (failedResults.length === results.length) {
+                    setUsageMetrics(null);
+                    setMetricsError("Failed to fetch live usage metrics from Cloud Monitoring.");
+                } else {
+                    setUsageMetrics(usages);
+                    setMetricsError(null);
                 }
             } catch (err: any) {
                 console.error("Failed to fetch cloud monitoring metrics", err);
+                setUsageMetrics(null);
                 setMetricsError("Failed to load live usage metrics from Cloud Monitoring.");
             } finally {
                 setIsFetchingMetrics(false);
@@ -342,7 +358,8 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
     }, [projectNumber, edition]);
 
     const QuotaCard = ({ title, value, usage, unit, tooltip }: any) => {
-        const percentage = usage !== undefined && value > 0 ? Math.min(100, Math.round((usage / value) * 100)) : 0;
+        const isUnavailable = usage === undefined || usage === null;
+        const percentage = !isUnavailable && value > 0 ? Math.min(100, Math.round((usage / value) * 100)) : 0;
         return (
         <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700 flex flex-col justify-between">
             <div className="flex items-start justify-between mb-2">
@@ -350,17 +367,24 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 {tooltip && <InfoTooltip text={tooltip} />}
             </div>
             <div className="flex items-baseline gap-1 mt-auto">
-                <span className="text-3xl font-bold text-blue-400">{usage !== undefined ? usage : value}</span>
-                {usage !== undefined && <span className="text-gray-500 text-sm font-medium">/ {value}</span>}
+                {isUnavailable ? (
+                    <span className="text-lg font-medium text-amber-400">Unavailable</span>
+                ) : (
+                    <span className="text-3xl font-bold text-blue-400">{usage.toLocaleString()}</span>
+                )}
+                <span className="text-gray-500 text-sm font-medium">/ {value.toLocaleString()}</span>
                 {unit && <span className="text-gray-400 text-sm ml-1">{unit}</span>}
             </div>
-            {usage !== undefined && (
+            {!isUnavailable && (
                 <div className="mt-3 w-full bg-gray-700 rounded-full h-1.5 border border-gray-600">
                     <div 
                         className={`h-1.5 rounded-full ${percentage > 90 ? 'bg-red-500' : percentage > 75 ? 'bg-yellow-500' : 'bg-blue-500'}`} 
                         style={{ width: `${percentage}%` }}
                     ></div>
                 </div>
+            )}
+            {isUnavailable && (
+                <p className="mt-2 text-[11px] text-gray-500">Requires monitoring.timeSeries.list</p>
             )}
         </div>
         );
@@ -529,7 +553,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         <QuotaCard 
                             title="Tasks and actions" 
                             value={quotas.tasksAndActions} 
-                            usage={usageMetrics.tasksAndActions}
+                            usage={usageMetrics?.tasksAndActions}
                             unit="tasks / day" 
                         />
                     </div>
@@ -542,31 +566,31 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         <QuotaCard 
                             title="Text answer generation" 
                             value={quotas.textAnswerGen} 
-                            usage={usageMetrics.textAnswerGen}
+                            usage={usageMetrics?.textAnswerGen}
                             unit="generations / day" 
                         />
                         <QuotaCard 
                             title="Image generation" 
                             value={quotas.imageGen} 
-                            usage={usageMetrics.imageGen}
+                            usage={usageMetrics?.imageGen}
                             unit="images / day" 
                         />
                         <QuotaCard 
                             title="Video generation" 
                             value={quotas.videoGen} 
-                            usage={usageMetrics.videoGen}
+                            usage={usageMetrics?.videoGen}
                             unit="videos / day" 
                         />
                         <QuotaCard 
                             title="Grounding with Google search" 
                             value={quotas.grounding} 
-                            usage={usageMetrics.grounding}
+                            usage={usageMetrics?.grounding}
                             unit="queries / day" 
                         />
                         <QuotaCard 
                             title="Web grounding for enterprise" 
                             value={quotas.webGrounding} 
-                            usage={usageMetrics.webGrounding}
+                            usage={usageMetrics?.webGrounding}
                             unit="queries / day" 
                         />
                     </div>
@@ -579,13 +603,13 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         <QuotaCard 
                             title="Idea generation" 
                             value={quotas.ideaGeneration} 
-                            usage={usageMetrics.ideaGeneration}
+                            usage={usageMetrics?.ideaGeneration}
                             unit="ideas / day" 
                         />
                         <QuotaCard 
                             title="Deep research" 
                             value={quotas.deepResearch} 
-                            usage={usageMetrics.deepResearch}
+                            usage={usageMetrics?.deepResearch}
                             unit="queries / day" 
                         />
                     </div>

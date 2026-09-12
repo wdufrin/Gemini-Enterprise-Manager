@@ -69,19 +69,21 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
 
   useEffect(() => {
     if (authToEdit) {
-        const authUri = authToEdit.serverSideOauth2.authorizationUri;
+        const authUri = authToEdit.serverSideOauth2?.authorizationUri || '';
         let scopes = '';
         let redirectUri = '';
-        try {
-            const url = new URL(authUri);
-            scopes = url.searchParams.get('scope')?.split(' ').join(',') || '';
-            redirectUri = url.searchParams.get('redirect_uri') || '';
-        } catch(e) {
-            console.error("Could not parse authorization URI", authUri);
+        if (authUri) {
+            try {
+                const url = new URL(authUri);
+                scopes = url.searchParams.get('scope')?.split(' ').join(',') || '';
+                redirectUri = url.searchParams.get('redirect_uri') || '';
+            } catch(e) {
+                console.error("Could not parse authorization URI", authUri);
+            }
         }
 
-        const clientId = authToEdit.serverSideOauth2.clientId;
-        const tokenUri = authToEdit.serverSideOauth2.tokenUri;
+        const clientId = authToEdit.serverSideOauth2?.clientId || '';
+        const tokenUri = authToEdit.serverSideOauth2?.tokenUri || '';
         
 
 
@@ -110,7 +112,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
             oauthClientId: clientId,
             oauthClientSecret: '', // Don't show the secret
             scopes: scopes,
-            oauthTokenUri: authToEdit.serverSideOauth2.tokenUri || '',
+            oauthTokenUri: authToEdit.serverSideOauth2?.tokenUri || '',
             redirectUri: redirectUri,
             authorizationUri: authUri, // Keep original URI initially
         });
@@ -178,15 +180,15 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
             serverSideOauth2: {}
         };
 
-        if (formData.oauthClientId !== authToEdit.serverSideOauth2.clientId) {
+        if (formData.oauthClientId !== authToEdit.serverSideOauth2?.clientId) {
             updateMask.push('serverSideOauth2.clientId');
             payload.serverSideOauth2.clientId = formData.oauthClientId;
         }
-        if (formData.authorizationUri !== authToEdit.serverSideOauth2.authorizationUri) {
+        if (formData.authorizationUri !== authToEdit.serverSideOauth2?.authorizationUri) {
             updateMask.push('serverSideOauth2.authorizationUri');
             payload.serverSideOauth2.authorizationUri = formData.authorizationUri;
         }
-        if (formData.oauthTokenUri !== authToEdit.serverSideOauth2.tokenUri) {
+        if (formData.oauthTokenUri !== authToEdit.serverSideOauth2?.tokenUri) {
             updateMask.push('serverSideOauth2.tokenUri');
             payload.serverSideOauth2.tokenUri = formData.oauthTokenUri;
         }
@@ -295,9 +297,9 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
       if (authToEdit) {
         // Build update mask dynamically for PATCH using correct camelCase paths
         const updateMask: string[] = [];
-        if (formData.oauthClientId !== authToEdit.serverSideOauth2.clientId) updateMask.push('serverSideOauth2.clientId');
-        if (formData.authorizationUri !== authToEdit.serverSideOauth2.authorizationUri) updateMask.push('serverSideOauth2.authorizationUri');
-        if (formData.oauthTokenUri !== authToEdit.serverSideOauth2.tokenUri) updateMask.push('serverSideOauth2.tokenUri');
+        if (formData.oauthClientId !== authToEdit.serverSideOauth2?.clientId) updateMask.push('serverSideOauth2.clientId');
+        if (formData.authorizationUri !== authToEdit.serverSideOauth2?.authorizationUri) updateMask.push('serverSideOauth2.authorizationUri');
+        if (formData.oauthTokenUri !== authToEdit.serverSideOauth2?.tokenUri) updateMask.push('serverSideOauth2.tokenUri');
         if (formData.oauthClientSecret) updateMask.push('serverSideOauth2.clientSecret');
         
         if (updateMask.length > 0) {

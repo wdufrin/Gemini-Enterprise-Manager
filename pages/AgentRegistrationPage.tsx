@@ -180,7 +180,8 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
             setIamCommand('# Select a Cloud Run service to generate the command.');
             return;
         }
-        const principal = `serviceAccount:service-${projectNumber}@gcp-sa-discoveryengine.iam.gserviceaccount.com`;
+        const numericProject = /^\d+$/.test(projectNumber) ? projectNumber : '<NUMERIC_PROJECT_NUMBER>';
+        const principal = `serviceAccount:service-${numericProject}@gcp-sa-discoveryengine.iam.gserviceaccount.com`;
         const command = `gcloud run services add-iam-policy-binding "${iamServiceDetails.serviceName}" \\
   --member="${principal}" \\
   --role="roles/run.invoker" \\

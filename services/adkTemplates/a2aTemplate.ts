@@ -123,7 +123,7 @@ ${toolsInit}
 
 # Initialize the Vertex AI Gemini model
 try:
-    model = GenerativeModel(MODEL_NAME)
+    model = GenerativeModel(MODEL_NAME, system_instruction=[DEFAULT_SYSTEM_INSTRUCTION])
     print(f"GenerativeModel '{MODEL_NAME}' initialized.")
 except Exception as e:
     print(f"FATAL: Could not initialize GenerativeModel. Error: {e}")
@@ -244,7 +244,6 @@ def invoke():
             max_output_tokens=8192,
             temperature=0.7,
             top_p=1.0,
-            system_instruction=DEFAULT_SYSTEM_INSTRUCTION,
         )
 
         # Call the Gemini API with tools

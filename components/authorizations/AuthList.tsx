@@ -24,7 +24,7 @@ interface AuthListProps {
   onCreateNew: () => void;
   authUsage: Record<string, Agent[]>;
   isScanningAgents: boolean;
-  onView: (auth: Authorization) => void;
+  onView: (auth: Authorization, tab?: 'config' | 'adk') => void;
   selectedIds: Set<string>;
   onToggleSelect: (authId: string) => void;
   onToggleSelectAll: () => void;
@@ -93,7 +93,7 @@ const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, o
                         {location}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-mono">{auth.serverSideOauth2.clientId}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-mono">{auth.serverSideOauth2?.clientId || 'N/A'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                       {isScanningAgents ? (
                         <div className="flex items-center">
@@ -112,9 +112,19 @@ const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, o
                         <span className="text-xs text-gray-500 italic">Not in use</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
-                      <button onClick={() => onView(auth)} className="font-semibold text-blue-400 hover:text-blue-300">
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
+                      <button onClick={() => onView(auth, 'config')} className="font-semibold text-blue-400 hover:text-blue-300">
                         View
+                      </button>
+                      <button
+                        onClick={() => onView(auth, 'adk')}
+                        className="font-semibold text-teal-400 hover:text-teal-300 inline-flex items-center gap-1"
+                        title="View ADK Python Integration Code"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                        </svg>
+                        ADK Code
                       </button>
                       <button onClick={() => onEdit(authId)} className="font-semibold text-indigo-400 hover:text-indigo-300">
                         Edit

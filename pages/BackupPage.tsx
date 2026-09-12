@@ -560,6 +560,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
   const handleBackupDataStores = async () => executeOperation('BackupDataStores', async () => {
     addLog('Starting Data Stores backup for default_collection...');
+    addLog('  - Note: Backing up Data Store configurations (raw document contents and connector data must be re-synced upon restore).');
     const dataStores: DataStore[] = [];
     let pageToken: string | undefined = undefined;
     do {
@@ -1339,6 +1340,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       originalData: backupData,
       processor: async (data) => {
         addLog(`Restoring ${data.dataStores.length} Data Store(s) into collection '${apiConfig.collectionId}'...`);
+        addLog(`  - Note: Data Store schemas and configs restored. Please trigger connector synchronization to re-index document contents.`);
         for (const dataStore of data.dataStores) {
           const dsId = dataStore.name.split('/').pop()!;
           addLog(`  - Restoring Data Store '${dataStore.displayName}' (${dsId})`);
@@ -1661,6 +1663,14 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
           <p className="text-center text-gray-400 text-sm -mt-2">
               Backups are stored in <strong>gs://{selectedBucket || '...'}</strong>. Select a file from the dropdown to restore.
           </p>
+          <div className="bg-amber-950/30 border border-amber-800/60 rounded-lg p-3 text-xs text-amber-200 flex items-start gap-2.5 max-w-4xl mx-auto">
+            <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <span className="font-semibold text-amber-300">Metadata Scope Notice:</span> Backups store configuration schemas, settings, and authorization metadata. Data Store backups do not bundle indexed document blobs or raw connector payloads — upon restoration, documents and external connectors must be re-synced from primary data sources.
+            </div>
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {cardConfigs.map(card => (

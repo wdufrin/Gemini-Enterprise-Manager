@@ -23,18 +23,28 @@ interface PermissionRow {
 const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumber, setProjectNumber }) => {
     const [permissionsData, setPermissionsData] = useState<PermissionRow[]>(() => {
         try {
-            const saved = sessionStorage.getItem('agentPermissionsData');
+            const saved = sessionStorage.getItem(`agentPermissionsData_${projectNumber}`);
             return saved ? JSON.parse(saved) : [];
         } catch { return []; }
     });
 
     useEffect(() => {
         try {
-            sessionStorage.setItem('agentPermissionsData', JSON.stringify(permissionsData));
+            const saved = sessionStorage.getItem(`agentPermissionsData_${projectNumber}`);
+            setPermissionsData(saved ? JSON.parse(saved) : []);
+        } catch {
+            setPermissionsData([]);
+        }
+    }, [projectNumber]);
+
+    useEffect(() => {
+        if (!projectNumber) return;
+        try {
+            sessionStorage.setItem(`agentPermissionsData_${projectNumber}`, JSON.stringify(permissionsData));
         } catch (e) {
             console.warn('Failed to save agentPermissionsData to sessionStorage (quota exceeded):', e);
         }
-    }, [permissionsData]);
+    }, [permissionsData, projectNumber]);
 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -207,7 +217,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                                     permissionType = 'user';
                                 }
 
-                                const members = binding.members || (lowerRole.includes('viewer') || lowerRole.includes('user') ? ['allUsers'] : []);
+                                const members = binding.members || [];
                                 
                                 for (const member of members) {
                                     let displayMember = member.replace(/^(user:|serviceAccount:|group:|domain:)/, '');
@@ -403,7 +413,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                                                 This script replicates the console's scanning logic. It iterates through all locations, extracts all apps, assistants, and agents, and finally lists the active IAM policies for each. It saves the output to a CSV file.
                                             </p>
                                             <pre className="text-sm font-mono text-blue-300 whitespace-pre-wrap select-all">
-                                                {`import os\nimport csv\nimport requests\nimport google.auth\nfrom google.auth.transport.requests import Request\n\nPROJECT_ID = "YOUR_PROJECT_ID"\nLOCATIONS = ["global", "us", "eu"]\n\ndef get_access_token():\n    credentials, project = google.auth.default()\n    credentials.refresh(Request())\n    return credentials.token\n\ndef list_agent_permissions():\n    token = get_access_token()\n    headers = {\n        "Authorization": f"Bearer {token}",\n        "X-Goog-User-Project": PROJECT_ID\n    }\n    \n    rows = []\n    print(f"Scanning project: {PROJECT_ID}")\n    \n    for loc in LOCATIONS:\n        print(f"\\nScanning location: {loc}...")\n        url = f"https://{loc}-discoveryengine.googleapis.com/v1alpha/projects/{PROJECT_ID}/locations/{loc}/collections/default_collection/engines"\n        engines_res = requests.get(url, headers=headers).json()\n        \n        for engine in engines_res.get("engines", []):\n            engine_id = engine["name"].split("/")[-1]\n            engine_name = engine.get("displayName", engine_id)\n            \n            ast_url = f"{url}/{engine_id}/assistants"\n            ast_res = requests.get(ast_url, headers=headers).json()\n            \n            for ast in ast_res.get("assistants", []):\n                ast_id = ast["name"].split("/")[-1]\n                \n                agt_url = f"{ast_url}/{ast_id}/agents"\n                agt_res = requests.get(agt_url, headers=headers).json()\n                \n                for agent in agt_res.get("agents", []):\n                    agent_name = agent.get("displayName", agent["name"].split("/")[-1])\n                    \n                    iam_url = f"https://{loc}-discoveryengine.googleapis.com/v1alpha/{agent['name']}:getIamPolicy"\n                    iam_res = requests.get(iam_url, headers=headers).json()\n                    \n                    bindings = iam_res.get("bindings", [])\n                    if not bindings:\n                        rows.append([loc, engine_name, agent_name, "No Members", "None"])\n                        \n                    for binding in bindings:\n                        role = binding.get("role", "")\n                        for member in binding.get("members", []):\n                            rows.append([loc, engine_name, agent_name, member, role])\n                            print(f"Found: {agent_name} -> {member} ({role})")\n\n    # Write to CSV\n    with open("agent_permissions.csv", "w", newline="") as f:\n        writer = csv.writer(f)\n        writer.writerow(["Location", "App Name", "Agent Name", "Member", "Role"])\n        writer.writerows(rows)\n        print("\\nExport complete: agent_permissions.csv")\n\nif __name__ == "__main__":\n    list_agent_permissions()`}
+                                                {`import os\nimport csv\nimport requests\nimport google.auth\nfrom google.auth.transport.requests import Request\n\nPROJECT_ID = "YOUR_PROJECT_ID"\nLOCATIONS = ["global", "us", "eu"]\n\ndef get_access_token():\n    credentials, project = google.auth.default()\n    credentials.refresh(Request())\n    return credentials.token\n\ndef list_agent_permissions():\n    token = get_access_token()\n    headers = {\n        "Authorization": f"Bearer {token}",\n        "X-Goog-User-Project": PROJECT_ID\n    }\n    \n    rows = []\n    print(f"Scanning project: {PROJECT_ID}")\n    \n    for loc in LOCATIONS:\n        print(f"\\nScanning location: {loc}...")\n        endpoint = "discoveryengine.googleapis.com" if loc == "global" else f"{loc}-discoveryengine.googleapis.com"\n        url = f"https://{endpoint}/v1alpha/projects/{PROJECT_ID}/locations/{loc}/collections/default_collection/engines"\n        engines_res = requests.get(url, headers=headers).json()\n        \n        for engine in engines_res.get("engines", []):\n            engine_id = engine["name"].split("/")[-1]\n            engine_name = engine.get("displayName", engine_id)\n            \n            ast_url = f"{url}/{engine_id}/assistants"\n            ast_res = requests.get(ast_url, headers=headers).json()\n            \n            for ast in ast_res.get("assistants", []):\n                ast_id = ast["name"].split("/")[-1]\n                \n                agt_url = f"{ast_url}/{ast_id}/agents"\n                agt_res = requests.get(agt_url, headers=headers).json()\n                \n                for agent in agt_res.get("agents", []):\n                    agent_name = agent.get("displayName", agent["name"].split("/")[-1])\n                    \n                    iam_url = f"https://{endpoint}/v1alpha/{agent['name']}:getIamPolicy"\n                    iam_res = requests.get(iam_url, headers=headers).json()\n                    \n                    bindings = iam_res.get("bindings", [])\n                    if not bindings:\n                        rows.append([loc, engine_name, agent_name, "No Members", "None"])\n                        \n                    for binding in bindings:\n                        role = binding.get("role", "")\n                        for member in binding.get("members", []):\n                            rows.append([loc, engine_name, agent_name, member, role])\n                            print(f"Found: {agent_name} -> {member} ({role})")\n\n    # Write to CSV\n    with open("agent_permissions.csv", "w", newline="") as f:\n        writer = csv.writer(f)\n        writer.writerow(["Location", "App Name", "Agent Name", "Member", "Role"])\n        writer.writerows(rows)\n        print("\\nExport complete: agent_permissions.csv")\n\nif __name__ == "__main__":\n    list_agent_permissions()`}
                                             </pre>
                                         </div>
                                     </div>

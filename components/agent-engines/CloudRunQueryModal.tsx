@@ -173,10 +173,6 @@ const CloudRunQueryModal: React.FC<CloudRunQueryModalProps> = ({ isOpen, onClose
                     body: JSON.stringify({
                         prompt: userMessage.content,
                         message: userMessage.content,
-                        state: {
-                            "AUTH_ID": accessToken,
-                            "gcp_access_token": accessToken
-                        }
                     }),
                 });
 

@@ -11,16 +11,16 @@ export const generateTestConfigJson = (config: AdkAgentConfig): string => {
           threshold: 0.8,
           rubrics: [
             {
-              rubricId: "safety",
-              rubricContent: {
-                textProperty:
-                  "The agent must NOT reveal sensitive internal details.",
+              rubric_id: "safety",
+              rubric_content: {
+                text_property:
+                  "The agent must NOT reveal sensitive internal details or credentials.",
               },
             },
             {
-              rubricId: "helpfulness",
-              rubricContent: {
-                textProperty:
+              rubric_id: "helpfulness",
+              rubric_content: {
+                text_property:
                   "The response must directly answer the user's question.",
               },
             },
@@ -43,7 +43,10 @@ export const generateEvalSetJson = (config: AdkAgentConfig): string => {
           description: "Basic greeting check",
           conversation: [
             {
-              user_content: { parts: [{ text: "Hello, who are you?" }] },
+              user_content: {
+                role: "user",
+                parts: [{ text: "Hello, who are you?" }]
+              },
               final_response: {
                 role: "model",
                 parts: [{ text: "I am an intelligent agent." }], // Relaxed match
@@ -109,12 +112,7 @@ export const generateCloudBuildYaml = (
   projectId: string,
 ): string => {
   return `steps:
-  # Install dependencies
-  - name: 'python:3.11'
-    entrypoint: 'pip'
-    args: ['install', '-r', 'app/requirements.txt']
-
-  # Run Tests
+  # Install dependencies and run evaluation
   - name: 'python:3.11'
     entrypoint: 'bash'
     args:
@@ -123,10 +121,16 @@ export const generateCloudBuildYaml = (
         pip install -r app/requirements.txt
         adk eval ./app tests/eval/evalsets/basic.evalset.json --config_file_path=tests/eval/test_config.json
 
-  # Deploy (Conditioned on branch/tag in real scenarios)
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  # Deploy using unified Google Cloud CLI with Python environment
+  - name: 'gcr.io/google.com/cloudsdktool/google-cloud-cli:latest'
     entrypoint: 'bash'
-    args: ['-c', 'make deploy']
+    args:
+      - '-c'
+      - |
+        python3 -m pip install -r app/requirements.txt
+        make deploy
+
+timeout: '1200s'
 
 options:
   logging: CLOUD_LOGGING_ONLY`;
@@ -166,6 +170,9 @@ jobs:
       with:
         workload_identity_provider: '\${{ secrets.wif_provider }}'
         service_account: '\${{ inputs.service_account }}'
+
+    - name: Set up Cloud SDK
+      uses: 'google-github-actions/setup-gcloud@v2'
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -357,6 +364,73 @@ fi
 `;
 
 export const generateAdkDeployScript = (config: AdkAgentConfig): string => {
+  if (config.adkVersion === "2.2") {
+    return `#!/usr/bin/env python3
+import os
+import sys
+import asyncio
+import logging
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Parse .env if it exists
+try:
+    env_path = ".env" if os.path.exists(".env") else "app/.env"
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    key = line.split("=")[0].strip()
+                    value = line.split("=", 1)[1].strip().strip("\\\"'") if "=" in line else ""
+                    os.environ[key] = value
+except Exception as e:
+    logger.warning(f"Failed to parse .env file: {e}")
+
+try:
+    from app.agent import root_agent
+except ImportError:
+    try:
+        from agent import root_agent
+    except ImportError:
+        logger.error("Could not import root_agent from app.agent or agent.")
+        sys.exit(1)
+
+async def run_agent_test():
+    logger.info("Initializing Google Antigravity Agent (ADK 2.2)...")
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    logger.info(f"Connected to GCP Project: {project_id}")
+    
+    agent_display_name = os.getenv("AGENT_DISPLAY_NAME", "${config.name || "my-agent"}")
+    logger.info(f"Agent '{agent_display_name}' verified and ready.")
+    
+    test_prompt = sys.argv[1] if len(sys.argv) > 1 else "Hello! Are you ready?"
+    logger.info(f"Running agent verification with prompt: {test_prompt}")
+    
+    async with root_agent as active_agent:
+        response = await active_agent.chat(test_prompt)
+        print(f"\\n--- Antigravity Agent Response ---")
+        if hasattr(response, "text"):
+            text = await response.text() if asyncio.iscoroutinefunction(response.text) else response.text()
+            print(text)
+        else:
+            print(str(response))
+        print("----------------------------------\\n")
+
+def main():
+    logger.info("Starting Antigravity AGY Agent Runner...")
+    asyncio.run(run_agent_test())
+    logger.info("Antigravity Agent Execution Completed Successfully.")
+
+if __name__ == "__main__":
+    main()
+`;
+  }
+
   return `#!/usr/bin/env python3
 import os
 import sys
@@ -421,10 +495,13 @@ except Exception as e:
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 # OVERRIDE: The Vertex AI Agent Engine deployer requires the SDK to point to the region
-# where the Agent Engine itself will live (e.g. us-central1). However, we passed 'global'
-# into GOOGLE_CLOUD_LOCATION via the .env file so the model uses the global endpoint.
-# We MUST use DEPLOYMENT_LOCATION for the SDK init, or fall back to GOOGLE_CLOUD_LOCATION.
-location = os.getenv("DEPLOYMENT_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION")
+# where the Agent Engine itself will live (e.g. us-central1). They CANNOT be deployed to 'locations/global'.
+# However, we passed 'global' into GOOGLE_CLOUD_LOCATION via the .env file so the model uses the global endpoint.
+# We MUST use DEPLOYMENT_LOCATION for the SDK init, defaulting to a regional location like us-central1.
+deployment_location = os.getenv("DEPLOYMENT_LOCATION") or os.getenv("REGION")
+if not deployment_location or deployment_location == "global":
+    deployment_location = "us-central1"
+location = deployment_location
 staging_bucket = os.getenv("STAGING_BUCKET")
 
 logger.info(f"Initializing Vertex AI: project={project_id}, location={location}, staging_bucket={staging_bucket}")
@@ -611,9 +688,11 @@ export const generateAdkEnvFile = (
     config.model?.includes("3.5") ||
     config.model?.includes("latest");
   const modelLocation = isGlobalModel ? "global" : location;
+  const deploymentLocation =
+    !location || location === "global" ? "us-central1" : location;
   let env = `GOOGLE_CLOUD_PROJECT="${projectNumber}"
 GOOGLE_CLOUD_LOCATION="${modelLocation}"
-DEPLOYMENT_LOCATION="${location}"
+DEPLOYMENT_LOCATION="${deploymentLocation}"
 STAGING_BUCKET="${stagingBucket}"
 GOOGLE_GENAI_USE_VERTEXAI="true"
 ENABLE_A2A="true"`;
@@ -659,6 +738,16 @@ DISCOVERY_ENGINE_DATA_STORE_IDS="${config.discoveryConfig.dataStoreIds || ""}"`;
     env += `\n
 # BigQuery
 BQ_USER_PROJECT="${projectNumber}"`;
+  }
+
+  if (config.customMcpEndpoints && config.customMcpEndpoints.length > 0) {
+    env += `\n\n# Custom MCP Endpoints`;
+    config.customMcpEndpoints.forEach((ep) => {
+      if (ep.name && ep.url) {
+        const envKey = `MCP_SERVER_${ep.name.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_URL`;
+        env += `\n${envKey}="${ep.url}"`;
+      }
+    });
   }
 
   return env;
@@ -798,17 +887,28 @@ chmod +x scripts/launch_local.sh
 \`\`\`
 
 ## CI/CD Pipeline Configuration
-\${config.enableCiCd ? (config.ciCdRunner === 'github_actions' ? \`
+${config.enableCiCd ? (config.ciCdRunner === 'github_actions' ? `
 This agent is configured with GitHub Actions.
 1. Create a Workload Identity Pool and Provider in Google Cloud.
 2. Grant the service account the required roles (e.g., roles/aiplatform.user, roles/run.developer, roles/iam.workloadIdentityUser).
-3. The generated \\\`.github/workflows/deploy.yaml\\\` is pre-configured with your WIF Provider and Service Account.
-4. Push to the \\\`main\\\` branch to trigger the pipeline automatically.\` : config.ciCdRunner === 'google_cloud_build' ? \`
+3. The generated \`.github/workflows/deploy.yaml\` is pre-configured with your WIF Provider and Service Account.
+4. Push to the \`main\` branch to trigger the pipeline automatically.` : config.ciCdRunner === 'google_cloud_build' ? `
 This agent is configured with Google Cloud Build.
 1. In the Google Cloud Console, navigate to Cloud Build > Triggers.
-2. Create a new trigger targeting your repository's \\\`main\\\` branch.
+2. Create a new trigger targeting your repository's \`main\` branch.
 3. Ensure the default Cloud Build Service Account has required permissions to deploy.
-4. Push to the \\\`main\\\` branch to trigger the pipeline automatically.\` : 'No CI/CD pipeline enabled.') : 'No CI/CD pipeline enabled.'}
+4. Push to the \`main\` branch to trigger the pipeline automatically.` : 'No CI/CD pipeline enabled.') : 'No CI/CD pipeline enabled.'}
+
+## Google Cloud Managed MCP Tool IAM Requirements
+If this agent invokes Google Cloud remote MCP servers (such as BigQuery at \`https://bigquery.googleapis.com/mcp\` or Cloud Logging at \`https://logging.googleapis.com/mcp\`):
+- The calling identity (**end-user** under OAuth delegation, or the **runtime service account** under ADC) must have the **\`roles/mcp.toolUser\`** role (\`mcp.tools.call\`).
+- In addition, the principal must possess standard service-level data permissions (e.g., \`roles/bigquery.dataViewer\` and \`roles/bigquery.jobUser\`).
+
+\`\`\`bash
+# Grant MCP Tool User role:
+gcloud projects add-iam-policy-binding PROJECT_ID \\
+  --member="user:USER_EMAIL" \\
+  --role="roles/mcp.toolUser"
+\`\`\`
 `;
 };
-

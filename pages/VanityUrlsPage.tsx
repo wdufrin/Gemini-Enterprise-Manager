@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import * as api from '../services/apiService';
-import { GlobalForwardingRule, ManagedSslCertificate } from '../types';
+import { GlobalForwardingRule, ManagedSslCertificate, AppEngine, Config } from '../types';
 import ProjectInput from '../components/ProjectInput';
 import CloudConsoleButton from '../components/CloudConsoleButton';
+import VanityUrlDeploymentForm from '../components/assistants/VanityUrlDeploymentForm';
 
 interface VanityUrlsPageProps {
   projectNumber: string;
@@ -43,6 +44,9 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [vanityUrls, setVanityUrls] = useState<CombinedVanityUrl[]>([]);
+    const [availableEngines, setAvailableEngines] = useState<{ engine: AppEngine; config: Config }[]>([]);
+    const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+    const [selectedEngineIdx, setSelectedEngineIdx] = useState<number>(0);
 
     const fetchVanityUrls = async () => {
         if (!projectId) return;
@@ -69,22 +73,25 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
             const certs: ManagedSslCertificate[] = certRes.items || [];
             const zones = dnsRes.managedZones || [];
 
-            // Fetch Assistant Display Names
+            // Fetch Assistant Display Names and Discover Available Engines
             const assistantNames: Record<string, string> = {};
+            const discoveredEngines: { engine: AppEngine; config: Config }[] = [];
             try {
                 const discoveryLocations = ['global', 'us', 'eu'];
                 await Promise.allSettled(discoveryLocations.map(async (loc) => {
-                    const apiConfig = { projectId: projectId, appLocation: loc, collectionId: 'default_collection', appId: '', assistantId: '' } as any;
+                    const apiConfig: Config = { projectId: projectId, appLocation: loc, collectionId: 'default_collection', appId: '', assistantId: '' } as any;
                     const collections = (await api.listResources('collections', apiConfig).catch(() => ({}))).collections || [];
                     for (const col of collections) {
-                        const colConfig = { ...apiConfig, collectionId: col.name.split('/').pop()! };
+                        const colConfig: Config = { ...apiConfig, collectionId: col.name.split('/').pop()! };
                         const engines = (await api.listResources('engines', colConfig).catch(() => ({}))).engines || [];
                         for (const eng of engines) {
                             const appId = eng.name.split('/').pop()!;
                             assistantNames[appId] = eng.displayName;
+                            discoveredEngines.push({ engine: eng, config: { ...colConfig, appId } });
                         }
                     }
                 }));
+                setAvailableEngines(discoveredEngines);
             } catch (e) {
                 console.warn("Could not fetch assistant display names for Redirect URLs", e);
             }
@@ -188,7 +195,20 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
             <div className="bg-gray-800 p-4 rounded-lg shadow-md shrink-0">
                 <div className="flex justify-between items-center mb-3">
                     <h2 className="text-lg font-semibold text-white">Redirect URLs</h2>
-                    <CloudConsoleButton url={`https://console.cloud.google.com/net-services/loadbalancing/advanced/forwardingRules/list?project=${projectId}`} />
+                    <div className="flex gap-2 items-center">
+                        <button
+                            onClick={() => setIsDeployModalOpen(true)}
+                            disabled={availableEngines.length === 0}
+                            className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-md hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                            title={availableEngines.length === 0 ? 'Scanning engines or no engines available' : 'Deploy a new vanity URL'}
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                            Deploy Vanity URL
+                        </button>
+                        <CloudConsoleButton url={`https://console.cloud.google.com/net-services/loadbalancing/advanced/forwardingRules/list?project=${projectId}`} />
+                    </div>
                 </div>
                 <div className="flex gap-4 items-end">
                     <div className="flex-1">
@@ -204,6 +224,53 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
                     </button>
                 </div>
             </div>
+
+            {isDeployModalOpen && availableEngines.length > 0 && (
+                <div className="fixed inset-0 bg-black/75 flex justify-center items-center z-50 p-4" aria-modal="true" role="dialog">
+                    <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-gray-700">
+                        <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-900/50 rounded-t-lg">
+                            <div>
+                                <h3 className="text-lg font-bold text-white">Deploy Custom Vanity URL</h3>
+                                <p className="text-xs text-gray-400 mt-0.5">Provision a Global External Load Balancer with Google-managed SSL certificate or Internal PSC endpoint.</p>
+                            </div>
+                            <button
+                                onClick={() => setIsDeployModalOpen(false)}
+                                className="text-gray-400 hover:text-white p-1 rounded-md hover:bg-gray-700 text-xl font-bold leading-none"
+                            >
+                                &times;
+                            </button>
+                        </div>
+                        <div className="p-6 overflow-y-auto space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Target Engine / Assistant</label>
+                                <select
+                                    value={selectedEngineIdx}
+                                    onChange={(e) => setSelectedEngineIdx(Number(e.target.value))}
+                                    className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500"
+                                >
+                                    {availableEngines.map((item, idx) => (
+                                        <option key={`${item.engine.name}-${idx}`} value={idx}>
+                                            {item.engine.displayName} ({item.engine.name.split('/').pop()}) — {item.config.appLocation}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <VanityUrlDeploymentForm
+                                engine={availableEngines[selectedEngineIdx].engine}
+                                config={availableEngines[selectedEngineIdx].config}
+                                projectNumber={projectNumber}
+                                onBuildTriggered={(buildId, projId) => {
+                                    if (onBuildTriggered) {
+                                        onBuildTriggered(buildId, projId || projectId);
+                                    }
+                                    setIsDeployModalOpen(false);
+                                    fetchVanityUrls();
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {error && <div className="p-4 bg-red-900/30 text-red-300 text-sm rounded-lg border border-red-800">{error}</div>}
 

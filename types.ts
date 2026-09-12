@@ -24,7 +24,7 @@ export enum Page {
   AGENT_PERMISSIONS = 'Agent Permissions',
   AGENT_ENGINES = 'Available Agents',
   A2A_TESTER = 'A2A Tester',
-  AGENT_BUILDER = 'Agent Builder',
+  AGENT_BUILDER = 'ADK Studio',
   AGENT_CATALOG = 'Agent Catalog',
   CLOUD_RUN_AGENTS = 'Cloud Run Agents',
   DIALOGFLOW_AGENTS = 'Dialogflow Agents',
@@ -158,7 +158,8 @@ export interface Oauth2Config {
 export interface Authorization {
   name: string;
   displayName?: string;
-  serverSideOauth2: Oauth2Config;
+  serverSideOauth2?: Oauth2Config;
+  serverClientId?: string;
 }
 
 export interface ReasoningEngine {

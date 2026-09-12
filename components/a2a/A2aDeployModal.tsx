@@ -19,7 +19,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/apiService';
 import { GcsBucket } from '../../types';
 
-declare var JSZip: any;
+import JSZip from 'jszip';
 
 interface A2aDeployModalProps {
     isOpen: boolean;

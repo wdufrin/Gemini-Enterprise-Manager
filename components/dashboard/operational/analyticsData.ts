@@ -25,6 +25,13 @@ const hasMatchingTable = (tables: Set<string> | string[] | undefined, prefix: st
     return list.some(t => t.includes(prefix));
 };
 
+const getLogsSource = (projectId: string, dataset: string, tables?: Set<string> | string[]): string => {
+    if (hasTable(tables, '_AllLogs')) {
+        return `\`${projectId}.${dataset}._AllLogs\``;
+    }
+    return `\`${projectId}.ge_analytics_link._AllLogs\``;
+};
+
 export const OPERATIONAL_VIEWS: Record<string, ViewDefinition> = {
     // 1. User Activity
     v_consolidated_user_activity: {
@@ -50,7 +57,7 @@ SELECT
   REGEXP_EXTRACT(answer_name, r'/engines/([^/]+)') AS agent_id, 
   COALESCE(REGEXP_EXTRACT(answer_name, r'sessions/([^/]+)'), trace) AS session_id, 
   method_name, 
-  trace AS insertId 
+  CONCAT(trace, '-', CAST(timestamp AS STRING)) AS insertId 
 FROM \`${projectId}.${dataset}.gemini_assist_activity\`;`;
             }
             return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_user_activity\` AS
@@ -110,7 +117,10 @@ LIMIT 100;`
         category: 'Model & Ingestion',
         columns: [
             { key: 'timestamp', header: 'Timestamp', type: 'timestamp' },
+            { key: 'user_email', header: 'User Email' },
             { key: 'agent_name', header: 'Agent Name', type: 'badge' },
+            { key: 'step_index', header: 'Step' },
+            { key: 'is_final_step', header: 'Final Step', type: 'badge' },
             { key: 'finish_reason', header: 'Finish Reason', type: 'badge' },
             { key: 'input_tokens', header: 'In Tokens' },
             { key: 'output_tokens', header: 'Out Tokens' },
@@ -118,101 +128,49 @@ LIMIT 100;`
             { key: 'user_prompt', header: 'User Prompt' }
         ],
         getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
+            const logsSource = getLogsSource(projectId, dataset, tables);
             const hasAssist = hasTable(tables, 'gemini_assist_activity');
-            if (hasAssist) {
-                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_genai_telemetry\` AS
-WITH raw_inferences AS (
-  SELECT
-    t.timestamp,
-    t.trace,
-    COALESCE(JSON_VALUE(t.json_payload, '$.\"user.id\"'), 'user') AS user_id,
-    JSON_VALUE(t.json_payload, '$.\"gen_ai.conversation.id\"') AS conversation_id,
-    COALESCE(
-      JSON_VALUE(t.json_payload, '$.\"gen_ai.agent.name\"'),
-      'root_agent'
-    ) AS raw_agent_name,
-    (
-      SELECT STRING_AGG(JSON_VALUE(p, '$.content'), '\n')
-      FROM UNNEST(JSON_QUERY_ARRAY(t.json_payload, '$.\"gen_ai.input.messages\"')) m,
-      UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
-      WHERE JSON_VALUE(p, '$.content') IS NOT NULL
-    ) AS user_prompt,
-    (
-      SELECT STRING_AGG(JSON_VALUE(p, '$.content'), '\n')
-      FROM UNNEST(JSON_QUERY_ARRAY(t.json_payload, '$.\"gen_ai.output.messages\"')) m,
-      UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
-      WHERE JSON_VALUE(p, '$.content') IS NOT NULL
-    ) AS model_response,
-    (
-      SELECT STRING_AGG(
-        CONCAT(
-          JSON_VALUE(p, '$.name'),
-          IF(JSON_QUERY(p, '$.arguments') IS NOT NULL, CONCAT('(', TO_JSON_STRING(JSON_QUERY(p, '$.arguments')), ')'), '')
-        ),
-        '; '
-      )
-      FROM UNNEST(JSON_QUERY_ARRAY(t.json_payload, '$.\"gen_ai.output.messages\"')) m,
-      UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
-      WHERE JSON_VALUE(p, '$.name') IS NOT NULL
-    ) AS tool_calls,
-    CAST(JSON_VALUE(t.json_payload, '$.\"gen_ai.usage.input_tokens\"') AS INT64) AS input_tokens,
-    CAST(JSON_VALUE(t.json_payload, '$.\"gen_ai.usage.output_tokens\"') AS INT64) AS output_tokens,
-    COALESCE(
-      JSON_VALUE(t.json_payload, '$.\"gen_ai.response.finish_reasons\"[0]'),
-      'stop'
-    ) AS finish_reason
-  FROM \`${projectId}.ge_analytics_link._AllLogs\` t
-  WHERE t.log_name LIKE '%gen_ai.client.inference.operation.details%'
-  QUALIFY ROW_NUMBER() OVER(PARTITION BY t.insert_id ORDER BY t.timestamp DESC) = 1
-),
+            const assistCte = hasAssist ? `
 assist_agents AS (
   SELECT
     COALESCE(REGEXP_EXTRACT(answer_name, r'sessions/([^/]+)'), trace) AS session_id,
     COALESCE(REGEXP_EXTRACT(answer_name, r'/engines/([^/]+)'), 'General Assistant') AS agent_name
   FROM \`${projectId}.${dataset}.gemini_assist_activity\`
   QUALIFY ROW_NUMBER() OVER(PARTITION BY COALESCE(REGEXP_EXTRACT(answer_name, r'sessions/([^/]+)'), trace) ORDER BY timestamp DESC) = 1
-)
-SELECT
-  r.timestamp,
-  r.trace,
-  r.user_id,
-  r.conversation_id,
-  COALESCE(
-    NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(a.agent_name, r'_[0-9]+.*$', ''), r'-[0-9]+.*$', ''), 'root_agent'),
-    NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(r.raw_agent_name, r'_[0-9]+.*$', ''), r'-[0-9]+.*$', ''), 'root_agent'),
-    'General Assistant'
-  ) AS agent_name,
-  r.user_prompt,
-  r.model_response,
-  r.tool_calls,
-  r.input_tokens,
-  r.output_tokens,
-  r.finish_reason
-FROM raw_inferences r
-LEFT JOIN assist_agents a
-ON COALESCE(r.conversation_id, r.trace) = a.session_id;`;
-            }
+),` : '';
+
+            const agentNameSelect = hasAssist ? `COALESCE(
+      NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(a.agent_name, r'_[0-9]+.*$', ''), r'-[0-9]+.*$', ''), 'root_agent'),
+      NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(r.raw_agent_name, r'_[0-9]+.*$', ''), r'-[0-9]+.*$', ''), 'root_agent'),
+      'General Assistant'
+    ) AS agent_name,` : `COALESCE(
+      NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(raw_agent_name, r'_[0-9]+.*$', ''), r'-[0-9]+.*$', ''), 'root_agent'),
+      'General Assistant'
+    ) AS agent_name,`;
+
+            const assistJoin = hasAssist ? `LEFT JOIN assist_agents a ON COALESCE(r.conversation_id, r.trace) = a.session_id` : '';
 
             return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_genai_telemetry\` AS
 WITH raw_inferences AS (
   SELECT
     t.timestamp,
     t.trace,
-    COALESCE(JSON_VALUE(t.json_payload, '$.\"user.id\"'), 'user') AS user_id,
-    JSON_VALUE(t.json_payload, '$.\"gen_ai.conversation.id\"') AS conversation_id,
+    t.span_id,
+    t.insert_id,
+    JSON_VALUE(t.json_payload, '$."gen_ai.conversation.id"') AS conversation_id,
     COALESCE(
-      JSON_VALUE(t.json_payload, '$.\"gen_ai.agent.name\"'),
-      'General Assistant'
+      JSON_VALUE(t.json_payload, '$."gen_ai.agent.name"'),
+      'root_agent'
     ) AS raw_agent_name,
     (
-      SELECT STRING_AGG(JSON_VALUE(p, '$.content'), '\n')
-      FROM UNNEST(JSON_QUERY_ARRAY(t.json_payload, '$.\"gen_ai.input.messages\"')) m,
+      SELECT STRING_AGG(JSON_VALUE(p, '$.content'), '\\n')
+      FROM UNNEST(JSON_QUERY_ARRAY(t.json_payload, '$."gen_ai.input.messages"')) m,
       UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
       WHERE JSON_VALUE(p, '$.content') IS NOT NULL
     ) AS user_prompt,
     (
-      SELECT STRING_AGG(JSON_VALUE(p, '$.content'), '\n')
-      FROM UNNEST(JSON_QUERY_ARRAY(t.json_payload, '$.\"gen_ai.output.messages\"')) m,
+      SELECT STRING_AGG(JSON_VALUE(p, '$.content'), '\\n')
+      FROM UNNEST(JSON_QUERY_ARRAY(t.json_payload, '$."gen_ai.output.messages"')) m,
       UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
       WHERE JSON_VALUE(p, '$.content') IS NOT NULL
     ) AS model_response,
@@ -224,35 +182,57 @@ WITH raw_inferences AS (
         ),
         '; '
       )
-      FROM UNNEST(JSON_QUERY_ARRAY(t.json_payload, '$.\"gen_ai.output.messages\"')) m,
+      FROM UNNEST(JSON_QUERY_ARRAY(t.json_payload, '$."gen_ai.output.messages"')) m,
       UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
       WHERE JSON_VALUE(p, '$.name') IS NOT NULL
     ) AS tool_calls,
-    CAST(JSON_VALUE(t.json_payload, '$.\"gen_ai.usage.input_tokens\"') AS INT64) AS input_tokens,
-    CAST(JSON_VALUE(t.json_payload, '$.\"gen_ai.usage.output_tokens\"') AS INT64) AS output_tokens,
+    CAST(JSON_VALUE(t.json_payload, '$."gen_ai.usage.input_tokens"') AS INT64) AS input_tokens,
+    CAST(JSON_VALUE(t.json_payload, '$."gen_ai.usage.output_tokens"') AS INT64) AS output_tokens,
     COALESCE(
-      JSON_VALUE(t.json_payload, '$.\"gen_ai.response.finish_reasons\"[0]'),
+      JSON_VALUE(t.json_payload, '$."gen_ai.response.finish_reasons"[0]'),
       'stop'
     ) AS finish_reason
-  FROM \`${projectId}.ge_analytics_link._AllLogs\` t
+  FROM ${logsSource} t
   WHERE t.log_name LIKE '%gen_ai.client.inference.operation.details%'
+  QUALIFY ROW_NUMBER() OVER(PARTITION BY t.insert_id ORDER BY t.timestamp DESC) = 1
+),
+user_map AS (
+  SELECT
+    trace,
+    JSON_VALUE(json_payload.userIamPrincipal) AS user_email
+  FROM ${logsSource}
+  WHERE log_name LIKE '%gemini_enterprise_user_activity%'
+    AND JSON_VALUE(json_payload.userIamPrincipal) IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER(PARTITION BY trace ORDER BY timestamp DESC) = 1
+),${assistCte}
+ranked_steps AS (
+  SELECT
+    r.*,
+    u.user_email,
+    ${agentNameSelect}
+    ROW_NUMBER() OVER(PARTITION BY r.trace ORDER BY r.timestamp ASC) AS step_index,
+    COUNT(1) OVER(PARTITION BY r.trace) AS total_steps
+  FROM raw_inferences r
+  LEFT JOIN user_map u ON r.trace = u.trace
+  ${assistJoin}
 )
 SELECT
   timestamp,
   trace,
-  user_id,
+  span_id,
+  COALESCE(user_email, 'Unattributed Service / Job') AS user_email,
   conversation_id,
-  COALESCE(
-    NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(raw_agent_name, r'_[0-9]+.*$', ''), r'-[0-9]+.*$', ''), 'root_agent'),
-    'General Assistant'
-  ) AS agent_name,
+  agent_name,
+  step_index,
+  total_steps,
+  (step_index = total_steps) AS is_final_step,
   user_prompt,
   model_response,
   tool_calls,
   input_tokens,
   output_tokens,
   finish_reason
-FROM raw_inferences;`;
+FROM ranked_steps;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   agent_name,
@@ -265,7 +245,10 @@ ORDER BY (total_input_tokens + total_output_tokens) DESC
 LIMIT 10;`,
         getRowsQuery: (projectId: string, dataset: string) => `SELECT
   timestamp,
+  user_email,
   agent_name,
+  step_index,
+  is_final_step,
   finish_reason,
   input_tokens,
   output_tokens,
@@ -295,36 +278,29 @@ LIMIT 100;`
             { key: 'first_used_at', header: 'First Used', type: 'timestamp' },
             { key: 'last_used_at', header: 'Last Used', type: 'timestamp' }
         ],
-        getDdl: (projectId: string, dataset: string) => `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_user_connector_usage\` AS
-WITH raw_tool_calls AS (
+        getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
+            const logsSource = getLogsSource(projectId, dataset, tables);
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_user_connector_usage\` AS
+WITH unified_calls AS (
   SELECT
     t.trace,
     t.timestamp,
-    COALESCE(JSON_VALUE(p, "$.id"), t.span_id, t.insert_id, GENERATE_UUID()) AS call_id,
+    COALESCE(
+      JSON_VALUE(p, "$.id"),
+      t.span_id,
+      t.insert_id,
+      TO_HEX(SHA256(CONCAT(t.trace, CAST(t.timestamp AS STRING), JSON_VALUE(p, "$.name"))))
+    ) AS call_id,
     JSON_VALUE(p, "$.name") AS tool_name,
-    "Agent Tool" AS connector_type,
-    JSON_VALUE(t.json_payload, "$.\\"user.id\\"") AS direct_user_id
-  FROM \`${projectId}.ge_analytics_link._AllLogs\` t,
-  UNNEST(JSON_QUERY_ARRAY(t.json_payload, "$.\\"gen_ai.output.messages\\"")) m,
-  UNNEST(JSON_QUERY_ARRAY(m, "$.parts")) p
-  WHERE t.log_name LIKE "%gen_ai.client.inference.operation.details%"
+    "Agent Tool" AS connector_type
+  FROM ${logsSource} t,
+  UNNEST(JSON_QUERY_ARRAY(t.json_payload, '$."gen_ai.output.messages"')) m,
+  UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
+  WHERE t.log_name LIKE '%gen_ai.client.inference.operation.details%'
     AND JSON_VALUE(p, "$.name") IS NOT NULL
 
-  UNION ALL
+  UNION DISTINCT
 
-  SELECT
-    t.trace,
-    t.timestamp,
-    COALESCE(JSON_VALUE(p, "$.function_call.id"), t.insert_id) AS call_id,
-    JSON_VALUE(p, "$.function_call.name") AS tool_name,
-    "Agent Tool" AS connector_type,
-    CAST(NULL AS STRING) AS direct_user_id
-  FROM \`${projectId}.ge_analytics_link._AllLogs\` t,
-  UNNEST(JSON_QUERY_ARRAY(t.json_payload, "$.content.parts")) p
-  WHERE t.log_name LIKE "%gen_ai.user.message%"
-    AND JSON_VALUE(p, "$.function_call.name") IS NOT NULL
-),
-search_calls AS (
   SELECT
     t.trace,
     t.timestamp,
@@ -333,65 +309,43 @@ search_calls AS (
       REGEXP_EXTRACT(JSON_VALUE(t.json_payload, "$.logMetadata.name"), r"/engines/([a-zA-Z0-9_-]+?)(?:[-_][0-9]{10,})"),
       REGEXP_EXTRACT(JSON_VALUE(t.json_payload, "$.logMetadata.name"), r"/engines/([^/]+)")
     ) AS tool_name,
-    "Search Data Source" AS connector_type,
-    JSON_VALUE(t.json_payload, "$.userIamPrincipal") AS direct_user_id
-  FROM \`${projectId}.ge_analytics_link._AllLogs\` t
-  WHERE t.log_name LIKE "%gemini_enterprise_user_activity%"
+    "Search Data Source" AS connector_type
+  FROM ${logsSource} t
+  WHERE t.log_name LIKE '%gemini_enterprise_user_activity%'
     AND JSON_VALUE(t.json_payload, "$.logMetadata.methodName") = "Search"
-),
-all_events AS (
-  SELECT * FROM raw_tool_calls
-  UNION ALL
-  SELECT * FROM search_calls
 ),
 user_map AS (
   SELECT
     trace,
-    JSON_VALUE(json_payload, "$.userIamPrincipal") AS user_email
-  FROM \`${projectId}.ge_analytics_link._AllLogs\`
+    JSON_VALUE(json_payload.userIamPrincipal) AS user_email
+  FROM ${logsSource}
   WHERE log_name LIKE "%gemini_enterprise_user_activity%"
-    AND JSON_VALUE(json_payload, "$.userIamPrincipal") IS NOT NULL
-    AND trace IS NOT NULL
+    AND JSON_VALUE(json_payload.userIamPrincipal) IS NOT NULL
   QUALIFY ROW_NUMBER() OVER(PARTITION BY trace ORDER BY timestamp DESC) = 1
-),
-connector_events AS (
-  SELECT
-    COALESCE(
-      IF(CONTAINS_SUBSTR(e.direct_user_id, "@"), e.direct_user_id, NULL),
-      u.user_email,
-      e.direct_user_id,
-      "Unknown / Unattributed"
-    ) AS user_email,
-    e.connector_type,
-    INITCAP(REPLACE(
-      REGEXP_REPLACE(
-        COALESCE(
-          REGEXP_EXTRACT(e.tool_name, r"^([a-zA-Z0-9_]+?)(?:_agent)?__"),
-          REGEXP_EXTRACT(e.tool_name, r"^([a-zA-Z0-9_]+?)_tool$"),
-          e.tool_name
-        ),
-        r"_agent$", ""
-      ),
-      "_", " "
-    )) AS connector_name,
-    e.tool_name,
-    e.call_id,
-    e.timestamp
-  FROM all_events e
-  LEFT JOIN user_map u ON e.trace = u.trace
-  WHERE NOT REGEXP_CONTAINS(e.tool_name, r"^(selfawareness|generate_memories|transfer_to|tool_code_executor|invalid_tool_call|google:python)")
 )
 SELECT
-  user_email,
-  connector_name,
-  connector_type,
-  COUNT(DISTINCT call_id) AS usage_count,
-  MIN(timestamp) AS first_used_at,
-  MAX(timestamp) AS last_used_at,
-  STRING_AGG(DISTINCT tool_name, ", ") AS tools_used
-FROM connector_events
-WHERE connector_name IS NOT NULL
-GROUP BY user_email, connector_name, connector_type;`,
+  COALESCE(u.user_email, "Unattributed Service / Job") AS user_email,
+  c.connector_type,
+  INITCAP(REPLACE(
+    REGEXP_REPLACE(
+      COALESCE(
+        REGEXP_EXTRACT(c.tool_name, r"^([a-zA-Z0-9_]+?)(?:_agent)?__"),
+        REGEXP_EXTRACT(c.tool_name, r"^([a-zA-Z0-9_]+?)_tool$"),
+        c.tool_name
+      ),
+      r"_agent$", ""
+    ),
+    "_", " "
+  )) AS connector_name,
+  COUNT(DISTINCT c.call_id) AS usage_count,
+  MIN(c.timestamp) AS first_used_at,
+  MAX(c.timestamp) AS last_used_at,
+  STRING_AGG(DISTINCT c.tool_name, ", ") AS tools_used
+FROM unified_calls c
+LEFT JOIN user_map u ON c.trace = u.trace
+WHERE NOT REGEXP_CONTAINS(c.tool_name, r"^(selfawareness|generate_memories|transfer_to|tool_code_executor|invalid_tool_call|google:python)")
+GROUP BY user_email, connector_name, connector_type;`;
+        },
         getQuery: (projectId: string, dataset: string) => `SELECT
   connector_name,
   connector_type,
@@ -469,7 +423,20 @@ LIMIT 100;`
             { key: 'table_date', header: 'Partition' },
             { key: 'trace', header: 'Trace ID', type: 'mono' }
         ],
-        getDdl: (projectId: string, dataset: string) => `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_ai_choices\` AS
+        getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
+            if (hasTable(tables, 'gemini_genai_telemetry')) {
+                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_ai_choices\` AS
+SELECT 
+  timestamp,
+  CONCAT(trace, '-', COALESCE(span_id, CAST(timestamp AS STRING))) AS insertId,
+  trace,
+  COALESCE(finish_reason, 'STOP') AS finish_reason,
+  'model' AS role,
+  'active' AS table_date
+FROM \`${projectId}.${dataset}.gemini_genai_telemetry\`
+QUALIFY ROW_NUMBER() OVER(PARTITION BY trace, COALESCE(span_id, CAST(timestamp AS STRING)) ORDER BY timestamp DESC) = 1;`;
+            }
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_ai_choices\` AS
 SELECT 
   timestamp,
   insertId,
@@ -478,7 +445,8 @@ SELECT
   COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.content.role'), 'model') AS role,
   _TABLE_SUFFIX AS table_date
 FROM \`${projectId}.${dataset}.discoveryengine_googleapis_com_gen_ai_choice_*\`
-QUALIFY ROW_NUMBER() OVER(PARTITION BY insertId ORDER BY timestamp DESC) = 1;`,
+QUALIFY ROW_NUMBER() OVER(PARTITION BY insertId ORDER BY timestamp DESC) = 1;`;
+        },
         getQuery: (projectId: string, dataset: string) => `SELECT
   COALESCE(finish_reason, 'STOP') AS finish_reason,
   COUNT(1) AS count
@@ -511,33 +479,59 @@ LIMIT 100;`
             { key: 'comment', header: 'User Comment' },
             { key: 'user_email', header: 'User Email' }
         ],
-        getDdl: (projectId: string, dataset: string) => `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback\` AS
+        getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
+            const logsSource = getLogsSource(projectId, dataset, tables);
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback\` AS
 WITH feedback_events AS (
   SELECT
     timestamp AS event_time,
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal') AS user_email,
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype') AS feedback,
+    JSON_VALUE(json_payload.userIamPrincipal) AS user_email,
+    JSON_VALUE(json_payload.request.userEvent.feedback.feedbackType) AS feedback,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.reasons[0]'),
+      JSON_VALUE(json_payload.request.userEvent.feedback.reasons[0]),
       'REASON_UNSPECIFIED'
     ) AS reason,
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.comment') AS comment,
+    JSON_VALUE(json_payload.request.userEvent.feedback.comment) AS comment,
+    JSON_VALUE(json_payload.request.userEvent.feedback.conversationInfo.assistToken) AS assist_token,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.agentspaceinfo.agentinfo.name'),
-      REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.engine'), r'/engines/([^/]+)')
-    ) AS fallback_agent_name,
-    trace
-  FROM \`${projectId}.${dataset}.discoveryengine_googleapis_com_gemini_enterprise_user_activity_*\`
-  WHERE JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.eventtype') = 'add-feedback'
+      JSON_VALUE(json_payload.request.userEvent.agentspaceInfo.agentInfo.name),
+      REGEXP_EXTRACT(JSON_VALUE(json_payload.request.userEvent.engine), r'/engines/([^/]+)')
+    ) AS fallback_agent_name
+  FROM ${logsSource}
+  WHERE log_name LIKE '%gemini_enterprise_user_activity%'
+    AND JSON_VALUE(json_payload.request.userEvent.eventType) = 'add-feedback'
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY 
+      COALESCE(
+        JSON_VALUE(json_payload.request.userEvent.feedback.conversationInfo.assistToken),
+        insert_id
+      ),
+      JSON_VALUE(json_payload.request.userEvent.feedback.feedbackType)
+    ORDER BY timestamp DESC
+  ) = 1
+),
+interaction_events AS (
+  SELECT
+    JSON_VALUE(json_payload.response.assistToken) AS assist_token,
+    COALESCE(
+      JSON_VALUE(json_payload.response.agentInfo.displayName),
+      JSON_VALUE(json_payload.request.agent.displayName)
+    ) AS agent_name
+  FROM ${logsSource}
+  WHERE log_name LIKE '%gemini_enterprise_user_activity%'
+    AND JSON_VALUE(json_payload.response.assistToken) IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER(PARTITION BY JSON_VALUE(json_payload.response.assistToken) ORDER BY timestamp DESC) = 1
 )
 SELECT
-  COALESCE(fallback_agent_name, 'General Assistant') AS agent_name,
-  COALESCE(feedback, 'LIKE') AS feedback,
-  reason,
-  comment,
-  event_time,
-  user_email
-FROM feedback_events;`,
+  COALESCE(i.agent_name, f.fallback_agent_name) AS agent_name,
+  f.feedback,
+  f.reason,
+  f.comment,
+  f.event_time,
+  f.user_email
+FROM feedback_events f
+LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
+        },
         getQuery: (projectId: string, dataset: string) => `SELECT
   agent_name,
   COUNTIF(feedback IN ('LIKE', 'THUMBS_UP', 'POSITIVE')) AS thumbs_up,
@@ -573,7 +567,9 @@ LIMIT 100;`
             { key: 'feedback_comment', header: 'Comment' },
             { key: 'prompt', header: 'User Prompt' }
         ],
-        getDdl: (projectId: string, dataset: string) => `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_admin_feedback_review\` AS
+        getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
+            const logsSource = getLogsSource(projectId, dataset, tables);
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_admin_feedback_review\` AS
 WITH feedback_events AS (
   SELECT
     timestamp AS feedback_time,
@@ -583,10 +579,18 @@ WITH feedback_events AS (
     JSON_VALUE(json_payload.request.userEvent.feedback.comment) AS feedback_comment,
     JSON_VALUE(json_payload.request.userEvent.feedback.conversationInfo.assistToken) AS assist_token,
     insert_id
-  FROM \`${projectId}.ge_analytics_link._AllLogs\`
+  FROM ${logsSource}
   WHERE log_name LIKE '%gemini_enterprise_user_activity%'
     AND JSON_VALUE(json_payload.request.userEvent.eventType) = 'add-feedback'
-  QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id ORDER BY timestamp DESC) = 1
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY 
+      COALESCE(
+        JSON_VALUE(json_payload.request.userEvent.feedback.conversationInfo.assistToken),
+        insert_id
+      ),
+      JSON_VALUE(json_payload.request.userEvent.feedback.feedbackType)
+    ORDER BY timestamp DESC
+  ) = 1
 ),
 interaction_events AS (
   SELECT
@@ -604,10 +608,10 @@ interaction_events AS (
     ) AS response_text,
     COALESCE(
       JSON_VALUE(json_payload.request.query.text),
-      (SELECT STRING_AGG(JSON_VALUE(p.text), '\n') FROM UNNEST(JSON_QUERY_ARRAY(json_payload.request.query.parts)) p),
+      (SELECT STRING_AGG(JSON_VALUE(p.text), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(json_payload.request.query.parts)) p),
       JSON_VALUE(json_payload.request.userEvent.searchInfo.searchQuery)
     ) AS prompt
-  FROM \`${projectId}.ge_analytics_link._AllLogs\`
+  FROM ${logsSource}
   WHERE log_name LIKE '%gemini_enterprise_user_activity%'
     AND JSON_VALUE(json_payload.response.assistToken) IS NOT NULL
   QUALIFY ROW_NUMBER() OVER(PARTITION BY JSON_VALUE(json_payload.response.assistToken) ORDER BY timestamp DESC) = 1
@@ -624,7 +628,8 @@ SELECT
   f.assist_token,
   i.trace
 FROM feedback_events f
-LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`,
+LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
+        },
         getQuery: (projectId: string, dataset: string) => `SELECT
   COALESCE(agent_name, 'General Assistant') AS agent_name,
   COUNT(1) AS count
@@ -661,7 +666,9 @@ LIMIT 100;`
             { key: 'prompt', header: 'User Prompt' },
             { key: 'result', header: 'Agent Answer' }
         ],
-        getDdl: (projectId: string, dataset: string) => `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback_detailed\` AS
+        getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
+            const logsSource = getLogsSource(projectId, dataset, tables);
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback_detailed\` AS
 WITH feedback_events AS (
   SELECT
     timestamp AS feedback_time,
@@ -670,9 +677,18 @@ WITH feedback_events AS (
     TO_JSON_STRING(json_payload.request.userEvent.feedback.reasons) AS feedback_reasons,
     JSON_VALUE(json_payload.request.userEvent.feedback.comment) AS feedback_comment,
     JSON_VALUE(json_payload.request.userEvent.feedback.conversationInfo.assistToken) AS assist_token
-  FROM \`${projectId}.ge_analytics_link._AllLogs\`
+  FROM ${logsSource}
   WHERE log_name LIKE '%gemini_enterprise_user_activity%'
     AND JSON_VALUE(json_payload.request.userEvent.eventType) = 'add-feedback'
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY 
+      COALESCE(
+        JSON_VALUE(json_payload.request.userEvent.feedback.conversationInfo.assistToken),
+        insert_id
+      ),
+      JSON_VALUE(json_payload.request.userEvent.feedback.feedbackType)
+    ORDER BY timestamp DESC
+  ) = 1
 ),
 interaction_events AS (
   SELECT
@@ -693,11 +709,12 @@ interaction_events AS (
     REGEXP_EXTRACT(JSON_VALUE(json_payload.logMetadata.name), r'/engines/([^/]+)') AS gemini_enterprise_app_id,
     COALESCE(
       JSON_VALUE(json_payload.request.query.text),
-      (SELECT STRING_AGG(JSON_VALUE(p.text), '\n') FROM UNNEST(JSON_QUERY_ARRAY(json_payload.request.query.parts)) p)
+      (SELECT STRING_AGG(JSON_VALUE(p.text), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(json_payload.request.query.parts)) p)
     ) AS prompt
-  FROM \`${projectId}.ge_analytics_link._AllLogs\`
+  FROM ${logsSource}
   WHERE log_name LIKE '%gemini_enterprise_user_activity%'
     AND JSON_VALUE(json_payload.response.assistToken) IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER(PARTITION BY JSON_VALUE(json_payload.response.assistToken) ORDER BY timestamp DESC) = 1
 )
 SELECT
   f.feedback_time,
@@ -712,7 +729,8 @@ SELECT
   i.result,
   f.assist_token
 FROM feedback_events f
-LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`,
+LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
+        },
         getQuery: (projectId: string, dataset: string) => `SELECT
   COALESCE(underlying_agent_name, 'General Assistant') AS agent_name,
   COUNT(1) AS count
@@ -758,7 +776,20 @@ SELECT
   ARRAY_LENGTH(JSON_QUERY_ARRAY(TO_JSON_STRING(jsonPayload), '$.content.parts')) AS parts_count,
   _TABLE_SUFFIX AS table_date
 FROM \`${projectId}.${dataset}.discoveryengine_googleapis_com_gen_ai_user_message_*\`
-WHERE _TABLE_SUFFIX >= '20260425'
+WHERE _TABLE_SUFFIX NOT IN ('20260423', '20260424')
+QUALIFY ROW_NUMBER() OVER(PARTITION BY insertId ORDER BY timestamp DESC) = 1
+
+UNION ALL
+
+SELECT 
+  timestamp,
+  severity,
+  trace,
+  spanId,
+  'user' AS role,
+  0 AS parts_count,
+  '20260423' AS table_date
+FROM \`${projectId}.${dataset}.discoveryengine_googleapis_com_gen_ai_user_message_20260423\`
 QUALIFY ROW_NUMBER() OVER(PARTITION BY insertId ORDER BY timestamp DESC) = 1;`,
         getQuery: (projectId: string, dataset: string) => `SELECT
   DATE(timestamp) AS message_date,
@@ -795,7 +826,9 @@ LIMIT 100;`
             { key: 'user_query', header: 'User Query' },
             { key: 'assistant_response', header: 'Assistant Response' }
         ],
-        getDdl: (projectId: string, dataset: string) => `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_assist_activity\` AS
+        getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
+            const logsSource = getLogsSource(projectId, dataset, tables);
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_assist_activity\` AS
 SELECT
   timestamp,
   trace,
@@ -803,15 +836,16 @@ SELECT
   JSON_VALUE(json_payload.logMetadata.methodName) AS method_name,
   COALESCE(
     JSON_VALUE(json_payload.request.query.text),
-    (SELECT STRING_AGG(JSON_VALUE(p.text), "\n") FROM UNNEST(JSON_QUERY_ARRAY(json_payload.request.query.parts)) p)
+    (SELECT STRING_AGG(JSON_VALUE(p.text), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(json_payload.request.query.parts)) p)
   ) AS user_query,
   JSON_VALUE(json_payload.serviceTextReply) AS assistant_response,
   JSON_VALUE(json_payload.response.answer.name) AS answer_name,
   JSON_VALUE(json_payload.response.answer.state) AS answer_state
-FROM \`${projectId}.ge_analytics_link._AllLogs\`
+FROM ${logsSource}
 WHERE log_name LIKE "%gemini_enterprise_user_activity%"
   AND JSON_VALUE(json_payload.logMetadata.methodName) IN ("StreamAssist", "Assist")
-QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id ORDER BY timestamp DESC) = 1;`,
+QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id ORDER BY timestamp DESC) = 1;`;
+        },
         getQuery: (projectId: string, dataset: string) => `SELECT
   DATE(timestamp) AS assist_date,
   method_name,
@@ -847,10 +881,12 @@ LIMIT 100;`
             { key: 'search_query', header: 'Search Query' },
             { key: 'attribution_token', header: 'Attribution Token', type: 'mono' }
         ],
-        getDdl: (projectId: string, dataset: string) => `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_search_activity\` AS
+        getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
+            const logsSource = getLogsSource(projectId, dataset, tables);
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_search_activity\` AS
 SELECT
   timestamp,
-  trace,
+  COALESCE(trace, insert_id) AS trace,
   JSON_VALUE(json_payload.userIamPrincipal) AS user_email,
   JSON_VALUE(json_payload.logMetadata.methodName) AS method_name,
   JSON_VALUE(json_payload.request.query) AS search_query,
@@ -859,10 +895,11 @@ SELECT
     SELECT JSON_VALUE(r.id)
     FROM UNNEST(JSON_QUERY_ARRAY(json_payload.response.results)) r
   ) AS result_ids
-FROM \`${projectId}.ge_analytics_link._AllLogs\`
+FROM ${logsSource}
 WHERE log_name LIKE "%gemini_enterprise_user_activity%"
   AND JSON_VALUE(json_payload.logMetadata.methodName) = "Search"
-QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id ORDER BY timestamp DESC) = 1;`,
+QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id ORDER BY timestamp DESC) = 1;`;
+        },
         getQuery: (projectId: string, dataset: string) => `SELECT
   DATE(timestamp) AS search_date,
   COUNT(1) AS search_count
@@ -919,9 +956,9 @@ export const VIEW_CATEGORIES = [
     {
         title: 'Feedback & Quality',
         items: [
-            { id: 'v_admin_feedback_review', title: 'Admin Feedback Review', count: 4 },
-            { id: 'v_agent_feedback', title: 'Agent Feedback Summary', count: 4 },
-            { id: 'v_agent_feedback_detailed', title: 'Detailed Feedback Turns', count: 4 }
+            { id: 'v_admin_feedback_review', title: 'Admin Feedback Review', count: 2 },
+            { id: 'v_agent_feedback', title: 'Agent Feedback Summary', count: 2 },
+            { id: 'v_agent_feedback_detailed', title: 'Detailed Feedback Turns', count: 2 }
         ]
     }
 ];
@@ -1003,7 +1040,7 @@ export const FALLBACK_SNAPSHOT = {
         { name: 'UNEXPECTED_TOOL_CALL', value: 3 }
     ],
     agentFeedback: [
-        { agent: 'Enterprise Data Agent', thumbsUp: 1, thumbsDown: 3, total: 4 },
+        { agent: 'Enterprise Data Agent', thumbsUp: 1, thumbsDown: 1, total: 2 },
         { agent: 'Sharepoint Agent', thumbsUp: 12, thumbsDown: 2, total: 14 },
         { agent: 'Core Assistant', thumbsUp: 28, thumbsDown: 4, total: 32 },
         { agent: 'Calendar Agent', thumbsUp: 5, thumbsDown: 0, total: 5 }

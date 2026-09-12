@@ -19,22 +19,23 @@ import React, { useState, useEffect } from 'react';
 interface PruneLicensesModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (days: number) => void;
+  onConfirm: (days: number, includeNeverLoggedIn?: boolean) => void;
   userLicenses: any[];
   isDeleting: boolean;
 }
 
 const PruneLicensesModal: React.FC<PruneLicensesModalProps> = ({ isOpen, onClose, onConfirm, userLicenses, isDeleting }) => {
   const [days, setDays] = useState<number | ''>(30);
+  const [includeNeverLoggedIn, setIncludeNeverLoggedIn] = useState<boolean>(false);
   const [matches, setMatches] = useState<number>(0);
 
   useEffect(() => {
     if (isOpen) {
-      calculateMatches(days);
+      calculateMatches(days, includeNeverLoggedIn);
     }
-  }, [isOpen, userLicenses, days]);
+  }, [isOpen, userLicenses, days, includeNeverLoggedIn]);
 
-  const calculateMatches = (numDays: number | '') => {
+  const calculateMatches = (numDays: number | '', includeNever: boolean) => {
     if (numDays === '') {
         setMatches(0);
         return;
@@ -42,7 +43,13 @@ const PruneLicensesModal: React.FC<PruneLicensesModalProps> = ({ isOpen, onClose
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - numDays);
     const count = userLicenses.filter(l => {
-        if (!l.lastLoginTime) return false; // Or decide if never logged in counts
+        if (!l.lastLoginTime) {
+            if (!includeNever) return false;
+            if (l.createTime) {
+                return new Date(l.createTime) < cutoff;
+            }
+            return true;
+        }
         return new Date(l.lastLoginTime) < cutoff;
     }).length;
     setMatches(count);
@@ -80,6 +87,20 @@ const PruneLicensesModal: React.FC<PruneLicensesModalProps> = ({ isOpen, onClose
                     min="1"
                 />
             </div>
+            <div className="flex items-start gap-2 pt-1">
+                <input
+                    type="checkbox"
+                    id="neverLoggedIn"
+                    checked={includeNeverLoggedIn}
+                    onChange={(e) => setIncludeNeverLoggedIn(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="neverLoggedIn" className="text-xs text-gray-300 select-none cursor-pointer">
+                    <strong className="text-white">Include never-logged-in accounts</strong>
+                    <br />
+                    Prune accounts that have never accessed the service if assigned longer than the threshold.
+                </label>
+            </div>
             <div className="bg-gray-900/50 p-3 rounded-md border border-gray-700">
                  <p className="text-sm text-gray-400">Found <strong className="text-white">{matches}</strong> matching users in the current list.</p>
             </div>
@@ -91,7 +112,7 @@ const PruneLicensesModal: React.FC<PruneLicensesModalProps> = ({ isOpen, onClose
         <footer className="p-4 bg-gray-900/50 border-t border-gray-700 flex justify-end space-x-3">
           <button onClick={onClose} disabled={isDeleting} className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50">Cancel</button>
           <button
-            onClick={() => onConfirm(days === '' ? 30 : days)}
+            onClick={() => onConfirm(days === '' ? 30 : days, includeNeverLoggedIn)}
             disabled={isDeleting || matches === 0}
             className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed flex items-center"
           >

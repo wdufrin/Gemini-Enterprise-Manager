@@ -118,7 +118,10 @@ const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOpen, onC
         contentConfig: "CONTENT_REQUIRED",
         documentProcessingConfig: buildDocumentProcessingConfig(),
       };
-      await api.createDataStore(dataStoreId, payload, config);
+      const operation = await api.createDataStore(dataStoreId, payload, config);
+      if (operation && operation.name) {
+        await api.pollDiscoveryOperation(operation, config);
+      }
       onSuccess();
     } catch (err: any) {
       setError(err.message || 'Failed to create data store.');
@@ -305,6 +308,7 @@ const EditDataStoreModal: React.FC<EditDataStoreModalProps> = ({ isOpen, onClose
 
 interface DataStoresPageProps {
   projectNumber: string;
+  projectId?: string;
 }
 
 const getInitialConfig = () => {
@@ -327,7 +331,7 @@ const getInitialConfig = () => {
 type SortKey = 'displayName' | 'name' | 'solutionTypes';
 type SortDirection = 'asc' | 'desc';
 
-const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
+const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber, projectId }) => {
   const [dataStores, setDataStores] = useState<DataStore[]>([]);
   const [selectedDataStore, setSelectedDataStore] = useState<DataStore | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -370,11 +374,11 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       ...config,
-      projectId: projectNumber,
+      projectId: projectId || projectNumber,
       // Dummy values for other required config properties
       appId: '',
       assistantId: '',
-  }), [config, projectNumber]);
+  }), [config, projectNumber, projectId]);
 
   const fetchDataStores = useCallback(async () => {
     if (!projectNumber || !config.collectionId) {

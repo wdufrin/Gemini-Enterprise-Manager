@@ -38,7 +38,6 @@ import ConnectorsPage from './pages/ConnectorsPage';
 import ProjectInput from './components/ProjectInput';
 import { initGapiClient, getGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
-import ChatPage from './pages/ChatPage';
 import ArchitecturePage from './pages/ArchitecturePage';
 import CurlInfoModal from './components/CurlInfoModal';
 import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWindow';
@@ -792,7 +791,7 @@ const InnerApp: React.FC = () => {
   // Note: Session token load removed in favor of direct browser silent refresh on load.
 
   const renderPage = () => {
-    const commonProps = { projectNumber };
+    const commonProps = { projectNumber, projectId };
     const projectProps = { ...commonProps, setProjectNumber: handleSetProjectNumber };
 
     switch (currentPage) {
@@ -835,7 +834,7 @@ const InnerApp: React.FC = () => {
       case Page.DIALOGFLOW_AGENTS:
         return <DialogflowAgentsPage {...projectProps} accessToken={accessToken} />;
       case Page.CHAT:
-            return <ChatPage {...projectProps} accessToken={accessToken} context={pageContext} userProfile={userProfile} />;
+        return <AssistantPage {...projectProps} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={handleBuildTriggered} />;
       case Page.DATA_STORES:
         return <DataStoresPage {...commonProps} />;
       case Page.MCP_SERVERS:

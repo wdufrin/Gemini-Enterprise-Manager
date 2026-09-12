@@ -350,13 +350,15 @@ export async function runConfigAudit(
   let targetAuths: Authorization[] = [];
 
   try {
-    sourceAuths = await api.listAuthorizations(sourceConfig);
+    const res = await api.listAuthorizations(sourceConfig);
+    sourceAuths = res?.authorizations || [];
   } catch (err: any) {
     // Authorizations endpoint may return 404 or empty if none exist
   }
 
   try {
-    targetAuths = await api.listAuthorizations(targetConfig);
+    const res = await api.listAuthorizations(targetConfig);
+    targetAuths = res?.authorizations || [];
   } catch (err: any) {
     // Graceful fallback
   }
@@ -365,15 +367,17 @@ export async function runConfigAudit(
   targetAuths.forEach(a => {
     const id = getResourceId(a.name);
     targetAuthMap.set(id, a);
-    if (a.serverClientId) {
-      targetAuthMap.set(a.serverClientId, a);
+    const clientId = a.serverSideOauth2?.clientId || a.serverClientId;
+    if (clientId) {
+      targetAuthMap.set(clientId, a);
     }
   });
 
   if (sourceAuths.length > 0) {
     for (const srcAuth of sourceAuths) {
       const authId = getResourceId(srcAuth.name);
-      const matchedAuth = targetAuthMap.get(authId) || (srcAuth.serverClientId ? targetAuthMap.get(srcAuth.serverClientId) : undefined);
+      const srcClientId = srcAuth.serverSideOauth2?.clientId || srcAuth.serverClientId;
+      const matchedAuth = targetAuthMap.get(authId) || (srcClientId ? targetAuthMap.get(srcClientId) : undefined);
 
       if (matchedAuth) {
         items.push({

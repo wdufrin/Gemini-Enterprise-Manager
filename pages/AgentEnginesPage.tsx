@@ -435,6 +435,8 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
       setError(`Failed to delete some resources:\n${failures.join("\n")}`);
     }
 
+    sessionStorage.removeItem(`engines_resources_${projectNumber}_${location}`);
+    sessionStorage.removeItem(`engines_agents_${projectNumber}_${location}`);
     setSelectedIds(new Set());
     setIsDeleting(false);
     setIsDeleteModalOpen(false);
@@ -492,6 +494,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
           <McpServerDetails
             service={selectedResource.data as CloudRunService}
             config={apiConfig}
+            title={selectedResource.type}
             onBack={() => {
               setViewMode("list");
               setSelectedResource(null);

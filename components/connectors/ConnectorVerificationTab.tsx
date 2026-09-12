@@ -117,7 +117,7 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ con
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-gray-900/50 p-3 rounded-lg border border-gray-700 gap-3">
                 <div className="flex items-center space-x-2">
                     <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    <span className="text-sm font-medium text-gray-300">Validation Mode</span>
+                    <span className="text-sm font-medium text-gray-300">Pre-Flight Readiness Checklist</span>
                 </div>
 
                 <div className="flex items-center gap-4">

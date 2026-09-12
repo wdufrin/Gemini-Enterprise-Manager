@@ -26,6 +26,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 
 interface AuthorizationsPageProps {
   projectNumber: string;
+  projectId?: string;
   authorizations: Authorization[];
   setAuthorizations: React.Dispatch<React.SetStateAction<Authorization[]>>;
   authUsage: Record<string, Agent[]>;
@@ -42,6 +43,7 @@ interface AuthorizationsPageProps {
 
 const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   projectNumber,
+  projectId,
   authorizations,
   setAuthorizations,
   authUsage,
@@ -58,6 +60,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   const [view, setView] = useState<'list' | 'form'>('list');
   const [authToEdit, setAuthToEdit] = useState<Authorization | null>(null);
   const [authToView, setAuthToView] = useState<Authorization | null>(null);
+  const [authModalTab, setAuthModalTab] = useState<'config' | 'adk'>('config');
   const [region, setRegion] = useState<string>('global');
   
   // State for delete confirmation modal
@@ -68,13 +71,13 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   const [showWorkforceValidator, setShowWorkforceValidator] = useState(false);
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
-      projectId: projectNumber,
+      projectId: projectId || projectNumber,
       // These are not used for authorizations but are required by the type
     appLocation: region, 
       collectionId: 'default_collection',
       appId: '',
       assistantId: 'default_assistant'
-  }), [projectNumber, region]);
+  }), [projectNumber, projectId, region]);
 
   const fetchData = useCallback(async () => {
     if (!projectNumber) {
@@ -220,12 +223,12 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
     const authsToDelete = authorizations.filter(a => selectedIds.has(a.name));
 
     for (const auth of authsToDelete) {
-      const authId = auth.name.split('/').pop() || '';
+      const authDisplayName = auth.displayName || auth.name.split('/').pop() || auth.name;
       try {
-        await api.deleteAuthorization(authId, apiConfig);
-        } catch (err: any) {
-          failures.push(`- ${authId}: ${err.message}`);
-        }
+        await api.deleteAuthorization(auth.name, apiConfig);
+      } catch (err: any) {
+        failures.push(`- ${authDisplayName}: ${err.message}`);
+      }
     }
 
     if (failures.length > 0) {
@@ -258,9 +261,10 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
     }
   };
 
-  const handleView = async (auth: Authorization) => {
+  const handleView = async (auth: Authorization, tab: 'config' | 'adk' = 'config') => {
     // We already have the auth object from the list, but it might be partial if we optimized the list call later.
     // For now, the list returns full objects, but let's fetch fresh details to be safe and consistent with Edit.
+    setAuthModalTab(tab);
     setIsLoading(true);
     setError(null);
     try {
@@ -397,7 +401,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
               return (
                 <li key={id} className="text-sm">
                   <p className="font-bold text-white font-mono">{id.split('/').pop()}</p>
-                  {auth && <p className="text-xs text-gray-400 mt-1">Client ID: {auth.serverSideOauth2.clientId}</p>}
+                  {auth && <p className="text-xs text-gray-400 mt-1">Client ID: {auth.serverSideOauth2?.clientId || 'N/A'}</p>}
                 </li>
               )
             })}
@@ -411,6 +415,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
           isOpen={!!authToView}
           onClose={() => setAuthToView(null)}
           authorization={authToView}
+          initialTab={authModalTab}
         />
       )}
     </div>

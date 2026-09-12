@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Config, ConfigAuditItem, ConfigAuditSummary } from '../types';
 import { runConfigAudit, generateAuditMarkdown } from '../services/configAuditService';
+import * as api from '../services/apiService';
 
 interface ConfigAuditPageProps {
   projectNumber: string;
@@ -35,11 +36,110 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
   const [sourceProject, setSourceProject] = useState<string>(() => projectNumber || projectId || '');
   const [sourceLocation, setSourceLocation] = useState<string>('global');
   const [sourceEngine, setSourceEngine] = useState<string>('default_engine');
+  const [sourceApps, setSourceApps] = useState<any[]>([]);
+  const [isLoadingSourceApps, setIsLoadingSourceApps] = useState<boolean>(false);
+  const [isCustomSourceEngine, setIsCustomSourceEngine] = useState<boolean>(false);
 
   // Destination Environment State
   const [targetProject, setTargetProject] = useState<string>('');
   const [targetLocation, setTargetLocation] = useState<string>('global');
   const [targetEngine, setTargetEngine] = useState<string>('default_engine');
+  const [targetApps, setTargetApps] = useState<any[]>([]);
+  const [isLoadingTargetApps, setIsLoadingTargetApps] = useState<boolean>(false);
+  const [isCustomTargetEngine, setIsCustomTargetEngine] = useState<boolean>(false);
+
+  // Keep source project in sync if props update
+  useEffect(() => {
+    if ((projectNumber || projectId) && !sourceProject) {
+      setSourceProject(projectNumber || projectId || '');
+    }
+  }, [projectNumber, projectId]);
+
+  // Fetch Source Apps / Engines
+  useEffect(() => {
+    const proj = sourceProject.trim();
+    if (!proj) {
+      setSourceApps([]);
+      return;
+    }
+    let isMounted = true;
+    const fetchSourceApps = async () => {
+      setIsLoadingSourceApps(true);
+      try {
+        const res = await api.listResources('engines', {
+          projectId: proj,
+          appLocation: sourceLocation,
+          collectionId: 'default_collection',
+          appId: '',
+          assistantId: '',
+        }, undefined, 100, true);
+        if (isMounted) {
+          const engines = res?.engines || [];
+          setSourceApps(engines);
+          if (engines.length > 0) {
+            const hasCurrent = engines.some((e: any) => e.name.split('/').pop() === sourceEngine);
+            if (!hasCurrent) {
+              const defaultEng = engines.find((e: any) => e.name.split('/').pop() === 'default_engine');
+              const chosen = defaultEng ? 'default_engine' : (engines[0].name.split('/').pop() || '');
+              if (chosen) setSourceEngine(chosen);
+            }
+          }
+        }
+      } catch (e) {
+        if (isMounted) {
+          console.warn('Could not list engines for source project:', e);
+          setSourceApps([]);
+        }
+      } finally {
+        if (isMounted) setIsLoadingSourceApps(false);
+      }
+    };
+    fetchSourceApps();
+    return () => { isMounted = false; };
+  }, [sourceProject, sourceLocation]);
+
+  // Fetch Destination Apps / Engines
+  useEffect(() => {
+    const proj = targetProject.trim();
+    if (!proj) {
+      setTargetApps([]);
+      return;
+    }
+    let isMounted = true;
+    const fetchTargetApps = async () => {
+      setIsLoadingTargetApps(true);
+      try {
+        const res = await api.listResources('engines', {
+          projectId: proj,
+          appLocation: targetLocation,
+          collectionId: 'default_collection',
+          appId: '',
+          assistantId: '',
+        }, undefined, 100, true);
+        if (isMounted) {
+          const engines = res?.engines || [];
+          setTargetApps(engines);
+          if (engines.length > 0) {
+            const hasCurrent = engines.some((e: any) => e.name.split('/').pop() === targetEngine);
+            if (!hasCurrent) {
+              const defaultEng = engines.find((e: any) => e.name.split('/').pop() === 'default_engine');
+              const chosen = defaultEng ? 'default_engine' : (engines[0].name.split('/').pop() || '');
+              if (chosen) setTargetEngine(chosen);
+            }
+          }
+        }
+      } catch (e) {
+        if (isMounted) {
+          console.warn('Could not list engines for target project:', e);
+          setTargetApps([]);
+        }
+      } finally {
+        if (isMounted) setIsLoadingTargetApps(false);
+      }
+    };
+    fetchTargetApps();
+    return () => { isMounted = false; };
+  }, [targetProject, targetLocation]);
 
   // Audit Execution State
   const [isAuditing, setIsAuditing] = useState<boolean>(false);
@@ -242,14 +342,69 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">Engine ID</label>
-                <input
-                  type="text"
-                  value={sourceEngine}
-                  onChange={(e) => setSourceEngine(e.target.value)}
-                  placeholder="default_engine"
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-gray-300">
+                    Gemini Enterprise App ID
+                  </label>
+                  {sourceApps.length > 0 && !isCustomSourceEngine && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomSourceEngine(true)}
+                      className="text-[11px] text-blue-400 hover:text-blue-300 underline focus:outline-none"
+                    >
+                      Enter manually
+                    </button>
+                  )}
+                  {isCustomSourceEngine && sourceApps.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomSourceEngine(false)}
+                      className="text-[11px] text-blue-400 hover:text-blue-300 underline focus:outline-none"
+                    >
+                      Select from list
+                    </button>
+                  )}
+                </div>
+
+                {isLoadingSourceApps ? (
+                  <select
+                    disabled
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-400"
+                  >
+                    <option>Loading Gemini Enterprise Apps...</option>
+                  </select>
+                ) : sourceApps.length > 0 && !isCustomSourceEngine ? (
+                  <select
+                    value={sourceEngine}
+                    onChange={(e) => {
+                      if (e.target.value === '__custom__') {
+                        setIsCustomSourceEngine(true);
+                      } else {
+                        setSourceEngine(e.target.value);
+                      }
+                    }}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">-- Select Gemini Enterprise App --</option>
+                    {sourceApps.map((a: any) => {
+                      const id = a.name.split('/').pop() || '';
+                      return (
+                        <option key={a.name} value={id}>
+                          {a.displayName ? `${a.displayName} (${id})` : id}
+                        </option>
+                      );
+                    })}
+                    <option value="__custom__">+ Enter Custom App ID...</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={sourceEngine}
+                    onChange={(e) => setSourceEngine(e.target.value)}
+                    placeholder="default_engine"
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -294,14 +449,69 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">Engine ID</label>
-                <input
-                  type="text"
-                  value={targetEngine}
-                  onChange={(e) => setTargetEngine(e.target.value)}
-                  placeholder="default_engine"
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-gray-300">
+                    Gemini Enterprise App ID
+                  </label>
+                  {targetApps.length > 0 && !isCustomTargetEngine && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomTargetEngine(true)}
+                      className="text-[11px] text-emerald-400 hover:text-emerald-300 underline focus:outline-none"
+                    >
+                      Enter manually
+                    </button>
+                  )}
+                  {isCustomTargetEngine && targetApps.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomTargetEngine(false)}
+                      className="text-[11px] text-emerald-400 hover:text-emerald-300 underline focus:outline-none"
+                    >
+                      Select from list
+                    </button>
+                  )}
+                </div>
+
+                {isLoadingTargetApps ? (
+                  <select
+                    disabled
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-400"
+                  >
+                    <option>Loading Gemini Enterprise Apps...</option>
+                  </select>
+                ) : targetApps.length > 0 && !isCustomTargetEngine ? (
+                  <select
+                    value={targetEngine}
+                    onChange={(e) => {
+                      if (e.target.value === '__custom__') {
+                        setIsCustomTargetEngine(true);
+                      } else {
+                        setTargetEngine(e.target.value);
+                      }
+                    }}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="">-- Select Gemini Enterprise App --</option>
+                    {targetApps.map((a: any) => {
+                      const id = a.name.split('/').pop() || '';
+                      return (
+                        <option key={a.name} value={id}>
+                          {a.displayName ? `${a.displayName} (${id})` : id}
+                        </option>
+                      );
+                    })}
+                    <option value="__custom__">+ Enter Custom App ID...</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={targetEngine}
+                    onChange={(e) => setTargetEngine(e.target.value)}
+                    placeholder="default_engine"
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                )}
               </div>
             </div>
           </div>

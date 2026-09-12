@@ -640,7 +640,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
       }
   };
 
-  const handlePrune = async (days: number) => {
+  const handlePrune = async (days: number, includeNeverLoggedIn: boolean = false) => {
       setIsActionLoading(true);
       setLicensesError(null);
       try {
@@ -655,7 +655,13 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
           cutoff.setDate(cutoff.getDate() - days);
           
           const toDelete = userLicenses.filter(l => {
-              if (!l.lastLoginTime) return false;
+              if (!l.lastLoginTime) {
+                  if (!includeNeverLoggedIn) return false;
+                  if (l.createTime) {
+                      return new Date(l.createTime) < cutoff;
+                  }
+                  return true;
+              }
               return new Date(l.lastLoginTime) < cutoff;
           });
 

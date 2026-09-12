@@ -110,6 +110,16 @@ const AccessTokenInput: React.FC<AccessTokenInputProps> = ({ accessToken, setAcc
             </div>
         )}
       </div>
+      {/* Hidden username field to satisfy accessibility and browser password manager heuristics */}
+      <input
+        type="text"
+        name="username"
+        autoComplete="username"
+        className="hidden"
+        style={{ display: 'none' }}
+        tabIndex={-1}
+        aria-hidden="true"
+      />
       <input
         type="password"
         name="gcpAccessToken"

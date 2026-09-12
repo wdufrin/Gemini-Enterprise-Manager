@@ -18,6 +18,7 @@ import React, { useState, useEffect } from 'react';
 import { Config, RegistrySkill, RegistrySkillRevision } from '../../types';
 import * as api from '../../services/apiService';
 import { createZipBase64 } from '../../utils/zipUtils';
+import JSZip from 'jszip';
 
 interface RegistrySkillDetailModalProps {
   skill: RegistrySkill | null;
@@ -86,6 +87,22 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
         .toLowerCase()
         .replace(/^-+|-+$/g, '') || 'skill';
 
+      let promptInstruction = skill.description || skill.displayName;
+      try {
+        const activeRev = revisions.find((r: any) => r.name === skill.defaultRevision || r.state === 'ACTIVE') || revisions[0];
+        const archiveContent = (activeRev as any)?.archiveUploadSource?.archiveContent ||
+          (skill as any).initialRevision?.archiveUploadSource?.archiveContent;
+        if (archiveContent) {
+          const zip = await JSZip.loadAsync(archiveContent, { base64: true });
+          const skillMd = zip.file('SKILL.md') || zip.file(/SKILL\.md$/i)[0];
+          if (skillMd) {
+            promptInstruction = await skillMd.async('text');
+          }
+        }
+      } catch (zipErr) {
+        console.warn('Could not extract SKILL.md from revision archive, falling back to description:', zipErr);
+      }
+
       const payload: any = {
         displayName: skill.displayName || sanitizedAgentId,
         description: skill.description || skill.displayName,
@@ -94,7 +111,7 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
           scope: 'ALL_USERS',
         },
         skillAgentDefinition: {
-          instruction: skill.description || skill.displayName,
+          instruction: promptInstruction,
         },
       };
 

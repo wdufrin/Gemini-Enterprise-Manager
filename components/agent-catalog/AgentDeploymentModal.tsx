@@ -341,6 +341,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
     const standardVars = [
       "GOOGLE_CLOUD_PROJECT",
       "GOOGLE_CLOUD_LOCATION",
+      "DEPLOYMENT_LOCATION",
       "MODEL",
       "GOOGLE_GENAI_USE_VERTEXAI",
       "GOOGLE_CLOUD_STORAGE_BUCKET",
@@ -349,6 +350,8 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
       if (!varsMap.has(key)) {
         let defaultValue = "";
         if (key === "GOOGLE_GENAI_USE_VERTEXAI") defaultValue = "TRUE";
+        if (key === "DEPLOYMENT_LOCATION") defaultValue = "us-central1";
+        if (key === "GOOGLE_CLOUD_LOCATION") defaultValue = "us-central1";
         varsMap.set(key, {
           key,
           value: defaultValue,
@@ -412,7 +415,14 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
     setEnvVars((prev) =>
       prev.map((v) => {
         if (v.key === "GOOGLE_CLOUD_PROJECT") return { ...v, value: projectId };
-        if (v.key === "GOOGLE_CLOUD_LOCATION") return { ...v, value: region };
+        if (v.key === "GOOGLE_CLOUD_LOCATION") {
+          const modelVar = prev.find((item) => item.key === "MODEL");
+          const isGlobalModel =
+            modelVar?.value?.startsWith("gemini-3") ||
+            modelVar?.value?.includes("3.5") ||
+            modelVar?.value?.includes("latest");
+          return { ...v, value: isGlobalModel ? "global" : region };
+        }
         if (v.key === "MODEL")
           return { ...v, value: v.value || "gemini-2.5-flash" };
         if (v.key === "GOOGLE_GENAI_USE_VERTEXAI")
@@ -548,6 +558,11 @@ echo "Deployment Complete."`;
     }
     if (!reqsContent.includes("google-adk")) {
       reqsContent += "\ngoogle-adk[eval]>=0.1.0";
+      reqsUpdated = true;
+    }
+    // Pin MCP to <2.0.0 to prevent breaking changes in mcp 2.x from crashing google.adk.tools.mcp_tool
+    if (/(^|\r?\n)\s*mcp\s*(\r?\n|$)/.test(reqsContent)) {
+      reqsContent = reqsContent.replace(/(^|\r?\n)\s*mcp\s*(\r?\n|$)/g, "$1mcp>=1.24.0,<2.0.0$2");
       reqsUpdated = true;
     }
 
@@ -693,11 +708,24 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-location = os.getenv("GOOGLE_CLOUD_LOCATION")
+# OVERRIDE: Vertex AI Agent Engine (Reasoning Engine) resources MUST be provisioned
+# in a regional location (e.g. 'us-central1'). They CANNOT be deployed to 'locations/global'.
+# However, model calls inside the runtime container can use 'global' (via GOOGLE_CLOUD_LOCATION).
+deployment_location = os.getenv("DEPLOYMENT_LOCATION") or os.getenv("REGION")
+if not deployment_location or deployment_location == "global":
+    deployment_location = "us-central1"
+
+location = deployment_location
 staging_bucket = os.getenv("STAGING_BUCKET")
 
 logger.info(f"Initializing Vertex AI: project={project_id}, location={location}, staging_bucket={staging_bucket}")
+original_os_location = os.environ.get("GOOGLE_CLOUD_LOCATION")
+os.environ["GOOGLE_CLOUD_LOCATION"] = location
 vertexai.init(project=project_id, location=location, staging_bucket=staging_bucket)
+if original_os_location is not None:
+    os.environ["GOOGLE_CLOUD_LOCATION"] = original_os_location
+elif "GOOGLE_CLOUD_LOCATION" in os.environ:
+    del os.environ["GOOGLE_CLOUD_LOCATION"]
 
 sys.path.append(os.getcwd())
 target_module = "${entryModulePath}"
@@ -726,6 +754,8 @@ if os.path.exists("requirements.txt"):
         for line in f:
             line = line.strip()
             if line and not line.startswith("#"):
+                if line == "mcp":
+                    line = "mcp>=1.24.0,<2.0.0"
                 reqs.append(line)
 reqs = list(set(reqs))
 logger.info(f"Using requirements: {reqs}")
@@ -754,8 +784,9 @@ if os.path.exists(".env"):
                     os.environ[key] = value
                     
                     # Append strictly non-reserved keys to env_vars list for deployment
-                    # GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are reserved by Vertex AI
-                    if (key not in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "PROJECT_ID"]
+                    # We explicitly allow GOOGLE_CLOUD_LOCATION to pass into the container
+                    # to specify the model endpoint location (e.g. 'global' for Gemini 3).
+                    if (value and key not in ["GOOGLE_CLOUD_PROJECT", "STAGING_BUCKET", "PROJECT_ID", "DEPLOYMENT_LOCATION"]
                         and not key.startswith("OTEL_")
                         and not key.startswith("GOOGLE_CLOUD_AGENT_ENGINE_")):
                         env_vars.append(key)
@@ -831,14 +862,21 @@ except ImportError:
 print(f"Deployment finished!")
 print(f"Resource Name: {remote_app.resource_name}")
 `;
-        zip.file("deploy_re.py", deployScript);
-        addLog("Generated deploy_re.py for Agent Engine deployment.");
+        const existingDeployFile = filesToZip.find(
+          (f) => f.name === "deploy_re.py" || f.name.endsWith("/deploy_re.py"),
+        );
+        if (existingDeployFile) {
+          addLog("Using existing deploy_re.py from package.");
+        } else {
+          zip.file("deploy_re.py", deployScript);
+          addLog("Generated deploy_re.py for Agent Engine deployment.");
+        }
       }
 
       // Generate .env file from envVars state to ensure UI values are used
       let envContent = envVars.map((e) => `${e.key}=${e.value}`).join("\n");
       if (selectedBucket) {
-        envContent += `\\nSTAGING_BUCKET=gs://${selectedBucket}`;
+        envContent += (envContent ? "\n" : "") + `STAGING_BUCKET=gs://${selectedBucket}`;
       }
       zip.file(".env", envContent);
       addLog("Generated .env file from metadata.");
@@ -868,11 +906,14 @@ print(f"Resource Name: {remote_app.resource_name}")
           },
         },
         steps: [],
-        timeout: "600s",
+        timeout: "1200s",
       };
 
       const envStrings = envVars.map((e) => `${e.key}=${e.value}`);
       envStrings.push(`STAGING_BUCKET=gs://${bucket}`);
+      if (!envVars.some((e) => e.key === "DEPLOYMENT_LOCATION" && e.value)) {
+        envStrings.push("DEPLOYMENT_LOCATION=us-central1");
+      }
 
       if (target === "cloud_run") {
         const imageName = `gcr.io/${projectId}/${agentName.toLowerCase()}`;

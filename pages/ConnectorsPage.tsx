@@ -871,6 +871,13 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
                         >
                           Details
                         </button>
+                        <button
+                          onClick={() => handleDuplicateConnector(collection)}
+                          className="text-amber-400 hover:text-amber-300 font-semibold text-xs border border-amber-500/30 px-3 py-1.5 rounded hover:bg-amber-500/10 transition-colors ml-2"
+                          title="Duplicate this connector configuration"
+                        >
+                          Duplicate
+                        </button>
                         {collectionId !== "default_collection" && (
                           <>
                             <button
@@ -902,6 +909,25 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
         config={config}
         onRefreshSuccess={fetchCollections}
       />
+
+      {duplicatingCollection && (
+        <DuplicateConnectorModal
+          isOpen={!!duplicatingCollection}
+          onClose={() => {
+            setDuplicatingCollection(null);
+            setDuplicatingConnectorState(null);
+          }}
+          onSuccess={() => {
+            setDuplicatingCollection(null);
+            setDuplicatingConnectorState(null);
+            fetchCollections();
+          }}
+          sourceCollectionName={duplicatingCollection.name}
+          sourceConnectorState={duplicatingConnectorState}
+          currentProjectId={config.projectId}
+          currentLocation={config.appLocation}
+        />
+      )}
 
 
       {deletingCollection && (

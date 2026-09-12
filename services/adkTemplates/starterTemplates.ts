@@ -171,7 +171,7 @@ export const GCP_BIGQUERY_AGENT_TEMPLATE: AgentTemplate = {
       "An orchestrator agent that writes Python to analyze data and create visualizations.",
     model: "gemini-2.5-flash",
     instruction: `You are an expert Google Cloud Data Architect and BigQuery Analyst.
-You have access to a BigQuery toolset to interact with datasets and a Google Search tool for external information.
+You have access to a BigQuery toolset to interact with datasets.
 Additionally, you have access to two specialized Python code execution sub-agents:
 - \`code_exec_agent\`: A specialized Python Data Science Expert for generating charts, graphs, and plots from data.
 - \`architecture_diagram_agent\`: A specialized expert for generating system architectures, flowcharts, and structural diagrams.
@@ -182,7 +182,7 @@ When asked to analyze data or create a visualization:
 3.  **Choose the Right Tool**:
     - For charts and data plots (bar charts, line graphs, scatter plots): Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.
 4.  **Explain**: Present the insights and explain the visualization to the user.`,
-    useGoogleSearch: true,
+    useGoogleSearch: false,
     enableBigQueryMcp: true,
     enableOAuth: true,
     enableCodeExecution: true,

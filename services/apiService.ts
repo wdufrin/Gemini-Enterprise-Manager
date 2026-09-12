@@ -802,6 +802,50 @@ export const getDiscoveryOperation = async (
   );
 };
 
+export const pollDiscoveryOperation = async (
+  operation: any,
+  config: Config,
+  apiVersion: string = DISCOVERY_API_BETA,
+  maxAttempts: number = 30,
+  delayMs: number = 2000,
+): Promise<any> => {
+  if (!operation || !operation.name) {
+    return operation;
+  }
+  if (operation.done) {
+    if (operation.error) {
+      throw new Error(
+        operation.error.message ||
+          `Operation failed with code ${operation.error.code}`,
+      );
+    }
+    return operation;
+  }
+
+  let currentOp = operation;
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      currentOp = await getDiscoveryOperation(operation.name, config, apiVersion);
+      if (currentOp.done) {
+        if (currentOp.error) {
+          throw new Error(
+            currentOp.error.message ||
+              `Operation failed with code ${currentOp.error.code}`,
+          );
+        }
+        return currentOp;
+      }
+    } catch (err: any) {
+      if (err.message && err.message.includes("Operation failed")) {
+        throw err;
+      }
+      console.warn("Polling operation encountered transient error, will retry:", err);
+    }
+  }
+  return currentOp;
+};
+
 export const listOperations = async (config: Config, filter?: string) => {
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
   let url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId || "default_collection"}/operations`;
@@ -1255,6 +1299,28 @@ export const createAssistant = async (
   const baseUrl = getDiscoveryEngineUrl(appLocation);
   const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants?assistantId=${assistantId}`;
   return gapiRequest<Assistant>(url, "POST", projectId, undefined, payload);
+};
+
+export const listAssistants = async (
+  config: Config,
+  pageSize: number = 20,
+  pageToken?: string,
+): Promise<{ assistants?: Assistant[]; nextPageToken?: string }> => {
+  const { projectId, appLocation, collectionId, appId } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+  let url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId || "default_collection"}/engines/${appId}/assistants?pageSize=${pageSize}`;
+  if (pageToken) {
+    url += `&pageToken=${encodeURIComponent(pageToken)}`;
+  }
+  return gapiRequest<{ assistants?: Assistant[]; nextPageToken?: string }>(
+    url,
+    "GET",
+    projectId,
+    undefined,
+    undefined,
+    undefined,
+    config.suppressErrorLog,
+  );
 };
 
 // User Memories (Personalization)
@@ -11601,16 +11667,31 @@ export const listMcpTools = async (
       !mcpEndpointUrl.includes(".googleapis.com")
     ) {
       // Custom endpoint, use fetch to avoid gapi CORS/handling issues
-      const client = await getGapiClient();
-      const token = client.getToken()?.access_token;
+      // SECURITY: Do not leak GCP OAuth Bearer token to external endpoints.
+      // Only attach Google credentials if targeting googleapis.com or trusted Google-managed run domains.
+      const isTrustedGoogleHost =
+        mcpEndpointUrl.includes(".googleapis.com") ||
+        mcpEndpointUrl.includes(".run.app") ||
+        mcpEndpointUrl.includes(".cloudfunctions.net");
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+
+      if (isTrustedGoogleHost) {
+        const client = await getGapiClient();
+        const token = client.getToken()?.access_token;
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+        if (projectId) {
+          headers["X-Goog-User-Project"] = projectId;
+        }
+      }
 
       const res = await fetch(mcpEndpointUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "X-Goog-User-Project": projectId,
-        },
+        headers,
         body: JSON.stringify(payload),
       });
 
@@ -11661,28 +11742,11 @@ export const checkMcpCompliance = async (
   serviceName: string,
 ): Promise<boolean> => {
   try {
-    const payload = {
-      serviceName: `services/${serviceName}`,
-    };
-    const url = `https://serviceusage.googleapis.com/v2beta/projects/${projectId}:testMcpEnabled`;
-
-    const response = await gapiRequest<any>(
-      url,
-      "POST",
-      projectId,
-      undefined, // params
-      payload,
-    );
-
-    // If mcpEnableRules is present and has items, it's enabled/compliant
-    // Alternatively, some APIs (like Bigtable/Firestore) just return the service name if enabled
-    if (
-      (response.mcpEnableRules && response.mcpEnableRules.length > 0) ||
-      response.name
-    ) {
-      return true;
-    }
-    return false;
+    // Note: Google Cloud has officially deprecated testMcpEnabled (returns HTTP 400:
+    // "TestMcpEnabled is deprecated and has no effect. MCP server enablement is no longer required.
+    // Enabling the underlying service is now sufficient.").
+    // Verifying that the underlying service is enabled via Service Usage API is the authoritative check.
+    return await checkServiceEnabled(projectId, serviceName);
   } catch (e) {
     console.warn(`Failed to check MCP compliance for ${serviceName}:`, e);
     // If the check fails (e.g. 403, 404), assume disabled
@@ -11697,6 +11761,8 @@ export const getCloudMonitoringMetrics = async (
   metricFilter: string,
   startTime: string,
   endTime: string,
+  aligner: string = "ALIGN_SUM",
+  alignmentPeriod: string = "86400s",
 ) => {
   // API: GET https://monitoring.googleapis.com/v3/projects/{projectId}/timeSeries
   // Requires monitoring.timeSeries.list permission
@@ -11706,6 +11772,8 @@ export const getCloudMonitoringMetrics = async (
     filter: metricFilter,
     "interval.startTime": startTime,
     "interval.endTime": endTime,
+    "aggregation.perSeriesAligner": aligner,
+    "aggregation.alignmentPeriod": alignmentPeriod,
   });
 
   return gapiRequest<any>(`${url}?${params.toString()}`, "GET", projectId);

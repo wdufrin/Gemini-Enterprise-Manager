@@ -134,6 +134,9 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
                             {showTools && (
                                 <div className="absolute left-0 mt-2 w-96 max-h-96 overflow-y-auto bg-gray-800 border border-gray-700 rounded-md shadow-lg z-50 p-3 text-xs text-gray-300">
                                     <h4 className="font-bold mb-2 border-b border-gray-700 pb-1">Available Tools</h4>
+                                    <div className="text-[11px] text-amber-300 bg-amber-950/40 border border-amber-800/60 rounded px-2 py-1 mb-2">
+                                        Requires IAM role <code className="font-mono text-amber-200">roles/mcp.toolUser</code> (<code className="font-mono">mcp.tools.call</code>) for the executing identity.
+                                    </div>
                                     {tools.length === 0 ? (
                                         <p className="italic text-gray-500">No tools returned.</p>
                                     ) : (

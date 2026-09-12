@@ -5,8 +5,8 @@ export const FALLBACK_ROWS: Record<string, any[]> = {
       "agent_name": "Enterprise Data Agent",
       "assist_token": "NMwKDAig5cHUBhCo2qeGARIkNmE4ZjIzNzgtMDAwMC0yYzg2LThjZmUtMTRjMTRlZWUzNWVj",
       "feedback_comment": null,
-      "feedback_reasons": "[\"REASON_UNSPECIFIED\"]",
-      "feedback_time": "2026-08-27 17:25:27",
+      "feedback_reasons": "[\"CANVAS_NOT_GENERATED\"]",
+      "feedback_time": "2026-08-27 17:25:32",
       "feedback_type": "DISLIKE",
       "prompt": "how many thumbs up and down have i gotten over the past month?",
       "response": "\nBased on the system logs from the past month, there are no recorded thumbs up or thumbs down feedback interactions.\n\n\n\n\n### Feedback Summary\nThe feedback tracking registers **0 thumbs up** and **0 thumbs down** interactions over the past 30 days. This indicates that either no feedback features were utilized or feedback events are not tracked in the current log schema.\n",
@@ -24,49 +24,9 @@ export const FALLBACK_ROWS: Record<string, any[]> = {
       "response": "\nBased on the system logs from the past month, there are no recorded thumbs up or thumbs down feedback interactions.\n\n\n\n\n### Feedback Summary\nThe feedback tracking registers **0 thumbs up** and **0 thumbs down** interactions over the past 30 days. This indicates that either no feedback features were utilized or feedback events are not tracked in the current log schema.\n",
       "trace": "3a7569f8cbe36bfd9ae932d945283408",
       "user_email": "admin@wdufrin.altostrat.com"
-    },
-    {
-      "agent_name": "Enterprise Data Agent",
-      "assist_token": "NMwKDAig5cHUBhCo2qeGARIkNmE4ZjIzNzgtMDAwMC0yYzg2LThjZmUtMTRjMTRlZWUzNWVj",
-      "feedback_comment": null,
-      "feedback_reasons": "[\"CANVAS_NOT_GENERATED\"]",
-      "feedback_time": "2026-08-27 17:25:32",
-      "feedback_type": "DISLIKE",
-      "prompt": "how many thumbs up and down have i gotten over the past month?",
-      "response": "\nBased on the system logs from the past month, there are no recorded thumbs up or thumbs down feedback interactions.\n\n\n\n\n### Feedback Summary\nThe feedback tracking registers **0 thumbs up** and **0 thumbs down** interactions over the past 30 days. This indicates that either no feedback features were utilized or feedback events are not tracked in the current log schema.\n",
-      "trace": "3a7569f8cbe36bfd9ae932d945283408",
-      "user_email": "admin@wdufrin.altostrat.com"
-    },
-    {
-      "agent_name": "Enterprise Data Agent",
-      "assist_token": "NMwKDAig5cHUBhCo2qeGARIkNmE4ZjIzNzgtMDAwMC0yYzg2LThjZmUtMTRjMTRlZWUzNWVj",
-      "feedback_comment": null,
-      "feedback_reasons": "[\"REASON_UNSPECIFIED\"]",
-      "feedback_time": "2026-08-27 17:25:29",
-      "feedback_type": "DISLIKE",
-      "prompt": "how many thumbs up and down have i gotten over the past month?",
-      "response": "\nBased on the system logs from the past month, there are no recorded thumbs up or thumbs down feedback interactions.\n\n\n\n\n### Feedback Summary\nThe feedback tracking registers **0 thumbs up** and **0 thumbs down** interactions over the past 30 days. This indicates that either no feedback features were utilized or feedback events are not tracked in the current log schema.\n",
-      "trace": "3a7569f8cbe36bfd9ae932d945283408",
-      "user_email": "admin@wdufrin.altostrat.com"
     }
   ],
   "v_agent_feedback": [
-    {
-      "agent_name": "Enterprise Data Agent",
-      "comment": null,
-      "event_time": "2026-08-27 17:25:27",
-      "feedback": "DISLIKE",
-      "reason": "REASON_UNSPECIFIED",
-      "user_email": "admin@wdufrin.altostrat.com"
-    },
-    {
-      "agent_name": "Enterprise Data Agent",
-      "comment": null,
-      "event_time": "2026-08-27 17:25:26",
-      "feedback": "LIKE",
-      "reason": "REASON_UNSPECIFIED",
-      "user_email": "admin@wdufrin.altostrat.com"
-    },
     {
       "agent_name": "Enterprise Data Agent",
       "comment": null,
@@ -78,39 +38,13 @@ export const FALLBACK_ROWS: Record<string, any[]> = {
     {
       "agent_name": "Enterprise Data Agent",
       "comment": null,
-      "event_time": "2026-08-27 17:25:29",
-      "feedback": "DISLIKE",
+      "event_time": "2026-08-27 17:25:26",
+      "feedback": "LIKE",
       "reason": "REASON_UNSPECIFIED",
       "user_email": "admin@wdufrin.altostrat.com"
     }
   ],
   "v_agent_feedback_detailed": [
-    {
-      "assist_token": "NMwKDAig5cHUBhCo2qeGARIkNmE4ZjIzNzgtMDAwMC0yYzg2LThjZmUtMTRjMTRlZWUzNWVj",
-      "feedback_comment": null,
-      "feedback_reasons": "[\"REASON_UNSPECIFIED\"]",
-      "feedback_time": "2026-08-27 17:25:27",
-      "feedback_type": "DISLIKE",
-      "gemini_enterprise_app_id": "cosmere-1756136513915_1756136523768",
-      "prompt": "how many thumbs up and down have i gotten over the past month?",
-      "result": "\nBased on the system logs from the past month, there are no recorded thumbs up or thumbs down feedback interactions.\n\n\n\n\n### Feedback Summary\nThe feedback tracking registers **0 thumbs up** and **0 thumbs down** interactions over the past 30 days. This indicates that either no feedback features were utilized or feedback events are not tracked in the current log schema.\n",
-      "underlying_agent_id": "4300845223175166675",
-      "underlying_agent_name": "Enterprise Data Agent",
-      "user_email": "admin@wdufrin.altostrat.com"
-    },
-    {
-      "assist_token": "NMwKDAig5cHUBhCo2qeGARIkNmE4ZjIzNzgtMDAwMC0yYzg2LThjZmUtMTRjMTRlZWUzNWVj",
-      "feedback_comment": null,
-      "feedback_reasons": "[\"REASON_UNSPECIFIED\"]",
-      "feedback_time": "2026-08-27 17:25:26",
-      "feedback_type": "LIKE",
-      "gemini_enterprise_app_id": "cosmere-1756136513915_1756136523768",
-      "prompt": "how many thumbs up and down have i gotten over the past month?",
-      "result": "\nBased on the system logs from the past month, there are no recorded thumbs up or thumbs down feedback interactions.\n\n\n\n\n### Feedback Summary\nThe feedback tracking registers **0 thumbs up** and **0 thumbs down** interactions over the past 30 days. This indicates that either no feedback features were utilized or feedback events are not tracked in the current log schema.\n",
-      "underlying_agent_id": "4300845223175166675",
-      "underlying_agent_name": "Enterprise Data Agent",
-      "user_email": "admin@wdufrin.altostrat.com"
-    },
     {
       "assist_token": "NMwKDAig5cHUBhCo2qeGARIkNmE4ZjIzNzgtMDAwMC0yYzg2LThjZmUtMTRjMTRlZWUzNWVj",
       "feedback_comment": null,
@@ -128,8 +62,8 @@ export const FALLBACK_ROWS: Record<string, any[]> = {
       "assist_token": "NMwKDAig5cHUBhCo2qeGARIkNmE4ZjIzNzgtMDAwMC0yYzg2LThjZmUtMTRjMTRlZWUzNWVj",
       "feedback_comment": null,
       "feedback_reasons": "[\"REASON_UNSPECIFIED\"]",
-      "feedback_time": "2026-08-27 17:25:29",
-      "feedback_type": "DISLIKE",
+      "feedback_time": "2026-08-27 17:25:26",
+      "feedback_type": "LIKE",
       "gemini_enterprise_app_id": "cosmere-1756136513915_1756136523768",
       "prompt": "how many thumbs up and down have i gotten over the past month?",
       "result": "\nBased on the system logs from the past month, there are no recorded thumbs up or thumbs down feedback interactions.\n\n\n\n\n### Feedback Summary\nThe feedback tracking registers **0 thumbs up** and **0 thumbs down** interactions over the past 30 days. This indicates that either no feedback features were utilized or feedback events are not tracked in the current log schema.\n",

@@ -207,7 +207,7 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
     const fetchViewRows = useCallback(
         async (viewId: string) => {
             if (!projectId || !datasetId || !OPERATIONAL_VIEWS[viewId]) return;
-            // If current dataset tables have loaded and this view is not installed, use fallback snapshot gracefully
+            // If this view is not installed, provide simulated preview rows with the MOCK indicator
             if (currentDatasetTables.length > 0 && !installedViews.has(viewId)) {
                 setViewRows((prev) => ({ ...prev, [viewId]: FALLBACK_SNAPSHOT.rows[viewId] || [] }));
                 return;
@@ -231,14 +231,10 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                     return obj;
                 });
 
-                if (rows.length > 0) {
-                    setViewRows((prev) => ({ ...prev, [viewId]: rows }));
-                } else {
-                    setViewRows((prev) => ({ ...prev, [viewId]: FALLBACK_SNAPSHOT.rows[viewId] || [] }));
-                }
+                setViewRows((prev) => ({ ...prev, [viewId]: rows }));
             } catch (err) {
                 console.warn(`[OperationalAnalytics] Could not fetch rows for ${viewId}:`, err);
-                setViewRows((prev) => ({ ...prev, [viewId]: FALLBACK_SNAPSHOT.rows[viewId] || [] }));
+                setViewRows((prev) => ({ ...prev, [viewId]: [] }));
             } finally {
                 setRowsLoading((prev) => ({ ...prev, [viewId]: false }));
             }
@@ -860,7 +856,7 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                                                     value={item.id}
                                                     className="bg-gray-900 text-gray-100 py-1"
                                                 >
-                                                    {isInstalled ? '🟢 ' : '🟡 '}{item.title} {item.count ? `(${item.count})` : ''}
+                                                    {isInstalled ? '🟢 ' : '🟡 '}{item.title} [{isInstalled ? 'Live' : 'Mock'}]
                                                 </option>
                                             );
                                         })}
@@ -1548,7 +1544,7 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                         /* Individual Dedicated View with DataTable & Charts */
                         <IndividualViewDetail
                             viewId={activeViewId}
-                            data={viewRows[activeViewId] || FALLBACK_SNAPSHOT.rows[activeViewId] || []}
+                            data={viewRows[activeViewId] || (installedViews.has(activeViewId) ? [] : (FALLBACK_SNAPSHOT.rows[activeViewId] || []))}
                             projectId={projectId}
                             datasetId={datasetId}
                             installedViews={installedViews}

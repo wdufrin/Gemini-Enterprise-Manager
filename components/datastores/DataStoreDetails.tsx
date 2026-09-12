@@ -148,11 +148,11 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
         try {
             const response = await api.listGcsObjects(selectedBucket, gcsPrefix, config.projectId);
             const compatibleFiles = (response.items || []).filter(item => 
-                /\.(xlsx|docx|pptx)$/i.test(item.name)
+                /\.(pdf|txt|html|htm|md|markdown|csv|json|xlsx|docx|pptx)$/i.test(item.name)
             );
             setGcsObjects(compatibleFiles);
             if (compatibleFiles.length === 0) {
-                setGcsObjectsError('No compatible files (.xlsx, .docx, .pptx) found at this path.');
+                setGcsObjectsError('No compatible files (.pdf, .txt, .html, .md, .csv, .json, .xlsx, .docx, .pptx) found at this path.');
             }
         } catch (err: any) {
             setGcsObjectsError(err.message || 'Failed to list objects in bucket.');
@@ -176,8 +176,20 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
         if (importMode === 'upload' && localFileForUpload) {
             addUploadLog(`Starting upload of "${localFileForUpload.name}"...`);
             addUploadLog(`  - Uploading file to GCS bucket: gs://${selectedBucket}`);
-            await api.uploadFileToGcs(selectedBucket, localFileForUpload.name, localFileForUpload, config.projectId);
-            addUploadLog(`  - GCS upload successful.`);
+            try {
+              await api.uploadFileToGcs(selectedBucket, localFileForUpload.name, localFileForUpload, config.projectId);
+              addUploadLog(`  - GCS upload successful.`);
+            } catch (uploadErr: any) {
+              const errMsg = uploadErr?.message || String(uploadErr);
+              if (errMsg.toLowerCase().includes('cors') || errMsg.toLowerCase().includes('failed to fetch') || errMsg.toLowerCase().includes('networkerror')) {
+                addUploadLog(`❌ GCS Upload blocked by browser CORS policy.`);
+                addUploadLog(`To allow direct browser uploads to gs://${selectedBucket}, configure CORS:`);
+                addUploadLog(`1. echo '[{"origin":["*"],"method":["GET","PUT","POST","OPTIONS"],"responseHeader":["Content-Type","Authorization"],"maxAgeSeconds":3600}]' > cors.json`);
+                addUploadLog(`2. gcloud storage buckets update gs://${selectedBucket} --cors-file=cors.json`);
+                throw new Error(`GCS upload failed due to bucket CORS policy on gs://${selectedBucket}. See instructions above.`);
+              }
+              throw uploadErr;
+            }
             gcsUri = `gs://${selectedBucket}/${localFileForUpload.name}`;
         } else {
             gcsUri = selectedGcsUri;
@@ -302,7 +314,7 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
                                      <input
                                         id="file-upload"
                                         type="file"
-                                        accept=".xlsx,.docx,.pptx"
+                                        accept=".pdf,.txt,.html,.htm,.md,.markdown,.csv,.json,.xlsx,.docx,.pptx"
                                         onChange={handleFileChange}
                                         disabled={isUploading}
                                         className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600 disabled:opacity-50"

@@ -1,5 +1,38 @@
 import { AdkAgentConfig } from "./types";
 
+export const hasAnyTools = (config: AdkAgentConfig): boolean => {
+  return (
+    (config.tools && config.tools.length > 0) ||
+    (config.customMcpEndpoints && config.customMcpEndpoints.length > 0) ||
+    !!config.enableDiscoveryApi ||
+    !!config.enableEmailTool ||
+    !!config.enableSecurityCommandCenterApi ||
+    !!config.enableRecommenderApi ||
+    !!config.enableServiceHealthApi ||
+    !!config.enableNetworkManagementApi ||
+    !!config.enableCloudLoggingApi ||
+    !!config.enableCloudMonitoringApi ||
+    !!config.enableCloudRunApi ||
+    !!config.enableResourceManagerApi ||
+    !!config.enableAdminActivityApi ||
+    !!config.enableDatabaseFleetApi ||
+    !!config.enableCloudAssistApi ||
+    !!config.enableGraphvizRendering ||
+    !!config.enableCloudLoggingMcp ||
+    !!config.enableBigtableAdminMcp ||
+    !!config.enableCloudSqlMcp ||
+    !!config.enableCloudMonitoringMcp ||
+    !!config.enableComputeEngineMcp ||
+    !!config.enableFirestoreMcp ||
+    !!config.enableGkeMcp ||
+    !!config.enableResourceManagerMcp ||
+    !!config.enableSpannerMcp ||
+    !!config.enableDeveloperKnowledgeMcp ||
+    !!config.enableMapsGroundingMcp ||
+    !!config.enableBigQueryMcp
+  );
+};
+
 export const generateToolsPy = (
   config: AdkAgentConfig,
   useRelativeImports: boolean = false,
@@ -54,35 +87,54 @@ logger = logging.getLogger(__name__)
 
   if (!isV2) {
     code += `
+def _get_mcp_auth_headers(context: Any) -> Dict[str, str]:
+    """Provider for dynamic auth headers with end-user OAuth delegation and ADC fallback."""
+    headers = {}
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID") or os.getenv("BQ_USER_PROJECT")
+    if project_id:
+        headers["x-goog-user-project"] = project_id
+
+    # 1. Try end-user credentials from context
+    try:
+        creds = get_user_credentials(context)
+        if creds:
+            if not creds.valid:
+                import google.auth.transport.requests
+                creds.refresh(google.auth.transport.requests.Request())
+            if creds.token:
+                logger.info("Using delegated end-user OAuth credentials for MCP call.")
+                headers["Authorization"] = f"Bearer {creds.token}"
+                return headers
+    except Exception as e:
+        logger.debug(f"Could not retrieve user credentials from context: {e}")
+
+    # 2. Fallback to Application Default Credentials (ADC)
+    try:
+        import google.auth
+        import google.auth.transport.requests
+        adc_creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        if not adc_creds.valid:
+            adc_creds.refresh(google.auth.transport.requests.Request())
+        if adc_creds.token:
+            logger.info("Using Application Default Credentials (ADC) as fallback for MCP call.")
+            headers["Authorization"] = f"Bearer {adc_creds.token}"
+            return headers
+    except Exception as e:
+        logger.warning(f"Failed to acquire ADC fallback credentials: {e}")
+
+    return headers
+
 def get_logging_mcp_toolset() -> McpToolset:
     """
     Creates and returns the Cloud Logging MCP toolset.
     """
-
-    def auth_header_provider(context: Any) -> Dict[str, str]:
-        """Provider for dynamic auth headers based on context."""
-        try:
-            creds = get_user_credentials(context)
-        except Exception:
-            creds = None
-        headers = {}
-        if creds and creds.token:
-             headers["Authorization"] = f"Bearer {creds.token}"
-
-        # Add x-goog-user-project for quota attribution (critical for some APIs)
-        project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-        if project_id:
-            headers["x-goog-user-project"] = project_id
-
-        return headers
-
     return McpToolset(
         connection_params=StreamableHTTPConnectionParams(
             url="https://logging.googleapis.com/mcp",
             timeout=120.0, # Increased timeout for cold starts
         ),
         tool_name_prefix="logging_",
-        header_provider=auth_header_provider
+        header_provider=_get_mcp_auth_headers
     )
 `;
   }
@@ -102,7 +154,7 @@ def get_current_time() -> str:
 import google.auth
 import google.auth.transport.requests
 
-def query_gemini_enterprise_store(tool_context: ToolContext, query: str) -> str:
+def query_gemini_enterprise(tool_context: ToolContext, query: str) -> str:
     """
     Directly queries the Gemini Enterprise / Discovery Engine Search and Assistant
     endpoint on behalf of the authenticated user to ground agent responses with 
@@ -153,7 +205,7 @@ def query_gemini_enterprise_store(tool_context: ToolContext, query: str) -> str:
     
     payload = {
         "query": {
-            "text": query_text
+            "text": query
         },
         "toolsSpec": {
             "vertexAiSearchSpec": {
@@ -163,7 +215,7 @@ def query_gemini_enterprise_store(tool_context: ToolContext, query: str) -> str:
     }
     
     try:
-        logger.info(f"Querying Gemini Enterprise: {query_text}")
+        logger.info(f"Querying Gemini Enterprise: {query}")
         response = requests.post(url, headers=headers, json=payload, stream=True)
         response.raise_for_status()
         
@@ -312,23 +364,12 @@ def get_bq_mcp_toolset() -> McpToolset:
     Returns the BigQuery MCP Toolset configured to use the Google Cloud OneMCP API via SSE.
     Provides functions: list_dataset_ids, list_table_ids, get_dataset_info, get_table_info, execute_sql.
     """
-
-    def auth_header_provider(context: Any) -> Dict[str, str]:
-        """Provider for dynamic auth headers based on context."""
-        try:
-            creds = get_user_credentials(context)
-        except Exception:
-            creds = None
-        if creds and creds.token:
-             return {"Authorization": f"Bearer {creds.token}"}
-        return {}
-
     return McpToolset(
         connection_params=StreamableHTTPConnectionParams(
             url="https://bigquery.googleapis.com/mcp",
         ),
         tool_name_prefix="bq_",
-        header_provider=auth_header_provider
+        header_provider=_get_mcp_auth_headers
     )
 `;
   }
@@ -394,26 +435,13 @@ def get_${name}_mcp_toolset() -> McpToolset:
     """
     Returns the ${name} MCP Toolset.
     """
-
-    def auth_header_provider(context: Any) -> Dict[str, str]:
-        creds = get_user_credentials(context)
-        headers = {}
-        if creds and creds.token:
-             headers["Authorization"] = f"Bearer {creds.token}"
-
-        project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-        if project_id:
-            headers["x-goog-user-project"] = project_id
-
-        return headers
-
     return McpToolset(
         connection_params=StreamableHTTPConnectionParams(
             url="${url}",
             timeout=120.0,
         ),
         tool_name_prefix="${name}_",
-        header_provider=auth_header_provider
+        header_provider=_get_mcp_auth_headers
     )
 `;
       }

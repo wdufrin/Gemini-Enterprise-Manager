@@ -30,7 +30,9 @@ interface SkillsRegistryPageProps {
 }
 
 const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
+  projectNumber,
   projectId = '',
+  setProjectNumber,
   accessToken,
   userProfile,
 }) => {
@@ -47,12 +49,12 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   const [inspectingSkill, setInspectingSkill] = useState<RegistrySkill | null>(null);
 
   const currentConfig: Config = useMemo(() => ({
-    projectId: projectId || 'ancient-sandbox-322523',
+    projectId: projectId || projectNumber,
     appLocation: selectedLocation,
     collectionId: 'default_collection',
     appId: 'default_engine',
     assistantId: 'default_assistant',
-  }), [projectId, selectedLocation]);
+  }), [projectId, projectNumber, selectedLocation]);
 
   const fetchSkills = useCallback(async () => {
     setIsLoading(true);

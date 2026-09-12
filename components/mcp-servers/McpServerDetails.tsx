@@ -24,6 +24,7 @@ interface McpServerDetailsProps {
     service: CloudRunService;
     config: Config;
     onBack: () => void;
+    title?: string;
 }
 
 const DetailItem: React.FC<{ label: string; value?: string | null; children?: React.ReactNode; isMono?: boolean; }> = ({ label, value, children, isMono = true }) => (
@@ -35,7 +36,7 @@ const DetailItem: React.FC<{ label: string; value?: string | null; children?: Re
     </div>
 );
 
-const McpServerDetails: React.FC<McpServerDetailsProps> = ({ service, config, onBack }) => {
+const McpServerDetails: React.FC<McpServerDetailsProps> = ({ service, config, onBack, title }) => {
     const [fullService, setFullService] = useState<CloudRunService | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -211,7 +212,12 @@ const McpServerDetails: React.FC<McpServerDetailsProps> = ({ service, config, on
         <div className="bg-gray-800 shadow-xl rounded-lg p-6">
             <div className="flex justify-between items-start">
                 <div>
-                    <h2 className="text-2xl font-bold text-white">
+                    {title && (
+                        <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-900 text-blue-200 border border-blue-700 uppercase tracking-wide mr-2">
+                            {title}
+                        </span>
+                    )}
+                    <h2 className="text-2xl font-bold text-white inline-block">
                        {service.name.split('/').pop() || ''}
                     </h2>
                 </div>

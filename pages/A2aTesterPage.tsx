@@ -162,7 +162,7 @@ const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProject
     };
 
     const cliTestCommand = serviceUrl
-        ? `curl -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+        ? `curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \\
   ${serviceUrl.replace(/\/$/, '')}/.well-known/agent.json`
         : `# Select a service to see the test command`;
 
@@ -189,7 +189,7 @@ const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProject
     }).replace(/"/g, '\\"');
 
     const cliInvokeCommand = serviceUrl
-        ? `curl -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+        ? `curl -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" \\
   -H "Content-Type: application/json" \\
   -d "${jsonRpcPayload}" \\
   ${serviceUrl.replace(/\/$/, '')}/invoke`

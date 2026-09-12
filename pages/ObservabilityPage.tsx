@@ -169,7 +169,10 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         insertId
                       FROM \`${projectId}.${datasetId}.${t}\`
                       WHERE timestamp >= TIMESTAMP('${startTimeStr}')
-                        AND jsonPayload.logmetadata.methodname IN ('WriteUserEvent', 'StreamAssist', 'Assist', 'Search')
+                        AND COALESCE(
+                          JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.methodName'),
+                          JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodname')
+                        ) IN ('WriteUserEvent', 'StreamAssist', 'Assist', 'Search')
                     `);
 
                     const baseActivityCTE = `
@@ -186,21 +189,24 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                           COALESCE(
                             JSON_VALUE(jp, '$.request.userevent.agentspaceinfo.agentinfo.name'),
                             JSON_VALUE(jp, '$.response.agentinfo.displayname'),
-                            IF(JSON_VALUE(jp, '$.logmetadata.methodname') = 'Search', 
+                            IF(COALESCE(JSON_VALUE(jp, '$.logMetadata.methodName'), JSON_VALUE(jp, '$.logmetadata.methodname')) = 'Search', 
                                CONCAT('Search (', COALESCE(REGEXP_EXTRACT(JSON_VALUE(jp, '$.request.servingconfig'), r'engines/([^/]+)'), 'default'), ')'), 
                                NULL)
                           ) as agent_name,
                           COALESCE(
                             JSON_VALUE(jp, '$.request.userevent.agentspaceinfo.agentinfo.agentid'),
                             JSON_VALUE(jp, '$.response.agentinfo.agent'),
-                            IF(JSON_VALUE(jp, '$.logmetadata.methodname') = 'Search', 'search', NULL)
+                            IF(COALESCE(JSON_VALUE(jp, '$.logMetadata.methodName'), JSON_VALUE(jp, '$.logmetadata.methodname')) = 'Search', 'search', NULL)
                           ) as agent_id,
                           COALESCE(
                             REGEXP_EXTRACT(JSON_VALUE(jp, '$.response.answer.name'), r'sessions/([^/]+)'), 
                             trace, 
                             insertId
                           ) as session_id,
-                          JSON_VALUE(jp, '$.logmetadata.methodname') as method_name
+                          COALESCE(
+                            JSON_VALUE(jp, '$.logMetadata.methodName'),
+                            JSON_VALUE(jp, '$.logmetadata.methodname')
+                          ) as method_name
                         FROM raw_activity
                       )
                     `;

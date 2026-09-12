@@ -16,7 +16,7 @@
 
 
 import { describe, it, expect, vi } from 'vitest';
-import { streamChat, createDiscoverySession, listMcpTools, fetchConnectorLogs } from './apiService';
+import { streamChat, createDiscoverySession, listMcpTools, fetchConnectorLogs, listAssistants, pollDiscoveryOperation } from './apiService';
 import { getGapiClient } from './gapiService';
 
 // Mock gapi
@@ -218,7 +218,7 @@ describe('apiService', () => {
       expect(tools[0].name).toBe('list_dataset_ids');
     });
 
-    it('should query custom HTTPS endpoints using standard fetch with auth headers', async () => {
+    it('should query external HTTPS endpoints without leaking Google Bearer tokens', async () => {
       const mockToken = 'mock-access-token';
       const mockGapiClient = {
         getToken: () => ({ access_token: mockToken })
@@ -242,6 +242,45 @@ describe('apiService', () => {
       
       expect(global.fetch).toHaveBeenCalledWith(
         'https://my-custom-mcp.com/tools',
+        expect.objectContaining({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 0,
+            method: "tools/list"
+          })
+        })
+      );
+      expect(tools).toEqual(mockResponse.result.tools);
+    });
+
+    it('should query trusted Google Cloud Run HTTPS endpoints with auth headers', async () => {
+      const mockToken = 'mock-access-token';
+      const mockGapiClient = {
+        getToken: () => ({ access_token: mockToken })
+      };
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+
+      const mockResponse = {
+        result: {
+          tools: [
+            { name: 'cloud_run_tool', description: 'Cloud run tool' }
+          ]
+        }
+      };
+
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => mockResponse
+      });
+
+      const tools = await listMcpTools('test-project', 'https://my-service-uc.a.run.app/tools');
+      
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://my-service-uc.a.run.app/tools',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -339,6 +378,51 @@ describe('apiService', () => {
       expect(filter).toContain('resource.type="cloud_run_revision"');
       expect(filter).toContain('resource.labels.service_name="multi-mcp"');
       expect(filter).toContain('severity>=WARNING OR httpRequest.status>=400');
+    });
+  });
+
+  describe('listAssistants', () => {
+    it('should query the correct discovery engine endpoint for assistants', async () => {
+      const mockGapiClient = {
+        getToken: () => ({ access_token: 'mock-token' }),
+        request: vi.fn().mockResolvedValue({
+          result: {
+            assistants: [{ name: 'projects/test-proj/locations/global/collections/default_collection/engines/eng-1/assistants/custom_assistant' }]
+          }
+        })
+      };
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+
+      const config = {
+        projectId: 'test-proj',
+        appLocation: 'global',
+        collectionId: 'default_collection',
+        appId: 'eng-1'
+      };
+
+      const res = await listAssistants(config as any);
+      expect(mockGapiClient.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: expect.stringContaining('/projects/test-proj/locations/global/collections/default_collection/engines/eng-1/assistants'),
+          method: 'GET'
+        })
+      );
+      expect(res.assistants).toHaveLength(1);
+    });
+  });
+
+  describe('pollDiscoveryOperation', () => {
+    it('should return immediately if operation is already done', async () => {
+      const op = { name: 'projects/p/locations/global/operations/op-1', done: true, response: {} };
+      const res = await pollDiscoveryOperation(op, { projectId: 'p', appLocation: 'global' } as any);
+      expect(res).toBe(op);
+    });
+
+    it('should throw if operation failed with an error', async () => {
+      const op = { name: 'projects/p/locations/global/operations/op-1', done: true, error: { code: 3, message: 'Resource invalid' } };
+      await expect(
+        pollDiscoveryOperation(op, { projectId: 'p', appLocation: 'global' } as any)
+      ).rejects.toThrow('Resource invalid');
     });
   });
 });

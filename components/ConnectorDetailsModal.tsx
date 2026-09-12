@@ -194,7 +194,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
               className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'verification' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
               onClick={() => setActiveTab('verification')}
             >
-              3rd Party Verification
+              Pre-Flight Checklist
             </button>
             <button
               className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors flex items-center gap-1.5 ${activeTab === 'filters' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
