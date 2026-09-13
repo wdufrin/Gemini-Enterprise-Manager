@@ -15,6 +15,7 @@
  */
 
 import React from 'react';
+import { Navigate } from 'react-router-dom';
 import { Page, ReasoningEngine, UserProfile } from '../../types';
 
 // Lazy-loaded page components for bundle splitting (Task 7.2)
@@ -29,15 +30,12 @@ const ObservabilityPage = React.lazy(() => import('../../pages/ObservabilityPage
 const AgentBuilderPage = React.lazy(() => import('../../pages/AgentBuilderPage'));
 const A2aTesterPage = React.lazy(() => import('../../pages/A2aTesterPage'));
 const McpServersPage = React.lazy(() => import('../../pages/McpServersPage'));
-const AgentCatalogPage = React.lazy(() => import('../../pages/AgentCatalogPage'));
 const CloudRunAgentsPage = React.lazy(() => import('../../pages/CloudRunAgentsPage'));
 const DialogflowAgentsPage = React.lazy(() => import('../../pages/DialogflowAgentsPage'));
-const ConnectorsPage = React.lazy(() => import('../../pages/ConnectorsPage'));
 const ArchitecturePage = React.lazy(() => import('../../pages/ArchitecturePage'));
 const AssistantPage = React.lazy(() => import('../../pages/AssistantPage'));
 const LicensePage = React.lazy(() => import('../../pages/LicensePage'));
 const GEQuotaUsagePage = React.lazy(() => import('../../pages/GEQuotaUsagePage'));
-const VanityUrlsPage = React.lazy(() => import('../../pages/VanityUrlsPage'));
 const AgentPermissionsPage = React.lazy(() => import('../../pages/AgentPermissionsPage'));
 const ConfigAuditPage = React.lazy(() => import('../../pages/ConfigAuditPage'));
 
@@ -86,8 +84,6 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
       return <A2aTesterPage {...projectProps} onNavigate={onNavigate} accessToken={accessToken} />;
     case Page.AGENT_BUILDER:
       return <AgentBuilderPage {...projectProps} context={pageContext} onBuildTriggered={onBuildTriggered} />;
-    case Page.AGENT_CATALOG:
-      return <AgentCatalogPage {...projectProps} accessToken={accessToken} onBuildTriggered={(id) => onBuildTriggered(id, projectNumber)} />;
     case Page.CLOUD_RUN_AGENTS:
       return <CloudRunAgentsPage {...projectProps} />;
     case Page.DIALOGFLOW_AGENTS:
@@ -95,7 +91,7 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
     case Page.CHAT:
       return <AssistantPage {...projectProps} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={onBuildTriggered} />;
     case Page.DATA_STORES:
-      return <DataStoresPage {...commonProps} />;
+      return <DataStoresPage {...projectProps} accessToken={accessToken} />;
     case Page.MCP_SERVERS:
       return <McpServersPage {...commonProps} />;
     case Page.MODEL_ARMOR:
@@ -110,10 +106,6 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
       return <LicensePage {...projectProps} onBuildTriggered={onBuildTriggered} />;
     case Page.GE_QUOTA_USAGE:
       return <GEQuotaUsagePage projectNumber={projectNumber} />;
-    case Page.VANITY_URLS:
-      return <VanityUrlsPage {...projectProps} onBuildTriggered={onBuildTriggered} />;
-    case Page.CONNECTORS:
-      return <ConnectorsPage {...projectProps} accessToken={accessToken} />;
     case Page.ARCHITECTURE:
       return (
         <ArchitecturePage 

@@ -190,7 +190,14 @@ export const VanityUrlDeploymentForm: React.FC<VanityUrlDeploymentFormProps> = (
           <div className="pt-2">
             <button
               onClick={handleDeploy}
-              disabled={isDeploying || !serviceName || !isServiceNameValid || !isCustomDomainValid}
+              disabled={
+                isDeploying ||
+                !serviceName ||
+                !isServiceNameValid ||
+                !customDomain ||
+                !isCustomDomainValid ||
+                (!isPrivateMode && !automateGLB)
+              }
               className={`w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors ${
                 isPrivateMode
                   ? 'bg-purple-600 hover:bg-purple-700 focus:ring-purple-500'

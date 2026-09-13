@@ -54,7 +54,7 @@ export const PublicRoutingConfig: React.FC<PublicRoutingConfigProps> = ({
             className="form-checkbox h-5 w-5 text-blue-500 rounded border-slate-600 bg-slate-800"
           />
           <span className="text-sm font-medium text-slate-300">
-            Automate Global External Load Balancer Provisioning (Optional)
+            Automate Global External Load Balancer Provisioning (Required for Public Routing)
             <p className="text-xs text-slate-500 font-normal mt-1">
               Provisions an Internet NEG, Backend Service, Google-managed SSL Certificate, URL Map, HTTPS Proxy, and Forwarding Rule. Note: This creates billable GCP resources.
             </p>

@@ -25,7 +25,6 @@ export const PAGE_ROUTES: Record<Page, string> = {
   [Page.AGENT_ENGINES]: '/runtimes',
   [Page.A2A_TESTER]: '/a2a-tester',
   [Page.AGENT_BUILDER]: '/builder',
-  [Page.AGENT_CATALOG]: '/catalog',
   [Page.CLOUD_RUN_AGENTS]: '/cloud-run',
   [Page.DIALOGFLOW_AGENTS]: '/dialogflow',
   [Page.CHAT]: '/chat',
@@ -36,9 +35,7 @@ export const PAGE_ROUTES: Record<Page, string> = {
   [Page.BACKUP_RECOVERY]: '/backup',
   [Page.ARCHITECTURE]: '/architecture',
   [Page.LICENSE]: '/licenses',
-  [Page.CONNECTORS]: '/connectors',
   [Page.GE_QUOTA_USAGE]: '/quota',
-  [Page.VANITY_URLS]: '/vanity-urls',
   [Page.CONFIG_AUDIT]: '/config-audit',
 };
 
@@ -60,8 +57,14 @@ export function routeToPage(pathname: string): Page {
   if (normalized.startsWith('/v_')) {
     return Page.OBSERVABILITY;
   }
-  if (normalized === '/domains' || normalized === '/custom-domains') {
-    return Page.VANITY_URLS;
+  if (normalized === '/catalog') {
+    return Page.AGENTS;
+  }
+  if (normalized === '/connectors') {
+    return Page.DATA_STORES;
+  }
+  if (normalized === '/domains' || normalized === '/custom-domains' || normalized === '/vanity-urls') {
+    return Page.ASSISTANT;
   }
   return ROUTE_TO_PAGE[normalized] || Page.AGENTS;
 }

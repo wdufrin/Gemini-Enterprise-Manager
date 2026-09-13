@@ -260,34 +260,6 @@ export const AGENT_CURL_COMMANDS: CurlInfoMap = {
       }
     ]
   },
-  [Page.AGENT_CATALOG]: {
-    description: "The Agent Catalog allows browsing project agents and deploying samples from GitHub using Cloud Build. It fetches samples from GitHub, lists available Google Cloud Storage buckets, and triggers Cloud Build deployments.",
-    commands: [
-      {
-        title: 'Fetch GitHub Repo Contents',
-        command: `curl -X GET \\
-  "https://api.github.com/repos/google/adk-samples/contents/python/agents?ref=main"`
-      },
-      {
-        title: 'List Storage Buckets',
-        command: `curl -X GET \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  "https://storage.googleapis.com/storage/v1/b?project=[YOUR_PROJECT_ID]"`
-      },
-      {
-        title: 'Trigger Cloud Build (Deploy Sample)',
-        command: `curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-        "source": { "storageSource": { "bucket": "[STAGING_BUCKET]", "object": "source/sample_agent.zip" } },
-        "steps": [ ... ]
-      }' \\
-  "https://cloudbuild.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/builds"`
-      }
-    ]
-  },
   [Page.CLOUD_RUN_AGENTS]: {
     description: "This page lists and inspects Cloud Run services to identify potential agents using Gemini AI and labels. It uses the Cloud Run Admin API v2 and Vertex AI generating content endpoints.",
     commands: [

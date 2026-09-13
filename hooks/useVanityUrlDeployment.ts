@@ -44,7 +44,7 @@ export function useVanityUrlDeployment(
     const engineId = engine.name.split('/').pop() || 'assistant';
     return `assistant-${engineId}`.substring(0, 40).replace(/[^a-z0-9-]/g, '').toLowerCase();
   });
-  const [automateGLB, setAutomateGLB] = useState(false);
+  const [automateGLB, setAutomateGLB] = useState(true);
   const [automateDNS, setAutomateDNS] = useState(false);
   const [customDomain, setCustomDomain] = useState('');
 
@@ -64,7 +64,7 @@ export function useVanityUrlDeployment(
   const [selectedSubnetOption, setSelectedSubnetOption] = useState<string>('default');
 
   const isServiceNameValid = isValidGcpResourceName(serviceName);
-  const isCustomDomainValid = !customDomain || isValidHostname(customDomain);
+  const isCustomDomainValid = Boolean(customDomain && isValidHostname(customDomain));
 
   // Existing Redirect Domains States
   const [existingDomains, setExistingDomains] = useState<string[]>([]);
@@ -254,6 +254,14 @@ export function useVanityUrlDeployment(
             automateDNS,
           }));
         }
+      }
+
+      if (steps.length === 0) {
+        throw new Error(
+          isPrivateMode
+            ? 'No deployment steps generated. Please configure Private Service Connect routing options.'
+            : 'No deployment steps generated. Load Balancer provisioning is required for public redirect deployment. Please enable "Automate Global External Load Balancer Provisioning" and specify a valid domain.'
+        );
       }
 
       const buildConfig: any = {

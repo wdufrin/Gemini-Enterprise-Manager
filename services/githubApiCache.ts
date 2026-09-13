@@ -192,3 +192,110 @@ export const getUserRepositories = async (token: string, owner: string): Promise
 
     return await response.json();
 };
+
+// --- In-Memory & Session Storage Caching Layer ---
+
+interface CacheEntry<T> {
+    data: T;
+    timestamp: number;
+}
+
+const MEMORY_CACHE = new Map<string, CacheEntry<unknown>>();
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes TTL
+
+export function getCachedGithubData<T>(key: string): T | null {
+    const mem = MEMORY_CACHE.get(key);
+    if (mem && Date.now() - mem.timestamp < CACHE_TTL_MS) {
+        return mem.data as T;
+    }
+    try {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            const raw = window.sessionStorage.getItem(`gem_gh_${key}`);
+            if (raw) {
+                const parsed = JSON.parse(raw) as CacheEntry<T>;
+                if (Date.now() - parsed.timestamp < CACHE_TTL_MS) {
+                    MEMORY_CACHE.set(key, parsed as CacheEntry<unknown>);
+                    return parsed.data;
+                }
+            }
+        }
+    } catch {
+        // Ignore storage or parsing errors
+    }
+    return null;
+}
+
+export function setCachedGithubData<T>(key: string, data: T): void {
+    const entry: CacheEntry<T> = { data, timestamp: Date.now() };
+    MEMORY_CACHE.set(key, entry as CacheEntry<unknown>);
+    try {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            window.sessionStorage.setItem(`gem_gh_${key}`, JSON.stringify(entry));
+        }
+    } catch {
+        // Ignore quota errors
+    }
+}
+
+export function getStoredGithubToken(): string | null {
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            return (
+                window.localStorage.getItem('gem_github_token') ||
+                window.localStorage.getItem('github_token') ||
+                null
+            );
+        }
+    } catch {
+        // Ignore storage errors
+    }
+    return null;
+}
+
+export async function fetchWithGithubAuth(url: string, customToken?: string): Promise<Response> {
+    const token = customToken || getStoredGithubToken();
+    const headers: HeadersInit = {
+        'Accept': 'application/vnd.github.v3+json',
+    };
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    return fetch(url, { headers });
+}
+
+export async function fetchCachedGithubJson<T>(url: string, customToken?: string): Promise<T> {
+    const cached = getCachedGithubData<T>(url);
+    if (cached !== null) {
+        return cached;
+    }
+    const response = await fetchWithGithubAuth(url, customToken);
+    if (!response.ok) {
+        if (response.status === 403) {
+            const rateLimitRemaining = response.headers.get('x-ratelimit-remaining');
+            if (rateLimitRemaining === '0') {
+                throw new Error(
+                    'GitHub API rate limit exceeded (60 requests/hour for unauthenticated users). Please wait a few minutes or provide a GitHub token.'
+                );
+            }
+        }
+        throw new Error(`GitHub API Error: ${response.status} ${response.statusText}`);
+    }
+    const data = (await response.json()) as T;
+    setCachedGithubData<T>(url, data);
+    return data;
+}
+
+export async function fetchCachedGithubText(url: string): Promise<string> {
+    const cached = getCachedGithubData<string>(url);
+    if (cached !== null) {
+        return cached;
+    }
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch content from ${url}: ${response.status} ${response.statusText}`);
+    }
+    const text = await response.text();
+    setCachedGithubData<string>(url, text);
+    return text;
+}
+

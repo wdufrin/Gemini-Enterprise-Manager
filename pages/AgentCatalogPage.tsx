@@ -23,6 +23,7 @@ import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
 
 import JSZip from 'jszip';
+import { fetchCachedGithubJson, fetchCachedGithubText } from '../services/githubApiCache';
 
 interface AgentCatalogPageProps {
   projectNumber: string;
@@ -112,8 +113,17 @@ const GitAgentCard: React.FC<{
     
     return (
         <div 
+            role="button"
+            tabIndex={0}
+            aria-label={`Select agent ${agent.name}`}
             onClick={() => onSelect(agent)}
-            className="bg-gray-800 rounded-lg p-5 border border-gray-700 hover:border-teal-500 hover:bg-gray-750 transition-all cursor-pointer shadow-lg flex flex-col h-full group"
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelect(agent);
+                }
+            }}
+            className="bg-gray-800 rounded-lg p-5 border border-gray-700 hover:border-teal-500 hover:bg-gray-750 transition-all cursor-pointer shadow-lg flex flex-col h-full group focus:outline-none focus:ring-2 focus:ring-teal-500"
         >
             <div className="flex items-start justify-between mb-4">
                 <div className="p-2 bg-gray-700 rounded-full group-hover:bg-gray-600 transition-colors">
@@ -226,27 +236,19 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
 
           // 1. Fetch list of directories
           const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
-          const response = await fetch(apiUrl);
-          if (!response.ok) {
-              throw new Error(`GitHub API Error: ${response.status} ${response.statusText}`);
-          }
-          
-          const data = await response.json();
+          const data = await fetchCachedGithubJson<any[]>(apiUrl);
           if (Array.isArray(data)) {
               const dirs: GitAgentDir[] = data.filter((item: any) => item.type === 'dir');
               
               // 2. Fetch README for each directory to extract metadata
-              // Using raw.githubusercontent.com to avoid API rate limits for content
+              // Using raw.githubusercontent.com via cache to avoid API rate limits
               const enrichedDirs = await Promise.all(dirs.map(async (dir) => {
                   try {
                       // Construct raw URL: https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}/${dir.name}/README.md
                       const readmeUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}/${dir.name}/README.md`;
-                      const readmeRes = await fetch(readmeUrl);
-                      if (readmeRes.ok) {
-                          const text = await readmeRes.text();
-                          const metadata = extractMetadataFromReadme(text);
-                          return { ...dir, metadata };
-                      }
+                      const text = await fetchCachedGithubText(readmeUrl);
+                      const metadata = extractMetadataFromReadme(text);
+                      return { ...dir, metadata };
                   } catch (e) {
                       console.warn(`Failed to fetch README for ${dir.name}`, e);
                   }
@@ -278,9 +280,7 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
   const fetchRepoContents = async (url: string, prefix: string = '', depth: number = 0): Promise<{name: string, content: string}[]> => {
       if (depth > 5) return [];
 
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Failed to list contents of ${prefix || 'root'}`);
-      const items = await response.json();
+      const items = await fetchCachedGithubJson<any[]>(url);
       
       if (!Array.isArray(items)) throw new Error("Invalid GitHub API response");
 
@@ -289,12 +289,11 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
       for (const item of items) {
           if (item.type === 'file' && item.download_url) {
               setLoadingAgentFiles(`Fetching ${prefix}${item.name}`);
-              const fileRes = await fetch(item.download_url);
-              if (fileRes.ok) {
-                  const content = await fileRes.text();
+              try {
+                  const content = await fetchCachedGithubText(item.download_url);
                   results.push({ name: prefix + item.name, content });
-              } else {
-                  console.warn(`Failed to fetch file content for ${item.name}: ${fileRes.status}`);
+              } catch (err) {
+                  console.warn(`Failed to fetch file content for ${item.name}`, err);
               }
           } else if (item.type === 'dir') {
               const subResults = await fetchRepoContents(item.url, prefix + item.name + '/', depth + 1);

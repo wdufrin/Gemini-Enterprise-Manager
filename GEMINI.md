@@ -16,7 +16,8 @@ When the user sends `/gemfullaudit` (or asks to run `/gemfullaudit`), the assist
 
 2. **Core Directives**:
    - **Tabula Rasa**: Zero memory of past reviews. Inspect live source code directly (`pages/`, `components/`, `services/`, `App.tsx`, `types.ts`).
-   - **Radical Honesty & End-User Protection**: Uncompromising exposure of mock data, broken APIs, unhandled promise rejections, security risks, and missing error states.
+   - **Radical Honesty & Customer Protection**: Uncompromising exposure of mock data, broken APIs, unhandled promise rejections, security risks, and missing error states.
+   - **Strict Anti-Stubbing Mandate**: Forbid fake fixes, cosmetic buttons ("ghost operations"), silent mock fallbacks (`catch (e) { return MOCK_DATA; }`), or stubbed implementations that hide underlying defects from enterprise customers. All reports must assess customer blast radius.
 
 3. **Master Consolidation**:
    - Consolidate domain reports into a master artifact `master_forensic_swe_audit.md`.

@@ -33,6 +33,12 @@ interface DataStoreListProps {
   onCreateNew: () => void;
   onSort: (key: SortKey) => void;
   sortConfig: { key: SortKey; direction: 'asc' | 'desc' };
+  nextPageToken?: string | null;
+  hasPrevPage?: boolean;
+  currentPage?: number;
+  onNextPage?: () => void;
+  onPrevPage?: () => void;
+  isLoading?: boolean;
 }
 
 const SortIcon: React.FC<{ direction: 'asc' | 'desc' }> = ({ direction }) => (
@@ -57,7 +63,13 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
   onDeleteSelected,
   onCreateNew,
   onSort,
-  sortConfig
+  sortConfig,
+  nextPageToken,
+  hasPrevPage,
+  currentPage = 0,
+  onNextPage,
+  onPrevPage,
+  isLoading,
 }) => {
   const isAllSelected = dataStores.length > 0 && selectedDataStores.size === dataStores.length;
   
@@ -186,6 +198,32 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {dataStores.length > 0 && (hasPrevPage || nextPageToken) && (
+        <div className="p-4 border-t border-gray-700 bg-gray-800/80 flex justify-between items-center text-sm text-gray-400">
+          <div>
+            <span>Page {currentPage + 1}</span>
+            <span className="ml-2 text-xs text-gray-500">({dataStores.length} stores on this page)</span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onPrevPage}
+              disabled={!hasPrevPage || isLoading}
+              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-xs font-medium transition-colors"
+            >
+              &larr; Previous
+            </button>
+            <button
+              type="button"
+              onClick={onNextPage}
+              disabled={!nextPageToken || isLoading}
+              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-xs font-medium transition-colors"
+            >
+              Next &rarr;
+            </button>
+          </div>
         </div>
       )}
     </div>

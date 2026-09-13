@@ -68,18 +68,32 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
     const [uploadLogs, setUploadLogs] = useState<string[]>([]);
     const [isQueryModalOpen, setIsQueryModalOpen] = useState(false);
 
+    const [docsNextPageToken, setDocsNextPageToken] = useState<string | null>(null);
+    const [isLoadingMoreDocs, setIsLoadingMoreDocs] = useState(false);
+
     const dataStoreId = dataStore.name.split('/').pop() || '';
 
-    const fetchDocuments = useCallback(async () => {
-        setIsLoadingDocs(true);
+    const fetchDocuments = useCallback(async (pageToken?: string) => {
+        if (pageToken) {
+            setIsLoadingMoreDocs(true);
+        } else {
+            setIsLoadingDocs(true);
+        }
         setDocsError(null);
         try {
-            const response = await api.listDocuments(dataStore.name, config);
-            setDocuments(response.documents || []);
+            const response = await api.listDocuments(dataStore.name, config, 100, pageToken);
+            const newDocs = response.documents || [];
+            if (pageToken) {
+                setDocuments(prev => [...prev, ...newDocs]);
+            } else {
+                setDocuments(newDocs);
+            }
+            setDocsNextPageToken(response.nextPageToken || null);
         } catch (err: any) {
             setDocsError(err.message || 'Failed to fetch documents.');
         } finally {
             setIsLoadingDocs(false);
+            setIsLoadingMoreDocs(false);
         }
     }, [dataStore.name, config]);
 
@@ -202,14 +216,21 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
         addUploadLog(`  - Import operation started: ${operation.name}`);
         
         let currentOperation = operation;
+        let attempts = 0;
+        const maxAttempts = 60;
         while (!currentOperation.done) {
+          if (attempts++ >= maxAttempts) {
+            throw new Error(
+              `Operation timed out after ${maxAttempts * 5}s waiting for completion. The import may still be running in Google Cloud: ${operation.name}`,
+            );
+          }
           await new Promise(resolve => setTimeout(resolve, 5000));
-          currentOperation = await api.getDiscoveryOperation(operation.name, config);
-          addUploadLog('    - Polling operation status...');
+          currentOperation = await api.getDiscoveryOperation(operation.name, config, 'v1beta');
+          addUploadLog(`    - Polling operation status... (${attempts}/${maxAttempts})`);
         }
 
         if (currentOperation.error) {
-          throw new Error(`Import failed: ${currentOperation.error.message}`);
+          throw new Error(`Import failed: ${currentOperation.error.message || `Code ${currentOperation.error.code}`}`);
         }
         
         addUploadLog("  - Import operation completed successfully!");
@@ -373,13 +394,27 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div>
-                        {isLoadingDocs ? <Spinner /> : 
+                        {isLoadingDocs && documents.length === 0 ? <Spinner /> : 
                             docsError ? <p className="text-red-400 mt-2">{docsError}</p> :
-                            <DocumentList 
-                                documents={documents} 
-                                onSelectDocument={handleSelectDocument}
-                                selectedDocumentName={selectedDocument?.name}
-                            />
+                            <>
+                                <DocumentList 
+                                    documents={documents} 
+                                    onSelectDocument={handleSelectDocument}
+                                    selectedDocumentName={selectedDocument?.name}
+                                />
+                                {docsNextPageToken && (
+                                    <div className="mt-3 text-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => fetchDocuments(docsNextPageToken)}
+                                            disabled={isLoadingMoreDocs}
+                                            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs font-semibold transition-colors disabled:opacity-50"
+                                        >
+                                            {isLoadingMoreDocs ? 'Loading more...' : 'Load More Documents'}
+                                        </button>
+                                    </div>
+                                )}
+                            </>
                         }
                     </div>
                     <div>

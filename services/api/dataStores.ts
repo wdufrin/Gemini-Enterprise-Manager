@@ -62,12 +62,20 @@ export const setDataStoreIamPolicy = async (
   return gapiRequest<IamPolicy>(url, "POST", projectId, undefined, { policy });
 };
 
-export const checkDataStoreAclSupport = async (
+export interface DataStoreAclSupportDetails {
+  supported: boolean;
+  permissionDenied: boolean;
+  reason?: string;
+}
+
+export const checkDataStoreAclDetails = async (
   config: Config,
   sampleDataStoreId?: string,
-): Promise<boolean> => {
+): Promise<DataStoreAclSupportDetails> => {
   const { projectId, appLocation, collectionId = "default_collection" } = config;
-  if (!projectId || !appLocation) return false;
+  if (!projectId || !appLocation) {
+    return { supported: false, permissionDenied: false, reason: "Project ID or location missing." };
+  }
   const baseUrl = getDiscoveryEngineUrl(appLocation);
 
   try {
@@ -77,11 +85,35 @@ export const checkDataStoreAclSupport = async (
     }
     const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${testPath}:getIamPolicy`;
     const res = await gapiRequest<{ etag?: string; bindings?: unknown[] }>(url, "GET", projectId);
-    return !!(res && (res.etag !== undefined || res.bindings !== undefined));
-  } catch (_err: unknown) {
-    // If the API returns an error (400 / 403 / 404 / FAILED_PRECONDITION), it's not allowlisted
-    return false;
+    return {
+      supported: !!(res && (res.etag !== undefined || res.bindings !== undefined)),
+      permissionDenied: false,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const isPermission =
+      msg.includes("403") ||
+      msg.toLowerCase().includes("permission") ||
+      msg.toLowerCase().includes("forbidden");
+    return {
+      supported: false,
+      permissionDenied: isPermission,
+      reason: msg,
+    };
   }
+};
+
+export const checkDataStoreAclSupport = async (
+  config: Config,
+  sampleDataStoreId?: string,
+): Promise<boolean> => {
+  const details = await checkDataStoreAclDetails(config, sampleDataStoreId);
+  if (details.permissionDenied) {
+    console.warn(
+      `checkDataStoreAclSupport: Access denied (403) checking ACL policy for ${sampleDataStoreId || config.collectionId || "default_collection"}. The caller may lack roles/discoveryengine.viewer or roles/resourcemanager.organizationViewer.`,
+    );
+  }
+  return details.supported;
 };
 
 export const getDataStore = async (name: string, config: Config) => {
@@ -158,10 +190,19 @@ export const setUpDataConnector = async (
   return gapiRequest<Operation>(url, "POST", projectId, undefined, payload);
 };
 
-export const listDocuments = async (dataStoreName: string, config: Config) => {
+export const listDocuments = async (
+  dataStoreName: string,
+  config: Config,
+  pageSize: number = 100,
+  pageToken?: string,
+) => {
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-  return gapiRequest<{ documents: Document[] }>(
-    `${baseUrl}/${DISCOVERY_API_BETA}/${dataStoreName}/branches/default_branch/documents`,
+  let url = `${baseUrl}/${DISCOVERY_API_BETA}/${dataStoreName}/branches/default_branch/documents?pageSize=${pageSize}`;
+  if (pageToken) {
+    url += `&pageToken=${encodeURIComponent(pageToken)}`;
+  }
+  return gapiRequest<{ documents?: Document[]; nextPageToken?: string }>(
+    url,
     "GET",
     config.projectId,
   );
@@ -341,7 +382,18 @@ export const signInWithOidcPopup = (
 
           let email: string | undefined;
           try {
-            const payload = JSON.parse(atob(idToken.split(".")[1]));
+            const rawPayload = idToken.split(".")[1];
+            if (!rawPayload) {
+              reject(new Error("Malformed ID token: missing payload segment."));
+              return;
+            }
+            // Base64URL to standard Base64 conversion + padding
+            const base64 = rawPayload.replace(/-/g, "+").replace(/_/g, "/");
+            const padLen = (4 - (base64.length % 4)) % 4;
+            const padded = base64 + "=".repeat(padLen);
+            const decoded = atob(padded);
+            const payload = JSON.parse(decoded);
+
             if (payload && payload.nonce !== nonce) {
               reject(new Error("Nonce mismatch — possible replay attack."));
               return;
@@ -353,6 +405,12 @@ export const signInWithOidcPopup = (
               reject(err);
               return;
             }
+            reject(
+              new Error(
+                `Failed to decode ID token payload: ${err instanceof Error ? err.message : String(err)}`,
+              ),
+            );
+            return;
           }
 
           resolve({ idToken, email });

@@ -78,6 +78,12 @@ const InnerApp: React.FC = () => {
     } else if (location.pathname.startsWith('/v_')) {
       const viewId = location.pathname.slice(1);
       navigate(`/observability?view=${encodeURIComponent(viewId)}`, { replace: true });
+    } else if (location.pathname === '/catalog') {
+      navigate('/agents', { replace: true });
+    } else if (location.pathname === '/connectors') {
+      navigate('/datastores?tab=connectors', { replace: true });
+    } else if (location.pathname === '/vanity-urls' || location.pathname === '/domains' || location.pathname === '/custom-domains') {
+      navigate('/assistant', { replace: true });
     }
   }, [location.pathname, navigate]);
 

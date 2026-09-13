@@ -111,8 +111,14 @@ export function useDataStoreQuery(
         try {
           const pools = await api.listWorkloadIdentityPools(projectId);
           setAvailablePools(pools);
-        } catch (e) {
+        } catch (e: any) {
           console.error('Failed to fetch workforce pools', e);
+          const msg = toErrorMessage(e);
+          if (msg.includes('403') || msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('denied')) {
+            setWifTokenError("Missing IAM permission to list Workforce Pools (requires roles/iam.workforcePoolViewer). You can enter your Pool ID manually.");
+          } else {
+            setWifTokenError(`Failed to auto-discover Workforce Pools: ${msg}. You can enter your Pool ID manually.`);
+          }
         } finally {
           setIsLoadingPools(false);
         }
@@ -128,8 +134,14 @@ export function useDataStoreQuery(
         try {
           const providerData = await api.listWorkloadIdentityProviders(`locations/global/workforcePools/${wifPoolId}`, projectId);
           setAvailableProviders(providerData);
-        } catch (e) {
+        } catch (e: any) {
           console.error('Failed to fetch workforce pool providers', e);
+          const msg = toErrorMessage(e);
+          if (msg.includes('403') || msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('denied')) {
+            setWifTokenError("Missing IAM permission to list Workforce Pool Providers. You can enter your Provider ID manually.");
+          } else {
+            setWifTokenError(`Failed to list Workforce Pool Providers: ${msg}. You can enter your Provider ID manually.`);
+          }
         } finally {
           setIsLoadingProviders(false);
         }

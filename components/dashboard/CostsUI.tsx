@@ -40,7 +40,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
     const [error, setError] = useState<string | null>(null);
 
     // Monitoring State
-    const [usageMetrics, setUsageMetrics] = useState<Record<string, number> | null>(null);
+    const [usageMetrics, setUsageMetrics] = useState<Record<string, number | undefined> | null>(null);
     const [isFetchingMetrics, setIsFetchingMetrics] = useState(false);
     const [metricsError, setMetricsError] = useState<string | null>(null);
 
@@ -325,22 +325,14 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 
                 const results = await Promise.allSettled(promises);
                 
-                const usages: Record<string, number> = {
-                    tasksAndActions: 0,
-                    textAnswerGen: 0,
-                    imageGen: 0,
-                    videoGen: 0,
-                    grounding: 0,
-                    webGrounding: 0,
-                    ideaGeneration: 0,
-                    deepResearch: 0
-                };
+                const usages: Record<string, number | undefined> = {};
                 const failedResults = results.filter(r => r.status === 'rejected');
                 let hasAuthError = false;
                 
                 results.forEach(result => {
                     if (result.status === 'fulfilled') {
                         const { key, res } = result.value;
+                        let total = 0;
                         if (res.timeSeries && res.timeSeries.length > 0) {
                             res.timeSeries.forEach((series: TimeSeries) => {
                                 const points = series.points;
@@ -349,12 +341,13 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                                     const point = points[0];
                                     const valObj = point.value;
                                     const val = parseInt(String(valObj?.int64Value ?? valObj?.doubleValue ?? "0"), 10);
-                                    usages[key] = (usages[key] || 0) + val;
+                                    total += val;
                                 }
                             });
                         }
+                        usages[key] = total;
                     } else {
-                        // If one fails with 403 or permission error, flag it
+                        // Keep key undefined so QuotaCard displays "Unavailable" rather than 0
                         const err = result.reason as { status?: number; code?: number; message?: string } | undefined;
                         const errMsg = (err?.message || (typeof err === 'string' ? err : '')).toLowerCase();
                         if (
@@ -370,7 +363,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     }
                 });
 
-                if (hasAuthError) {
+                if (hasAuthError && Object.keys(usages).length === 0) {
                     setUsageMetrics(null);
                     setMetricsError("Missing 'monitoring.timeSeries.list' permission to view live usage.");
                 } else if (failedResults.length === results.length) {
@@ -378,7 +371,11 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     setMetricsError("Failed to fetch live usage metrics from Cloud Monitoring.");
                 } else {
                     setUsageMetrics(usages);
-                    setMetricsError(null);
+                    if (failedResults.length > 0) {
+                        setMetricsError(`${failedResults.length} metric(s) could not be fetched and are marked as Unavailable.`);
+                    } else {
+                        setMetricsError(null);
+                    }
                 }
             } catch (err: unknown) {
                 console.error("Failed to fetch cloud monitoring metrics", err);

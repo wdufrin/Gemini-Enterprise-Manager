@@ -19,7 +19,6 @@ const CloudConsoleButton: React.FC<CloudConsoleButtonProps> = ({ currentPage, pr
             case Page.AGENTS:
             case Page.AGENT_BUILDER:
             case Page.AGENT_ENGINES:
-            case Page.AGENT_CATALOG:
             case Page.ARCHITECTURE:
             case Page.ASSISTANT:
                 return `https://console.cloud.google.com/gen-app-builder/engines?project=${projectId}`;
@@ -34,8 +33,6 @@ const CloudConsoleButton: React.FC<CloudConsoleButtonProps> = ({ currentPage, pr
             case Page.LICENSE:
             case Page.GE_QUOTA_USAGE:
                 return `https://console.cloud.google.com/gemini-enterprise/user-license?project=${projectId}`;
-            case Page.CONNECTORS:
-                return `https://console.cloud.google.com/gen-app-builder/extensions?project=${projectId}`;
             case Page.AUTHORIZATIONS:
                 return `https://console.cloud.google.com/gen-app-builder/authorizations?project=${projectId}`;
             case Page.MCP_SERVERS:
