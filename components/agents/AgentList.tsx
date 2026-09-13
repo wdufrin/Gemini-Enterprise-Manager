@@ -96,11 +96,26 @@ const AgentList: React.FC<AgentListProps> = ({
 
   const SortableHeader: React.FC<{ sortKey: SortableAgentKey; children: React.ReactNode; className?: string }> = ({ sortKey, children, className = '' }) => {
     const isSorted = sortConfig?.key === sortKey;
+    const sortAria = isSorted
+      ? sortConfig.direction === 'asc'
+        ? 'ascending'
+        : 'descending'
+      : 'none';
+    const labelText = typeof children === 'string' ? children : String(sortKey);
     return (
-      <th scope="col" className={`px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider ${className}`}>
-        <button onClick={() => onSort(sortKey)} className="flex items-center space-x-1 group focus:outline-none">
+      <th 
+        scope="col" 
+        aria-sort={sortAria}
+        className={`px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider ${className}`}
+      >
+        <button 
+          type="button"
+          onClick={() => onSort(sortKey)} 
+          className="flex items-center space-x-1 group focus:outline-none focus:ring-2 focus:ring-blue-500 rounded p-0.5"
+          aria-label={`Sort by ${labelText}, currently ${isSorted ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'unsorted'}`}
+        >
           <span className="group-hover:text-white transition-colors">{children}</span>
-          <div className="w-4 h-4">
+          <div className="w-4 h-4" aria-hidden="true">
             {isSorted && <SortIcon direction={sortConfig.direction} />}
           </div>
         </button>
@@ -166,7 +181,7 @@ const AgentList: React.FC<AgentListProps> = ({
                         const isSelected = selectedAgents.has(agent.name);
                         const statusColorClass = agent.state === 'ENABLED' ? 'bg-green-500' : agent.state === 'DISABLED' ? 'bg-red-500' : 'bg-yellow-500';
 
-                        let statusButton = null;
+                        let statusButton: React.ReactNode = null;
                         if (agent.state === 'ENABLED' || agent.state === 'DISABLED') {
                             const isEnabled = agent.state === 'ENABLED';
                             const statusProps = {
@@ -230,9 +245,11 @@ const AgentList: React.FC<AgentListProps> = ({
                                             {agent.displayName}
                                             {onUpdateAgentName && (
                                                 <button 
+                                                    type="button"
                                                     onClick={() => handleEditClick(agent)}
-                                                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity"
+                                                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded p-0.5 transition-opacity"
                                                     title="Edit Name"
+                                                    aria-label={`Edit name for ${agent.displayName}`}
                                                 >
                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
                                                 </button>

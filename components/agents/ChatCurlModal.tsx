@@ -15,8 +15,9 @@
  */
 
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ChatMessage, Config } from '../../types';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface ChatCurlModalProps {
   isOpen: boolean;
@@ -58,6 +59,13 @@ const CodeBlock: React.FC<{ content: string }> = ({ content }) => {
 };
 
 const ChatCurlModal: React.FC<ChatCurlModalProps> = ({ isOpen, onClose, config, sessionId, messages, selectedDataStores, authMode = 'default', wifPoolId, wifProviderId, wifSubjectTokenType }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+  });
 
   if (!isOpen) return null;
 
@@ -96,11 +104,29 @@ const ChatCurlModal: React.FC<ChatCurlModalProps> = ({ isOpen, onClose, config, 
 
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-[60] p-4" aria-modal="true" role="dialog">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-gray-700">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-[60] p-4"
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="assistant-curl-modal-title"
+      onClick={onClose}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-gray-700"
+      >
         <header className="p-4 border-b border-gray-700 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-white">Assistant cURL Commands</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">&times;</button>
+          <h2 id="assistant-curl-modal-title" className="text-xl font-bold text-white">Assistant cURL Commands</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="text-gray-400 hover:text-white text-2xl"
+          >
+            &times;
+          </button>
         </header>
 
         <main className="p-6 overflow-y-auto space-y-6">

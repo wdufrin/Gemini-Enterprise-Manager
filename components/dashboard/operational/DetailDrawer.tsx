@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
+import { useModalA11y } from '../../../hooks/useModalA11y';
 
 interface Props {
     isOpen: boolean;
@@ -13,21 +14,14 @@ export const DetailDrawer: React.FC<Props> = ({
     data,
     title = 'Log Record Details'
 }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const [copied, setCopied] = useState(false);
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-        if (isOpen) {
-            window.addEventListener('keydown', handleKeyDown);
-            document.body.style.overflow = 'hidden';
-        }
-        return () => {
-            window.removeEventListener('keydown', handleKeyDown);
-            document.body.style.overflow = 'unset';
-        };
-    }, [isOpen, onClose]);
+    useModalA11y({
+        isOpen,
+        onClose,
+        containerRef,
+    });
 
     if (!isOpen || !data) return null;
 
@@ -38,16 +32,26 @@ export const DetailDrawer: React.FC<Props> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm transition-opacity duration-200">
+        <div
+            className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm transition-opacity duration-200"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="detail-drawer-title"
+        >
             {/* Backdrop click area */}
             <div className="absolute inset-0" onClick={onClose} />
 
             {/* Slide-over panel */}
-            <div className="relative w-full max-w-2xl bg-gray-900 border-l border-gray-700/80 h-full flex flex-col shadow-2xl z-10 animate-in slide-in-from-right duration-200">
+            <div
+                ref={containerRef}
+                tabIndex={-1}
+                onClick={(e) => e.stopPropagation()}
+                className="relative w-full max-w-2xl bg-gray-900 border-l border-gray-700/80 h-full flex flex-col shadow-2xl z-10 animate-in slide-in-from-right duration-200"
+            >
                 {/* Header */}
                 <div className="p-5 border-b border-gray-800 bg-gray-950/70 flex items-center justify-between">
                     <div>
-                        <h2 className="text-lg font-bold text-white tracking-tight">{title}</h2>
+                        <h2 id="detail-drawer-title" className="text-lg font-bold text-white tracking-tight">{title}</h2>
                         <p className="text-xs text-gray-400 mt-0.5">Deep inspection of row attributes & payloads</p>
                     </div>
                     <div className="flex items-center gap-2">

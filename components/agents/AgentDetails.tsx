@@ -16,11 +16,12 @@
 
 
 import React, { useState } from 'react';
-import { Agent, Config, DataStore } from '../../types';
+import { Agent, Config, DataStore, IamPolicy } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import SetIamPolicyModal from './SetIamPolicyModal';
 import { useToast } from '../../context/ToastContext';
+import { toErrorMessage } from '../../utils/errors';
 
 interface AgentDetailsProps {
     agent: Agent;
@@ -44,10 +45,10 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
     const { toast } = useToast();
     const [isDeleting, setIsDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
-    const [agentViewData, setAgentViewData] = useState<any | null>(null);
+    const [agentViewData, setAgentViewData] = useState<Record<string, unknown> | null>(null);
     const [isFetchingView, setIsFetchingView] = useState(false);
     const [viewError, setViewError] = useState<string | null>(null);
-    const [iamPolicy, setIamPolicy] = useState<any | null>(null);
+    const [iamPolicy, setIamPolicy] = useState<IamPolicy | null>(null);
     const [isFetchingPolicy, setIsFetchingPolicy] = useState(false);
     const [policyError, setPolicyError] = useState<string | null>(null);
     const [isSetPolicyModalOpen, setIsSetPolicyModalOpen] = useState(false);
@@ -83,7 +84,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                 if (data.lowCodeAgentDefinition?.nodes?.[0]?.llmAgentNode?.model) {
                     setSelectedModel(data.lowCodeAgentDefinition.nodes[0].llmAgentNode.model);
                 } else if (data.workflowAgentDefinition?.agentFlow?.nodes) {
-                     const agentNode = data.workflowAgentDefinition.agentFlow.nodes.find((n: any) => n.agentNode?.model);
+                     const agentNode = data.workflowAgentDefinition.agentFlow.nodes.find((n: { agentNode?: { model?: string } }) => n.agentNode?.model);
                      if (agentNode?.agentNode?.model) {
                          setSelectedModel(agentNode.agentNode.model);
                      }
@@ -101,7 +102,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         setSaveModelError(null);
         try {
             const updatedAgent = { ...fullAgent };
-            const payload: any = {};
+            const payload: Partial<Agent> = {};
             
             if (updatedAgent.lowCodeAgentDefinition?.nodes?.[0]?.llmAgentNode) {
                 updatedAgent.lowCodeAgentDefinition.nodes[0].llmAgentNode.model = selectedModel;
@@ -110,9 +111,9 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                 }
                 payload.lowCodeAgentDefinition = updatedAgent.lowCodeAgentDefinition;
             } else if (updatedAgent.workflowAgentDefinition?.agentFlow?.nodes) {
-                const agentNodeIndex = updatedAgent.workflowAgentDefinition.agentFlow.nodes.findIndex((n: any) => n.agentNode?.model);
-                if (agentNodeIndex !== -1) {
-                    updatedAgent.workflowAgentDefinition.agentFlow.nodes[agentNodeIndex].agentNode.model = selectedModel;
+                const agentNodeIndex = updatedAgent.workflowAgentDefinition.agentFlow.nodes.findIndex((n: { agentNode?: { model?: string } }) => n.agentNode?.model);
+                if (agentNodeIndex !== -1 && updatedAgent.workflowAgentDefinition.agentFlow.nodes[agentNodeIndex]?.agentNode) {
+                    updatedAgent.workflowAgentDefinition.agentFlow.nodes[agentNodeIndex].agentNode!.model = selectedModel;
                 }
                 payload.workflowAgentDefinition = updatedAgent.workflowAgentDefinition;
             }
@@ -120,8 +121,8 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
             await api.updateAgent(agent, payload, config);
             setFullAgent(updatedAgent);
             toast.success("Model updated successfully!");
-        } catch (err: any) {
-            setSaveModelError(err.message || 'Failed to save model.');
+        } catch (err: unknown) {
+            setSaveModelError(toErrorMessage(err) || 'Failed to save model.');
         } finally {
             setIsSavingModel(false);
         }
@@ -135,8 +136,8 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         try {
             await api.deleteResource(agent.name, config);
             onDeleteSuccess();
-        } catch (err: any) {
-            setDeleteError(err.message || 'Failed to delete agent.');
+        } catch (err: unknown) {
+            setDeleteError(toErrorMessage(err) || 'Failed to delete agent.');
         } finally {
             setIsDeleting(false);
         }
@@ -151,8 +152,8 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
             // In a more complex app we might update the local agent state or call a refresh prop.
             // For now, let's just go back to force a refresh of the list where this agent was selected.
             onBack();
-        } catch (err: any) {
-            setShareError(err.message || 'Failed to share agent.');
+        } catch (err: unknown) {
+            setShareError(toErrorMessage(err) || 'Failed to share agent.');
         } finally {
             setIsSharing(false);
         }
@@ -165,8 +166,8 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         try {
             const viewData = await api.getAgentView(agent.name, config);
             setAgentViewData(viewData);
-        } catch (err: any) {
-            setViewError(err.message || 'Failed to fetch agent view.');
+        } catch (err: unknown) {
+            setViewError(toErrorMessage(err) || 'Failed to fetch agent view.');
         } finally {
             setIsFetchingView(false);
         }
@@ -180,14 +181,14 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         try {
             const policyData = await api.getAgentIamPolicy(agent.name, config);
             setIamPolicy(policyData);
-        } catch (err: any) {
-            setPolicyError(err.message || 'Failed to fetch IAM policy.');
+        } catch (err: unknown) {
+            setPolicyError(toErrorMessage(err) || 'Failed to fetch IAM policy.');
         } finally {
             setIsFetchingPolicy(false);
         }
     };
 
-    const handleSetPolicySuccess = (updatedPolicy: any) => {
+    const handleSetPolicySuccess = (updatedPolicy: IamPolicy) => {
         setIamPolicy(updatedPolicy);
         setIsSetPolicyModalOpen(false);
         setPolicySuccess("IAM Policy updated successfully.");
@@ -201,16 +202,17 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         try {
             const viewData = await api.getAgentView(agent.name, config).catch(() => null);
 
-            const findDataStoreIds = (obj: any): string[] => {
+            const findDataStoreIds = (obj: unknown): string[] => {
                 let ids: string[] = [];
                 if (!obj || typeof obj !== 'object') return ids;
+                const rec = obj as Record<string, unknown>;
 
-                for (const key in obj) {
-                    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                        const value = obj[key];
+                for (const key in rec) {
+                    if (Object.prototype.hasOwnProperty.call(rec, key)) {
+                        const value = rec[key];
                         if (typeof value === 'string' && key.toLowerCase().includes('datastore') && value.startsWith('projects/') && value.includes('/dataStores/')) {
                             ids.push(value);
-                        } else if (typeof value === 'object') {
+                        } else if (typeof value === 'object' && value !== null) {
                             ids = ids.concat(findDataStoreIds(value));
                         }
                     }
@@ -229,8 +231,8 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
             const dataStoresResults = await Promise.all(dataStorePromises);
             setAccessibleDataStores(dataStoresResults);
 
-        } catch (err: any) {
-            setDataStoresError(err.message || 'Failed to fetch accessible data stores.');
+        } catch (err: unknown) {
+            setDataStoresError(toErrorMessage(err) || 'Failed to fetch accessible data stores.');
         } finally {
             setIsFetchingDataStores(false);
         }
@@ -248,7 +250,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
     const reasoningEngine = agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
     const toolDescription = agent.adkAgentDefinition?.toolSettings?.toolDescription;
     
-    let statusElement = null;
+    let statusElement: React.ReactNode = null;
     let isPrivate = false;
 
     if (agent.state === 'ENABLED' || agent.state === 'DISABLED') {
@@ -491,7 +493,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                                 {accessibleDataStores.map(ds => (
                                     <li key={ds.name} className="p-3">
                                         <p className="font-medium text-white">{ds.displayName}</p>
-                                        <p className="text-xs font-mono text-gray-400 mt-1">{ds.name.split('/').pop()}</p>
+                                        <p className="text-xs font-mono text-gray-400 mt-1">{ds.name?.split('/').pop() || ''}</p>
                                     </li>
                                 ))}
                             </ul>

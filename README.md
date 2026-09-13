@@ -1,219 +1,191 @@
 # Gemini Enterprise Manager
 
-A comprehensive web interface to manage Google Cloud Gemini Enterprise resources. This application provides a unified console to manage Agents, Agent Engines, Data Stores, Authorizations, and more, effectively acting as a GUI for the Discovery Engine and Vertex AI APIs.
+A comprehensive, production-grade web console to inspect, configure, test, and govern Google Cloud Gemini Enterprise resources. This application provides a unified operational dashboard for Discovery Engine, Vertex AI Reasoning Engines, Agent Registry (Skills), Data Stores, Cloud Run runtimes, Model Armor safety, Observability, and Enterprise Access Governance.
 
-It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates directly with Google Cloud APIs using the **Google API JavaScript Client (`gapi`)**.
+Built with **React 18**, **TypeScript**, **Vite**, and **Tailwind CSS**, communicating directly with Google Cloud APIs using the **Google API JavaScript Client (`gapi`)** and OAuth 2.0.
 
-## Features Overview
+---
 
-### 🤖 Agent Management
-*   **GE Agent Manager**: List, create, update, and delete agents. Supports toggling agent status (Enable/Disable).
-*   **⚡ Skills Registry**: Central enterprise skills management powered by Google Cloud Agent Platform (`agentregistry.googleapis.com`):
-    *   **Package Authoring & Upload**: Create new skills or upload `.zip` packages containing `SKILL.md` instructions and subfiles.
-    *   **Immutable Revision Control**: Inspect versioned revisions (`revisions/rev-1`), compilation logs, and raw JSON specs.
-    *   **Catalog Activation**: Transition skills to `STATE_ACTIVE` with default revisions for company-wide distribution.
-    *   **1-Click GE App Deployment**: Provision skills directly into Gemini Enterprise engine assistants with `scope: ALL_USERS`, displaying under **"From my organization"**.
-    *   **Multi-Region Support**: Switch between `🌍 Global`, `🇪🇺 EU`, and `🇺🇸 US` locations.
-*   **Chat Testing**: Built-in chat interface to test agents and assistants with streaming responses, tool visualization, and grounding metadata inspection.
-*   **Project Context**: Smart header with Breadcrumbs and quick project switching (Project ID/Number).
+## Complete Feature Matrix (18 Console Modules)
 
-### 📚 Documentation & Help
-*   **User Manual**: Built-in help system with detailed feature guides and API info.
-*   **API Reference**: Clear documentation of underlying API calls for each feature.
+### 🤖 Agent Management & Studio
+1. **Agent Manager**: Discover, inspect, and manage Discovery Engine agents across collections. Toggle states (`ENABLED` / `DISABLED`), inspect session history, and update display configurations.
+2. **Skills Registry**: Centralized enterprise skills governance powered by Google Cloud Agent Platform (`agentregistry.googleapis.com`):
+   - **Package Authoring & Upload**: Create new skills or upload `.zip` bundles containing `SKILL.md` instructions and tool definitions.
+   - **Immutable Revision Control**: Inspect versioned revisions (`revisions/rev-1`), build logs, and raw JSON specifications.
+   - **Catalog Activation**: Transition skills to `STATE_ACTIVE` with default revisions for company-wide distribution.
+   - **1-Click GE Engine Deployment**: Provision skills directly into Gemini Enterprise engine assistants with `scope: ALL_USERS`, displaying under **"From my organization"**.
+   - **Multi-Region Support**: Seamlessly switch between `Global`, `EU`, and `US` locations.
+3. **Agent Builder (ADK Studio)**: Low-code generator and one-click deployment for Vertex AI Agent Engine applications:
+   - **Progressive Disclosure Interface**: Organized into collapsible accordion categories (Core Capabilities, Managed MCPs, Enterprise GCP APIs, Custom Endpoints, OAuth, and Observability).
+   - **Reasoning Depth & Thinking Budget**: Configure thinking levels (`HIGH`, `MEDIUM`, `LOW`, `MINIMAL`) and token budgets.
+   - **Code Execution & Graphviz**: Sandboxed Python execution and client-side architecture diagram rendering.
+   - **Cloud Build & Cloud Run**: Automated build and deployment to Google Cloud serverless infrastructure.
+4. **Agent Catalog**: Browse curated open-source templates and deploy agents directly into your Google Cloud project.
+5. **Agent Runtimes**: Discover and operate runtime engines:
+   - **Vertex AI Reasoning Engines**: View sessions, execute queries, and inspect execution traces.
+   - **Cloud Run Agent Services**: Monitor health, inspect revision tags, and test endpoints.
+   - **Dialogflow CX Agents**: Inspect connected Conversational Agents.
 
-### 🏭 Agent Engines & Runtimes
-*   **Available Agents**: Discover and manage backend runtimes:
-    *   **Agent Engines (Vertex AI)**: View active sessions, terminate sessions, and perform direct queries.
-    *   **Direct Query**: Test runtimes directly without going through the high-level Agent API.
-    *   **Vanity (Redirect) URLs**: A dedicated page for listing, viewing status, and deleting global load balancer redirect URLs for your published Agent Engines.
+### 📚 Knowledge & Engines
+6. **Data Stores**: Vertex AI Search and Gemini Enterprise datastore management:
+   - Create, edit, and configure datastores with advanced document parsing (Digital, OCR, Layout Parser).
+   - Import documents directly from Google Cloud Storage (`gs://`) or local uploads.
+   - Configure chunking strategies and indexing status.
+7. **Engines & Assistants**: Configure Discovery Engine reasoning engines and default assistants:
+   - Manage system instructions, search grounding parameters, and safety thresholds.
+   - Link datastores and manage agent attachments.
+8. **Quota & Cost Estimator**: Inspect real-time API quota utilization via Cloud Monitoring API time-series and estimate monthly SKU costs across Discovery Engine, Gemini queries, and vector indexing.
+9. **Playground (Assistant Testing)**: Interactive chat playground with streaming completions, tool call inspector, citation badges, grounding metadata viewer, and raw request/response JSON explorer.
 
-### 🛠️ Builder & Catalog
-*   **Agent Builder**: A low-code tool to generate and deploy agents.
-    *   **Quick Start Templates**: Deploy pre-built templates like the `GCP Health Monitoring Agent` or `GCP Logs Reader`.
-    *   **ADK Agents**: Generates Python code (`agent.py`, `requirements.txt`) for Vertex AI Agent Engines.
-        *   Supports **Google Search**, **Data Store**, **OAuth**, and **BigQuery**.
-        *   **GCP Integrations**: Built-in specialized tools for **Security Command Center**, **Recommender**, **Service Health**, and **Network Management**.
-        *   **Capabilities**: Includes utilities like rich HTML **Email Sending** via the Gmail API.
-        *   **MCP Support**: Native toggles for enabling Cloud Logging, Cloud Monitoring, and other Google-managed MCP servers.
-    *   **Cloud Build Integration**: One-click deployment to Google Cloud.
-*   **Agent Catalog**: Browse sample agents from GitHub repositories and deploy them directly to your project.
+### 🔌 Integrations & Infrastructure
+10. **Connectors**: Inspect external enterprise data connectors (Jira, Salesforce, Confluence, SharePoint, BigQuery). Monitor synchronization health, connector run status, and error logs.
+11. **Architecture Topology**: Dynamic node-link visualization mapping your Google Cloud project, Engines, Assistants, Agents, Data Stores, and Cloud Run backends:
+    - Interactive graph view with upstream/downstream dependency traversal.
+    - **WCAG 2.1.1 Keyboard Fallback**: Accessible tabular matrix view with inbound/outbound connection badges and deep inspection.
+12. **Custom Domains & Load Balancers**: Inspect and manage Global External Application Load Balancers, forwarding rules, and Google-managed SSL certificates for custom domains.
 
-### 📚 Knowledge & Data
-*   **Data Stores**: Manage Vertex AI Search data stores.
-    *   Create and Edit data stores with advanced parsing configuration (Digital, OCR, Layout).
-    *   **Document Management**: List documents and import new files directly from your computer or Google Cloud Storage (GCS).
-*   **Assistant Configuration**: Manage the default assistant's system instructions, grounding settings (Google Search), and enabled tools/actions.
+### 🛡️ Security, Governance & Observability
+13. **Authorizations**: Manage OAuth2 configurations, client credentials, and token endpoints for agentic tools.
+14. **Agent Permissions**: Inspect and update IAM policies, roles, and user access bindings across agents and datastores.
+15. **Model Armor**: Comprehensive LLM safety and sanitization:
+    - **Policy Generator**: Design templates to block prompt injection, hate speech, harassment, and PII leakage.
+    - **Sanitization Audit Log**: Inspect real-time Cloud Logging audit entries for triggered safety filters and blocked payloads.
+16. **Observability**: Live operational analytics powered by Google Cloud Logging and BigQuery:
+    - Request volume, latency percentiles, error rates, and message distributions.
+    - Copyable SQL queries and direct links to Cloud Trace.
+17. **Backup & Recovery**: Granular snapshot and restoration for Collections, Engines, Agents, and User Sessions to Cloud Storage (`gs://`).
+18. **Licenses**: Enterprise Gemini license allocation and active pruner:
+    - Filter user assignments by principal, assignment state, license config, and last login.
+    - Deploy an automated serverless pruner to reclaim unused licenses.
 
-### 🛡️ Security & Governance
-*   **Authorizations**: Manage OAuth2 configurations for agents.
-*   **Model Armor**:
-    *   **Log Viewer**: Inspect sanitization logs to see what content was blocked or modified.
-    *   **Policy Generator**: Create Model Armor templates to filter Hate Speech, PII, and Prompt Injection.
-*   **IAM Policies**: View and edit IAM policies for specific agents directly from the UI.
+---
 
-### 📊 Observability
-*   **Live Dashboard**: Monitor request volume, messages by role, and messages by agent.
-*   **BigQuery Integration**: Queries live audit logs stored in BigQuery.
-*   **Custom X-Axis Labels**: Displays both agent name and ID, helping identify duplicate names.
-*   **Name Recovery**: Automatically recovers agent names from other log entries if missing in some.
-*   **Query Tooltips**: View and copy the exact BigQuery queries used for metrics.
+## Least-Privilege IAM Roles Reference
 
-### 🔧 Operations
-*   **Discovery Engine & Conversation Management**:
-    *   **Share Session**: Clone a session to another user's history by User ID (email or numeric).
-    *   **Copy Link**: Generate a deep link to the session in the Vertex AI Search console (handles Console CID).
-    *   **Raw Content Inspection**: View full JSON for User/Model turns, including system instructions and grounding metadata.
-*   **Architecture Visualizer**: An interactive node-graph visualizing the relationships between your Project, Engines, Assistants, Agents, Data Stores, and Backends.
-*   **Backup & Recovery**:
-    *   Full backup of Discovery Engine resources (Collections, Engines, Agents) to GCS.
-    *   **Granular Backup/Restore**:
-        *   Backup specific Agents, Data Stores, or Agent Engines.
-        *   **Restore as User**: Restore chat history to a specific Target User ID (useful for debugging or migration).
-*   **Licenses**: Monitor user license assignments and prune inactive users.
-    *   **Granular Filters**: Filter user licenses down by Principal, Status, Assigned Config, and Last Login Time.
-    *   **Bulk Management**: Intuitive UI-selection for applying, reassigning, or revoking configuration licenses en masse.
-    *   **Auto-Pruner**: Deploy a serverless job to automatically revoke licenses for users who haven't logged in for $N days.
+To enforce Google Cloud security best practices, grant users and service accounts only the roles necessary for their intended workflows:
 
-## Setup & Configuration
+| Feature / Module | Minimum Required IAM Roles | Purpose |
+| :--- | :--- | :--- |
+| **Discovery Engine / Agents / Assistants** | `roles/discoveryengine.editor` | Manage search engines, assistants, datastores, and agents |
+| **Vertex AI Reasoning Engines** | `roles/aiplatform.user` | Query and inspect Vertex AI Reasoning Engines |
+| **Skills Registry** | `roles/agentregistry.editor` | Upload, version, activate, and delete enterprise skills |
+| **Cloud Run Agent Deployments** | `roles/run.developer` + `roles/iam.serviceAccountUser` | Deploy and query containerized agents on Cloud Run |
+| **Cloud Build (ADK Deployments)** | `roles/cloudbuild.builds.editor` | Trigger automated container builds from ADK templates |
+| **Cloud Storage (Backups & Datastores)** | `roles/storage.objectAdmin` | Read/write snapshots, import documents, and store templates |
+| **Observability & Analytics** | `roles/bigquery.user` + `roles/bigquery.dataViewer` | Query audit log datasets and analytics views |
+| **Model Armor & Error Logs** | `roles/logging.viewer` | Read sanitization audit events and execution logs |
+| **Quota & Cost Estimator** | `roles/monitoring.viewer` | Query metric time-series via Cloud Monitoring API |
+| **Custom Domains & Load Balancers** | `roles/compute.networkViewer` | Inspect global forwarding rules and SSL certificates |
+| **API Preflight Health Check** | `roles/serviceusage.serviceUsageConsumer` | Verify enabled APIs on project startup |
+| **Comprehensive Admin (Full Access)** | `roles/discoveryengine.admin` + `roles/aiplatform.admin` + `roles/run.admin` | Full administrative control across all 18 modules |
 
-### Prerequisites
-*   A Google Cloud Project.
-*   The following APIs enabled:
-    *   `discoveryengine.googleapis.com` (Discovery Engine / Gemini Enterprise API)
-    *   `agentregistry.googleapis.com` (Agent Registry / Skills Platform API)
-    *   `aiplatform.googleapis.com` (Vertex AI API)
-    *   `run.googleapis.com` (Cloud Run API)
-    *   `cloudbuild.googleapis.com` (Cloud Build API)
-    *   `storage.googleapis.com` (Cloud Storage API)
-    *   `serviceusage.googleapis.com` (Service Usage API)
+---
 
-### 1. Configure OAuth Consent
-To use "Sign in with Google", configure an OAuth Client ID:
-1.  Go to **APIs & Services > Credentials** in the Google Cloud Console.
-2.  Create an **OAuth client ID** (Web application).
-3.  Add the URL where this app is running to **Authorized JavaScript origins** (e.g., `http://localhost:3000` or `https://your-app.run.app`).
-4.  Copy the **Client ID** and configure it using one of the options below.
+## Quick Start & Local Development
 
-### Configuration Options
-You can configure the application's Google Client ID in several ways:
-*   **Docker Container Environment Variable (Recommended for Deployments):** Set the `GOOGLE_CLIENT_ID` environment variable in your container environment (e.g., on Cloud Run). The entrypoint script will write this value to `config.json` automatically on startup.
-*   **Static Config File:** Update `"GOOGLE_CLIENT_ID"` inside `public/config.json`.
-*   **Local Development Environment:** Copy `.env.example` to `.env` and set `VITE_GOOGLE_CLIENT_ID`.
-*   **UI Settings (Local Override):** Click the settings input field under Google Sign-In on the Welcome screen to paste your client ID directly. It is saved in your browser's `localStorage`.
+### 1. Prerequisites
+- **Node.js** 18+ and **npm** 9+.
+- A **Google Cloud Project** with billing enabled.
+- The Google Cloud SDK (`gcloud`) installed and authenticated.
 
-### 2. Run Locally
-```sh
+### 2. Configure OAuth 2.0 Credentials
+1. Navigate to **APIs & Services > Credentials** in the Google Cloud Console.
+2. Click **Create Credentials > OAuth client ID**.
+3. Select **Web application**.
+4. Under **Authorized JavaScript origins**, add:
+   - `http://localhost:5173` (Vite dev server)
+   - `http://localhost:3000` (production preview)
+5. Copy the generated **Client ID**.
+
+### 3. Environment Setup
+Copy `.env.example` to `.env.local` and set your Client ID:
+```bash
+cp .env.example .env.local
+```
+Or paste your Client ID in `public/config.json`:
+```json
+{
+  "GOOGLE_CLIENT_ID": "your-client-id.apps.googleusercontent.com"
+}
+```
+
+### 4. Install & Launch
+```bash
 npm install
 npm run dev
 ```
+Open `http://localhost:5173` in your browser.
 
-### 3. Deploy to Cloud Run
-You can deploy this frontend as a static site container.
+### 5. Authentication & Preflight
+Upon initial launch, you can authenticate using either:
+- **Sign in with Google**: One-click OAuth login via Google Identity Services.
+- **Manual Access Token**: Useful for sandboxed environments or automated testing:
+  ```bash
+  gcloud auth print-access-token
+  ```
+The initial screen executes an automated **13-point preflight health check** verifying enabled Google Cloud APIs and Service Agent permissions.
 
-**Using Google Cloud Buildpacks (Simplest):**
-```sh
-gcloud run deploy gemini-manager \
+---
+
+## Production Deployment to Cloud Run
+
+### Option A: Using Google Cloud Buildpacks (Fastest)
+```bash
+gcloud run deploy gemini-enterprise-manager \
   --source . \
   --project [YOUR_PROJECT_ID] \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars GOOGLE_CLIENT_ID="your-client-id"
+  --set-env-vars GOOGLE_CLIENT_ID="[YOUR_CLIENT_ID].apps.googleusercontent.com"
 ```
 
-**Using Docker:**
-1.  Build the image: `docker build -t gcr.io/[PROJECT_ID]/gemini-manager .`
-2.  Push: `docker push gcr.io/[PROJECT_ID]/gemini-manager`
-3.  Deploy:
-    ```sh
-    gcloud run deploy gemini-manager \
-      --image gcr.io/[PROJECT_ID]/gemini-manager \
-      --project [YOUR_PROJECT_ID] \
-      --region us-central1 \
-      --allow-unauthenticated \
-      --set-env-vars GOOGLE_CLIENT_ID="your-client-id"
-    ```
+### Option B: Docker Container
+```bash
+# Build container image
+docker build -t gcr.io/[YOUR_PROJECT_ID]/gemini-enterprise-manager:latest .
 
-## Usage Tips
+# Push to Container Registry / Artifact Registry
+docker push gcr.io/[YOUR_PROJECT_ID]/gemini-enterprise-manager:latest
 
-*   **API Validation**: On first load, the app checks if required APIs are enabled. Use the "Enable APIs" button to fix missing dependencies.
-*   **Access Token**: If you cannot use Google Sign-In (e.g., due to third-party cookie restrictions), you can manually paste a token generated via `gcloud auth print-access-token`.
-*   **Region Selection**: Ensure you select the correct location (Global, US, EU) in the configuration bar, as Discovery Engine resources are location-specific.
+# Deploy to Cloud Run
+gcloud run deploy gemini-enterprise-manager \
+  --image gcr.io/[YOUR_PROJECT_ID]/gemini-enterprise-manager:latest \
+  --project [YOUR_PROJECT_ID] \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars GOOGLE_CLIENT_ID="[YOUR_CLIENT_ID].apps.googleusercontent.com"
+```
 
-## Technical Details
+---
 
-*   **Framework**: React 18 + Vite
-*   **Styling**: Tailwind CSS
-*   **State Management**: React Hooks + Session Storage
-*   **Visualization**: React Flow (Architecture Graph)
-*   **API Client**: `window.gapi` (Google API Client Library for JavaScript)
+## Accessibility & Standards (WCAG 2.1 Compliance)
 
-## API Reference
+Gemini Enterprise Manager adheres to WCAG 2.1 accessibility standards:
+- **Universal Focus Trapping & Modal Navigation**: Every modal, drawer, and flyout incorporates focus trapping, `<Escape>` key dismissal, `role="dialog"`, `aria-modal="true"`, and automatic focus restoration upon closing.
+- **Accessible Table Sorting**: All tabular data structures utilize semantic `<button>` triggers within `<th>` elements featuring `aria-sort="ascending" | "descending" | "none"` and descriptive `aria-label` announcements.
+- **Icon Controls**: 100% of icon-only buttons include descriptive `aria-label` attributes for screen readers.
+- **Motion Sensitivity**: Honors `@media (prefers-reduced-motion: reduce)` by suppressing non-essential animations, transitions, and spinners.
+- **Architecture Matrix Fallback (WCAG 2.1.1)**: Full keyboard-navigable tabular matrix view serving as a complete functional alternative to the interactive SVG topology graph.
 
-The application communicates with several Google Cloud APIs. Below is a reference of the key resources and methods used:
+---
 
-### Discovery Engine API (`discoveryengine.googleapis.com`)
-*   **Engines**: `GET /v1alpha/projects/{project}/locations/{location}/collections/{collection}/engines`
-*   **Assistants**: `GET /v1alpha/projects/{project}/locations/{location}/collections/{collection}/engines/{engine}/assistants`
-*   **Agents**: `GET /v1alpha/projects/{project}/locations/{location}/collections/{collection}/engines/{engine}/assistants/{assistant}/agents`
-*   **Data Stores**: `GET /v1beta/projects/{project}/locations/{location}/collections/{collection}/dataStores`
-*   **Conversations**: `POST /v1alpha/projects/{project}/locations/{location}/collections/{collection}/engines/{engine}/sessions`
-*   **Connectors**: `GET /v1alpha/projects/{project}/locations/{location}/collections/{collection}/dataConnector`
-*   **Authorizations**: `GET /v1alpha/projects/{project}/locations/{location}/authorizations`
-*   **User Licenses**: `GET /v1/projects/{project}/locations/{location}/userStores/{userStore}/userLicenses`
-*   **License Allocations**: `GET /v1alpha/billingAccounts/{billingAccount}/billingAccountLicenseConfigs`
+## Verification & Testing
 
-### Agent Registry API (`agentregistry.googleapis.com`)
-*   **List Skills**: `GET /v1alpha/projects/{project}/locations/{location}/skills`
-*   **Publish Skill**: `POST /v1alpha/projects/{project}/locations/{location}/skills?skillId={skillId}`
-*   **Get Skill**: `GET /v1alpha/projects/{project}/locations/{location}/skills/{skill}`
-*   **List Skill Revisions**: `GET /v1alpha/projects/{project}/locations/{location}/skills/{skill}/revisions`
-*   **Activate / Update Skill**: `PATCH /v1alpha/projects/{project}/locations/{location}/skills/{skill}?updateMask=default_revision,target_state`
-*   **Delete Skill**: `DELETE /v1alpha/projects/{project}/locations/{location}/skills/{skill}`
+The codebase includes a comprehensive unit and integration test suite:
+```bash
+# Type check without emitting
+npx tsc --noEmit
 
-### Vertex AI API (`aiplatform.googleapis.com`)
-*   **Reasoning Engines**: `GET /v1beta1/projects/{project}/locations/{location}/reasoningEngines`
-*   **Chat Completions**: `POST /v1beta1/projects/{project}/locations/{location}/publishers/google/models/{model}:streamGenerateContent` (for Gemini models)
+# Run Vitest test suite
+npx vitest run
 
-### Cloud Run API (`run.googleapis.com`)
-*   **Services**: `GET /v2/projects/{project}/locations/{location}/services`
+# Production bundle build
+npm run build
+```
 
-### Cloud Build API (`cloudbuild.googleapis.com`)
-*   **Builds**: `POST /v1/projects/{project}/builds` (Used to deploy Agent Starter Pack)
+---
 
-### Cloud Storage API (`storage.googleapis.com`)
-*   **Buckets**: `GET /storage/v1/b?project={project}` (Used for backup/restore and deployments)
-*   **Objects**: `GET /storage/v1/b/{bucket}/o` 
+## License
 
-### Compute Engine API (\`compute.googleapis.com\`)
-*   **Global Forwarding Rules**: \`GET /compute/v1/projects/{project}/global/forwardingRules\` (Redirect URLs)
-*   **Global Managed SSL Certificates**: \`GET /compute/v1/projects/{project}/global/sslCertificates\` (Redirect URLs)
-
-### Dialogflow API (\`dialogflow.googleapis.com\`)
-*   **Agents**: `GET /v3/projects/{project}/locations/{location}/agents`
-
-### BigQuery API (`bigquery.googleapis.com`)
-*   **Datasets**: `GET /bigquery/v2/projects/{project}/datasets`
-*   **Tables**: `GET /bigquery/v2/projects/{project}/datasets/{dataset}/tables`
-*   **Queries**: `POST /bigquery/v2/projects/{project}/queries` (Used for Analytics Metrics)
-
-### Cloud Billing API (`cloudbilling.googleapis.com`)
-*   **Billing Accounts**: `GET /v1/billingAccounts` (Used for license allocation management)
-
-### Service Usage API (`serviceusage.googleapis.com`)
-*   **Services**: `GET /v1/projects/{project}/services` (Used to validate enabled APIs on startup)
-
-### IAM API (`iam.googleapis.com`)
-*   **Permissions**: \`POST /v1/projects/{project}:testIamPermissions\` (Used to check service account permissions)
-
-### Cloud Monitoring API (\`monitoring.googleapis.com\`)
-*   **Usage Metrics (TimeSeries)**: \`GET /v3/projects/{project}/timeSeries\` (Quota Usage)
-
-### Cloud Logging API (\`logging.googleapis.com\`)
-*   **Logs**: `POST /v2/entries:list` (Used to query Model Armor violations and Connector logs)
-
-### Model Armor API (`modelarmor.googleapis.com`)
-*   **Templates**: `POST /v1/projects/{project}/locations/global/templates` (Used to create Model Armor policies)
-
-### GitHub API (`api.github.com`)
-*   **Repository Contents**: `GET /repos/{owner}/{repo}/contents/{path}` (Used by Agent Catalog and Starter Pack)
-
+Copyright 2024 Google LLC. Licensed under the Apache License, Version 2.0.

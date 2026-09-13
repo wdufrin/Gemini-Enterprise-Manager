@@ -14,15 +14,14 @@
  * limitations under the License.
  */
 
-
 // FIX: Replaced incorrect component code with proper type definitions.
 export enum Page {
   AGENTS = 'GE Agent Manager',
   SKILLS_REGISTRY = 'Skills Registry',
-  ASSISTANT = 'Assistant',
+  ASSISTANT = 'Engines & Assistants',
   AUTHORIZATIONS = 'Authorizations',
   AGENT_PERMISSIONS = 'Agent Permissions',
-  AGENT_ENGINES = 'Available Agents',
+  AGENT_ENGINES = 'Agent Runtimes',
   A2A_TESTER = 'A2A Tester',
   AGENT_BUILDER = 'ADK Studio',
   AGENT_CATALOG = 'Agent Catalog',
@@ -37,32 +36,24 @@ export enum Page {
   ARCHITECTURE = 'Architecture',
   LICENSE = 'Licenses',
   CONNECTORS = 'Connectors',
-  GE_QUOTA_USAGE = 'GE Quota Usage',
-  VANITY_URLS = 'Redirect URLs',
+  GE_QUOTA_USAGE = 'Quota & Cost Estimator',
+  VANITY_URLS = 'Custom Domains & Load Balancers',
   CONFIG_AUDIT = 'App Config Audit',
 }
 
 export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime' | 'agentType';
 export type SortDirection = 'asc' | 'desc';
 
-export interface UserProfile {
-    name: string;
-    email: string;
-    picture: string;
-    oid?: string;
-}
+export interface UserProfile { name: string; email: string; picture: string; oid?: string; }
 
-export interface SortConfig {
-  key: SortableAgentKey;
-  direction: SortDirection;
-}
+export interface SortConfig { key: SortableAgentKey; direction: SortDirection; }
 
 export interface Config {
   projectId: string;
   appLocation: string;
   collectionId: string;
   appId: string;
-  assistantId: string;
+  assistantId?: string;
   dataStoreId?: string;
   reasoningEngineLocation?: string;
   reasoningEngineId?: string;
@@ -92,6 +83,7 @@ export interface WidgetConfig {
   accessSettings?: {
     enableWebApp?: boolean;
     workforceIdentityPoolProvider?: string;
+    [key: string]: unknown;
   };
   uiSettings?: {
     enableAutocomplete?: boolean;
@@ -99,11 +91,20 @@ export interface WidgetConfig {
     features?: Record<string, string>;
     modelConfigs?: Record<string, string>;
     modelConfigInfo?: ModelConfigInfo;
+    [key: string]: unknown;
   };
+  [key: string]: unknown;
 }
 
-export interface StarterPrompt {
-  text: string;
+export interface StarterPrompt { text: string; }
+
+export interface CannedQuery {
+  name: string;
+  displayName?: string;
+  enabled?: boolean;
+  googleDefined?: boolean;
+  defaultTexts?: { title?: string; description?: string };
+  [key: string]: unknown;
 }
 
 export interface AuthorizationConfig {
@@ -111,40 +112,56 @@ export interface AuthorizationConfig {
   toolAuthorizations?: string[];
 }
 
+export interface LowCodeAgentDefinition {
+  nodes?: { llmAgentNode?: { model?: string; [key: string]: unknown }; [key: string]: unknown }[];
+  deployedNodes?: { llmAgentNode?: { model?: string; [key: string]: unknown }; [key: string]: unknown }[];
+  [key: string]: unknown;
+}
+
+export interface WorkflowAgentDefinition {
+  agentFlow?: {
+    nodes?: { agentNode?: { model?: string; [key: string]: unknown }; [key: string]: unknown }[];
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 export interface Agent {
   name: string;
+  id?: string;
   displayName: string;
   description?: string;
-  icon?: {
-    uri: string;
-  };
+  icon?: { uri: string };
   starterPrompts?: StarterPrompt[];
   adkAgentDefinition?: {
-    toolSettings?: {
-      toolDescription: string;
-    };
-    provisionedReasoningEngine?: {
-      reasoningEngine: string;
-    };
+    toolSettings?: { toolDescription: string };
+    provisionedReasoningEngine?: { reasoningEngine: string };
   };
-  a2aAgentDefinition?: {
-    jsonAgentCard: string;
-  };
-  lowCodeAgentDefinition?: any;
-  managedAgentDefinition?: any;
-  workflowAgentDefinition?: any;
+  a2aAgentDefinition?: { jsonAgentCard: string };
+  lowCodeAgentDefinition?: LowCodeAgentDefinition;
+  managedAgentDefinition?: Record<string, unknown>;
+  workflowAgentDefinition?: WorkflowAgentDefinition;
   skillAgentDefinition?: SkillAgentDefinition;
   authorizations?: string[]; // Deprecated
   authorizationConfig?: AuthorizationConfig;
-  entitlements?: any[];
+  entitlements?: unknown[];
+  iamPolicy?: IamPolicy;
   state?: 'ENABLED' | 'DISABLED' | 'PRIVATE' | 'CONFIGURED' | 'DEPLOYING' | 'DEPLOYMENT_FAILED' | 'SUSPENDED' | 'CREATING' | 'CREATION_FAILED' | string;
-  sharingConfig?: {
-    scope?: 'RESTRICTED' | 'ALL_USERS' | string;
-  };
+  sharingConfig?: { scope?: 'RESTRICTED' | 'ALL_USERS' | string };
   createTime?: string;
   updateTime?: string;
   agentType?: string;
   agentOrigin?: string;
+}
+
+export interface AgentViewResponse {
+  agentView?: {
+    agentType?: string;
+    agentOrigin?: string;
+    [key: string]: unknown;
+  };
+  agent?: Agent;
+  [key: string]: unknown;
 }
 
 export interface Oauth2Config {
@@ -192,63 +209,206 @@ export interface DialogflowAgent {
   updateTime?: string;
   startFlow?: string;
   startPlaybook?: string;
-  genAppBuilderSettings?: {
-      engine?: string;
-  };
-  speechToTextSettings?: {
-      enableSpeechAdaptation?: boolean;
-  };
+  genAppBuilderSettings?: { engine?: string };
+  speechToTextSettings?: { enableSpeechAdaptation?: boolean };
   advancedSettings?: {
-      loggingSettings?: any;
-      speechSettings?: any;
-      audioExportGcsDestination?: any;
+    loggingSettings?: Record<string, unknown>;
+    speechSettings?: Record<string, unknown>;
+    audioExportGcsDestination?: Record<string, unknown>;
   };
+}
+
+export interface PlanPart {
+  executableCode?: { code: string };
+  codeExecutionResult?: { output?: string };
+  [key: string]: unknown;
+}
+
+export interface PlannerStep {
+  planStep?: {
+    parts?: PlanPart[];
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface CitationItem {
+  documentMetadata?: {
+    document?: string;
+  };
+  [key: string]: unknown;
+}
+
+export interface GroundingChunkItem {
+  retrieved_context?: {
+    document_name?: string;
+  };
+  [key: string]: unknown;
+}
+
+export interface GroundingMetadataItem {
+  grounding_chunks?: GroundingChunkItem[];
+  [key: string]: unknown;
+}
+
+export interface AnswerDetails {
+  diagnostics?: {
+    plannerSteps?: PlannerStep[];
+    [key: string]: unknown;
+  } | Record<string, unknown>;
+  citations?: CitationItem[] | unknown[];
+  groundingMetadata?: GroundingMetadataItem | Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
-  answerDetails?: {
-      diagnostics?: any;
-      citations?: any[];
-      groundingMetadata?: any;
-  }
+  answerDetails?: AnswerDetails;
 }
 
 // Types for Discovery Resources
 export interface Collection {
     name: string;
-    displayName: string;
+    displayName?: string;
+    description?: string;
     engines?: AppEngine[]; // For backup structure
+    [key: string]: unknown;
 }
+export interface SearchEngineConfig {
+  searchTier?: string;
+  searchAddOns?: string[];
+  requiredSubscriptionTier?: string;
+  [key: string]: unknown;
+}
+
 export interface AppEngine { // Renamed from Engine to avoid conflict with ReasoningEngine
     name: string;
     displayName: string;
-    solutionType: string;
+    solutionType?: string;
     assistants?: Assistant[]; // For backup structure
     dataStoreIds?: string[];
     // Add missing properties based on API response
     industryVertical?: string;
     appType?: string; // e.g. APP_TYPE_INTRANET
-    searchEngineConfig?: any;
-    observabilityConfig?: {
-        observabilityEnabled?: boolean;
-        sensitiveLoggingEnabled?: boolean;
-    };
+    searchEngineConfig?: SearchEngineConfig;
+    observabilityConfig?: { observabilityEnabled?: boolean; sensitiveLoggingEnabled?: boolean };
   features?: Record<string, string>; // Map of feature name to 'FEATURE_STATE_ON'|'FEATURE_STATE_OFF'
   modelConfigs?: Record<string, string>; // Map of model name to 'MODEL_ENABLED'|'MODEL_DISABLED'
   mobileDeeplinkUrl?: string;
   widgetConfigConfigId?: string;
+  commonConfig?: { companyName?: string; [key: string]: unknown };
+  isExternalIdp?: boolean;
+  cid?: string;
+  disableAnalytics?: boolean;
+  marketplaceAgentVisibility?: string;
+  [key: string]: unknown;
+}
+
+export interface ScimTenant {
+  name: string;
+  displayName?: string;
+  state?: string;
+  serviceAgent?: string;
+  baseUri?: string;
+  claimMapping?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+export interface IdpConfig {
+  idpType?: 'IDP_TYPE_UNSPECIFIED' | 'GSUITE' | 'THIRD_PARTY' | string;
+  workforcePoolName?: string;
+  externalIdpConfig?: {
+    workforcePoolName?: string;
+  };
+  [key: string]: unknown;
+}
+
+export interface CustomerPolicy {
+  modelArmorConfig?: {
+    userPromptTemplate?: string;
+    failureMode?: string;
+    [key: string]: unknown;
+  };
+  bannedPhrases?: {
+    bannedPhrases?: string[];
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
 }
 
 export interface AclConfig {
   name: string;
-  idpConfig?: {
-    idpType?: 'IDP_TYPE_UNSPECIFIED' | 'GSUITE' | 'THIRD_PARTY';
-    externalIdpConfig?: {
-      workforcePoolName?: string;
-    };
+  idpConfig?: IdpConfig;
+  [key: string]: unknown;
+}
+
+export interface Operation<T = Record<string, unknown>> {
+  name: string;
+  metadata?: Record<string, unknown>;
+  done?: boolean;
+  error?: {
+    code?: number;
+    message?: string;
+    details?: unknown[];
   };
+  response?: T;
+}
+
+export interface IamBinding {
+  role: string;
+  members?: string[];
+  condition?: { title?: string; description?: string; expression?: string };
+}
+
+export interface IamPolicy {
+  version?: number;
+  bindings?: IamBinding[];
+  etag?: string;
+  auditConfigs?: unknown[];
+}
+
+export interface ServiceAccount {
+  name: string;
+  projectId?: string;
+  uniqueId?: string;
+  email: string;
+  displayName?: string;
+  etag?: string;
+  description?: string;
+  oauth2ClientId?: string;
+  disabled?: boolean;
+}
+
+export interface WorkloadIdentityPool {
+  name: string;
+  displayName?: string;
+  description?: string;
+  state?: string;
+  disabled?: boolean;
+}
+
+export interface WorkloadIdentityProvider {
+  name: string;
+  displayName?: string;
+  description?: string;
+  state?: string;
+  disabled?: boolean;
+  attributeCondition?: string;
+  attributeMapping?: Record<string, string>;
+  oidc?: { clientId?: string; issuerUri?: string; [key: string]: unknown };
+  saml?: { entityId?: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+export interface CustomRole {
+  name?: string;
+  title: string;
+  description?: string;
+  includedPermissions: string[];
+  stage?: string;
+  etag?: string;
+  deleted?: boolean;
 }
 
 export interface VertexAiAgentConfig {
@@ -273,7 +433,7 @@ export interface EnabledTool {
 
 export interface Assistant {
     name: string;
-    displayName: string;
+    displayName?: string;
     description?: string;
     agents?: Agent[]; // For backup structure
     styleAndFormattingInstructions?: string;
@@ -285,7 +445,7 @@ export interface Assistant {
     googleSearchGroundingEnabled?: boolean;
     webGroundingType?: string;
     defaultWebGroundingToggleOff?: boolean;
-    customerPolicy?: object;
+    customerPolicy?: CustomerPolicy;
     vertexAiAgentConfigs?: VertexAiAgentConfig[];
     enabledActions?: Record<string, EnabledAction>;
     enabledTools?: Record<string, EnabledTool>;
@@ -295,13 +455,13 @@ export interface Assistant {
     disableLocationContext?: boolean;
 }
 
-
 export interface DataStore {
     name: string;
     displayName: string;
-    industryVertical: string;
-    solutionTypes: string[];
-    contentConfig: string;
+    industryVertical?: string;
+    solutionTypes?: string[];
+    contentConfig?: string;
+    [key: string]: unknown;
 }
 
 export interface Document {
@@ -312,34 +472,61 @@ export interface Document {
         uri: string;
     };
     jsonData?: string;
-    structData?: Record<string, any>;
+    structData?: Record<string, unknown>;
 
+}
+
+export interface ModelArmorFilterResult {
+  filterType?: string;
+  outcome?: string;
+  matchMetadata?: unknown;
+  [key: string]: unknown;
+}
+
+export interface ModelArmorSanitizationResult {
+  filterResults?: ModelArmorFilterResult[] | Record<string, unknown>;
+  sanitizationVerdict?: string;
+  sanitizationVerdictReason?: string;
+  [key: string]: unknown;
+}
+
+export interface ModelArmorPayload {
+  sanitizationResult?: ModelArmorSanitizationResult;
+  sanitizationInput?: {
+    text?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
 }
 
 export interface LogEntry {
-  logName: string;
-  receiveTimestamp: string;
-  severity: 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG' | 'DEFAULT';
-  protoPayload?: any;
-  jsonPayload?: any;
+  logName?: string;
+  receiveTimestamp?: string;
+  timestamp?: string;
+  severity?: 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG' | 'DEFAULT' | string;
+  protoPayload?: Record<string, unknown>;
+  jsonPayload?: ModelArmorPayload | Record<string, unknown>;
   textPayload?: string;
-  resource: {
-    type: string;
-    labels: { [key: string]: string };
+  httpRequest?: {
+    requestMethod?: string;
+    requestUrl?: string;
+    userAgent?: string;
+    status?: number;
+    latency?: string;
+    [key: string]: unknown;
+  };
+  resource?: {
+    type?: string;
+    labels?: { [key: string]: string };
   };
   labels?: { [key: string]: string };
+  [key: string]: unknown;
 }
 
 // GCS Types
-export interface GcsBucket {
-    id: string;
-    name: string;
-    }
+export interface GcsBucket { id: string; name: string; }
 
-export interface GcsObject {
-    name: string;
-    bucket: string;
-}
+export interface GcsObject { name: string; bucket: string; }
 
 // Cloud Run Types
 export interface EnvVar {
@@ -364,7 +551,7 @@ export interface Container {
 export interface ServiceTemplate {
     containers: Container[];
     serviceAccount?: string;
-    scaling?: any;
+    scaling?: Record<string, unknown>;
 }
 
 export interface CloudRunService {
@@ -378,13 +565,7 @@ export interface CloudRunService {
 }
 
 // --- Compute Resources ---
-export interface GlobalForwardingRule {
-    name: string;
-    IPAddress: string;
-    target: string;
-    creationTimestamp: string;
-    description?: string;
-}
+export interface GlobalForwardingRule { name: string; IPAddress: string; target: string; creationTimestamp: string; description?: string; }
 
 export interface ManagedSslCertificate {
     name: string;
@@ -396,6 +577,103 @@ export interface ManagedSslCertificate {
     creationTimestamp: string;
 }
 
+export interface DataConnectorActionParams {
+  mcp_server_description?: string;
+  mcp_agent_instructions?: string;
+  instance_uri?: string;
+  auth_type?: string;
+  scopes?: string;
+  auth_uri?: string;
+  token_uri?: string;
+  auth_uri_params?: string;
+  client_id?: string;
+  client_secret?: string;
+  mcp_server_source?: string;
+  registry_mcp_server_name?: string;
+  [key: string]: unknown;
+}
+
+export interface DataConnectorActionConfig {
+  actionParams?: DataConnectorActionParams;
+  [key: string]: unknown;
+}
+
+export interface DataConnectorBapConfig {
+  enabledActions?: string[];
+  [key: string]: unknown;
+}
+
+export interface DataConnectorDynamicTool {
+  name: string;
+  displayName?: string;
+  description?: string;
+  enabled?: boolean;
+  [key: string]: unknown;
+}
+
+export interface DataConnectorParams {
+  instance_uri?: string;
+  static_ip_enabled?: boolean;
+  structured_search_filter?: Record<string, unknown>;
+  admin_filter?: Record<string, unknown>;
+  structured_exclusion_search_filter?: Record<string, unknown>;
+  admin_exclusion_filter?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface DataConnector {
+  name?: string;
+  dataSource?: string;
+  state?: string;
+  displayName?: string;
+  description?: string;
+  actionConfig?: DataConnectorActionConfig;
+  bapConfig?: DataConnectorBapConfig;
+  dynamicTools?: DataConnectorDynamicTool[];
+  params?: DataConnectorParams;
+  refreshInterval?: string;
+  staticIpEnabled?: boolean;
+  latestRun?: {
+    error?: {
+      message?: string;
+      code?: number;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  errorConfig?: {
+    error?: {
+      message?: string;
+      code?: number;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  entities?: Array<{
+    name?: string;
+    params?: {
+      inclusion_filters?: unknown;
+      exclusion_filters?: unknown;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  }>;
+  [key: string]: unknown;
+}
+
+export type CollectionItem = Collection;
+
+export interface ListResourcesResponse<T = unknown> {
+  engines?: AppEngine[];
+  collections?: Collection[];
+  assistants?: Assistant[];
+  agents?: Agent[];
+  dataStores?: DataStore[];
+  resources?: T[];
+  nextPageToken?: string;
+  [key: string]: unknown;
+}
+
 // Architecture Graph Types
 export type NodeType = 'Project' | 'Location' | 'Collection' | 'Engine' | 'Assistant' | 'Agent' | 'ReasoningEngine' | 'DataStore' | 'Authorization' | 'CloudRunService';
 
@@ -403,14 +681,10 @@ export interface GraphNode {
   id: string; // full resource name
   type: NodeType;
   label: string; // short display name
-  data: any; // full resource object
+  data: unknown; // full resource object
 }
 
-export interface GraphEdge {
-  id: string;
-  source: string;
-  target: string;
-}
+export interface GraphEdge { id: string; source: string; target: string; }
 
 // Chat History Types
 export interface DiscoverySession {
@@ -436,11 +710,28 @@ export interface DiscoveryTurn {
         summarytext?: string;
       }
     };
-    citations?: any[];
-    references?: any[];
+    citations?: unknown[];
+    references?: unknown[];
     answerText?: string; // For hydrated answers
-    steps?: any[];
+    steps?: unknown[];
   };
+}
+
+export interface DiscoveryAnswerStep {
+  description?: string;
+  thought?: string;
+  [key: string]: unknown;
+}
+
+export interface DiscoveryAnswer {
+  answerText?: string;
+  answer_text?: string;
+  steps?: DiscoveryAnswerStep[];
+  reply?: {
+    replyText?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
 }
 
 export interface ReasoningEngineSession {
@@ -493,10 +784,11 @@ export interface UserMemory {
   name: string;
   fact?: string;
   description?: string;
+  content?: string;
   createTime?: string;
   updateTime?: string;
   originalResourcePath?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface ListMemoriesResponse {
@@ -517,7 +809,7 @@ export interface GeminiEnterpriseSkillConfig {
     dependentDataConnectorSourceOptions?: string[];
     skillKey?: string;
   };
-  workspaceSkillConfig?: Record<string, any>;
+  workspaceSkillConfig?: Record<string, unknown>;
   piperSkill?: boolean;
 }
 
@@ -550,7 +842,7 @@ export interface RegistrySkillFrontmatter {
   description?: string;
   packageId?: string;
   license?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface RegistrySkillRevision {
@@ -561,6 +853,8 @@ export interface RegistrySkillRevision {
   createTime?: string;
   sizeBytes?: string;
   uid?: string;
+  archiveUploadSource?: { archiveContent?: string; [key: string]: unknown };
+  [key: string]: unknown;
 }
 
 export interface RegistrySkill {
@@ -579,19 +873,14 @@ export interface RegistrySkill {
   frontmatter?: RegistrySkillFrontmatter;
   initialRevision?: {
     frontmatter?: RegistrySkillFrontmatter;
-    [key: string]: any;
+    archiveUploadSource?: { archiveContent?: string; [key: string]: unknown };
+    [key: string]: unknown;
   };
+  [key: string]: unknown;
 }
 
-export interface ListRegistrySkillsResponse {
-  skills?: RegistrySkill[];
-  nextPageToken?: string;
-}
-
-export interface ListRegistrySkillRevisionsResponse {
-  skillRevisions?: RegistrySkillRevision[];
-  nextPageToken?: string;
-}
+export interface ListRegistrySkillsResponse { skills?: RegistrySkill[]; nextPageToken?: string; }
+export interface ListRegistrySkillRevisionsResponse { skillRevisions?: RegistrySkillRevision[]; nextPageToken?: string; }
 
 export interface ConfigAuditItem {
   id: string;
@@ -620,4 +909,8 @@ export interface ConfigAuditSummary {
   timestamp: string;
 }
 
-
+export interface DistributeModalData { billingAccountId: string; billingAccountLicenseConfigId: string; currentProjectNumber: string; }
+export interface RetractModalData { billingAccountId: string; billingAccountLicenseConfigId: string; licenseConfigName: string; allocatedCount: number; currentProjectNumber: string; }
+export interface GroupLicensingEditConfig { billing_account_id?: string; projects?: Record<string, Array<{ subscription_tier?: string; groups?: string[]; location?: string }>>; }
+export type { UserLicense, LicenseConfig, BillingAccount, BillingAccountLicenseConfig } from './components/license/types';
+export type { TimeSeries, TimeSeriesPoint, LoggingSink } from './services/api/monitoring';

@@ -29,6 +29,14 @@ export interface SampleFile {
   encoding: 'base64' | 'utf-8';
 }
 
+interface GitHubContentItem {
+  type: string;
+  name: string;
+  path: string;
+  url?: string;
+  [key: string]: unknown;
+}
+
 export class SampleService {
   private baseUrl = 'https://api.github.com/repos/google/adk-samples/contents/python/agents';
   private token?: string;
@@ -37,8 +45,12 @@ export class SampleService {
     this.token = token;
   }
 
-  private getHeaders() {
-    return this.token ? { Authorization: `Bearer ${this.token}`, Accept: 'application/vnd.github.v3+json' } : { Accept: 'application/vnd.github.v3+json' };
+  private getHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { Accept: 'application/vnd.github.v3+json' };
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    return headers;
   }
 
   async getSamples(): Promise<SampleAgent[]> {
@@ -46,11 +58,11 @@ export class SampleService {
       const response = await fetch(this.baseUrl, { headers: this.getHeaders() });
       if (!response.ok) throw new Error(`Failed to fetch samples: ${response.statusText}`);
 
-      const data = await response.json();
+      const data = (await response.json()) as GitHubContentItem[];
       // Filter for directories only and exclude 'README.md' or other files
       return data
-        .filter((item: any) => item.type === 'dir')
-        .map((item: any) => ({
+        .filter((item) => item.type === 'dir')
+        .map((item) => ({
           name: item.name,
           path: item.path,
         }));
@@ -71,13 +83,13 @@ export class SampleService {
     const response = await fetch(url, { headers: this.getHeaders() });
     if (!response.ok) throw new Error(`Failed to fetch files at ${url}: ${response.statusText}`);
 
-    const data = await response.json();
+    const data = (await response.json()) as GitHubContentItem[];
 
     for (const item of data) {
-      if (item.type === 'file') {
+      if (item.type === 'file' && item.url) {
         const fileResponse = await fetch(item.url, { headers: this.getHeaders() }); // Fetch blob/content
         if (!fileResponse.ok) continue;
-        const fileData = await fileResponse.json();
+        const fileData = (await fileResponse.json()) as { content?: string };
         // GitHub API returns content in base64
         const isText = /\.(py|md|txt|json|yaml|yml|toml|lock|sh|gitignore|env|example)$/i.test(item.name);
         let content = fileData.content;
@@ -95,10 +107,10 @@ export class SampleService {
 
         files.push({
           path: basePath ? `${basePath}/${item.name}` : item.name,
-          content: content,
+          content: content || '',
           encoding: encoding
         });
-      } else if (item.type === 'dir') {
+      } else if (item.type === 'dir' && item.url) {
         await this.fetchRecursive(item.url, basePath ? `${basePath}/${item.name}` : item.name, files);
       }
     }

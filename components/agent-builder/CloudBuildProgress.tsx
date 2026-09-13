@@ -73,7 +73,7 @@ const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buil
             try {
                 // 1. Get Status
                 const build = await api.getCloudBuild(projectId, buildId);
-                const currentStatus = build.status;
+                const currentStatus = build.status || 'UNKNOWN';
                 setStatus(currentStatus);
                 setProgress(calculateProgress(build));
 

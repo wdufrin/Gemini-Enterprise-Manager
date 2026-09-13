@@ -18,6 +18,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { CloudRunService, ChatMessage } from '../../types';
 import * as api from '../../services/apiService';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface CloudRunQueryModalProps {
     isOpen: boolean;
@@ -52,41 +53,63 @@ const CodeBlock: React.FC<{ content: string }> = ({ content }) => {
 };
 
 const CloudRunCurlModal: React.FC<{ isOpen: boolean; onClose: () => void; service: CloudRunService; messages: ChatMessage[]; isA2a: boolean }> = ({ isOpen, onClose, service, messages, isA2a }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useModalA11y({
+        isOpen,
+        onClose,
+        containerRef,
+    });
+
     if (!isOpen) return null;
 
     const userMessages = messages.filter(m => m.role === 'user');
 
     const getCurlCommand = (userMessage: string) => {
         const cleanPrompt = userMessage.replace(/'/g, "'\\''");
-        const baseAuth = '-H "Authorization: Bearer [ACCESS_TOKEN]"';
-        
         if (isA2a) {
-            const url = `${service.uri.replace(/\/$/, '')}/invoke`;
-            const jsonRpc = JSON.stringify({
-                jsonrpc: "2.0",
-                method: "chat",
-                params: { message: { role: "user", parts: [{ text: userMessage }] } },
-                id: "1"
-            }, null, 2);
-             const escapedJson = jsonRpc.replace(/'/g, "'\\''");
-             return `curl -X POST ${baseAuth} \\
+            return `curl -X POST \\
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
   -H "Content-Type: application/json" \\
-  -d '${escapedJson}' \\
-  "${url}"`;
+  -d '{
+    "message": {
+      "role": "user",
+      "parts": [{"text": "${cleanPrompt}"}]
+    }
+  }' \\
+  "${service.uri}/message"`;
         }
-        
-        return `curl -X POST ${baseAuth} \\
+        return `curl -X POST \\
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
   -H "Content-Type: application/json" \\
   -d '{"prompt": "${cleanPrompt}"}' \\
   "${service.uri}"`;
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-[60] p-4" aria-modal="true" role="dialog">
-            <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        <div
+            className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-[60] p-4"
+            aria-modal="true"
+            role="dialog"
+            aria-labelledby="cloudrun-curl-modal-title"
+            onClick={onClose}
+        >
+            <div
+                ref={containerRef}
+                tabIndex={-1}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+            >
                 <header className="p-4 border-b border-gray-700 flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-white">cURL Commands</h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white">&times;</button>
+                    <h2 id="cloudrun-curl-modal-title" className="text-xl font-bold text-white">cURL Commands</h2>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        aria-label="Close dialog"
+                        className="text-gray-400 hover:text-white"
+                    >
+                        &times;
+                    </button>
                 </header>
 
                 <main className="p-6 overflow-y-auto space-y-6">
@@ -114,12 +137,20 @@ const CloudRunCurlModal: React.FC<{ isOpen: boolean; onClose: () => void; servic
 };
 
 const CloudRunQueryModal: React.FC<CloudRunQueryModalProps> = ({ isOpen, onClose, service, accessToken }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isCurlModalOpen, setIsCurlModalOpen] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    useModalA11y({
+        isOpen,
+        onClose,
+        containerRef,
+        preventClose: isCurlModalOpen || isLoading,
+    });
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -212,26 +243,42 @@ const CloudRunQueryModal: React.FC<CloudRunQueryModalProps> = ({ isOpen, onClose
                 messages={messages} 
                 isA2a={isA2a} 
             />
-            <div className="fixed bottom-4 right-4 z-50">
+            <div
+                ref={containerRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="cloudrun-query-title"
+                tabIndex={-1}
+                className="fixed bottom-4 right-4 z-50"
+            >
                 <div className="flex flex-col h-[600px] w-[450px] bg-gray-800 shadow-2xl rounded-lg border border-gray-700">
                     <header className="p-4 flex justify-between items-center border-b border-gray-700 shrink-0">
                         <div className="flex items-center overflow-hidden">
                             <div className={`w-2 h-2 rounded-full mr-2 ${isA2a ? 'bg-purple-500' : 'bg-teal-500'}`}></div>
-                            <h2 className="text-lg font-bold text-white truncate" title={`Query: ${displayName}`}>
+                            <h2 id="cloudrun-query-title" className="text-lg font-bold text-white truncate" title={`Query: ${displayName}`}>
                                 {displayName}
                             </h2>
                         </div>
                         <div className="flex items-center space-x-4">
                             <button
+                                type="button"
                                 onClick={() => setIsCurlModalOpen(true)}
                                 className="text-gray-400 hover:text-white"
+                                aria-label="Show cURL commands"
                                 title="Show cURL commands"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                                 </svg>
                             </button>
-                            <button onClick={onClose} className="text-gray-400 hover:text-white">&times;</button>
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                aria-label="Close dialog"
+                                className="text-gray-400 hover:text-white"
+                            >
+                                &times;
+                            </button>
                         </div>
                     </header>
                     

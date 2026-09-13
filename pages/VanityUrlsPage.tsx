@@ -62,7 +62,7 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
             const [aggRes, certRes, dnsRes] = await Promise.all([
                 api.listAggregatedForwardingRules(projectId).catch(() => ({ items: {} })),
                 api.listManagedSslCertificates(projectId).catch(() => ({ items: [] })),
-                api.listDnsZones(projectId).catch(() => ({ items: [] }))
+                api.listDnsZones(projectId).catch(() => ({ managedZones: [] }))
             ]);
 
             const scopes = aggRes.items || {};
@@ -83,11 +83,11 @@ const VanityUrlsPage: React.FC<VanityUrlsPageProps> = ({ projectNumber, setProje
             try {
                 const discoveryLocations = ['global', 'us', 'eu'];
                 await Promise.allSettled(discoveryLocations.map(async (loc) => {
-                    const apiConfig: Config = { projectId: projectId, appLocation: loc, collectionId: 'default_collection', appId: '', assistantId: '' } as any;
-                    const collections = (await api.listResources('collections', apiConfig).catch(() => ({}))).collections || [];
+                    const apiConfig: Config = { projectId: projectId, appLocation: loc, collectionId: 'default_collection', appId: '', assistantId: '' };
+                    const collections = (await api.listResources('collections', apiConfig).catch(() => ({ collections: [] }))).collections || [];
                     for (const col of collections) {
                         const colConfig: Config = { ...apiConfig, collectionId: col.name.split('/').pop()! };
-                        const engines = (await api.listResources('engines', colConfig).catch(() => ({}))).engines || [];
+                        const engines = (await api.listResources('engines', colConfig).catch(() => ({ engines: [] }))).engines || [];
                         for (const eng of engines) {
                             const appId = eng.name.split('/').pop()!;
                             assistantNames[appId] = eng.displayName;

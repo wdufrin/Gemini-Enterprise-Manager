@@ -15,12 +15,18 @@ import {
     Cell
 } from 'recharts';
 
+export interface AgentDataItem {
+    name: string;
+    count: number;
+    id?: string;
+}
+
 interface Props {
     datasetId?: string;
     customData?: {
         volumeData?: { time: string, requests: number, errors: number }[];
         roleData?: { name: string, value: number }[];
-        agentData?: { name: string, count: number }[];
+        agentData?: AgentDataItem[];
         uniqueUsers?: number;
         uniqueAgents?: number;
         totalRequests?: number;
@@ -33,7 +39,7 @@ interface Props {
             summaryQuery?: string;
             userCountQuery?: string;
         };
-    };
+    } | null;
     timeRange: number;
     setTimeRange: (range: number) => void;
 }
@@ -175,10 +181,10 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
     // Top 10 agents for the bar chart visualization
     const topAgentChartData = useMemo(() => {
         if (!agentData) return null;
-        return agentData.slice(0, 10).map((a: any) => {
+        return agentData.slice(0, 10).map((a: AgentDataItem) => {
             const truncatedName = a.name.length > 20 ? a.name.substring(0, 20) + '...' : a.name;
             return {
-                name: `${truncatedName}|${a.id}`,
+                name: `${truncatedName}|${a.id || a.name}`,
                 count: a.count
             };
         });
@@ -238,7 +244,7 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         )}
                     </div>
                     <div className="text-3xl font-light text-white">
-                        {isSessionsLive && customData?.totalRequests !== undefined && totalSessions > 0
+                        {isSessionsLive && customData?.totalRequests !== undefined && totalSessions !== undefined && totalSessions > 0
                             ? (totalRequests / totalSessions).toFixed(1)
                             : (datasetId ? '0.0' : '5.2')}
                     </div>

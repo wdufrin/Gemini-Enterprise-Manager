@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface PruneLicensesModalProps {
   isOpen: boolean;
@@ -31,9 +32,17 @@ const PruneLicensesModal: React.FC<PruneLicensesModalProps> = ({
   userLicenses,
   isDeleting,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [days, setDays] = useState<number | ''>(30);
   const [includeNeverLoggedIn, setIncludeNeverLoggedIn] = useState<boolean>(false);
   const [confirmInput, setConfirmInput] = useState('');
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+    preventClose: isDeleting,
+  });
 
   // Reset confirmation input whenever modal opens or parameters change
   useEffect(() => {
@@ -92,12 +101,20 @@ const PruneLicensesModal: React.FC<PruneLicensesModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/75 backdrop-blur-xs flex justify-center items-center z-50 p-4"
+      className="fixed inset-0 bg-black/75 backdrop-blur-xs flex justify-center items-center z-50 p-4 animate-fade-in"
       aria-modal="true"
       role="dialog"
       aria-labelledby="prune-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isDeleting) onClose();
+      }}
     >
-      <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <header className="p-4 border-b border-gray-700 flex items-center justify-between">
           <div className="flex items-center gap-3">

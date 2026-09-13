@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { createGithubRepo, pushToGithub, searchReusableWorkflows, getUserRepositories } from '../../services/githubApiCache';
+import React, { useState, useEffect, useRef } from 'react';
+import { createGithubRepo, pushToGithub, searchReusableWorkflows, getUserRepositories, GitHubWorkflowItem, GitHubRepoItem } from '../../services/githubApiCache';
 import * as api from '../../services/apiService';
+import { Agent, AppEngine, Config } from '../../types';
+import { AdkAgentConfig } from '../../services/adkTemplates/types';
+import { toErrorMessage } from '../../utils/errors';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface GitHubDeployModalProps {
     isOpen: boolean;
@@ -8,12 +12,13 @@ interface GitHubDeployModalProps {
     projectId: string;
     agentName: string;
     files: { path: string; content: string; encoding?: string }[];
-    adkConfig: any; // Need access to the ADK config to build the caller workflow
-    setAdkConfig?: React.Dispatch<React.SetStateAction<any>>; // Trigger real-time code regeneration 
-    generateCallerGithubWorkflow: (config: any, templatePath: string, geminiAppId?: string) => string;
+    adkConfig: AdkAgentConfig; // Need access to the ADK config to build the caller workflow
+    setAdkConfig?: React.Dispatch<React.SetStateAction<AdkAgentConfig>>; // Trigger real-time code regeneration 
+    generateCallerGithubWorkflow: (config: AdkAgentConfig, templatePath: string, geminiAppId?: string) => string;
 }
 
 const GitHubDeployModal: React.FC<GitHubDeployModalProps> = ({ isOpen, onClose, projectId, agentName, files, adkConfig, setAdkConfig, generateCallerGithubWorkflow }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const [step, setStep] = useState<1 | 1.5 | 2 | 3>(1);
     const [token, setToken] = useState('');
     const [repoName, setRepoName] = useState(agentName || 'my-agent-repo');
@@ -21,16 +26,23 @@ const GitHubDeployModal: React.FC<GitHubDeployModalProps> = ({ isOpen, onClose, 
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    useModalA11y({
+        isOpen,
+        onClose,
+        containerRef,
+        preventClose: isProcessing,
+    });
+
     // Reusable workflow state
-    const [reusableTemplates, setReusableTemplates] = useState<any[]>([]);
+    const [reusableTemplates, setReusableTemplates] = useState<GitHubWorkflowItem[]>([]);
     const [selectedTemplate, setSelectedTemplate] = useState<string>('create_new');
     const [templateRepoName, setTemplateRepoName] = useState('actions-templates');
     const [geminiAppId, setGeminiAppId] = useState('');
-    const [userRepositories, setUserRepositories] = useState<any[]>([]);
+    const [userRepositories, setUserRepositories] = useState<GitHubRepoItem[]>([]);
 
-    const [engines, setEngines] = useState<any[]>([]);
+    const [engines, setEngines] = useState<AppEngine[]>([]);
     const [isLoadingEngines, setIsLoadingEngines] = useState(false);
-    const [agents, setAgents] = useState<any[]>([]);
+    const [agents, setAgents] = useState<Agent[]>([]);
     const [isLoadingAgents, setIsLoadingAgents] = useState(false);
 
     useEffect(() => {
@@ -39,8 +51,8 @@ const GitHubDeployModal: React.FC<GitHubDeployModalProps> = ({ isOpen, onClose, 
         const fetchEngines = async () => {
             setIsLoadingEngines(true);
             try {
-                const config = { projectId, appLocation: 'global', collectionId: 'default_collection' } as any;
-                const res = await api.listResources('engines', config).catch(() => ({}));
+                const config: Config = { projectId, appLocation: 'global', collectionId: 'default_collection', appId: '', assistantId: '' };
+                const res = await api.listResources('engines', config).catch(() => ({ engines: [] }));
                 if (res.engines) {
                     setEngines(res.engines);
                 }
@@ -63,13 +75,13 @@ const GitHubDeployModal: React.FC<GitHubDeployModalProps> = ({ isOpen, onClose, 
         const fetchAgents = async () => {
             setIsLoadingAgents(true);
             try {
-                const config = { projectId, appLocation: 'global', collectionId: 'default_collection', appId: geminiAppId } as any;
-                const asstRes = await api.listResources('assistants', config).catch(() => ({}));
-                let allAgents: any[] = [];
+                const config: Config = { projectId, appLocation: 'global', collectionId: 'default_collection', appId: geminiAppId, assistantId: '' };
+                const asstRes = await api.listResources('assistants', config).catch(() => ({ assistants: [] }));
+                let allAgents: Agent[] = [];
                 if (asstRes.assistants) {
                     for (const assistant of asstRes.assistants) {
-                        const assistantId = assistant.name.split('/').pop();
-                        const agentRes = await api.listResources('agents', { ...config, assistantId }).catch(() => ({}));
+                        const assistantId = assistant.name.split('/').pop() || '';
+                        const agentRes = await api.listResources('agents', { ...config, assistantId }).catch(() => ({ agents: [] }));
                         if (agentRes.agents) {
                             allAgents = [...allAgents, ...agentRes.agents];
                         }
@@ -111,8 +123,8 @@ const GitHubDeployModal: React.FC<GitHubDeployModalProps> = ({ isOpen, onClose, 
 
             // Move to template selection step
             setStep(1.5);
-        } catch (e: any) {
-            setError(e.message || 'Failed to fetch existing templates. Please check your token and username.');
+        } catch (e: unknown) {
+            setError(toErrorMessage(e) || 'Failed to fetch existing templates. Please check your token and username.');
         } finally {
             setIsProcessing(false);
         }
@@ -150,7 +162,7 @@ const GitHubDeployModal: React.FC<GitHubDeployModalProps> = ({ isOpen, onClose, 
                 });
             } else {
                 // Using an existing template
-                const templateItem = reusableTemplates.find((t: any) => t.html_url === selectedTemplate);
+                const templateItem = reusableTemplates.find((t) => t.html_url === selectedTemplate);
                 // Extract repository and path. The Search API item has `repository.full_name` and `path`
                 const branch = templateItem?.default_branch || 'main';
                 const templatePath = templateItem ? `${templateItem.repository.full_name}/${templateItem.path}@${branch}` : '';
@@ -173,8 +185,8 @@ const GitHubDeployModal: React.FC<GitHubDeployModalProps> = ({ isOpen, onClose, 
             await pushToGithub(token, owner, repoName, filesToPush, 'Initial commit: Agent Starter templates');
             
             setStep(3);
-        } catch (e: any) {
-            setError(e.message || 'An error occurred during GitHub deployment.');
+        } catch (e: unknown) {
+            setError(toErrorMessage(e) || 'An error occurred during GitHub deployment.');
         } finally {
             setIsProcessing(false);
         }
@@ -314,15 +326,38 @@ echo "WIF Provider: $WORKLOAD_IDENTITY_PROVIDER"
 echo "Service Account: $SERVICE_ACCOUNT"
 `;
 
+    if (!isOpen) return null;
+
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
-            <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+        <div
+            className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="github-deploy-modal-title"
+            onClick={() => {
+                if (!isProcessing) onClose();
+            }}
+        >
+            <div
+                ref={containerRef}
+                tabIndex={-1}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col"
+            >
                 <header className="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-900 rounded-t-lg">
-                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <h2 id="github-deploy-modal-title" className="text-xl font-bold text-white flex items-center gap-2">
                         <svg viewBox="0 0 16 16" className="w-5 h-5 fill-current"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
                         Automated CI/CD Workflow Setup
                     </h2>
-                    <button onClick={onClose} disabled={isProcessing} className="text-gray-400 hover:text-white disabled:opacity-50 text-2xl leading-none">&times;</button>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={isProcessing}
+                        aria-label="Close dialog"
+                        className="text-gray-400 hover:text-white disabled:opacity-50 text-2xl leading-none"
+                    >
+                        &times;
+                    </button>
                 </header>
 
                 <main className="p-6 overflow-y-auto flex-1">
@@ -375,7 +410,7 @@ echo "Service Account: $SERVICE_ACCOUNT"
                                     <option value="create_new">✨ Create New Shared Template Repository</option>
                                     {reusableTemplates && reusableTemplates.length > 0 && (
                                         <optgroup label="Existing Reusable Templates">
-                                            {reusableTemplates.map((t: any) => (
+                                            {reusableTemplates.map((t) => (
                                                 <option key={t.html_url} value={t.html_url}>
                                                     {t.repository.full_name}/{t.path}
                                                 </option>
@@ -408,7 +443,7 @@ echo "Service Account: $SERVICE_ACCOUNT"
                                         setGeminiAppId(newId);
                                         if (setAdkConfig) {
                                             if (newId) {
-                                                setAdkConfig((prev: any) => ({
+                                                setAdkConfig((prev: AdkAgentConfig) => ({
                                                     ...prev,
                                                     enableDiscoveryApi: true,
                                                     discoveryConfig: {
@@ -417,7 +452,7 @@ echo "Service Account: $SERVICE_ACCOUNT"
                                                     }
                                                 }));
                                             } else {
-                                                setAdkConfig((prev: any) => ({
+                                                setAdkConfig((prev: AdkAgentConfig) => ({
                                                     ...prev,
                                                     enableDiscoveryApi: false
                                                 }));
@@ -471,7 +506,7 @@ echo "Service Account: $SERVICE_ACCOUNT"
                                             disabled={isProcessing}
                                         >
                                             <option value="">-- Select Existing GitHub Repo --</option>
-                                            {userRepositories.map((r: any) => (
+                                            {userRepositories.map((r) => (
                                                 <option key={r.id} value={r.name}>{r.name}</option>
                                             ))}
                                         </select>

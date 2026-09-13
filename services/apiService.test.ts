@@ -25,9 +25,12 @@ import {
   pollDiscoveryOperation,
   GapiError,
   createConcurrencyLimiter,
-  onAuthExpired
+  onAuthExpired,
+  notifyAuthExpired,
+  resetAuthExpiredCooldown
 } from './apiService';
-import { getGapiClient } from './gapiService';
+import { getGapiClient, GapiClient } from './gapiService';
+import { Config } from '../types';
 
 // Mock gapi
 vi.mock('./gapiService', () => ({
@@ -36,6 +39,15 @@ vi.mock('./gapiService', () => ({
 
 // Mock fetch
 global.fetch = vi.fn();
+const mockFetch = vi.mocked(global.fetch);
+
+const testConfig: Config = {
+  projectId: 'p',
+  appLocation: 'l',
+  collectionId: 'c',
+  appId: 'a',
+  assistantId: 'as',
+} as unknown as Config;
 
 describe('apiService', () => {
   describe('streamChat', () => {
@@ -53,13 +65,13 @@ describe('apiService', () => {
         }
       });
 
-      (global.fetch as any).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         body: stream
-      });
+      } as Response);
 
       const onChunk = vi.fn();
-      await streamChat(null, 'test', null, { projectId: 'p', appLocation: 'l', collectionId: 'c', appId: 'a', assistantId: 'as' } as any, 'token', onChunk);
+      await streamChat(null, 'test', null, testConfig, 'token', onChunk);
 
       expect(onChunk).toHaveBeenCalledTimes(2);
       expect(onChunk).toHaveBeenNthCalledWith(1, JSON.parse(mockChunks[0]));
@@ -84,13 +96,13 @@ describe('apiService', () => {
         }
       });
 
-      (global.fetch as any).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         body: stream
-      });
+      } as Response);
 
       const onChunk = vi.fn();
-      await streamChat(null, 'test', null, { projectId: 'p', appLocation: 'l', collectionId: 'c', appId: 'a', assistantId: 'as' } as any, 'token', onChunk);
+      await streamChat(null, 'test', null, testConfig, 'token', onChunk);
 
       expect(onChunk).toHaveBeenCalledTimes(1);
       expect(onChunk).toHaveBeenCalledWith(JSON.parse(complexJson));
@@ -107,13 +119,13 @@ describe('apiService', () => {
         }
       });
 
-      (global.fetch as any).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         body: stream
-      });
+      } as Response);
 
       const onChunk = vi.fn();
-      await streamChat(null, 'test', null, { projectId: 'p', appLocation: 'l', collectionId: 'c', appId: 'a', assistantId: 'as' } as any, 'token', onChunk);
+      await streamChat(null, 'test', null, testConfig, 'token', onChunk);
 
       expect(onChunk).toHaveBeenCalledTimes(2);
       expect(onChunk).toHaveBeenCalledWith({ text: "A" });
@@ -133,13 +145,13 @@ describe('apiService', () => {
         }
       });
 
-      (global.fetch as any).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         body: stream
-      });
+      } as Response);
 
       const onChunk = vi.fn();
-      await streamChat(null, 'test', null, { projectId: 'p', appLocation: 'l', collectionId: 'c', appId: 'a', assistantId: 'as' } as any, 'token', onChunk);
+      await streamChat(null, 'test', null, testConfig, 'token', onChunk);
 
       expect(onChunk).toHaveBeenCalledTimes(1);
       expect(onChunk).toHaveBeenCalledWith(JSON.parse(prettyJson));
@@ -156,13 +168,13 @@ describe('apiService', () => {
         }
       });
 
-      (global.fetch as any).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         body: stream
-      });
+      } as Response);
 
       const onChunk = vi.fn();
-      await streamChat(null, 'test', null, { projectId: 'p', appLocation: 'l', collectionId: 'c', appId: 'a', assistantId: 'as' } as any, 'token', onChunk);
+      await streamChat(null, 'test', null, testConfig, 'token', onChunk);
 
       expect(onChunk).toHaveBeenCalledTimes(1);
       expect(onChunk).toHaveBeenCalledWith(JSON.parse(jsonWithBraces));
@@ -179,13 +191,13 @@ describe('apiService', () => {
         }
       });
 
-      (global.fetch as any).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         body: stream
-      });
+      } as Response);
 
       const onChunk = vi.fn();
-      await streamChat(null, 'test', null, { projectId: 'p', appLocation: 'l', collectionId: 'c', appId: 'a', assistantId: 'as' } as any, 'token', onChunk);
+      await streamChat(null, 'test', null, testConfig, 'token', onChunk);
 
       expect(onChunk).toHaveBeenCalledTimes(1);
       expect(onChunk).toHaveBeenCalledWith(JSON.parse(jsonWithEscapedQuotes));
@@ -194,16 +206,16 @@ describe('apiService', () => {
 
   describe('createDiscoverySession', () => {
     it('should use fetch when accessToken is provided', async () => {
-      (global.fetch as any).mockClear();
+      mockFetch.mockClear();
       const mockSession = { name: 'projects/p/locations/l/collections/c/engines/a/sessions/s' };
-      (global.fetch as any).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         json: async () => mockSession
-      });
+      } as Response);
 
       const result = await createDiscoverySession(
         { name: '', userPseudoId: 'test@example.com' },
-        { projectId: 'p', appLocation: 'l', collectionId: 'c', appId: 'a' } as any,
+        testConfig,
         'custom-token'
       );
 
@@ -231,7 +243,7 @@ describe('apiService', () => {
         }),
         getToken: () => ({ access_token: 'mock-token' }),
       };
-      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as unknown as GapiClient);
 
       const tools = await listMcpTools('test-project', 'https://bigquery.googleapis.com/mcp');
       expect(mockGapiClient.request).toHaveBeenCalledWith(
@@ -254,7 +266,7 @@ describe('apiService', () => {
       const mockGapiClient = {
         getToken: () => ({ access_token: mockToken })
       };
-      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as unknown as GapiClient);
 
       const mockResponse = {
         result: {
@@ -264,10 +276,10 @@ describe('apiService', () => {
         }
       };
 
-      (global.fetch as any).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         json: async () => mockResponse
-      });
+      } as Response);
 
       const tools = await listMcpTools('test-project', 'https://my-custom-mcp.com/tools');
       
@@ -293,7 +305,7 @@ describe('apiService', () => {
       const mockGapiClient = {
         getToken: () => ({ access_token: mockToken })
       };
-      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as unknown as GapiClient);
 
       const mockResponse = {
         result: {
@@ -303,10 +315,10 @@ describe('apiService', () => {
         }
       };
 
-      (global.fetch as any).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         json: async () => mockResponse
-      });
+      } as Response);
 
       const tools = await listMcpTools('test-project', 'https://my-service-uc.a.run.app/tools');
       
@@ -331,7 +343,7 @@ describe('apiService', () => {
   });
 
   describe('fetchConnectorLogs', () => {
-    const config = { projectId: 'test-project', appLocation: 'global' };
+    const config = { projectId: 'test-project', appLocation: 'global' } as unknown as Config;
     const connectorName = 'projects/test-project/locations/global/collections/oracle-mcp-3_1775658369011/dataConnector';
 
     it('should query vertex_ai_search_connector logs with severity>=ERROR when no instanceUri is provided', async () => {
@@ -340,9 +352,9 @@ describe('apiService', () => {
         getToken: () => ({ access_token: mockToken }),
         request: vi.fn().mockResolvedValue({ result: { entries: [] } })
       };
-      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as unknown as GapiClient);
 
-      await fetchConnectorLogs(config as any, connectorName, 2);
+      await fetchConnectorLogs(config, connectorName, 2);
 
       expect(mockGapiClient.request).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -363,10 +375,10 @@ describe('apiService', () => {
         getToken: () => ({ access_token: mockToken }),
         request: vi.fn().mockResolvedValue({ result: { entries: [] } })
       };
-      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as unknown as GapiClient);
 
       const instanceUri = 'https://oracle-mcp-server-123456789012.us-central1.run.app/mcp';
-      await fetchConnectorLogs(config as any, connectorName, 2, instanceUri);
+      await fetchConnectorLogs(config, connectorName, 2, instanceUri);
 
       expect(mockGapiClient.request).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -390,10 +402,10 @@ describe('apiService', () => {
         getToken: () => ({ access_token: mockToken }),
         request: vi.fn().mockResolvedValue({ result: { entries: [] } })
       };
-      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as unknown as GapiClient);
 
       const instanceUri = 'https://multi-mcp-vpaohjgvxq-uc.a.run.app/';
-      await fetchConnectorLogs(config as any, connectorName, 2, instanceUri);
+      await fetchConnectorLogs(config, connectorName, 2, instanceUri);
 
       expect(mockGapiClient.request).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -422,16 +434,16 @@ describe('apiService', () => {
           }
         })
       };
-      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as any);
+      vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as unknown as GapiClient);
 
       const config = {
         projectId: 'test-proj',
         appLocation: 'global',
         collectionId: 'default_collection',
         appId: 'eng-1'
-      };
+      } as unknown as Config;
 
-      const res = await listAssistants(config as any);
+      const res = await listAssistants(config);
       expect(mockGapiClient.request).toHaveBeenCalledWith(
         expect.objectContaining({
           path: expect.stringContaining('/projects/test-proj/locations/global/collections/default_collection/engines/eng-1/assistants'),
@@ -445,14 +457,14 @@ describe('apiService', () => {
   describe('pollDiscoveryOperation', () => {
     it('should return immediately if operation is already done', async () => {
       const op = { name: 'projects/p/locations/global/operations/op-1', done: true, response: {} };
-      const res = await pollDiscoveryOperation(op, { projectId: 'p', appLocation: 'global' } as any);
+      const res = await pollDiscoveryOperation(op, { projectId: 'p', appLocation: 'global' } as unknown as Config);
       expect(res).toBe(op);
     });
 
     it('should throw if operation failed with an error', async () => {
       const op = { name: 'projects/p/locations/global/operations/op-1', done: true, error: { code: 3, message: 'Resource invalid' } };
       await expect(
-        pollDiscoveryOperation(op, { projectId: 'p', appLocation: 'global' } as any)
+        pollDiscoveryOperation(op, { projectId: 'p', appLocation: 'global' } as unknown as Config)
       ).rejects.toThrow('Resource invalid');
     });
   });
@@ -509,6 +521,31 @@ describe('apiService', () => {
       const unsubscribe = onAuthExpired(listener);
 
       expect(typeof unsubscribe).toBe('function');
+      unsubscribe();
+    });
+
+    it('should notify subscriber when notifyAuthExpired is called', () => {
+      resetAuthExpiredCooldown();
+      const listener = vi.fn();
+      const unsubscribe = onAuthExpired(listener);
+
+      notifyAuthExpired();
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      unsubscribe();
+    });
+
+    it('should debounce rapid sequential calls to notifyAuthExpired', () => {
+      resetAuthExpiredCooldown();
+      const listener = vi.fn();
+      const unsubscribe = onAuthExpired(listener);
+
+      notifyAuthExpired();
+      notifyAuthExpired();
+      notifyAuthExpired();
+
+      expect(listener).toHaveBeenCalledTimes(1);
+
       unsubscribe();
     });
   });

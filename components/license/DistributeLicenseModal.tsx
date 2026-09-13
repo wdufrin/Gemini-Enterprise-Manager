@@ -15,9 +15,10 @@
  */
 
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as api from '../../services/apiService';
 import { Config } from '../../types';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import Spinner from '../Spinner';
 
 interface DistributeLicenseModalProps {
@@ -37,11 +38,19 @@ const DistributeLicenseModal: React.FC<DistributeLicenseModalProps> = ({
     currentProjectNumber,
     onSuccess 
 }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const [targetProject, setTargetProject] = useState(currentProjectNumber);
     const [location, setLocation] = useState('global');
     const [count, setCount] = useState<number | ''>(1);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    useModalA11y({
+      isOpen,
+      onClose,
+      containerRef,
+      preventClose: isLoading,
+    });
 
     const [existingConfigs, setExistingConfigs] = useState<any[]>([]);
     const [selectedConfigId, setSelectedConfigId] = useState<string>('');
@@ -114,11 +123,24 @@ const DistributeLicenseModal: React.FC<DistributeLicenseModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-4">
-            <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md border border-gray-700">
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-4 animate-fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="distribute-license-title"
+            onClick={(e) => {
+                if (e.target === e.currentTarget && !isLoading) onClose();
+            }}
+        >
+            <div
+                ref={containerRef}
+                tabIndex={-1}
+                className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md border border-gray-700 outline-none"
+                onClick={(e) => e.stopPropagation()}
+            >
                 <div className="flex justify-between items-center p-4 border-b border-gray-700">
-                    <h3 className="text-lg font-semibold text-white">Distribute Licenses</h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white">
+                    <h3 id="distribute-license-title" className="text-lg font-semibold text-white">Distribute Licenses</h3>
+                    <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white">
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                 </div>

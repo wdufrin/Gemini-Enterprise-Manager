@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Config, RegistrySkill } from '../../types';
 import * as api from '../../services/apiService';
-import { createZipBase64 } from '../../utils/zipUtils';
+import { useModalA11y } from '../../hooks/useModalA11y';
+import JSZip from 'jszip';
 
 interface PublishSkillModalProps {
   isOpen: boolean;
@@ -94,6 +95,7 @@ const PublishSkillModal: React.FC<PublishSkillModalProps> = ({
   config,
   onSkillPublished,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [skillId, setSkillId] = useState('company-brand-voice');
   const [displayName, setDisplayName] = useState('Company Brand Voice');
   const [publisherNamespace, setPublisherNamespace] = useState('default');
@@ -103,6 +105,13 @@ const PublishSkillModal: React.FC<PublishSkillModalProps> = ({
   const [selectedTemplate, setSelectedTemplate] = useState('brandVoice');
   const [isPublishing, setIsPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+    preventClose: isPublishing,
+  });
 
   if (!isOpen) return null;
 
@@ -143,9 +152,9 @@ description: ${description.trim()}
 
 ${description.trim()}`;
 
-      const b64Zip = createZipBase64({
-        'SKILL.md': skillMd,
-      });
+      const zip = new JSZip();
+      zip.file('SKILL.md', skillMd);
+      const b64Zip = await zip.generateAsync({ type: 'base64' });
 
       const payload: Partial<RegistrySkill> = {
         displayName: displayName.trim(),
@@ -209,8 +218,21 @@ ${description.trim()}`;
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-gray-850 rounded-xl max-w-3xl w-full border border-gray-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/70 flex items-center justify-center p-4 animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="publish-skill-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isPublishing) onClose();
+      }}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="bg-gray-850 rounded-xl max-w-3xl w-full border border-gray-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="px-6 py-4 bg-gray-900 border-b border-gray-700 flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -220,7 +242,7 @@ ${description.trim()}`;
               </svg>
             </div>
             <div>
-              <h3 className="text-base font-bold text-gray-100 flex items-center gap-2">
+              <h3 id="publish-skill-title" className="text-base font-bold text-gray-100 flex items-center gap-2">
                 Publish Enterprise Skill to Central Registry
                 <span className="px-2 py-0.5 text-[11px] font-semibold bg-purple-900/60 text-purple-300 rounded border border-purple-700">
                   Agent Registry

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Config } from '../../types';
 import * as api from '../../services/apiService';
 import { toErrorMessage } from '../../utils/errors';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 export interface AgentRegisterModalProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
   defaultAgentUrl = '',
   onSuccess,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const effectiveProjectId = projectId || projectNumber;
 
   const [regConfig, setRegConfig] = useState({
@@ -52,6 +54,13 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
   const [isRegistering, setIsRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+    preventClose: isRegistering,
+  });
 
   // Initialize or reset details when modal opens
   useEffect(() => {
@@ -196,12 +205,25 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-gray-850 border border-gray-700 rounded-xl max-w-2xl w-full p-6 shadow-2xl relative max-h-[90vh] flex flex-col">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="agent-register-modal-title"
+      onClick={() => {
+        if (!isRegistering) onClose();
+      }}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-850 border border-gray-700 rounded-xl max-w-2xl w-full p-6 shadow-2xl relative max-h-[90vh] flex flex-col"
+      >
         {/* Header */}
         <div className="flex justify-between items-center pb-3 border-b border-gray-700 shrink-0">
           <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <h2 id="agent-register-modal-title" className="text-lg font-bold text-white flex items-center gap-2">
               <span>🔗 Register Agent in Gemini Enterprise</span>
               {isRegistering && (
                 <span className="text-xs text-blue-400 font-normal animate-pulse">
@@ -214,7 +236,9 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close dialog"
             className="text-gray-400 hover:text-gray-200 text-xl font-bold p-1 rounded-md hover:bg-gray-800 transition-colors"
           >
             ✕

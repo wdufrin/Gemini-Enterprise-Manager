@@ -18,6 +18,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { DialogflowAgent, ChatMessage, Config } from '../../types';
 import * as api from '../../services/apiService';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface DialogflowQueryModalProps {
     isOpen: boolean;
@@ -28,12 +29,20 @@ interface DialogflowQueryModalProps {
 }
 
 const DialogflowQueryModal: React.FC<DialogflowQueryModalProps> = ({ isOpen, onClose, agent, config, accessToken }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [sessionId, setSessionId] = useState<string>('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    useModalA11y({
+        isOpen,
+        onClose,
+        containerRef,
+        preventClose: isLoading,
+    });
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -96,16 +105,30 @@ const DialogflowQueryModal: React.FC<DialogflowQueryModalProps> = ({ isOpen, onC
     if (!isOpen) return null;
 
     return (
-        <div className="fixed bottom-4 right-4 z-50">
+        <div
+            ref={containerRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dialogflow-query-title"
+            className="fixed bottom-4 right-4 z-50"
+        >
             <div className="flex flex-col h-[600px] w-[450px] bg-gray-800 shadow-2xl rounded-lg border border-gray-700">
                 <header className="p-4 flex justify-between items-center border-b border-gray-700 shrink-0">
                     <div className="flex items-center overflow-hidden">
                         <div className="w-2 h-2 rounded-full mr-2 bg-orange-500"></div>
-                        <h2 className="text-lg font-bold text-white truncate" title={`Dialogflow CX: ${agent.displayName}`}>
+                        <h2 id="dialogflow-query-title" className="text-lg font-bold text-white truncate" title={`Dialogflow CX: ${agent.displayName}`}>
                             {agent.displayName}
                         </h2>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white">&times;</button>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        aria-label="Close dialog"
+                        className="text-gray-400 hover:text-white"
+                    >
+                        &times;
+                    </button>
                 </header>
                 
                 <main className="flex-1 overflow-y-auto p-4 space-y-4">

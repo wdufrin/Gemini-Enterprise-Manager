@@ -14,12 +14,14 @@
  * limitations under the License.
  */
 
+import { UserLicense } from '../components/license/types';
+
 const DB_NAME = 'GeminiLicenseCache';
 const DB_VERSION = 1;
 const STORE_NAME = 'user_licenses';
 
-export interface CachedLicenseData {
-  data: any[];
+export interface CachedLicenseData<T = UserLicense> {
+  data: T[];
   timestamp: number;
 }
 
@@ -91,14 +93,14 @@ export const getCachedUserLicenses = async (
   }
 };
 
-export const setCachedUserLicenses = async (
+export const setCachedUserLicenses = async <T = UserLicense>(
   projectNumber: string,
   userStoreId: string,
-  data: any[]
+  data: T[]
 ): Promise<void> => {
   const key = getCacheKey(projectNumber, userStoreId);
   const record: CachedLicenseData = {
-    data,
+    data: data as unknown as UserLicense[],
     timestamp: Date.now(),
   };
 
@@ -145,13 +147,13 @@ export const clearCachedUserLicenses = async (
   }
 };
 
-export const updateCachedUserLicenses = async (
+export const updateCachedUserLicenses = async <T = UserLicense>(
   projectNumber: string,
   userStoreId: string,
-  updater: (current: any[]) => any[]
-): Promise<any[]> => {
+  updater: (current: T[]) => T[]
+): Promise<T[]> => {
   const current = await getCachedUserLicenses(projectNumber, userStoreId);
-  const updatedData = updater(current ? current.data : []);
+  const updatedData = updater((current ? current.data : []) as unknown as T[]);
   await setCachedUserLicenses(projectNumber, userStoreId, updatedData);
   return updatedData;
 };

@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { AppEngine, Config } from '../../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { AppEngine, Config, GcsBucket } from '../../types';
 import * as api from '../../services/apiService';
+import { BigQueryDataset, BigQueryAccessEntry } from '../../services/api/bigquery';
+import { toErrorMessage } from '../../utils/errors';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import InfoTooltip from '../InfoTooltip';
-
-declare let JSZip: any;
 
 interface AuditLoggingModalProps {
     isOpen: boolean;
@@ -15,6 +16,7 @@ interface AuditLoggingModalProps {
 }
 
 const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, config, engine, onUpdateSuccess, projectNumber }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const [step, setStep] = useState(1);
     const [isDeploying, setIsDeploying] = useState(false);
     const [deployMethod, setDeployMethod] = useState<'gcloud' | 'cloud-build'>('gcloud');
@@ -27,7 +29,7 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
     const [isSaving, setIsSaving] = useState(false);
 
     // Cloud Build staging bucket config (needed if doing cloud build)
-    const [buckets, setBuckets] = useState<any[]>([]);
+    const [buckets, setBuckets] = useState<GcsBucket[]>([]);
     const [selectedBucket, setSelectedBucket] = useState<string>('');
     const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
 
@@ -35,9 +37,16 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
     const [datasetId, setDatasetId] = useState('agentspace_audit_logs');
     const [isSyncing, setIsSyncing] = useState(false);
     const [writerIdentity, setWriterIdentity] = useState<string | null>(null);
-    const [availableDatasets, setAvailableDatasets] = useState<any[]>([]);
+    const [availableDatasets, setAvailableDatasets] = useState<BigQueryDataset[]>([]);
     const [isLoadingDatasets, setIsLoadingDatasets] = useState(false);
     const [isCreatingNewDataset, setIsCreatingNewDataset] = useState(false);
+
+    useModalA11y({
+        isOpen,
+        onClose,
+        containerRef,
+        preventClose: isDeploying || isSaving || isSyncing,
+    });
 
     useEffect(() => {
         if (isOpen) {
@@ -98,7 +107,7 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
         setIsSaving(true);
         setError(null);
         try {
-            const payload: any = {
+            const payload: Partial<AppEngine> = {
                 observabilityConfig: {
                     observabilityEnabled,
                     sensitiveLoggingEnabled
@@ -107,8 +116,8 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
             const updated = await api.updateEngine(engine.name, payload, ['observabilityConfig'], config);
             onUpdateSuccess(updated);
             setStatus("Engine configuration updated successfully!");
-        } catch (err: any) {
-            setError(err.message || "Failed to update engine configuration.");
+        } catch (err: unknown) {
+            setError(toErrorMessage(err, "Failed to update engine configuration."));
         } finally {
             setIsSaving(false);
         }
@@ -135,8 +144,9 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                 setStatus("Creating BigQuery dataset...");
                 try {
                     await api.createBigQueryDataset(config.projectId, datasetId, location);
-                } catch (datasetErr: any) {
-                    if (datasetErr.status !== 409 && !(datasetErr.body && datasetErr.body.includes("Already Exists"))) {
+                } catch (datasetErr: unknown) {
+                    const dErr = datasetErr as { status?: number; body?: string };
+                    if (dErr.status !== 409 && !(dErr.body && dErr.body.includes("Already Exists"))) {
                         throw datasetErr;
                     }
                     console.log("Dataset already exists, proceeding...");
@@ -152,13 +162,14 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
             let writerIdentity = '';
             try {
                 const sinkRes = await api.createLoggingSink(config.projectId, sinkName, destination, filter);
-                writerIdentity = sinkRes.writerIdentity;
+                writerIdentity = sinkRes.writerIdentity || '';
                 setStatus("Log sink created successfully!");
-            } catch (sinkErr: any) {
-                if (sinkErr.status === 409 || (sinkErr.body && sinkErr.body.includes("already exists"))) {
+            } catch (sinkErr: unknown) {
+                const sErr = sinkErr as { status?: number; body?: string };
+                if (sErr.status === 409 || (sErr.body && sErr.body.includes("already exists"))) {
                     console.log("Sink already exists. Fetching existing sink identity...");
                     const existingSink = await api.getLoggingSink(config.projectId, sinkName);
-                    writerIdentity = existingSink.writerIdentity;
+                    writerIdentity = existingSink.writerIdentity || '';
                     setStatus("Found existing Log Sink identity!");
                 } else {
                     throw sinkErr;
@@ -172,7 +183,7 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                 const dataset = await api.getDataset(config.projectId, datasetId);
                 const currentAccess = dataset.access || [];
                 
-                const hasAccess = currentAccess.some((a: any) => a.userByEmail === writerIdentity.replace('serviceAccount:', ''));
+                const hasAccess = currentAccess.some((a: BigQueryAccessEntry) => a.userByEmail === writerIdentity.replace('serviceAccount:', ''));
                 if (!hasAccess) {
                     currentAccess.push({
                         role: "WRITER",
@@ -183,12 +194,12 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                 } else {
                     setStatus("Permissions already granted!");
                 }
-            } catch (iamErr: any) {
+            } catch (iamErr: unknown) {
                 console.warn("Failed to update dataset permissions automatically:", iamErr);
                 setStatus("Log sink created, but automatic IAM permission configuration failed. Please grant permissions manually.");
             }
-        } catch (err: any) {
-            setError(err.message || "Failed to setup BigQuery log sync.");
+        } catch (err: unknown) {
+            setError(toErrorMessage(err, "Failed to setup BigQuery log sync."));
         } finally {
             setIsSyncing(false);
         }
@@ -206,9 +217,22 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
-            <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl p-6 border border-gray-700 font-sans max-h-[90vh] overflow-y-auto">
-                <h2 className="text-xl font-bold text-white mb-2">Usage Audit Logging Setup</h2>
+        <div
+            className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4 animate-fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="audit-logging-title"
+            onClick={(e) => {
+                if (e.target === e.currentTarget && !(isDeploying || isSaving || isSyncing)) onClose();
+            }}
+        >
+            <div
+                ref={containerRef}
+                tabIndex={-1}
+                className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl p-6 border border-gray-700 font-sans max-h-[90vh] overflow-y-auto outline-none"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <h2 id="audit-logging-title" className="text-xl font-bold text-white mb-2">Usage Audit Logging Setup</h2>
                 <p className="text-sm text-gray-400 mb-6">
                     As an administrator, you can turn on and monitor usage audit logging for Gemini Enterprise.
                 </p>

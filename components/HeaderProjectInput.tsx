@@ -110,7 +110,12 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
   }
 
   return (
-    <div className="flex items-center space-x-2 group cursor-pointer" onClick={() => setIsEditing(true)}>
+    <button
+      type="button"
+      className="flex items-center space-x-2 group cursor-pointer text-left bg-transparent border-0 p-0 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+      onClick={() => setIsEditing(true)}
+      aria-label={`Active project: ${projectId || 'Not Set'}. Click to change.`}
+    >
       <span className="text-sm font-medium text-gray-400 group-hover:text-gray-300">Project:</span>
       <div className="flex items-baseline gap-1" title="Click to change">
         <span className="text-sm font-bold text-white group-hover:text-blue-300 font-mono">{projectId || 'Not Set'}</span>
@@ -121,7 +126,7 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-500 group-hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity" viewBox="0 0 20 20" fill="currentColor">
         <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
       </svg>
-    </div>
+    </button>
   );
 };
 

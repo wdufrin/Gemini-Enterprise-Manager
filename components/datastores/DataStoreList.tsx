@@ -61,20 +61,36 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
 }) => {
   const isAllSelected = dataStores.length > 0 && selectedDataStores.size === dataStores.length;
   
-  const SortableHeader: React.FC<{ label: string; sortKey: SortKey; className?: string }> = ({ label, sortKey, className }) => (
-        <th 
-            scope="col" 
-            className={`px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer group hover:bg-gray-700/50 ${className}`}
-            onClick={() => onSort(sortKey)}
+  const SortableHeader: React.FC<{ label: string; sortKey: SortKey; className?: string }> = ({ label, sortKey, className = '' }) => {
+    const isSorted = sortConfig.key === sortKey;
+    const sortAria = isSorted
+      ? sortConfig.direction === 'asc'
+        ? 'ascending'
+        : 'descending'
+      : 'none';
+    return (
+      <th 
+        scope="col" 
+        aria-sort={sortAria}
+        className={`px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider ${className}`}
+      >
+        <button
+          type="button"
+          onClick={() => onSort(sortKey)}
+          className="flex items-center gap-1 group text-inherit uppercase font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 rounded p-0.5 transition-colors hover:text-white"
+          aria-label={`Sort by ${label}, currently ${isSorted ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'unsorted'}`}
         >
-            <div className="flex items-center gap-1">
-                {label}
-                <span className={`text-gray-400 ${sortConfig.key === sortKey ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'}`}>
-                    <SortIcon direction={sortConfig.key === sortKey ? sortConfig.direction : 'asc'} />
-                </span>
-            </div>
-        </th>
+          <span>{label}</span>
+          <span
+            className={`text-gray-400 ${isSorted ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'}`}
+            aria-hidden="true"
+          >
+            <SortIcon direction={isSorted ? sortConfig.direction : 'asc'} />
+          </span>
+        </button>
+      </th>
     );
+  };
 
   return (
     <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">

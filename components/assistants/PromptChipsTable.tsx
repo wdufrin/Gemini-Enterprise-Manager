@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/apiService';
 import PromptChipModal from './PromptChipModal';
 import DestructiveConfirmModal from '../DestructiveConfirmModal';
@@ -13,6 +13,48 @@ interface PromptChip {
     type: 'Google-made' | 'Custom';
     raw?: any;
 }
+
+interface PromptChipRowProps {
+    chip: PromptChip;
+    onEdit: (raw: any) => void;
+    onDelete: (chip: PromptChip) => void;
+}
+
+const PromptChipRow = React.memo<PromptChipRowProps>(({ chip, onEdit, onDelete }) => (
+    <tr className="hover:bg-gray-750">
+        <td className="px-4 py-3 font-mono text-xs">{chip.name}</td>
+        <td className="px-4 py-3">
+            <span className="flex items-center">
+                <span className={`w-2 h-2 rounded-full mr-1.5 ${chip.status === 'Enabled' ? 'bg-green-500' : 'bg-gray-500'}`}></span>
+                {chip.status}
+            </span>
+        </td>
+        <td className="px-4 py-3 text-gray-400">{chip.displayName}</td>
+        <td className="px-4 py-3">{chip.title}</td>
+        <td className="px-4 py-3">
+            <div className="flex space-x-2">
+                <button 
+                    onClick={() => onEdit(chip.raw)}
+                    className="text-gray-400 hover:text-white" 
+                    title="Edit"
+                    aria-label={`Edit ${chip.title || chip.name}`}
+                >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                </button>
+                <button 
+                    onClick={() => onDelete(chip)}
+                    className="text-gray-400 hover:text-red-400" 
+                    title="Delete"
+                    aria-label={`Delete ${chip.title || chip.name}`}
+                >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                </button>
+            </div>
+        </td>
+    </tr>
+));
+
+PromptChipRow.displayName = 'PromptChipRow';
 
 interface PromptChipsTableProps {
     engineName: string;
@@ -32,6 +74,15 @@ const PromptChipsTable: React.FC<PromptChipsTableProps> = ({ engineName }) => {
     const [reloadTrigger, setReloadTrigger] = useState(0);
 
     const triggerReload = () => setReloadTrigger(prev => prev + 1);
+
+    const handleEdit = useCallback((raw: any) => {
+        setSelectedChip(raw);
+        setIsModalOpen(true);
+    }, []);
+
+    const handleDelete = useCallback((chip: PromptChip) => {
+        setChipToDelete(chip);
+    }, []);
 
     useEffect(() => {
         const fetchChips = async () => {
@@ -129,35 +180,12 @@ const PromptChipsTable: React.FC<PromptChipsTableProps> = ({ engineName }) => {
                             <tr><td colSpan={5} className="text-center py-4 text-gray-400">No matching prompts found</td></tr>
                         ) : (
                             filteredChips.map((chip) => (
-                                <tr key={chip.name} className="hover:bg-gray-750">
-                                    <td className="px-4 py-3 font-mono text-xs">{chip.name}</td>
-                                    <td className="px-4 py-3">
-                                        <span className="flex items-center">
-                                            <span className={`w-2 h-2 rounded-full mr-1.5 ${chip.status === 'Enabled' ? 'bg-green-500' : 'bg-gray-500'}`}></span>
-                                            {chip.status}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-gray-400">{chip.displayName}</td>
-                                    <td className="px-4 py-3">{chip.title}</td>
-                                    <td className="px-4 py-3">
-                                        <div className="flex space-x-2">
-                                            <button 
-                                                onClick={() => { setSelectedChip(chip.raw); setIsModalOpen(true); }}
-                                                className="text-gray-400 hover:text-white" 
-                                                title="Edit"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                                            </button>
-                                            <button 
-                                                onClick={() => setChipToDelete(chip)}
-                                                className="text-gray-400 hover:text-red-400" 
-                                                title="Delete"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
+                                <PromptChipRow 
+                                    key={chip.name} 
+                                    chip={chip} 
+                                    onEdit={handleEdit} 
+                                    onDelete={handleDelete} 
+                                />
                             ))
                         )}
                     </tbody>

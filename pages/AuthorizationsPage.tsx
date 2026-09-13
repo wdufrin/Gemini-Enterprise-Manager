@@ -29,36 +29,59 @@ import { toErrorMessage } from '../utils/errors';
 interface AuthorizationsPageProps {
   projectNumber: string;
   projectId?: string;
-  authorizations: Authorization[];
-  setAuthorizations: React.Dispatch<React.SetStateAction<Authorization[]>>;
-  authUsage: Record<string, Agent[]>;
-  setAuthUsage: React.Dispatch<React.SetStateAction<Record<string, Agent[]>>>;
-  isLoading: boolean;
-  setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
-  isScanningAgents: boolean;
-  setIsScanningAgents: React.Dispatch<React.SetStateAction<boolean>>;
-  error: string | null;
-  setError: React.Dispatch<React.SetStateAction<string | null>>;
-  hasLoaded: boolean;
-  setHasLoaded: React.Dispatch<React.SetStateAction<boolean>>;
+  authorizations?: Authorization[];
+  setAuthorizations?: React.Dispatch<React.SetStateAction<Authorization[]>>;
+  authUsage?: Record<string, Agent[]>;
+  setAuthUsage?: React.Dispatch<React.SetStateAction<Record<string, Agent[]>>>;
+  isLoading?: boolean;
+  setIsLoading?: React.Dispatch<React.SetStateAction<boolean>>;
+  isScanningAgents?: boolean;
+  setIsScanningAgents?: React.Dispatch<React.SetStateAction<boolean>>;
+  error?: string | null;
+  setError?: React.Dispatch<React.SetStateAction<string | null>>;
+  hasLoaded?: boolean;
+  setHasLoaded?: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   projectNumber,
   projectId,
-  authorizations,
-  setAuthorizations,
-  authUsage,
-  setAuthUsage,
-  isLoading,
-  setIsLoading,
-  isScanningAgents,
-  setIsScanningAgents,
-  error,
-  setError,
-  hasLoaded,
-  setHasLoaded
+  authorizations: propAuthorizations,
+  setAuthorizations: propSetAuthorizations,
+  authUsage: propAuthUsage,
+  setAuthUsage: propSetAuthUsage,
+  isLoading: propIsLoading,
+  setIsLoading: propSetIsLoading,
+  isScanningAgents: propIsScanningAgents,
+  setIsScanningAgents: propSetIsScanningAgents,
+  error: propError,
+  setError: propSetError,
+  hasLoaded: propHasLoaded,
+  setHasLoaded: propSetHasLoaded,
 }) => {
+  const [internalAuthorizations, setInternalAuthorizations] = useState<Authorization[]>([]);
+  const authorizations = propAuthorizations ?? internalAuthorizations;
+  const setAuthorizations = propSetAuthorizations ?? setInternalAuthorizations;
+
+  const [internalAuthUsage, setInternalAuthUsage] = useState<Record<string, Agent[]>>({});
+  const authUsage = propAuthUsage ?? internalAuthUsage;
+  const setAuthUsage = propSetAuthUsage ?? setInternalAuthUsage;
+
+  const [internalIsLoading, setInternalIsLoading] = useState(false);
+  const isLoading = propIsLoading ?? internalIsLoading;
+  const setIsLoading = propSetIsLoading ?? setInternalIsLoading;
+
+  const [internalIsScanningAgents, setInternalIsScanningAgents] = useState(false);
+  const isScanningAgents = propIsScanningAgents ?? internalIsScanningAgents;
+  const setIsScanningAgents = propSetIsScanningAgents ?? setInternalIsScanningAgents;
+
+  const [internalError, setInternalError] = useState<string | null>(null);
+  const error = propError !== undefined ? propError : internalError;
+  const setError = propSetError ?? setInternalError;
+
+  const [internalHasLoaded, setInternalHasLoaded] = useState(false);
+  const hasLoaded = propHasLoaded ?? internalHasLoaded;
+  const setHasLoaded = propSetHasLoaded ?? setInternalHasLoaded;
   const [view, setView] = useState<'list' | 'form'>('list');
   const [authToEdit, setAuthToEdit] = useState<Authorization | null>(null);
   const [authToView, setAuthToView] = useState<Authorization | null>(null);

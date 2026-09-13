@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ChatMessage, Config } from '../../types';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface CurlCommandsModalProps {
   isOpen: boolean;
@@ -52,6 +53,14 @@ const CodeBlock: React.FC<{ content: string }> = ({ content }) => {
 };
 
 const CurlCommandsModal: React.FC<CurlCommandsModalProps> = ({ isOpen, onClose, engineName, config, sessionId, messages }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+  });
+
   if (!isOpen) return null;
 
   const { projectId, reasoningEngineLocation } = config;
@@ -78,11 +87,29 @@ const CurlCommandsModal: React.FC<CurlCommandsModalProps> = ({ isOpen, onClose, 
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4" aria-modal="true" role="dialog">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4"
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="session-curl-commands-title"
+      onClick={onClose}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+      >
         <header className="p-4 border-b border-gray-700 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-white">cURL Commands for this Session</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">&times;</button>
+          <h2 id="session-curl-commands-title" className="text-xl font-bold text-white">cURL Commands for this Session</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="text-gray-400 hover:text-white"
+          >
+            &times;
+          </button>
         </header>
 
         <main className="p-6 overflow-y-auto space-y-6">

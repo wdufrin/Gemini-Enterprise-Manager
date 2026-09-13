@@ -15,11 +15,12 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { Modal } from '../common/Modal';
 
-// A generic item with a unique name and a display name
-interface SelectableItem {
+// A generic item with a unique name and an optional display name
+export interface SelectableItem {
   name: string;
-  displayName: string;
+  displayName?: string;
   agentType?: string; // Optional property for displaying agent type
   disabled?: boolean;
   disabledReason?: string;
@@ -80,73 +81,92 @@ const RestoreSelectionModal: React.FC<RestoreSelectionModalProps> = ({
   
   const isAllSelected = selectedNames.size === items.length && items.length > 0;
 
-  if (!isOpen) {
-    return null;
-  }
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4" aria-modal="true" role="dialog">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-        <header className="p-4 border-b border-gray-700">
-          <h2 className="text-xl font-bold text-white">{title}</h2>
-          <p className="text-sm text-gray-400 mt-1">Select the items you wish to restore from the backup file.</p>
-        </header>
-
-        <div className="p-4 flex-1 overflow-y-auto">
-          <div className="flex justify-between items-center mb-4">
-            <div className="text-sm text-gray-300">
-              {selectedNames.size} of {items.length} selected
-            </div>
-            <div className="space-x-2">
-              <button onClick={handleSelectAll} disabled={isAllSelected} className="text-sm font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500 disabled:cursor-not-allowed">Select All</button>
-              <button onClick={handleDeselectAll} disabled={selectedNames.size === 0} className="text-sm font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500 disabled:cursor-not-allowed">Deselect All</button>
-            </div>
-          </div>
-          
-          <ul className="space-y-2 bg-gray-900/50 p-3 rounded-md">
-            {items.map(item => {
-              const itemId = item.name.split('/').pop() || item.name;
-              return (
-                <li key={item.name} className={`p-2 rounded-md ${item.disabled ? 'opacity-50 cursor-not-allowed bg-gray-800/20' : 'hover:bg-gray-700/50'}`}>
-                  <label className={`flex items-center ${item.disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`} title={item.disabledReason}>
-                    <input
-                      type="checkbox"
-                      checked={selectedNames.has(item.name)}
-                      onChange={() => !item.disabled && handleToggle(item.name)}
-                      disabled={item.disabled}
-                      className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600 disabled:opacity-50"
-                    />
-                    <div className="ml-3 text-sm">
-                      <span className="font-medium text-white">{item.displayName}</span>
-                      {item.agentType && (
-                        <span className={`ml-2 px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase tracking-wider ${item.disabled ? 'bg-gray-700 text-gray-400 border-gray-600' : 'bg-blue-900/50 text-blue-300 border border-blue-800'}`}>
-                          {item.agentType}
-                        </span>
-                      )}
-                      <p className="text-gray-400 font-mono text-xs">{itemId}</p>
-                      {item.disabledReason && (
-                        <p className="text-red-400 text-xs mt-1">{item.disabledReason}</p>
-                      )}
-                    </div>
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-
-        <footer className="p-4 border-t border-gray-700 flex justify-end space-x-3">
-          <button onClick={onClose} disabled={isLoading} className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50">Cancel</button>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={title}
+      subtitle="Select the items you wish to restore from the backup file."
+      size="2xl"
+      preventClose={isLoading}
+      footer={
+        <>
           <button
+            type="button"
+            onClick={onClose}
+            disabled={isLoading}
+            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
             onClick={handleConfirm}
             disabled={isLoading || selectedNames.size === 0}
-            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed"
+            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed text-sm font-semibold"
           >
             {isLoading ? 'Restoring...' : `Restore ${selectedNames.size} Item(s)`}
           </button>
-        </footer>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <div className="text-sm text-gray-300">
+            {selectedNames.size} of {items.length} selected
+          </div>
+          <div className="space-x-2">
+            <button
+              type="button"
+              onClick={handleSelectAll}
+              disabled={isAllSelected}
+              className="text-sm font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              onClick={handleDeselectAll}
+              disabled={selectedNames.size === 0}
+              className="text-sm font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+            >
+              Deselect All
+            </button>
+          </div>
+        </div>
+        
+        <ul className="space-y-2 bg-gray-900/50 p-3 rounded-md">
+          {items.map(item => {
+            const itemId = item.name.split('/').pop() || item.name;
+            return (
+              <li key={item.name} className={`p-2 rounded-md ${item.disabled ? 'opacity-50 cursor-not-allowed bg-gray-800/20' : 'hover:bg-gray-700/50'}`}>
+                <label className={`flex items-center ${item.disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`} title={item.disabledReason}>
+                  <input
+                    type="checkbox"
+                    checked={selectedNames.has(item.name)}
+                    onChange={() => !item.disabled && handleToggle(item.name)}
+                    disabled={item.disabled}
+                    className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600 disabled:opacity-50"
+                  />
+                  <div className="ml-3 text-sm">
+                    <span className="font-medium text-white">{item.displayName || itemId}</span>
+                    {item.agentType && (
+                      <span className={`ml-2 px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase tracking-wider ${item.disabled ? 'bg-gray-700 text-gray-400 border-gray-600' : 'bg-blue-900/50 text-blue-300 border border-blue-800'}`}>
+                        {item.agentType}
+                      </span>
+                    )}
+                    <p className="text-gray-400 font-mono text-xs">{itemId}</p>
+                    {item.disabledReason && (
+                      <p className="text-red-400 text-xs mt-1">{item.disabledReason}</p>
+                    )}
+                  </div>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
       </div>
-    </div>
+    </Modal>
   );
 };
 

@@ -52,10 +52,11 @@ export class GitHubService {
         full_name: data.full_name,
         default_branch: data.default_branch || 'main',
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       // If it already exists, checking if we can use it would be complex (might need to check permissions/empty).
       // For now, simpler to fail or let user handle "already exists" by picking a new name.
-      throw new Error(`Failed to create repository: ${error.message}`);
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create repository: ${msg}`);
     }
   }
 
@@ -78,8 +79,9 @@ export class GitHubService {
         private: repo.private,
         updated_at: repo.updated_at,
       }));
-    } catch (error: any) {
-      throw new Error(`Failed to list repositories: ${error.message}`);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to list repositories: ${msg}`);
     }
   }
 
@@ -117,8 +119,9 @@ export class GitHubService {
         commit_sha: latestCommitSha,
       });
       baseTreeSha = commitData.tree.sha;
-    } catch (e: any) {
-      if (e.status === 409 || e.status === 404) {
+    } catch (e: unknown) {
+      const status = typeof e === 'object' && e !== null && 'status' in e ? (e as { status: unknown }).status : undefined;
+      if (status === 409 || status === 404) {
         console.log('Repo empty. Initializing with first file...');
         const firstFile = files[0];
         // Ensure content is base64 encoded for createOrUpdateFileContents
@@ -126,7 +129,7 @@ export class GitHubService {
           ? firstFile.content
           : btoa(unescape(encodeURIComponent(firstFile.content)));
 
-        const { data } = await this.octokit.repos.createOrUpdateFileContents({
+        await this.octokit.repos.createOrUpdateFileContents({
           owner,
           repo,
           path: firstFile.path,

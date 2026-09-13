@@ -140,4 +140,21 @@ describe('DestructiveConfirmModal', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
+
+  it('closes on Escape key press when not loading', () => {
+    const onClose = vi.fn();
+    render(<DestructiveConfirmModal {...baseProps} onClose={onClose} />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not close on Escape key press when isLoading is true', () => {
+    const onClose = vi.fn();
+    render(<DestructiveConfirmModal {...baseProps} onClose={onClose} isLoading={true} />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
+

@@ -17,9 +17,41 @@
 
 // This service manages the loading and initialization of the Google API Client (gapi).
 
+export interface GapiClient {
+  request: (args: {
+    path: string;
+    method?: string;
+    headers?: Record<string, string>;
+    body?: unknown;
+  }) => Promise<{ result: unknown; [key: string]: unknown }>;
+  getToken: () => { access_token?: string } | null;
+  setToken: (token: { access_token: string } | null) => void;
+  init: (args: Record<string, unknown>) => Promise<unknown>;
+  [key: string]: unknown;
+}
+
 declare global {
   interface Window {
-    gapi: any;
+    gapi: {
+      client: GapiClient;
+      config: {
+        update: (key: string, value: unknown) => void;
+        [key: string]: unknown;
+      };
+      load: (
+        api: string,
+        callbackOrConfig:
+          | (() => void)
+          | {
+              callback: () => void;
+              onerror?: (err?: unknown) => void;
+              ontimeout?: () => void;
+              timeout?: number;
+              [key: string]: unknown;
+            }
+      ) => void;
+      [key: string]: unknown;
+    };
   }
 }
 
@@ -112,7 +144,7 @@ export const initGapiClient = (accessToken: string): Promise<void> => {
  * Returns a promise that resolves with the initialized gapi client object.
  * Throws an error if the client has not been initialized.
  */
-export const getGapiClient = async (): Promise<any> => {
+export const getGapiClient = async (): Promise<GapiClient> => {
     if (!gapiClientPromise) {
         throw new Error('GAPI client has not been initialized. Call initGapiClient first.');
     }

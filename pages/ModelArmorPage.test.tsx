@@ -194,12 +194,12 @@ describe('ModelArmorPage - real attach', () => {
     expect(name).toBe(ASSISTANT_NAME);
     expect(updateMask).toEqual(['customerPolicy']);
     expect(config.appLocation).toBe('global');
-    expect(payload.customerPolicy.modelArmorConfig).toEqual({
+    expect(payload.customerPolicy?.modelArmorConfig).toEqual({
       userPromptTemplate: TEMPLATE_NAME,
       failureMode: 'FAIL_CLOSED',
     });
     // Unrelated policy fields must survive the attach.
-    expect(payload.customerPolicy.bannedPhrases).toEqual({ bannedPhrases: ['keep-me'] });
+    expect(payload.customerPolicy?.bannedPhrases).toEqual({ bannedPhrases: ['keep-me'] });
 
     expect(await screen.findByText(/Verified from the API response/)).toBeInTheDocument();
   });
@@ -255,8 +255,8 @@ describe('ModelArmorPage - real template creation', () => {
     expect(location).toBe('global');
     expect(templateId).toBe('my-safety-policy-input');
     // A detector that cannot run must fail the invocation, not be skipped.
-    expect(payload.templateMetadata.ignorePartialInvocationFailures).toBe(false);
-    expect(payload.templateMetadata.enforcementType).toBe('INSPECT_AND_BLOCK');
+    expect(payload.templateMetadata?.ignorePartialInvocationFailures).toBe(false);
+    expect(payload.templateMetadata?.enforcementType).toBe('INSPECT_AND_BLOCK');
 
     expect(await screen.findByText(new RegExp(`Created ${TEMPLATE_NAME}`))).toBeInTheDocument();
   });

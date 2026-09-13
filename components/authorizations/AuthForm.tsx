@@ -279,19 +279,25 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
     setIsSubmitting(true);
     setError(null);
     
-    const payload = {
-      serverSideOauth2: {
-        clientId: formData.oauthClientId,
-        clientSecret: formData.oauthClientSecret,
-        authorizationUri: formData.authorizationUri,
-        tokenUri: formData.oauthTokenUri,
-      },
+    const serverSideOauth2: {
+      clientId: string;
+      authorizationUri: string;
+      tokenUri: string;
+      clientSecret?: string;
+    } = {
+      clientId: formData.oauthClientId,
+      authorizationUri: formData.authorizationUri,
+      tokenUri: formData.oauthTokenUri,
     };
 
     // Only include clientSecret if user provided a new one
-    if (!formData.oauthClientSecret) {
-        delete payload.serverSideOauth2.clientSecret;
+    if (formData.oauthClientSecret) {
+      serverSideOauth2.clientSecret = formData.oauthClientSecret;
     }
+
+    const payload = {
+      serverSideOauth2,
+    };
 
     try {
       if (authToEdit) {

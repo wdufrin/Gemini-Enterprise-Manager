@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import CloudConsoleButton from '../components/CloudConsoleButton';
-import { listLoggingSinks, listBigQueryTables, runBigQueryQuery, gapiRequest } from '../services/apiService';
+import { listLoggingSinks, listBigQueryTables, runBigQueryQuery, gapiRequest, LoggingSink, BigQueryTable, BigQueryQueryResponse } from '../services/apiService';
 import ObservabilityDashboard from '../components/dashboard/ObservabilityDashboard';
 import { OperationalAnalyticsDashboard } from '../components/dashboard/operational/OperationalAnalyticsDashboard';
 import { useToast } from '../context/ToastContext';
@@ -11,11 +11,21 @@ interface Props {
     projectId: string;
 }
 
+interface ObservabilityDashboardMetrics {
+    volumeData: { time: string; requests: number; errors: number }[];
+    agentData: { name: string; id?: string; count: number }[];
+    totalRequests: number;
+    totalSessions: number;
+    uniqueUsers: number;
+    uniqueAgents?: number;
+    queries: Record<string, string>;
+}
+
 const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
     const { toast } = useToast();
-    const [sinks, setSinks] = useState<any[]>([]);
-    const [tables, setTables] = useState<any[]>([]);
-    const [dashboardData, setDashboardData] = useState<any>(null);
+    const [sinks, setSinks] = useState<LoggingSink[]>([]);
+    const [tables, setTables] = useState<BigQueryTable[]>([]);
+    const [dashboardData, setDashboardData] = useState<ObservabilityDashboardMetrics | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [timeRange, setTimeRange] = useState(1);
     const [activeDashboardTab, setActiveDashboardTab] = useState<'live' | 'operational'>('live');
@@ -23,7 +33,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
     const [sinksLoading, setSinksLoading] = useState(false);
     const [queryLoading, setQueryLoading] = useState(false);
 
-    const queryCache = useRef<Map<string, any>>(new Map());
+    const queryCache = useRef<Map<string, ObservabilityDashboardMetrics>>(new Map());
 
     // 1. Fetch Log Router Sinks (only on mount / projectNumber change)
     useEffect(() => {
@@ -41,8 +51,8 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
             try {
                 const sinksResponse = await listLoggingSinks(projectNumber);
                 if (isCurrent) setSinks(sinksResponse.sinks || []);
-            } catch (err: any) {
-                if (isCurrent) setError(err.message || 'Failed to fetch log sinks');
+            } catch (err: unknown) {
+                if (isCurrent) setError(toErrorMessage(err));
             } finally {
                 if (isCurrent) setSinksLoading(false);
             }
@@ -59,7 +69,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
         if (!bqSinks.length) return undefined;
 
         // 1. Highest Priority: Sink whose filter captures all 4 core tables (gen_ai.* AND user_activity)
-        const core4Sink = bqSinks.find((sink: any) => {
+        const core4Sink = bqSinks.find((sink: LoggingSink) => {
             const f = sink.filter || '';
             const hasGenAi = f.includes('gen_ai');
             const hasUserActivity = f.includes('gemini_enterprise_user_activity') || f.includes('user_activity');
@@ -68,7 +78,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
         if (core4Sink) return core4Sink;
 
         // 2. Priority: Sink with user_activity that is not solely restricted to Search
-        const nonSearchActivitySink = bqSinks.find((sink: any) => {
+        const nonSearchActivitySink = bqSinks.find((sink: LoggingSink) => {
             const f = sink.filter || '';
             const hasUserActivity = f.includes('gemini_enterprise_user_activity') || f.includes('user_activity');
             const isSolelySearch = f.includes('methodName="Search"') && !f.includes('NOT') && !f.includes('!=');
@@ -77,7 +87,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
         if (nonSearchActivitySink) return nonSearchActivitySink;
 
         // 3. Any sink matching user activity
-        const anyActivitySink = bqSinks.find((sink: any) => {
+        const anyActivitySink = bqSinks.find((sink: LoggingSink) => {
             const f = sink.filter || '';
             return f.includes('gemini_enterprise_user_activity') || f.includes('user_activity');
         });
@@ -105,7 +115,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                 if (isCurrent) {
                     setTables(tablesResponse.tables || []);
                 }
-            } catch (err: any) {
+            } catch (err: unknown) {
                 if (isCurrent) {
                     console.error('Failed to fetch tables:', err);
                     setError(`Failed to fetch BigQuery tables: ${toErrorMessage(err)}`);
@@ -127,7 +137,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
 
         const cacheKey = `${projectId}:${datasetId}:${timeRange}`;
         if (queryCache.current.has(cacheKey)) {
-            setDashboardData(queryCache.current.get(cacheKey));
+            setDashboardData(queryCache.current.get(cacheKey)!);
             return;
         }
         
@@ -148,7 +158,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                 const startTimeStr = startTime.toISOString();
 
                 const matchingActivityTables = tables
-                    .map((t: any) => t.tableReference?.tableId || '')
+                    .map((t: BigQueryTable) => t.tableReference?.tableId || '')
                     .filter((id: string) => {
                         if (id.startsWith('v_')) return false;
                         if (id === 'discoveryengine_googleapis_com_gemini_enterprise_user_activity') return true;
@@ -159,7 +169,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         return false;
                     });
 
-                const dashboardData: any = {
+                const dashboardData: ObservabilityDashboardMetrics = {
                     volumeData: [],
                     agentData: [],
                     totalRequests: 0,
@@ -420,7 +430,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                             );
                         }
                         const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${jobId}${location ? `?location=${encodeURIComponent(location)}` : ''}`;
-                        result = await gapiRequest<any>(url, 'GET', projectId, undefined, undefined, undefined, true);
+                        result = await gapiRequest<BigQueryQueryResponse>(url, 'GET', projectId, undefined, undefined, undefined, true);
                         
                         if (result.error || (result.errors && result.errors.length > 0)) {
                             throw new Error(result.error?.message || result.errors?.[0]?.message || 'BigQuery polling failed');
@@ -435,11 +445,11 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
 
                     const rows = result?.rows || [];
 
-                    rows.forEach((row: any) => {
-                        const type = row.f[0].v;
-                        const label = row.f[1].v;
-                        const val1 = row.f[2].v;
-                        const val2 = row.f[3].v;
+                    rows.forEach((row) => {
+                        const type = String(row.f?.[0]?.v ?? '');
+                        const label = String(row.f?.[1]?.v ?? '');
+                        const val1 = String(row.f?.[2]?.v ?? '');
+                        const val2 = String(row.f?.[3]?.v ?? '');
 
                         if (type === 'summary') {
                             dashboardData.totalRequests = parseInt(label, 10);
@@ -466,9 +476,9 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                 if (abortController.signal.aborted) return;
                 queryCache.current.set(cacheKey, dashboardData);
                 setDashboardData(dashboardData);
-            } catch (err: any) {
+            } catch (err: unknown) {
                 if (abortController.signal.aborted) return;
-                setError(err.message || 'Failed to fetch dashboard data');
+                setError(toErrorMessage(err));
             } finally {
                 if (!abortController.signal.aborted) setQueryLoading(false);
             }

@@ -14,19 +14,21 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import ConnectorVerificationTab from './connectors/ConnectorVerificationTab';
 import ConnectorFiltersTab, { countFilterRules } from './connectors/ConnectorFiltersTab';
 import BYOMCPConfigTab from './connectors/BYOMCPConfigTab';
 import * as api from '../services/apiService';
-import { Config } from '../types';
-
+import { Config, DataConnector, Operation, LogEntry } from '../types';
+import { DiagnosticStep, ConnectorDiagnosticsDetails } from './connectors/connectorDiagnostics';
+import { toErrorMessage } from '../utils/errors';
 
 interface ConnectorDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
-  data: any;
+  data: ConnectorDiagnosticsDetails | string | null | undefined;
   status: 'success' | 'error' | 'unvalidated';
   config: Config;
   onRefreshSuccess?: () => void;
@@ -50,8 +52,17 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
   config,
   onRefreshSuccess,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+  });
+
   const [activeTab, setActiveTab] = React.useState<'diagnostics' | 'verification' | 'filters' | 'config'>('diagnostics');
-  const [connector, setConnector] = useState<any>(null);
+  const [connector, setConnector] = useState<DataConnector | null>(null);
   const [isRefreshingTools, setIsRefreshingTools] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshSuccess, setRefreshSuccess] = useState<boolean>(false);
@@ -59,8 +70,8 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
   const [copySuccess, setCopySuccess] = useState(false);
 
   useEffect(() => {
-    if (data && data.connectorState) {
-      setConnector(data.connectorState);
+    if (data && typeof data === 'object' && 'connectorState' in data && data.connectorState) {
+      setConnector(data.connectorState as DataConnector);
     } else {
       setConnector(null);
     }
@@ -75,7 +86,13 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
     setRefreshSuccess(false);
 
     try {
-      const mcpEndpointUrl = connector.params?.instance_uri || connector.actionConfig?.actionParams?.instance_uri;
+      const params = connector.params as Record<string, unknown> | undefined;
+      const actionConfig = connector.actionConfig as Record<string, unknown> | undefined;
+      const actionParams = actionConfig?.actionParams as Record<string, unknown> | undefined;
+      const mcpEndpointUrl =
+        (typeof params?.instance_uri === 'string' ? params.instance_uri : undefined) ||
+        (typeof actionParams?.instance_uri === 'string' ? actionParams.instance_uri : undefined);
+
       if (!mcpEndpointUrl) {
         throw new Error("No MCP instance URI found in connector configuration.");
       }
@@ -90,14 +107,14 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
         throw new Error("No tools returned by the MCP server at the specified URI.");
       }
 
-      const dynamicTools = newTools.map((tool: any) => ({
+      const dynamicTools = newTools.map((tool: { name: string; description?: string }) => ({
         name: tool.name,
         description: tool.description || '',
         enabled: true,
         displayName: tool.name
       }));
 
-      const enabledActions = newTools.map((tool: any) => tool.name);
+      const enabledActions = newTools.map((tool: { name: string }) => tool.name);
 
       const updatedConnectorPayload = {
         dynamicTools,
@@ -113,14 +130,14 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
         { ...config, projectId: projId, appLocation: loc, collectionId: collId }
       );
 
-      setConnector(response);
+      setConnector(response as unknown as DataConnector);
       setRefreshSuccess(true);
       if (onRefreshSuccess) {
         onRefreshSuccess();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to refresh MCP tools:", err);
-      setRefreshError(err.message || "Failed to refresh MCP tools.");
+      setRefreshError(toErrorMessage(err) || "Failed to refresh MCP tools.");
     } finally {
       setIsRefreshingTools(false);
     }
@@ -131,9 +148,9 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
 
 
 
-  const getRecommendation = (data: any): { title: string, message: string } | null => {
-    const logs = data.recentLogs || [];
-    const state = connector || data.connectorState || {};
+  const getRecommendation = (diagData: ConnectorDiagnosticsDetails | Record<string, unknown>): { title: string, message: string } | null => {
+    const logs = (diagData as Record<string, unknown>).recentLogs || [];
+    const state = connector || (diagData as Record<string, unknown>).connectorState || {};
     const allText = JSON.stringify(logs) + JSON.stringify(state);
 
     if (allText.includes('JIRA_INVALID_AUTH_2') || allText.includes('JIRA_INVALID_AUTH')) {
@@ -168,14 +185,14 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
       const warnings = data.diagnostics.warnings || [];
       const errors = data.diagnostics.errors || [];
       const rawOps = data.rawOperations;
-      const connectorState = connector || data.connectorState || {};
+      const connectorState: DataConnector = (connector || data.connectorState || {}) as DataConnector;
       const recommendation = getRecommendation(data);
 
       const incRules = countFilterRules(connectorState?.params?.structured_search_filter || connectorState?.params?.admin_filter || {});
       const excRules = countFilterRules(connectorState?.params?.structured_exclusion_search_filter || connectorState?.params?.admin_exclusion_filter || {});
       let entityRuleCount = 0;
       if (Array.isArray(connectorState?.entities)) {
-        connectorState.entities.forEach((e: any) => {
+        connectorState.entities.forEach((e: { params?: { inclusion_filters?: unknown; exclusion_filters?: unknown } }) => {
           entityRuleCount += countFilterRules(e.params?.inclusion_filters || {});
           entityRuleCount += countFilterRules(e.params?.exclusion_filters || {});
         });
@@ -339,7 +356,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                           </span>
                         </div>
                         <ul className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
-                          {connectorState.dynamicTools.map((tool: any, idx: number) => (
+                          {connectorState.dynamicTools.map((tool: { name?: string; displayName?: string; enabled?: boolean; description?: string }, idx: number) => (
                             <li key={idx} className="bg-gray-900/60 p-2 rounded border border-gray-800/80 flex flex-col gap-0.5">
                               <div className="flex items-center justify-between">
                                 <span className="font-mono text-xs font-semibold text-blue-400">
@@ -376,7 +393,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                       </tr>
                     </thead>
                     <tbody className="bg-gray-900 divide-y divide-gray-800">
-                      {steps.map((step: any, idx: number) => {
+                      {steps.map((step: DiagnosticStep, idx: number) => {
                         const isFail = step.status === 'fail';
                         return (
                           <tr key={idx} className={`${isFail ? 'bg-red-900/20 hover:bg-red-900/30' : 'hover:bg-gray-800/50'} transition-colors`}>
@@ -429,10 +446,10 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                 </details>
 
                 {rawOps && rawOps.length > 0 && (
-                  <details className="group" open={rawOps.some((op: any) => op.error)}>
+                  <details className="group" open={rawOps.some((op: Operation) => !!op.error)}>
                     <summary className="flex justify-between items-center font-medium cursor-pointer list-none text-sm text-gray-400 hover:text-white bg-gray-900/30 p-2 rounded">
-                      <span className={rawOps.some((op: any) => op.error) ? "text-red-400 font-bold" : ""}>
-                        Recent Operations ({rawOps.length}) {rawOps.some((op: any) => op.error) ? '(Failures Detected)' : ''}
+                      <span className={rawOps.some((op: Operation) => !!op.error) ? "text-red-400 font-bold" : ""}>
+                        Recent Operations ({rawOps.length}) {rawOps.some((op: Operation) => !!op.error) ? '(Failures Detected)' : ''}
                       </span>
                       <span className="transition group-open:rotate-180">
                         <svg fill="none" height="24" shapeRendering="geometricPrecision" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24" width="24"><path d="M6 9l6 6 6-6"></path></svg>
@@ -449,18 +466,18 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                   </details>
                 )}
 
-                {data.recentLogs && data.recentLogs.length > 0 && (
+                {Boolean(data && typeof data === 'object' && 'recentLogs' in data && Array.isArray(data.recentLogs) && data.recentLogs.length > 0) && (
                   <details className="group">
                     <summary className="flex justify-between items-center font-medium cursor-pointer list-none text-sm text-gray-400 hover:text-white bg-gray-900/30 p-2 rounded">
                       <span className="text-red-400 font-bold">
-                        Recent Error Logs ({data.recentLogs.length})
+                        Recent Error Logs ({((data as Record<string, unknown>).recentLogs as unknown[]).length})
                       </span>
                       <span className="transition group-open:rotate-180">
                         <svg fill="none" height="24" shapeRendering="geometricPrecision" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24" width="24"><path d="M6 9l6 6 6-6"></path></svg>
                       </span>
                     </summary>
                     <div className="text-gray-300 mt-2 group-open:animate-fadeIn space-y-2">
-                      {data.recentLogs.map((log: any, i: number) => (
+                      {((data as Record<string, unknown>).recentLogs as LogEntry[]).map((log, i: number) => (
                         <div key={i} className="bg-gray-950 p-2 rounded border border-gray-800 text-xs font-mono">
                           <div className="flex justify-between text-gray-500 mb-1">
                             <span>{log.timestamp}</span>
@@ -583,13 +600,14 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                           const location = connectorState?.name?.split('/')[3] || 'global';
                           const host = location === 'global' ? 'discoveryengine.googleapis.com' : `${location}-discoveryengine.googleapis.com`;
                           
-                          const cleanEntities = connectorState.entities?.map((e: any) => {
+                          const cleanEntities = connectorState.entities?.map((e: { dataStore?: unknown; [key: string]: unknown }) => {
                             const { dataStore, ...rest } = e;
                             return rest;
                           }) || [];
 
-                          const isMicrosoft = ['sharepoint', 'onedrive', 'ms-onedrive', 'outlook', 'ms-outlook', 'teams', 'ms-teams', 'entraid', 'entra', 'azure_active_directory'].includes(connectorState.dataSource.toLowerCase());
-                          const isAtlassian = ['jira', 'confluence'].includes(connectorState.dataSource.toLowerCase());
+                          const dsLower = (connectorState.dataSource || '').toLowerCase();
+                          const isMicrosoft = ['sharepoint', 'onedrive', 'ms-onedrive', 'outlook', 'ms-outlook', 'teams', 'ms-teams', 'entraid', 'entra', 'azure_active_directory'].includes(dsLower);
+                          const isAtlassian = ['jira', 'confluence'].includes(dsLower);
 
                           const cleanParams = { ...connectorState.params };
                           delete cleanParams.static_ip_enabled;
@@ -609,22 +627,23 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                             cleanParams.tenant_id = "[YOUR_TENANT_ID]";
                           }
 
-                          let cleanActionParams = undefined;
+                          let cleanActionParams: Record<string, unknown> | undefined = undefined;
                           if (connectorState.actionConfig?.actionParams) {
-                            cleanActionParams = { ...connectorState.actionConfig.actionParams };
-                            if (cleanActionParams.client_id !== undefined) {
-                              cleanActionParams.client_id = "[YOUR_CLIENT_ID]";
-                              cleanActionParams.client_secret = "[YOUR_CLIENT_SECRET]";
+                            const ap: Record<string, unknown> = { ...connectorState.actionConfig.actionParams };
+                            if (ap.client_id !== undefined) {
+                              ap.client_id = "[YOUR_CLIENT_ID]";
+                              ap.client_secret = "[YOUR_CLIENT_SECRET]";
                             }
-                            if (cleanActionParams.tenant_id !== undefined) {
-                              cleanActionParams.tenant_id = "[YOUR_TENANT_ID]";
+                            if (ap.tenant_id !== undefined) {
+                              ap.tenant_id = "[YOUR_TENANT_ID]";
                             }
-                            if (cleanActionParams.azure_tenant !== undefined) {
-                              cleanActionParams.azure_tenant = "[YOUR_TENANT_ID]";
+                            if (ap.azure_tenant !== undefined) {
+                              ap.azure_tenant = "[YOUR_TENANT_ID]";
                             }
-                            if (cleanActionParams.instance_id !== undefined) {
-                              cleanActionParams.instance_id = isMicrosoft ? "[YOUR_TENANT_ID]" : "[YOUR_INSTANCE_ID]";
+                            if (ap.instance_id !== undefined) {
+                              ap.instance_id = isMicrosoft ? "[YOUR_TENANT_ID]" : "[YOUR_INSTANCE_ID]";
                             }
+                            cleanActionParams = ap;
                           }
 
                           const dataConnectorTemplate = {
@@ -711,11 +730,32 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
     );
   };
 
+  if (!isOpen) return null;
+
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-gray-700 ring-1 ring-white/10">
+    <div
+      className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in"
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby={titleId}
+      onClick={handleBackdropClick}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-gray-700 ring-1 ring-white/10 overflow-hidden"
+      >
         <div className={`p-4 border-b ${status === 'success' ? 'border-green-900/50 bg-green-900/10' : status === 'unvalidated' ? 'border-gray-700 bg-gray-800' : 'border-red-900/50 bg-red-900/10'} flex justify-between items-center rounded-t-lg shrink-0`}>
-          <h2 className={`text-xl font-bold ${status === 'success' ? 'text-green-400' : status === 'unvalidated' ? 'text-gray-300' : 'text-red-400'} flex items-center gap-2`}>
+          <h2
+            id={titleId}
+            className={`text-xl font-bold ${status === 'success' ? 'text-green-400' : status === 'unvalidated' ? 'text-gray-300' : 'text-red-400'} flex items-center gap-2`}
+          >
             {status === 'success' ? (
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             ) : status === 'unvalidated' ? (
@@ -726,7 +766,9 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
             {title}
           </h2>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close dialog"
             className="text-gray-400 hover:text-white transition-colors p-1 rounded hover:bg-white/5"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -741,6 +783,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
 
         <div className="p-4 border-t border-gray-700 bg-gray-800 rounded-b-lg shrink-0 flex justify-end">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 bg-gray-700 text-white font-medium rounded hover:bg-gray-600 transition-colors border border-gray-600 shadow-sm"
           >

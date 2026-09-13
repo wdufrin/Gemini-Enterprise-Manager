@@ -15,37 +15,71 @@
  */
 
 
-import React from 'react';
+import React, { useRef } from 'react';
+import {
+  AnswerDetails,
+  PlanPart,
+  PlannerStep,
+  CitationItem,
+  GroundingChunkItem,
+  GroundingMetadataItem,
+} from '../../types';
+import { useModalA11y } from '../../hooks/useModalA11y';
+
+export type {
+  PlanPart,
+  PlannerStep,
+  CitationItem,
+  GroundingChunkItem,
+  GroundingMetadataItem,
+};
+
+export interface ToolStepItem {
+  toolStep: {
+    tool: string;
+    toolInput: string;
+    toolOutput: unknown;
+  };
+}
+
+export interface DataSourceItem {
+  name: string;
+  title: string;
+}
 
 interface ResponseDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  details: {
-    diagnostics?: any;
-    citations?: any[];
-    groundingMetadata?: any;
-  } | null;
+  details?: AnswerDetails | null;
 }
 
 const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onClose, details }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+  });
+
   if (!isOpen || !details) return null;
 
-  const toolSteps: any[] = [];
-  let dataSources: { name: string; title: string }[] = [];
+  const toolSteps: ToolStepItem[] = [];
+  let dataSources: DataSourceItem[] = [];
 
-  const uniqueDataStores = new Map<string, { name: string; title: string }>();
+  const uniqueDataStores = new Map<string, DataSourceItem>();
 
   // --- Logic for streamAssist (diagnostics & citations) ---
   if (details.diagnostics || details.citations) {
-    const plannerSteps = details.diagnostics?.plannerSteps || [];
+    const plannerSteps = ((details.diagnostics as { plannerSteps?: PlannerStep[] })?.plannerSteps) || [];
     const refusedDataStoreResources = new Set<string>();
 
     // 1. Process Planner Steps for Tool Usage and "Inferred" Data Stores
     for (let i = 0; i < plannerSteps.length; i++) {
       const step = plannerSteps[i];
-      const executableCodePart = step.planStep?.parts?.find((p: any) => p.executableCode);
+      const executableCodePart = step.planStep?.parts?.find((p: PlanPart) => p.executableCode);
 
-      if (executableCodePart) {
+      if (executableCodePart && executableCodePart.executableCode) {
         const code = executableCodePart.executableCode.code;
         let toolName = 'Code Execution';
         
@@ -59,8 +93,8 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
         // Look ahead for the result of this specific code block
         for (let j = i + 1; j < plannerSteps.length; j++) {
           const nextStep = plannerSteps[j];
-          const resultPart = nextStep.planStep?.parts?.find((p: any) => p.codeExecutionResult);
-          if (resultPart) {
+          const resultPart = nextStep.planStep?.parts?.find((p: PlanPart) => p.codeExecutionResult);
+          if (resultPart && resultPart.codeExecutionResult?.output) {
             toolOutput = resultPart.codeExecutionResult.output;
             i = j; // Advance outer loop as we consumed this result
             break;
@@ -91,7 +125,7 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
     }
 
     // 2. Process Citations (Grounded References)
-    (details.citations || []).forEach(reference => {
+    ((details.citations as CitationItem[]) || []).forEach(reference => {
       const docPath = reference?.documentMetadata?.document;
       if (docPath) {
         const parts = docPath.split('/');
@@ -111,8 +145,8 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
 
   // --- Logic for streamQuery (groundingMetadata) ---
   if (details.groundingMetadata) {
-    const groundingChunks = details.groundingMetadata.grounding_chunks || [];
-    groundingChunks.forEach((chunk: any) => {
+    const groundingChunks = ((details.groundingMetadata as GroundingMetadataItem)?.grounding_chunks) || [];
+    groundingChunks.forEach((chunk: GroundingChunkItem) => {
       const docPath = chunk.retrieved_context?.document_name;
       if (docPath) {
         const parts = docPath.split('/');
@@ -133,11 +167,29 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
   const hasDataSources = dataSources.length > 0;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4" aria-modal="true" role="dialog">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col border border-gray-700">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4"
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="response-details-title"
+      onClick={onClose}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col border border-gray-700"
+      >
         <header className="p-4 border-b border-gray-700 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-white">Response Details</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">&times;</button>
+          <h2 id="response-details-title" className="text-xl font-bold text-white">Response Details</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="text-gray-400 hover:text-white"
+          >
+            &times;
+          </button>
         </header>
 
         <main className="p-6 overflow-y-auto space-y-6">
@@ -154,7 +206,7 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
                     Data Sources Accessed
                   </h3>
                    <ul className="space-y-2">
-                    {dataSources.map((source: any, index: number) => (
+                    {dataSources.map((source: DataSourceItem, index: number) => (
                       <li key={index} className="bg-gray-900/50 p-3 rounded-lg border border-gray-700">
                         <p className="text-sm font-semibold text-green-400">Data Store</p>
                         <p className="text-xs font-mono text-gray-300 mt-1 truncate" title={source.name}>{source.title}</p>
@@ -174,7 +226,7 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
                     Tool Execution Log
                   </h3>
                   <div className="space-y-4">
-                    {toolSteps.map((step: any, index: number) => (
+                    {toolSteps.map((step: ToolStepItem, index: number) => (
                       <div key={index} className="bg-gray-900/50 p-3 rounded-lg border border-gray-700">
                         <p className="text-sm font-semibold text-blue-400 font-mono">{step.toolStep.tool}</p>
                         <div className="mt-2 space-y-2 text-xs">
@@ -184,7 +236,7 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
                           </div>
                           <div>
                             <p className="font-bold text-gray-400">Output:</p>
-                            <pre className="bg-gray-800 p-2 rounded mt-1 whitespace-pre-wrap font-mono text-gray-300"><code>{typeof step.toolStep.toolOutput === 'object' ? JSON.stringify(step.toolStep.toolOutput, null, 2) : step.toolStep.toolOutput}</code></pre>
+                            <pre className="bg-gray-800 p-2 rounded mt-1 whitespace-pre-wrap font-mono text-gray-300"><code>{typeof step.toolStep.toolOutput === 'object' ? JSON.stringify(step.toolStep.toolOutput, null, 2) : String(step.toolStep.toolOutput ?? '')}</code></pre>
                           </div>
                         </div>
                       </div>

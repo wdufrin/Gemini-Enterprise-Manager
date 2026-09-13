@@ -18,6 +18,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { checkServiceEnabled, enableService, listMcpTools, checkMcpCompliance } from '../services/apiService';
 import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
+import { Modal } from './common/Modal';
 
 interface McpServiceCheckProps {
     projectId: string;
@@ -203,47 +204,52 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
                 </div>
             )}
 
-            {showEnablePopup && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full border border-gray-700">
-                        <h3 className="text-lg font-medium text-white mb-4">Enable MCP for {serviceName}</h3>
-                        <div className="text-gray-300 mb-6 space-y-3 text-sm">
-                            <p>
-                                The Managed Context Protocol (MCP) is currently disabled for <b>{serviceName}</b> in project <b>{projectId}</b>.
-                            </p>
-                            <div className="bg-gray-900 p-3 rounded border border-gray-700">
-                                <h4 className="font-semibold text-white mb-2">Instructions to Enable:</h4>
-                                <ol className="list-decimal pl-4 space-y-2">
-                                    <li>Navigate to the Google Cloud Console for project <b>{projectId}</b>.</li>
-                                    <li>Go to the <b>APIs & Services</b> or the specific service page.</li>
-                                    <li>Find the settings for <b>{serviceName}</b>.</li>
-                                    <li>Enable the MCP (Managed Context Protocol) integration in the configuration or organization policy.</li>
-                                </ol>
-                            </div>
-                            <p className="text-xs text-blue-300 mt-2">
-                                Note: You may need Organization Administrator privileges to modify MCP policies.
-                            </p>
-                        </div>
-                        <div className="flex justify-end space-x-3">
-                            <button
-                                onClick={() => {
-                                    setShowEnablePopup(false);
-                                    validate(); // Re-validate upon closing in case they enabled it
-                                }}
-                                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded"
-                            >
-                                I&apos;ve Enabled It
-                            </button>
-                            <button
-                                onClick={() => setShowEnablePopup(false)}
-                                className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded"
-                            >
-                                Close
-                            </button>
-                        </div>
+            <Modal
+                isOpen={showEnablePopup}
+                onClose={() => {
+                    setShowEnablePopup(false);
+                    validate();
+                }}
+                title={`Enable MCP for ${serviceName}`}
+                size="md"
+            >
+                <div className="text-gray-300 space-y-3 text-sm">
+                    <p>
+                        The Managed Context Protocol (MCP) is currently disabled for <b>{serviceName}</b> in project <b>{projectId}</b>.
+                    </p>
+                    <div className="bg-gray-900 p-3 rounded border border-gray-700">
+                        <h4 className="font-semibold text-white mb-2">Instructions to Enable:</h4>
+                        <ol className="list-decimal pl-4 space-y-2">
+                            <li>Navigate to the Google Cloud Console for project <b>{projectId}</b>.</li>
+                            <li>Go to the <b>APIs & Services</b> or the specific service page.</li>
+                            <li>Find the settings for <b>{serviceName}</b>.</li>
+                            <li>Enable the MCP (Managed Context Protocol) integration in the configuration or organization policy.</li>
+                        </ol>
                     </div>
+                    <p className="text-xs text-blue-300 mt-2">
+                        Note: You may need Organization Administrator privileges to modify MCP policies.
+                    </p>
                 </div>
-            )}
+                <div className="mt-6 flex justify-end space-x-3">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setShowEnablePopup(false);
+                            validate(); // Re-validate upon closing in case they enabled it
+                        }}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded"
+                    >
+                        I&apos;ve Enabled It
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setShowEnablePopup(false)}
+                        className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded"
+                    >
+                        Close
+                    </button>
+                </div>
+            </Modal>
         </div>
     );
 };

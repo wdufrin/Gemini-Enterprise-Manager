@@ -18,6 +18,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Config, ConfigAuditItem, ConfigAuditSummary } from '../types';
 import { runConfigAudit, generateAuditMarkdown } from '../services/configAuditService';
 import * as api from '../services/apiService';
+import ProjectEngineSelector, { ProjectEngineSelectorValue } from '../components/common/ProjectEngineSelector';
 
 interface ConfigAuditPageProps {
   projectNumber: string;
@@ -25,128 +26,33 @@ interface ConfigAuditPageProps {
   accessToken: string;
 }
 
-const ALL_LOCATIONS = ['global', 'us', 'eu'];
-
 const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
   projectNumber,
   projectId,
   accessToken,
 }) => {
-  // Source Environment State
-  const [sourceProject, setSourceProject] = useState<string>(() => projectNumber || projectId || '');
-  const [sourceLocation, setSourceLocation] = useState<string>('global');
-  const [sourceEngine, setSourceEngine] = useState<string>('default_engine');
-  const [sourceApps, setSourceApps] = useState<any[]>([]);
-  const [isLoadingSourceApps, setIsLoadingSourceApps] = useState<boolean>(false);
-  const [isCustomSourceEngine, setIsCustomSourceEngine] = useState<boolean>(false);
+  // Source & Destination Environment State
+  const [sourceEnv, setSourceEnv] = useState<ProjectEngineSelectorValue>(() => ({
+    project: projectNumber || projectId || '',
+    location: 'global',
+    engine: 'default_engine',
+  }));
 
-  // Destination Environment State
-  const [targetProject, setTargetProject] = useState<string>('');
-  const [targetLocation, setTargetLocation] = useState<string>('global');
-  const [targetEngine, setTargetEngine] = useState<string>('default_engine');
-  const [targetApps, setTargetApps] = useState<any[]>([]);
-  const [isLoadingTargetApps, setIsLoadingTargetApps] = useState<boolean>(false);
-  const [isCustomTargetEngine, setIsCustomTargetEngine] = useState<boolean>(false);
+  const [targetEnv, setTargetEnv] = useState<ProjectEngineSelectorValue>({
+    project: '',
+    location: 'global',
+    engine: 'default_engine',
+  });
 
   // Keep source project in sync if props update
   useEffect(() => {
-    setSourceProject(prev => {
-      if (!prev && (projectNumber || projectId)) {
-        return projectNumber || projectId || '';
+    setSourceEnv(prev => {
+      if (!prev.project && (projectNumber || projectId)) {
+        return { ...prev, project: projectNumber || projectId || '' };
       }
       return prev;
     });
   }, [projectNumber, projectId]);
-
-  // Fetch Source Apps / Engines
-  useEffect(() => {
-    const proj = sourceProject.trim();
-    if (!proj) {
-      setSourceApps([]);
-      return;
-    }
-    let isMounted = true;
-    const fetchSourceApps = async () => {
-      setIsLoadingSourceApps(true);
-      try {
-        const res = await api.listResources('engines', {
-          projectId: proj,
-          appLocation: sourceLocation,
-          collectionId: 'default_collection',
-          appId: '',
-          assistantId: '',
-        }, undefined, 100, true);
-        if (isMounted) {
-          const engines = res?.engines || [];
-          setSourceApps(engines);
-          if (engines.length > 0) {
-            setSourceEngine(prev => {
-              const hasCurrent = engines.some((e: any) => e.name.split('/').pop() === prev);
-              if (!hasCurrent) {
-                const defaultEng = engines.find((e: any) => e.name.split('/').pop() === 'default_engine');
-                return defaultEng ? 'default_engine' : (engines[0].name.split('/').pop() || '');
-              }
-              return prev;
-            });
-          }
-        }
-      } catch (e) {
-        if (isMounted) {
-          console.warn('Could not list engines for source project:', e);
-          setSourceApps([]);
-        }
-      } finally {
-        if (isMounted) setIsLoadingSourceApps(false);
-      }
-    };
-    fetchSourceApps();
-    return () => { isMounted = false; };
-  }, [sourceProject, sourceLocation]);
-
-  // Fetch Destination Apps / Engines
-  useEffect(() => {
-    const proj = targetProject.trim();
-    if (!proj) {
-      setTargetApps([]);
-      return;
-    }
-    let isMounted = true;
-    const fetchTargetApps = async () => {
-      setIsLoadingTargetApps(true);
-      try {
-        const res = await api.listResources('engines', {
-          projectId: proj,
-          appLocation: targetLocation,
-          collectionId: 'default_collection',
-          appId: '',
-          assistantId: '',
-        }, undefined, 100, true);
-        if (isMounted) {
-          const engines = res?.engines || [];
-          setTargetApps(engines);
-          if (engines.length > 0) {
-            setTargetEngine(prev => {
-              const hasCurrent = engines.some((e: any) => e.name.split('/').pop() === prev);
-              if (!hasCurrent) {
-                const defaultEng = engines.find((e: any) => e.name.split('/').pop() === 'default_engine');
-                return defaultEng ? 'default_engine' : (engines[0].name.split('/').pop() || '');
-              }
-              return prev;
-            });
-          }
-        }
-      } catch (e) {
-        if (isMounted) {
-          console.warn('Could not list engines for target project:', e);
-          setTargetApps([]);
-        }
-      } finally {
-        if (isMounted) setIsLoadingTargetApps(false);
-      }
-    };
-    fetchTargetApps();
-    return () => { isMounted = false; };
-  }, [targetProject, targetLocation]);
 
   // Audit Execution State
   const [isAuditing, setIsAuditing] = useState<boolean>(false);
@@ -161,7 +67,7 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
   const handleRunAudit = async () => {
-    if (!sourceProject.trim() || !targetProject.trim()) {
+    if (!sourceEnv.project.trim() || !targetEnv.project.trim()) {
       setAuditError('Please specify both Source Project and Destination Project.');
       return;
     }
@@ -171,18 +77,18 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
     setAuditProgress({ step: 'Initializing environment connection...', percent: 5 });
 
     const sourceConfig: Config = {
-      projectId: sourceProject.trim(),
-      appLocation: sourceLocation,
+      projectId: sourceEnv.project.trim(),
+      appLocation: sourceEnv.location,
       collectionId: 'default_collection',
-      appId: sourceEngine.trim() || 'default_engine',
+      appId: sourceEnv.engine.trim() || 'default_engine',
       assistantId: 'default_assistant'
     };
 
     const targetConfig: Config = {
-      projectId: targetProject.trim(),
-      appLocation: targetLocation,
+      projectId: targetEnv.project.trim(),
+      appLocation: targetEnv.location,
       collectionId: 'default_collection',
-      appId: targetEngine.trim() || 'default_engine',
+      appId: targetEnv.engine.trim() || 'default_engine',
       assistantId: 'default_assistant'
     };
 
@@ -311,218 +217,26 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
       {/* Dual Environment Input Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Source Environment Panel */}
-        <div className="bg-gray-800/90 rounded-xl p-5 border border-gray-700/80 shadow-lg">
-          <div className="flex items-center justify-between mb-4 border-b border-gray-700/60 pb-3">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
-              <h2 className="text-base font-semibold text-white">Source Environment (Current)</h2>
-            </div>
-            <span className="text-xs text-gray-400">Baseline Config</span>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-300 mb-1">
-                Source Project ID or Number <span className="text-red-400">*</span>
-              </label>
-              <input
-                type="text"
-                value={sourceProject}
-                onChange={(e) => setSourceProject(e.target.value)}
-                placeholder="e.g. my-source-project or 123456789"
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">Region Location</label>
-                <select
-                  value={sourceLocation}
-                  onChange={(e) => setSourceLocation(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {ALL_LOCATIONS.map(loc => (
-                    <option key={loc} value={loc}>{loc}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-medium text-gray-300">
-                    Gemini Enterprise App ID
-                  </label>
-                  {sourceApps.length > 0 && !isCustomSourceEngine && (
-                    <button
-                      type="button"
-                      onClick={() => setIsCustomSourceEngine(true)}
-                      className="text-[11px] text-blue-400 hover:text-blue-300 underline focus:outline-none"
-                    >
-                      Enter manually
-                    </button>
-                  )}
-                  {isCustomSourceEngine && sourceApps.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setIsCustomSourceEngine(false)}
-                      className="text-[11px] text-blue-400 hover:text-blue-300 underline focus:outline-none"
-                    >
-                      Select from list
-                    </button>
-                  )}
-                </div>
-
-                {isLoadingSourceApps ? (
-                  <select
-                    disabled
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-400"
-                  >
-                    <option>Loading Gemini Enterprise Apps...</option>
-                  </select>
-                ) : sourceApps.length > 0 && !isCustomSourceEngine ? (
-                  <select
-                    value={sourceEngine}
-                    onChange={(e) => {
-                      if (e.target.value === '__custom__') {
-                        setIsCustomSourceEngine(true);
-                      } else {
-                        setSourceEngine(e.target.value);
-                      }
-                    }}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">-- Select Gemini Enterprise App --</option>
-                    {sourceApps.map((a: any) => {
-                      const id = a.name.split('/').pop() || '';
-                      return (
-                        <option key={a.name} value={id}>
-                          {a.displayName ? `${a.displayName} (${id})` : id}
-                        </option>
-                      );
-                    })}
-                    <option value="__custom__">+ Enter Custom App ID...</option>
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={sourceEngine}
-                    onChange={(e) => setSourceEngine(e.target.value)}
-                    placeholder="default_engine"
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <ProjectEngineSelector
+          title="Source Environment (Baseline)"
+          subtitle="Baseline Config"
+          badgeColor="blue"
+          value={sourceEnv}
+          onChange={setSourceEnv}
+          projectPlaceholder="e.g. my-source-project or 123456789"
+          disabled={isAuditing}
+        />
 
         {/* Destination Environment Panel */}
-        <div className="bg-gray-800/90 rounded-xl p-5 border border-gray-700/80 shadow-lg">
-          <div className="flex items-center justify-between mb-4 border-b border-gray-700/60 pb-3">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              <h2 className="text-base font-semibold text-white">Destination Environment (Target)</h2>
-            </div>
-            <span className="text-xs text-gray-400">Target Config</span>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-300 mb-1">
-                Destination Project ID or Number <span className="text-red-400">*</span>
-              </label>
-              <input
-                type="text"
-                value={targetProject}
-                onChange={(e) => setTargetProject(e.target.value)}
-                placeholder="e.g. my-target-project or 987654321"
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">Region Location</label>
-                <select
-                  value={targetLocation}
-                  onChange={(e) => setTargetLocation(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  {ALL_LOCATIONS.map(loc => (
-                    <option key={loc} value={loc}>{loc}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-medium text-gray-300">
-                    Gemini Enterprise App ID
-                  </label>
-                  {targetApps.length > 0 && !isCustomTargetEngine && (
-                    <button
-                      type="button"
-                      onClick={() => setIsCustomTargetEngine(true)}
-                      className="text-[11px] text-emerald-400 hover:text-emerald-300 underline focus:outline-none"
-                    >
-                      Enter manually
-                    </button>
-                  )}
-                  {isCustomTargetEngine && targetApps.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setIsCustomTargetEngine(false)}
-                      className="text-[11px] text-emerald-400 hover:text-emerald-300 underline focus:outline-none"
-                    >
-                      Select from list
-                    </button>
-                  )}
-                </div>
-
-                {isLoadingTargetApps ? (
-                  <select
-                    disabled
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-400"
-                  >
-                    <option>Loading Gemini Enterprise Apps...</option>
-                  </select>
-                ) : targetApps.length > 0 && !isCustomTargetEngine ? (
-                  <select
-                    value={targetEngine}
-                    onChange={(e) => {
-                      if (e.target.value === '__custom__') {
-                        setIsCustomTargetEngine(true);
-                      } else {
-                        setTargetEngine(e.target.value);
-                      }
-                    }}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="">-- Select Gemini Enterprise App --</option>
-                    {targetApps.map((a: any) => {
-                      const id = a.name.split('/').pop() || '';
-                      return (
-                        <option key={a.name} value={id}>
-                          {a.displayName ? `${a.displayName} (${id})` : id}
-                        </option>
-                      );
-                    })}
-                    <option value="__custom__">+ Enter Custom App ID...</option>
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={targetEngine}
-                    onChange={(e) => setTargetEngine(e.target.value)}
-                    placeholder="default_engine"
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <ProjectEngineSelector
+          title="Destination Environment (Target)"
+          subtitle="Target Config"
+          badgeColor="emerald"
+          value={targetEnv}
+          onChange={setTargetEnv}
+          projectPlaceholder="e.g. my-target-project or 987654321"
+          disabled={isAuditing}
+        />
       </div>
 
       {/* Action Bar */}
@@ -538,7 +252,7 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
 
         <button
           onClick={handleRunAudit}
-          disabled={isAuditing || !sourceProject.trim() || !targetProject.trim()}
+          disabled={isAuditing || !sourceEnv.project.trim() || !targetEnv.project.trim()}
           className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-medium text-sm rounded-lg shadow-md transition-all flex items-center justify-center gap-2"
         >
           {isAuditing ? (

@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
+import Modal from './common/Modal';
 
 interface CurlConfirmationModalProps {
     isOpen: boolean;
@@ -31,70 +32,84 @@ const CurlConfirmationModal: React.FC<CurlConfirmationModalProps> = ({
     curlCommand,
     isExecuting = false,
 }) => {
-    if (!isOpen) return null;
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(curlCommand);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-[100] p-4 animate-fade-in" aria-modal="true" role="dialog">
-            <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl border border-gray-700 flex flex-col max-h-[90vh]">
-                <header className="p-4 border-b border-gray-700 flex items-center justify-between bg-gray-900/50 rounded-t-xl">
-                    <div className="flex items-center gap-2 text-blue-400">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                        <h2 className="text-lg font-bold text-white">Confirm Interaction Details</h2>
-                    </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                </header>
-
-                <main className="p-6 overflow-hidden flex flex-col flex-1">
-                    <p className="text-sm text-gray-300 mb-4">
-                        You have &quot;Show Interaction Details&quot; enabled. Please review the equivalent API command before proceeding.
-                    </p>
-                    
-                    <div className="flex-1 overflow-auto bg-gray-950 p-4 rounded-lg border border-gray-700 relative group">
-                         <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap break-all">
-                            {curlCommand}
-                         </pre>
-                         <button
-                            type="button"
-                            onClick={() => navigator.clipboard.writeText(curlCommand)}
-                            className="absolute top-2 right-2 p-1.5 bg-gray-800 text-gray-400 rounded hover:text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="Copy to clipboard"
-                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                         </button>
-                    </div>
-                </main>
-
-                <footer className="p-4 bg-gray-900/50 border-t border-gray-700 flex justify-end space-x-3 rounded-b-xl">
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="Confirm Interaction Details"
+            preventClose={isExecuting}
+            size="4xl"
+            headerIcon={
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+            }
+            footer={
+                <>
                     <button 
+                        type="button"
                         onClick={onClose} 
                         disabled={isExecuting} 
-                        className="px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 disabled:opacity-50"
+                        className="px-4 py-2 bg-gray-700 text-gray-300 text-xs font-semibold rounded-md hover:bg-gray-600 disabled:opacity-50 transition-colors"
                     >
                         Cancel
                     </button>
                     <button
+                        type="button"
                         onClick={onConfirm}
                         disabled={isExecuting}
-                        className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 disabled:bg-blue-800 flex items-center shadow-lg"
+                        className="px-5 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 disabled:bg-blue-800 flex items-center shadow-lg transition-colors"
                     >
                         {isExecuting ? (
                             <>
-                                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                                <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white/30 border-t-white mr-2"></div>
                                 Executing...
                             </>
                         ) : 'Confirm & Execute'}
                     </button>
-                </footer>
+                </>
+            }
+        >
+            <p className="text-sm text-gray-300 mb-4">
+                You have &quot;Show Interaction Details&quot; enabled. Please review the equivalent API command before proceeding.
+            </p>
+            
+            <div className="bg-gray-950 p-4 rounded-lg border border-gray-700 relative group">
+                <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap break-all">
+                    {curlCommand}
+                </pre>
+                <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="absolute top-2 right-2 px-2.5 py-1.5 bg-gray-800 text-gray-300 rounded hover:text-white hover:bg-gray-700 text-xs font-medium border border-gray-700 transition-all flex items-center gap-1.5"
+                    aria-label="Copy cURL command to clipboard"
+                >
+                    {copied ? (
+                        <>
+                            <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            <span>Copied</span>
+                        </>
+                    ) : (
+                        <>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            <span>Copy</span>
+                        </>
+                    )}
+                </button>
             </div>
-        </div>
+        </Modal>
     );
 };
 

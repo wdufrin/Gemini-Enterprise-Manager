@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useId } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 interface UserManualModalProps {
     isOpen: boolean;
@@ -23,6 +24,14 @@ interface UserManualModalProps {
 
 const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) => {
     const [activeTab, setActiveTab] = useState('overview');
+    const containerRef = useRef<HTMLDivElement>(null);
+    const titleId = useId();
+
+    useModalA11y({
+        isOpen,
+        onClose,
+        containerRef,
+    });
 
     if (!isOpen) return null;
 
@@ -288,17 +297,38 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
         }
     };
 
+    const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    };
+
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-[100] p-4 animate-fade-in" aria-modal="true" role="dialog">
-            <div className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col border border-gray-700">
+        <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-xs flex justify-center items-center z-[100] p-4 animate-fade-in"
+            aria-modal="true"
+            role="dialog"
+            aria-labelledby={titleId}
+            onClick={handleBackdropClick}
+        >
+            <div
+                ref={containerRef}
+                tabIndex={-1}
+                className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col border border-gray-700 overflow-hidden"
+            >
                 <header className="p-5 border-b border-gray-700 flex justify-between items-center bg-gray-900/50 rounded-t-lg">
-                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <h2 id={titleId} className="text-xl font-bold text-white flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                         </svg>
                         User Manual
                     </h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        aria-label="Close dialog"
+                        className="text-gray-400 hover:text-white transition-colors p-1 rounded hover:bg-gray-700"
+                    >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>

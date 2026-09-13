@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { Config, UserProfile } from '../../types';
 import UserMemoriesViewer from './UserMemoriesViewer';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface UserMemoriesModalProps {
   isOpen: boolean;
@@ -33,11 +34,30 @@ export const UserMemoriesModal: React.FC<UserMemoriesModalProps> = ({
   userProfile,
   targetDisplayName,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+  });
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+    <div
+      className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="user-memories-modal-title"
+      onClick={onClose}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-900 border border-gray-700 rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden"
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-700 flex items-center justify-between bg-gray-850">
           <div className="flex items-center gap-3">
@@ -47,7 +67,7 @@ export const UserMemoriesModal: React.FC<UserMemoriesModalProps> = ({
               </svg>
             </div>
             <div>
-              <h2 className="text-lg font-bold text-gray-100">
+              <h2 id="user-memories-modal-title" className="text-lg font-bold text-gray-100">
                 User Memories &amp; Personalization
               </h2>
               <p className="text-xs text-gray-400">
@@ -56,7 +76,9 @@ export const UserMemoriesModal: React.FC<UserMemoriesModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-lg transition-colors"
             title="Close"
           >

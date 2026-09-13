@@ -1,10 +1,26 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import InfoTooltip from '../InfoTooltip';
 import * as api from '../../services/apiService';
-import { Config } from '../../types';
+import { Config, BillingAccount, BillingAccountLicenseConfig, LicenseConfig, TimeSeries } from '../../types';
+import { toErrorMessage } from '../../utils/errors';
 
 interface Props {
     projectNumber?: string;
+}
+
+interface HydratedProjectLicense extends Partial<LicenseConfig> {
+    name: string;
+    allocatedCount?: number;
+    subscriptionTier?: string;
+    displayName?: string;
+}
+
+interface QuotaCardProps {
+    title: string;
+    value: number;
+    usage?: number;
+    unit: string;
+    tooltip?: string;
 }
 
 const CostsUI: React.FC<Props> = ({ projectNumber }) => {
@@ -13,12 +29,12 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
     const [showInstructions, setShowInstructions] = useState(false);
 
     // API State
-    const [billingAccounts, setBillingAccounts] = useState<any[]>([]);
+    const [billingAccounts, setBillingAccounts] = useState<BillingAccount[]>([]);
     const [selectedBillingAccountId, setSelectedBillingAccountId] = useState<string>('');
-    const [licenseConfigs, setLicenseConfigs] = useState<any[]>([]);
+    const [licenseConfigs, setLicenseConfigs] = useState<BillingAccountLicenseConfig[]>([]);
     const [selectedConfigName, setSelectedConfigName] = useState<string>('');
     const [selectedLocation, setSelectedLocation] = useState<string>('');
-    const [projectLicenses, setProjectLicenses] = useState<any[]>([]);
+    const [projectLicenses, setProjectLicenses] = useState<HydratedProjectLicense[]>([]);
     const [selectedProjectLicense, setSelectedProjectLicense] = useState<string>('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -42,11 +58,11 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 setBillingAccounts(accounts);
                 
                 if (accounts.length === 1) {
-                     setSelectedBillingAccountId(prev => prev || accounts[0].name.split('/').pop());
+                     setSelectedBillingAccountId(prev => prev || accounts[0].name.split('/').pop() || '');
                 }
-            } catch (err: any) {
+            } catch (err: unknown) {
                 console.error("Failed to fetch billing accounts:", err);
-                setError(err.message || "Failed to load billing accounts.");
+                setError(toErrorMessage(err) || "Failed to load billing accounts.");
             } finally {
                 setIsLoading(false);
             }
@@ -54,7 +70,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
         fetchAccounts();
     }, [projectNumber]);
 
-    const applyConfigSelection = useCallback((configName: string, locName: string, availableConfigs: any[]) => {
+    const applyConfigSelection = useCallback((configName: string, locName: string, availableConfigs: BillingAccountLicenseConfig[]) => {
         setSelectedConfigName(configName);
         setSelectedLocation(locName);
         if (!configName) return;
@@ -76,13 +92,13 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 if (locName) {
                     // Filter specifically for the selected location in the current project
                     const targetKey = `projects/${projectNumber}/locations/${locName}`;
-                    Object.entries(selectedConfig.licenseConfigDistributions).forEach(([key, val]: any) => {
+                    Object.entries(selectedConfig.licenseConfigDistributions).forEach(([key, val]: [string, string | number]) => {
                         if (key.includes(targetKey)) {
                             totalLicenses += Number(val) || 0;
                         }
                     });
                 } else {
-                    Object.values(selectedConfig.licenseConfigDistributions).forEach((val: any) => {
+                    Object.values(selectedConfig.licenseConfigDistributions).forEach((val: string | number) => {
                         totalLicenses += Number(val) || 0;
                     });
                 }
@@ -102,7 +118,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             }
             setIsLoading(true);
             try {
-                const config = { projectId: projectNumber, appLocation: 'global' } as Config;
+                const config: Config = { projectId: projectNumber, appLocation: 'global', collectionId: '', appId: '', assistantId: '' };
                 const res = await api.listBillingAccountLicenseConfigs(selectedBillingAccountId, config);
                 const configs = res.billingAccountLicenseConfigs || [];
                 setLicenseConfigs(configs);
@@ -114,9 +130,9 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                      const stillExists = configs.find(c => c.name === selectedConfigName);
                      if (stillExists) applyConfigSelection(selectedConfigName, '', configs);
                 }
-            } catch (err: any) {
+            } catch (err: unknown) {
                 console.error("Failed to fetch license configs:", err);
-                setError(err.message || "Failed to load subscription profiles.");
+                setError(toErrorMessage(err) || "Failed to load subscription profiles.");
             } finally {
                 setIsLoading(false);
             }
@@ -124,7 +140,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
         fetchConfigs();
     }, [projectNumber, selectedBillingAccountId, applyConfigSelection, selectedConfigName]);
 
-    const handleConfigSelection = (configName: string, locName: string = '', availableConfigs: any[] = licenseConfigs) => {
+    const handleConfigSelection = (configName: string, locName: string = '', availableConfigs: BillingAccountLicenseConfig[] = licenseConfigs) => {
         applyConfigSelection(configName, locName, availableConfigs);
     };
 
@@ -139,7 +155,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             } else {
                  setEdition('Standard');
             }
-            if (selectedLicense.allocatedCount > 0) {
+            if (selectedLicense.allocatedCount !== undefined && selectedLicense.allocatedCount > 0) {
                  setLicenses(selectedLicense.allocatedCount);
             }
         }
@@ -152,12 +168,12 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             setIsLoading(true);
             try {
                 const locations = ['global', 'us', 'eu'];
-                const discoveredLicenses: any[] = [];
+                const discoveredLicenses: { name: string }[] = [];
                 
                 // 1. Query usage stats across all regions
                 for (const loc of locations) {
                     try {
-                        const config = { projectId: projectNumber, appLocation: loc } as Config;
+                        const config: Config = { projectId: projectNumber, appLocation: loc, collectionId: '', appId: '', assistantId: '' };
                         const res = await api.listLicenseConfigsUsageStats(config);
                         if (res.licenseConfigUsageStats) {
                             for (const stat of res.licenseConfigUsageStats) {
@@ -169,16 +185,16 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                                 }
                             }
                         }
-                    } catch (e: any) {
+                    } catch (_e: unknown) {
                         // Ignore 404s or 400s for regions that aren't provisioned
                     }
                 }
                 
                 // 2. Hydrate subscription tiers and total counts by calling getLicenseConfig
-                const hydratedLicenses = [];
+                const hydratedLicenses: HydratedProjectLicense[] = [];
                 for (const license of discoveredLicenses) {
                      try {
-                          const config = { projectId: projectNumber, appLocation: 'global' } as Config;
+                          const config: Config = { projectId: projectNumber, appLocation: 'global', collectionId: '', appId: '', assistantId: '' };
                           const res = await api.getLicenseConfig(license.name, config);
                           hydratedLicenses.push({
                               ...license,
@@ -186,7 +202,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                               subscriptionTier: res.subscriptionTier || 'GEMINI_ENTERPRISE',
                               displayName: license.name.split('/').pop()
                           });
-                     } catch (e: any) {
+                     } catch (_e: unknown) {
                           // Fallback
                           hydratedLicenses.push({
                               ...license,
@@ -209,7 +225,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             } else {
                                 setEdition('Standard');
                             }
-                            if (first.allocatedCount > 0) {
+                            if (first.allocatedCount && first.allocatedCount > 0) {
                                 setLicenses(first.allocatedCount);
                             }
                             return first.name;
@@ -217,7 +233,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         return prev;
                     });
                 }
-            } catch (err: any) {
+            } catch (err: unknown) {
                 console.error("Failed to fetch project licenses:", err);
             } finally {
                 setIsLoading(false);
@@ -309,7 +325,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 
                 const results = await Promise.allSettled(promises);
                 
-                const usages: any = {
+                const usages: Record<string, number> = {
                     tasksAndActions: 0,
                     textAnswerGen: 0,
                     imageGen: 0,
@@ -326,20 +342,20 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     if (result.status === 'fulfilled') {
                         const { key, res } = result.value;
                         if (res.timeSeries && res.timeSeries.length > 0) {
-                            res.timeSeries.forEach((series: any) => {
+                            res.timeSeries.forEach((series: TimeSeries) => {
                                 const points = series.points;
                                 if (points && points.length > 0) {
                                     // With ALIGN_SUM 86400s, point[0] holds the aggregated 24h total for this series
                                     const point = points[0];
                                     const valObj = point.value;
-                                    const val = parseInt(valObj.int64Value || valObj.doubleValue || "0", 10);
-                                    usages[key] += val;
+                                    const val = parseInt(String(valObj?.int64Value ?? valObj?.doubleValue ?? "0"), 10);
+                                    usages[key] = (usages[key] || 0) + val;
                                 }
                             });
                         }
                     } else {
                         // If one fails with 403 or permission error, flag it
-                        const err = result.reason;
+                        const err = result.reason as { status?: number; code?: number; message?: string } | undefined;
                         const errMsg = (err?.message || (typeof err === 'string' ? err : '')).toLowerCase();
                         if (
                             err?.status === 403 ||
@@ -364,7 +380,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     setUsageMetrics(usages);
                     setMetricsError(null);
                 }
-            } catch (err: any) {
+            } catch (err: unknown) {
                 console.error("Failed to fetch cloud monitoring metrics", err);
                 setUsageMetrics(null);
                 setMetricsError("Failed to load live usage metrics from Cloud Monitoring.");
@@ -375,7 +391,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
         fetchMetrics();
     }, [projectNumber, edition]);
 
-    const QuotaCard = ({ title, value, usage, unit, tooltip }: any) => {
+    const QuotaCard: React.FC<QuotaCardProps> = ({ title, value, usage, unit, tooltip }) => {
         const isUnavailable = usage === undefined || usage === null;
         const noLicenses = licenses === '';
         const percentage = !isUnavailable && value > 0 ? Math.min(100, Math.round((usage / value) * 100)) : 0;

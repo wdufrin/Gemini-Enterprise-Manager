@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface PromptChipModalProps {
     isOpen: boolean;
@@ -11,6 +12,7 @@ interface PromptChipModalProps {
 }
 
 const PromptChipModal: React.FC<PromptChipModalProps> = ({ isOpen, onClose, engineName, chip, onSuccess }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const isEdit = !!chip;
     const isGoogleDefined = chip?.type === 'Google-made' || chip?.raw?.googleDefined || chip?.name?.split('/').pop()?.startsWith('goog_');
     const [name, setName] = useState('');
@@ -21,6 +23,13 @@ const PromptChipModal: React.FC<PromptChipModalProps> = ({ isOpen, onClose, engi
     const [isEnabled, setIsEnabled] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    useModalA11y({
+        isOpen,
+        onClose,
+        containerRef,
+        preventClose: isSubmitting,
+    });
 
     useEffect(() => {
         if (isOpen) {
@@ -117,13 +126,31 @@ const PromptChipModal: React.FC<PromptChipModalProps> = ({ isOpen, onClose, engi
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 backdrop-blur-sm p-4">
-            <div className="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 backdrop-blur-sm p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="prompt-chip-modal-title"
+            onClick={() => {
+                if (!isSubmitting) onClose();
+            }}
+        >
+            <div
+                ref={containerRef}
+                tabIndex={-1}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-2xl max-h-[90vh] flex flex-col"
+            >
                 <div className="flex justify-between items-center p-6 border-b border-gray-700">
-                    <h3 className="text-xl font-bold text-white">
+                    <h3 id="prompt-chip-modal-title" className="text-xl font-bold text-white">
                         {isEdit ? 'Edit Prompt Chip' : 'Create Custom Prompt Chip'}
                     </h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        aria-label="Close dialog"
+                        className="text-gray-400 hover:text-white"
+                    >
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                 </div>

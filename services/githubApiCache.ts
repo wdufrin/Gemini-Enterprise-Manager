@@ -1,5 +1,25 @@
 // --- GitHub Rest API Extensions ---
-export const createGithubRepo = async (token: string, name: string, description: string = '', isPrivate: boolean = true): Promise<any> => {
+export interface GitHubWorkflowItem {
+    name: string;
+    path: string;
+    html_url: string;
+    default_branch: string;
+    repository: {
+        full_name: string;
+    };
+}
+
+export interface GitHubRepoItem {
+    id?: number | string;
+    name: string;
+    full_name: string;
+    html_url: string;
+    description?: string;
+    default_branch?: string;
+    [key: string]: unknown;
+}
+
+export const createGithubRepo = async (token: string, name: string, description: string = '', isPrivate: boolean = true): Promise<{ exists?: boolean; [key: string]: unknown }> => {
     const response = await fetch('https://api.github.com/user/repos', {
         method: 'POST',
         headers: {
@@ -29,7 +49,7 @@ export const createGithubRepo = async (token: string, name: string, description:
                     }
                 }
             }
-        } catch (e) {
+        } catch {
             // ignore
         }
         throw new Error(`Failed to create repository: ${errorMsg}`);
@@ -38,7 +58,7 @@ export const createGithubRepo = async (token: string, name: string, description:
     return await response.json();
 };
 
-export const pushToGithub = async (token: string, owner: string, repo: string, files: { path: string, content: string, encoding?: string }[], commitMessage: string): Promise<any> => {
+export const pushToGithub = async (token: string, owner: string, repo: string, files: { path: string, content: string, encoding?: string }[], commitMessage: string): Promise<Record<string, unknown>> => {
     const baseUrl = `https://api.github.com/repos/${owner}/${repo}`;
     const headers = {
         'Authorization': `Bearer ${token}`,
@@ -65,8 +85,7 @@ export const pushToGithub = async (token: string, owner: string, repo: string, f
     const commitData = await commitResponse.json();
     const treeSha = commitData.tree.sha;
 
-    // 3. Create blob for each file and build a new tree
-    const tree: any[] = [];
+    const tree: Array<{ path: string; mode: string; type: string; sha: string }> = [];
     for (const file of files) {
          // Create blob
          const blobResponse = await fetch(`${baseUrl}/git/blobs`, {
@@ -122,7 +141,7 @@ export const pushToGithub = async (token: string, owner: string, repo: string, f
     return await updateRefResponse.json();
 };
 
-export const searchReusableWorkflows = async (token: string, owner: string): Promise<any> => {
+export const searchReusableWorkflows = async (token: string, owner: string): Promise<{ items?: GitHubWorkflowItem[]; total_count?: number }> => {
     // Search for Repositories containing "template" in their name, bypassing Code Search indexing delays
     const query = encodeURIComponent(`template in:name user:${owner}`);
     const response = await fetch(`https://api.github.com/search/repositories?q=${query}`, {
@@ -142,7 +161,7 @@ export const searchReusableWorkflows = async (token: string, owner: string): Pro
     // Map the repository results to mimic the structure returned by the Code Search API
     // so the frontend doesn't need to change its data extraction paths.
     if (data && data.items) {
-        data.items = data.items.map((repo: any) => ({
+        data.items = data.items.map((repo: GitHubRepoItem) => ({
             name: '.github/workflows/deploy.yaml',
             path: '.github/workflows/deploy.yaml',
             html_url: repo.html_url,
@@ -156,7 +175,7 @@ export const searchReusableWorkflows = async (token: string, owner: string): Pro
     return data;
 };
 
-export const getUserRepositories = async (token: string, owner: string): Promise<any> => {
+export const getUserRepositories = async (token: string, owner: string): Promise<{ items?: GitHubRepoItem[]; total_count?: number }> => {
     // Search for all repositories owned by the user/organization
     const query = encodeURIComponent(`user:${owner}`);
     const response = await fetch(`https://api.github.com/search/repositories?q=${query}&sort=updated&per_page=100`, {

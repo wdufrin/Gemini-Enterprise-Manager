@@ -136,7 +136,9 @@ describe('Gemini Enterprise Manager - App Integration Tests', () => {
 
     // Check that sidebar and default "Agents" page render
     expect(screen.getByText('Gemini Enterprise')).toBeDefined();
-    expect(screen.getByRole('heading', { name: /Agents/i })).toBeDefined();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /Agents/i })).toBeDefined();
+    });
   });
 
   it('allows navigating between sidebar tabs in the console', async () => {

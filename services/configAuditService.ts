@@ -29,6 +29,14 @@ export interface AuditProgressCallback {
   (step: string, percent: number): void;
 }
 
+function toErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    return String((err as { message: unknown }).message);
+  }
+  return String(err || 'Unknown error');
+}
+
 /**
  * Distinguishes "the resource is genuinely absent" from "we were not allowed
  * to look".
@@ -67,7 +75,7 @@ export async function runConfigAudit(
   };
 
   // Helper to extract clean CID / IdP details
-  const extractIdpInfo = (engine: any): { type: string; cid?: string } => {
+  const extractIdpInfo = (engine?: Partial<AppEngine> | null): { type: string; cid?: string } => {
     if (!engine) return { type: 'UNKNOWN' };
     const cid = engine.widgetConfigConfigId || engine.commonConfig?.companyName || engine.cid || '';
     const isWif = engine.isExternalIdp || !!cid || engine.name?.includes('wif');
@@ -89,8 +97,9 @@ export async function runConfigAudit(
 
   try {
     sourceEngine = await api.getEngine(sourceConfig.appId, sourceConfig);
-  } catch (err: any) {
+  } catch (err: unknown) {
     const inaccessible = isAccessFailure(err);
+    const msg = toErrorMessage(err);
     items.push({
       id: 'src-engine-inaccessible',
       category: 'Engine & IdP',
@@ -99,7 +108,7 @@ export async function runConfigAudit(
       targetValue: 'N/A',
       status: inaccessible ? 'UNKNOWN' : 'DRIFT',
       severity: 'ERROR',
-      details: err.message || 'Could not fetch source engine details.',
+      details: msg || 'Could not fetch source engine details.',
       remediation: inaccessible
         ? 'Grant the signed-in principal read access to the source engine, then re-run the audit. This check was skipped, not passed.'
         : 'Verify Source Project ID, App Location, and Engine ID permissions.',
@@ -108,8 +117,9 @@ export async function runConfigAudit(
 
   try {
     targetEngine = await api.getEngine(targetConfig.appId, targetConfig);
-  } catch (err: any) {
+  } catch (err: unknown) {
     const inaccessible = isAccessFailure(err);
+    const msg = toErrorMessage(err);
     items.push({
       id: 'tgt-engine-inaccessible',
       category: 'Engine & IdP',
@@ -118,7 +128,7 @@ export async function runConfigAudit(
       targetValue: inaccessible ? 'ACCESS DENIED' : 'INACCESSIBLE / NOT FOUND',
       status: inaccessible ? 'UNKNOWN' : 'MISSING_IN_TARGET',
       severity: 'ERROR',
-      details: err.message || 'Could not fetch destination engine details.',
+      details: msg || 'Could not fetch destination engine details.',
       remediation: inaccessible
         ? 'Grant the signed-in principal read access to the destination engine, then re-run the audit. This check was skipped, not failed.'
         : 'Ensure Destination Engine is created and provisioned in the target project.',
@@ -127,8 +137,8 @@ export async function runConfigAudit(
 
   if (sourceEngine && targetEngine) {
     // 1. Solution Type
-    const srcSolution = (sourceEngine as any).solutionType || 'SOLUTION_TYPE_UNSPECIFIED';
-    const tgtSolution = (targetEngine as any).solutionType || 'SOLUTION_TYPE_UNSPECIFIED';
+    const srcSolution = sourceEngine.solutionType || 'SOLUTION_TYPE_UNSPECIFIED';
+    const tgtSolution = targetEngine.solutionType || 'SOLUTION_TYPE_UNSPECIFIED';
     const isSolutionMatch = srcSolution === tgtSolution;
     items.push({
       id: 'engine-solution-type',
@@ -147,8 +157,8 @@ export async function runConfigAudit(
     });
 
     // 2. Search Tier / Features
-    const srcTier = (sourceEngine as any).searchEngineConfig?.searchTier || 'STANDARD';
-    const tgtTier = (targetEngine as any).searchEngineConfig?.searchTier || 'STANDARD';
+    const srcTier = sourceEngine.searchEngineConfig?.searchTier || 'STANDARD';
+    const tgtTier = targetEngine.searchEngineConfig?.searchTier || 'STANDARD';
     const isTierMatch = srcTier === tgtTier;
     items.push({
       id: 'engine-search-tier',
@@ -235,7 +245,7 @@ export async function runConfigAudit(
   try {
     const srcDsRes = await api.listResources('dataStores', sourceConfig, undefined, 100, true);
     sourceDataStores = srcDsRes?.dataStores || [];
-  } catch (err: any) {
+  } catch (err: unknown) {
     // A failed listing tells us nothing about the source config, so it cannot
     // be drift. Record it as unknown so it is excluded from the score.
     items.push({
@@ -246,7 +256,7 @@ export async function runConfigAudit(
       targetValue: 'N/A',
       status: 'UNKNOWN',
       severity: 'WARNING',
-      details: `Could not list source DataStores: ${err.message}`,
+      details: `Could not list source DataStores: ${toErrorMessage(err)}`,
       remediation:
         'Re-run the audit with read access to the source project. Source datastores were not compared.',
     });
@@ -255,7 +265,7 @@ export async function runConfigAudit(
   try {
     const tgtDsRes = await api.listResources('dataStores', targetConfig, undefined, 100, true);
     targetDataStores = tgtDsRes?.dataStores || [];
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Same reasoning as above: an unreadable list is not a missing list.
     items.push({
       id: 'tgt-datastores-error',
@@ -265,7 +275,7 @@ export async function runConfigAudit(
       targetValue: 'NOT CHECKED',
       status: 'UNKNOWN',
       severity: 'WARNING',
-      details: `Could not list destination DataStores: ${err.message}`,
+      details: `Could not list destination DataStores: ${toErrorMessage(err)}`,
       remediation:
         'Re-run the audit with read access to the destination project. Destination datastores were not compared.',
     });
@@ -345,7 +355,7 @@ export async function runConfigAudit(
 
   try {
     sourceSkills = await api.listRegistrySkills(sourceConfig);
-  } catch (err: any) {
+  } catch (err: unknown) {
     items.push({
       id: 'src-skills-error',
       category: 'Skills & Tools',
@@ -354,13 +364,13 @@ export async function runConfigAudit(
       targetValue: 'N/A',
       status: 'UNKNOWN',
       severity: 'WARNING',
-      details: `Could not list source skills: ${err.message || 'Unknown error'}`,
+      details: `Could not list source skills: ${toErrorMessage(err)}`,
     });
   }
 
   try {
     targetSkills = await api.listRegistrySkills(targetConfig);
-  } catch (err: any) {
+  } catch (err: unknown) {
     items.push({
       id: 'tgt-skills-error',
       category: 'Skills & Tools',
@@ -369,7 +379,7 @@ export async function runConfigAudit(
       targetValue: 'ERROR',
       status: 'UNKNOWN',
       severity: 'WARNING',
-      details: `Could not list destination skills: ${err.message || 'Unknown error'}`,
+      details: `Could not list destination skills: ${toErrorMessage(err)}`,
     });
   }
 
@@ -438,7 +448,7 @@ export async function runConfigAudit(
   try {
     const res = await api.listAuthorizations(sourceConfig);
     sourceAuths = res?.authorizations || [];
-  } catch (err: any) {
+  } catch (err: unknown) {
     items.push({
       id: 'src-auths-error',
       category: 'Authorizations',
@@ -447,14 +457,14 @@ export async function runConfigAudit(
       targetValue: 'N/A',
       status: 'UNKNOWN',
       severity: 'WARNING',
-      details: `Could not list source authorizations: ${err.message || 'Unknown error'}`,
+      details: `Could not list source authorizations: ${toErrorMessage(err)}`,
     });
   }
 
   try {
     const res = await api.listAuthorizations(targetConfig);
     targetAuths = res?.authorizations || [];
-  } catch (err: any) {
+  } catch (err: unknown) {
     items.push({
       id: 'tgt-auths-error',
       category: 'Authorizations',
@@ -463,7 +473,7 @@ export async function runConfigAudit(
       targetValue: 'ERROR',
       status: 'UNKNOWN',
       severity: 'WARNING',
-      details: `Could not list destination authorizations: ${err.message || 'Unknown error'}`,
+      details: `Could not list destination authorizations: ${toErrorMessage(err)}`,
     });
   }
 
@@ -525,11 +535,11 @@ export async function runConfigAudit(
 
     if (srcLicenses.length > 0 || tgtLicenses.length > 0) {
       const srcTotalUsed = srcLicenses.reduce(
-        (acc: number, l: any) => acc + (Number(l.usedLicenseCount) || 0),
+        (acc: number, l: { usedLicenseCount?: number | string }) => acc + (Number(l.usedLicenseCount) || 0),
         0
       );
       const tgtTotalUsed = tgtLicenses.reduce(
-        (acc: number, l: any) => acc + (Number(l.usedLicenseCount) || 0),
+        (acc: number, l: { usedLicenseCount?: number | string }) => acc + (Number(l.usedLicenseCount) || 0),
         0
       );
 
@@ -544,7 +554,7 @@ export async function runConfigAudit(
         details: `Source has ${srcTotalUsed} active assigned user seats. Destination currently has ${tgtTotalUsed} seats allocated.`,
       });
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     items.push({
       id: 'license-stats-error',
       category: 'Licenses & Quotas',
@@ -553,7 +563,7 @@ export async function runConfigAudit(
       targetValue: 'ERROR',
       status: 'UNKNOWN',
       severity: 'WARNING',
-      details: `Could not fetch license stats: ${err.message || 'Unknown error'}`,
+      details: `Could not fetch license stats: ${toErrorMessage(err)}`,
     });
   }
 

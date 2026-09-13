@@ -23,6 +23,7 @@ import DataStoreList from '../components/datastores/DataStoreList';
 import DataStoreDetails from '../components/datastores/DataStoreDetails';
 import ConfirmationModal from '../components/ConfirmationModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
+import { usePersistedConfig } from '../hooks/usePersistedConfig';
 
 interface CreateDataStoreModalProps {
   isOpen: boolean;
@@ -311,23 +312,6 @@ interface DataStoresPageProps {
   projectId?: string;
 }
 
-const getInitialConfig = () => {
-  try {
-    const savedConfig = sessionStorage.getItem('dataStoresPageConfig');
-    if (savedConfig) {
-      const parsed = JSON.parse(savedConfig);
-      delete parsed.collectionId; // remove deprecated key
-      return parsed;
-    }
-  } catch (e) {
-    console.error("Failed to parse config from sessionStorage", e);
-    sessionStorage.removeItem('dataStoresPageConfig');
-  }
-  return {
-    appLocation: 'global',
-  };
-};
-
 type SortKey = 'displayName' | 'name' | 'solutionTypes';
 type SortDirection = 'asc' | 'desc';
 
@@ -355,17 +339,19 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber, projectI
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [dataStoreToEdit, setDataStoreToEdit] = useState<DataStore | null>(null);
 
-
-  const [config, setConfig] = useState(() => ({
-    ...getInitialConfig(),
-    collectionId: 'default_collection',
-  }));
-  
-  // Save config to session storage on change
-  useEffect(() => {
-    const { appLocation } = config;
-    sessionStorage.setItem('dataStoresPageConfig', JSON.stringify({ appLocation }));
-  }, [config]);
+  const [config, setConfig] = usePersistedConfig(
+    'dataStoresPageConfig',
+    {
+      appLocation: 'global',
+      collectionId: 'default_collection',
+    },
+    {
+      migrate: (parsed) => ({
+        appLocation: parsed?.appLocation || 'global',
+        collectionId: 'default_collection',
+      }),
+    }
+  );
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { name, value } = e.target;

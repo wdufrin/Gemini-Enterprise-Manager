@@ -14,20 +14,28 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Config } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface NotebookListViewerProps {
   config: Config;
 }
 
 const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
+  const modalRef = useRef<HTMLDivElement>(null);
   const [notebooks, setNotebooks] = useState<any[]>([]);
   const [selectedNotebook, setSelectedNotebook] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useModalA11y({
+    isOpen: !!selectedNotebook,
+    onClose: () => setSelectedNotebook(null),
+    containerRef: modalRef,
+  });
 
   const fetchNotebooks = useCallback(async () => {
     setIsLoading(true);
@@ -153,13 +161,29 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
 
       {/* JSON Details Modal */}
       {selectedNotebook && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 overflow-y-auto py-10 px-4">
-          <div className="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-4xl max-h-full flex flex-col">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 overflow-y-auto py-10 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="notebook-details-title"
+          onClick={() => setSelectedNotebook(null)}
+        >
+          <div
+            ref={modalRef}
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-4xl max-h-full flex flex-col"
+          >
             <div className="flex justify-between items-center p-4 border-b border-gray-700">
-              <h3 className="text-lg font-bold text-white">
+              <h3 id="notebook-details-title" className="text-lg font-bold text-white">
                 Notebook Details: {selectedNotebook.title || selectedNotebook.displayName || 'Untitled Notebook'}
               </h3>
-              <button onClick={() => setSelectedNotebook(null)} className="text-gray-400 hover:text-white transition-colors">
+              <button
+                type="button"
+                onClick={() => setSelectedNotebook(null)}
+                aria-label="Close dialog"
+                className="text-gray-400 hover:text-white transition-colors"
+              >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>

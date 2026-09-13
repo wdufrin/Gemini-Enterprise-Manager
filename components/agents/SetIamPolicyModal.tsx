@@ -15,28 +15,38 @@
  */
 
 
-import React, { useState, useEffect } from 'react';
-import { Agent, Config } from '../../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Agent, Config, IamPolicy, IamBinding } from '../../types';
 import * as api from '../../services/apiService';
+import { toErrorMessage } from '../../utils/errors';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface SetIamPolicyModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (updatedPolicy: any) => void;
+  onSuccess: (updatedPolicy: IamPolicy) => void;
   agent: Agent;
   config: Config;
-  currentPolicy: any;
+  currentPolicy: IamPolicy | null;
 }
 
 const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, onSuccess, agent, config, currentPolicy }) => {
-  const [editablePolicy, setEditablePolicy] = useState<any | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [editablePolicy, setEditablePolicy] = useState<IamPolicy | null>(null);
   const [newMemberInputs, setNewMemberInputs] = useState<{ [key: number]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+    preventClose: isSubmitting,
+  });
+
   useEffect(() => {
     if (isOpen && currentPolicy) {
-      const policyCopy = JSON.parse(JSON.stringify(currentPolicy));
+      const policyCopy: IamPolicy = JSON.parse(JSON.stringify(currentPolicy));
       if (!policyCopy.bindings) {
         policyCopy.bindings = [];
       }
@@ -46,10 +56,11 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
     }
   }, [isOpen, currentPolicy]);
 
-  const updateBindings = (updateFn: (draftBindings: any[]) => any[]) => {
-    setEditablePolicy((prevPolicy: any) => {
-      const newPolicy = JSON.parse(JSON.stringify(prevPolicy));
-      newPolicy.bindings = updateFn(newPolicy.bindings);
+  const updateBindings = (updateFn: (draftBindings: IamBinding[]) => IamBinding[]) => {
+    setEditablePolicy((prevPolicy: IamPolicy | null) => {
+      if (!prevPolicy) return null;
+      const newPolicy: IamPolicy = JSON.parse(JSON.stringify(prevPolicy));
+      newPolicy.bindings = updateFn(newPolicy.bindings || []);
       return newPolicy;
     });
   };
@@ -64,14 +75,16 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
   
   const handleBindingChange = (index: number, field: string, value: string) => {
       updateBindings(bindings => {
-          bindings[index][field] = value;
+          (bindings[index] as unknown as Record<string, unknown>)[field] = value;
           return bindings;
       });
   };
 
   const handleRemoveMember = (bindingIndex: number, memberIndex: number) => {
     updateBindings(bindings => {
-      bindings[bindingIndex].members.splice(memberIndex, 1);
+      const members = bindings[bindingIndex].members || [];
+      members.splice(memberIndex, 1);
+      bindings[bindingIndex].members = members;
       return bindings;
     });
   };
@@ -82,7 +95,7 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
 
     updateBindings(bindings => {
       const binding = bindings[bindingIndex];
-      const existingMembers = new Set(binding.members);
+      const existingMembers = new Set(binding.members || []);
       membersToAdd.forEach(member => existingMembers.add(member));
       binding.members = Array.from(existingMembers);
       return bindings;
@@ -93,7 +106,7 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
   const handleConditionChange = (bindingIndex: number, field: 'title' | 'description' | 'expression', value: string) => {
       updateBindings(bindings => {
           if (bindings[bindingIndex].condition) {
-              bindings[bindingIndex].condition[field] = value;
+              bindings[bindingIndex].condition![field] = value;
           }
           return bindings;
       });
@@ -123,11 +136,11 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
     setError(null);
 
     try {
-        const finalPolicy = JSON.parse(JSON.stringify(editablePolicy));
-        finalPolicy.bindings = finalPolicy.bindings.filter((b: any) => b.members && b.members.length > 0 && b.role && b.role.trim() !== '');
+        const finalPolicy: IamPolicy = JSON.parse(JSON.stringify(editablePolicy));
+        finalPolicy.bindings = (finalPolicy.bindings || []).filter((b: IamBinding) => b.members && b.members.length > 0 && b.role && b.role.trim() !== '');
         finalPolicy.etag = currentPolicy.etag;
 
-        const hasConditions = finalPolicy.bindings.some((b: any) => b.condition);
+        const hasConditions = (finalPolicy.bindings || []).some((b: IamBinding) => b.condition);
         if (hasConditions) {
             finalPolicy.version = 3;
         } else if (finalPolicy.version === 3) {
@@ -139,8 +152,8 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
         
         const responsePolicy = await api.setAgentIamPolicy(agent.name, finalPolicy, config);
         onSuccess(responsePolicy);
-    } catch (err: any) {
-        setError(err.message || "An unknown error occurred while updating the policy.");
+    } catch (err: unknown) {
+        setError(toErrorMessage(err, "An unknown error occurred while updating the policy."));
     } finally {
         setIsSubmitting(false);
     }
@@ -149,13 +162,39 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
   if (!isOpen || !editablePolicy) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4" aria-modal="true" role="dialog">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[85vh] flex flex-col border border-gray-700">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4"
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="set-iam-policy-title"
+      onClick={() => {
+        if (!isSubmitting) onClose();
+      }}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[85vh] flex flex-col border border-gray-700"
+      >
         <form onSubmit={handleSubmit} className="flex flex-col h-full overflow-hidden">
-          <header className="p-4 border-b border-gray-700 shrink-0">
-              <h2 className="text-xl font-bold text-white">Edit IAM Policy for Agent</h2>
+          <header className="p-4 border-b border-gray-700 shrink-0 flex justify-between items-start">
+            <div>
+              <h2 id="set-iam-policy-title" className="text-xl font-bold text-white">Edit IAM Policy for Agent</h2>
               <p className="text-sm text-gray-400 mt-1">{agent.displayName}</p>
-            </header>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              aria-label="Close dialog"
+              className="text-gray-400 hover:text-white p-1 rounded-md transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </header>
 
           <main className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
               <div className="bg-blue-900/20 border border-blue-800 p-3 rounded-md text-xs text-blue-300 mb-4">
@@ -169,7 +208,7 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
                   </ul>
               </div>
 
-              {editablePolicy.bindings.map((binding: any, index: number) => (
+              {(editablePolicy.bindings || []).map((binding: IamBinding, index: number) => (
                 <div key={index} className="bg-gray-900/50 p-4 rounded-lg border border-gray-700 space-y-4">
                   <div className="flex justify-between items-center">
                     <h3 className="font-semibold text-white">Role Binding #{index + 1}</h3>
@@ -184,8 +223,8 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
                   <div>
                     <h4 className="text-sm font-medium text-gray-400">Members</h4>
                     <div className="mt-2 space-y-2">
-                      {binding.members.length > 0 ? (
-                        binding.members.map((member: string, memberIndex: number) => (
+                      {(binding.members || []).length > 0 ? (
+                        (binding.members || []).map((member: string, memberIndex: number) => (
                           <div key={memberIndex} className="flex justify-between items-center text-sm bg-gray-700 px-3 py-1.5 rounded-md">
                             <span className="font-mono text-gray-300 truncate mr-4">{member}</span>
                             <button type="button" onClick={() => handleRemoveMember(index, memberIndex)} className="p-1 text-gray-400 hover:text-white hover:bg-red-500 rounded-full shrink-0" aria-label={`Remove ${member}`}>

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Agent, Config, UserProfile, SkillScope } from '../../types';
 import * as api from '../../services/apiService';
 import AddSkillModal from './AddSkillModal';
@@ -22,6 +22,143 @@ import SkillDetailModal from './SkillDetailModal';
 import ConfirmationModal from '../ConfirmationModal';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
+
+const getSourceBadge = (skill: Agent) => {
+  const def = skill.skillAgentDefinition;
+  if (def?.agentRegistrySkill) {
+    return (
+      <span className="px-2 py-0.5 text-[11px] font-semibold bg-blue-900/40 text-blue-300 rounded border border-blue-700 font-mono">
+        Agent Registry
+      </span>
+    );
+  }
+  if (def?.gcsUri || def?.importUri) {
+    return (
+      <span className="px-2 py-0.5 text-[11px] font-semibold bg-indigo-900/40 text-indigo-300 rounded border border-indigo-700 font-mono">
+        Cloud Storage
+      </span>
+    );
+  }
+  if (def?.geminiEnterpriseSkillConfig?.dataConnectorSkillConfig) {
+    return (
+      <span className="px-2 py-0.5 text-[11px] font-semibold bg-purple-900/40 text-purple-300 rounded border border-purple-700 font-mono">
+        1P Connector
+      </span>
+    );
+  }
+  return (
+    <span className="px-2 py-0.5 text-[11px] font-semibold bg-gray-800 text-gray-300 rounded border border-gray-700">
+      Custom Prompt
+    </span>
+  );
+};
+
+interface SkillTableRowProps {
+  skill: Agent;
+  onInspect: (skill: Agent) => void;
+  onDelete: (skill: Agent) => void;
+}
+
+const SkillTableRow = React.memo<SkillTableRowProps>(({ skill, onInspect, onDelete }) => {
+  const skillId = skill.name.split('/').pop() || '';
+  const isOrg = skill.state === 'ENABLED' || !skill.skillAgentDefinition?.owner;
+  const ownerEmail = skill.skillAgentDefinition?.owner
+    ? skill.skillAgentDefinition.owner.replace('principal://iam.googleapis.com/users/', '')
+    : null;
+
+  return (
+    <tr className="hover:bg-gray-750/50 transition-colors">
+      {/* Name & ID */}
+      <td className="px-6 py-4 whitespace-nowrap">
+        <div className="font-semibold text-gray-100">{skill.displayName}</div>
+        <div className="text-[11px] text-gray-500 font-mono mt-0.5">{skillId}</div>
+      </td>
+
+      {/* Scope Badge */}
+      <td className="px-6 py-4 whitespace-nowrap">
+        {isOrg ? (
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-900/40 text-blue-300 border border-blue-700/60">
+            <span>🏢 Organization</span>
+          </div>
+        ) : (
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-purple-900/40 text-purple-300 border border-purple-700/60" title={ownerEmail || undefined}>
+            <span>👤 User-Created</span>
+          </div>
+        )}
+        {ownerEmail && !isOrg && (
+          <div className="text-[10px] text-gray-400 mt-1 truncate max-w-[150px]" title={ownerEmail}>
+            {ownerEmail}
+          </div>
+        )}
+      </td>
+
+      {/* Status */}
+      <td className="px-6 py-4 whitespace-nowrap">
+        <span
+          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${
+            skill.state === 'ENABLED'
+              ? 'bg-green-900/40 text-green-300 border-green-700'
+              : skill.state === 'DISABLED'
+              ? 'bg-red-900/40 text-red-300 border-red-700'
+              : 'bg-yellow-900/40 text-yellow-300 border-yellow-700'
+          }`}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              skill.state === 'ENABLED'
+                ? 'bg-green-400'
+                : skill.state === 'DISABLED'
+                ? 'bg-red-400'
+                : 'bg-yellow-400'
+            }`}
+          />
+          {skill.state || 'Private'}
+        </span>
+      </td>
+
+      {/* Source Type */}
+      <td className="px-6 py-4 whitespace-nowrap">
+        {getSourceBadge(skill)}
+      </td>
+
+      {/* Description */}
+      <td className="px-6 py-4 text-gray-300 max-w-xs truncate">
+        {skill.description || (
+          <span className="text-gray-500 italic">No description provided</span>
+        )}
+      </td>
+
+      {/* Actions */}
+      <td className="px-6 py-4 whitespace-nowrap text-right font-medium">
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={() => onInspect(skill)}
+            className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 rounded transition-colors"
+            title="Inspect Skill & Instructions"
+            aria-label={`Inspect ${skill.displayName || skillId}`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          </button>
+          <button
+            onClick={() => onDelete(skill)}
+            className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition-colors"
+            title="Delete Skill"
+            aria-label={`Delete ${skill.displayName || skillId}`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+});
+
+SkillTableRow.displayName = 'SkillTableRow';
 
 interface SkillsViewerProps {
   agents: Agent[];
@@ -94,35 +231,13 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
     }
   };
 
-  const getSourceBadge = (skill: Agent) => {
-    const def = skill.skillAgentDefinition;
-    if (def?.agentRegistrySkill) {
-      return (
-        <span className="px-2 py-0.5 text-[11px] font-semibold bg-blue-900/40 text-blue-300 rounded border border-blue-700 font-mono">
-          Agent Registry
-        </span>
-      );
-    }
-    if (def?.gcsUri || def?.importUri) {
-      return (
-        <span className="px-2 py-0.5 text-[11px] font-semibold bg-indigo-900/40 text-indigo-300 rounded border border-indigo-700 font-mono">
-          Cloud Storage
-        </span>
-      );
-    }
-    if (def?.geminiEnterpriseSkillConfig?.dataConnectorSkillConfig) {
-      return (
-        <span className="px-2 py-0.5 text-[11px] font-semibold bg-purple-900/40 text-purple-300 rounded border border-purple-700 font-mono">
-          1P Connector
-        </span>
-      );
-    }
-    return (
-      <span className="px-2 py-0.5 text-[11px] font-semibold bg-gray-800 text-gray-300 rounded border border-gray-700">
-        Custom Prompt
-      </span>
-    );
-  };
+  const handleInspect = useCallback((skill: Agent) => {
+    setSelectedSkill(skill);
+  }, []);
+
+  const handleDelete = useCallback((skill: Agent) => {
+    setSkillToDelete(skill);
+  }, []);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -287,102 +402,14 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700/60 bg-gray-800 text-xs">
-                {filteredSkills.map((skill) => {
-                  const skillId = skill.name.split('/').pop() || '';
-                  const isOrg = skill.state === 'ENABLED' || !skill.skillAgentDefinition?.owner;
-                  const ownerEmail = skill.skillAgentDefinition?.owner
-                    ? skill.skillAgentDefinition.owner.replace('principal://iam.googleapis.com/users/', '')
-                    : null;
-
-                  return (
-                    <tr key={skill.name} className="hover:bg-gray-750/50 transition-colors">
-                      {/* Name & ID */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-semibold text-gray-100">{skill.displayName}</div>
-                        <div className="text-[11px] text-gray-500 font-mono mt-0.5">{skillId}</div>
-                      </td>
-
-                      {/* Scope Badge */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {isOrg ? (
-                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-900/40 text-blue-300 border border-blue-700/60">
-                            <span>🏢 Organization</span>
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-purple-900/40 text-purple-300 border border-purple-700/60" title={ownerEmail || undefined}>
-                            <span>👤 User-Created</span>
-                          </div>
-                        )}
-                        {ownerEmail && !isOrg && (
-                          <div className="text-[10px] text-gray-400 mt-1 truncate max-w-[150px]" title={ownerEmail}>
-                            {ownerEmail}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Status */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${
-                            skill.state === 'ENABLED'
-                              ? 'bg-green-900/40 text-green-300 border-green-700'
-                              : skill.state === 'DISABLED'
-                              ? 'bg-red-900/40 text-red-300 border-red-700'
-                              : 'bg-yellow-900/40 text-yellow-300 border-yellow-700'
-                          }`}
-                        >
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${
-                              skill.state === 'ENABLED'
-                                ? 'bg-green-400'
-                                : skill.state === 'DISABLED'
-                                ? 'bg-red-400'
-                                : 'bg-yellow-400'
-                            }`}
-                          />
-                          {skill.state || 'Private'}
-                        </span>
-                      </td>
-
-                      {/* Source Type */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {getSourceBadge(skill)}
-                      </td>
-
-                      {/* Description */}
-                      <td className="px-6 py-4 text-gray-300 max-w-xs truncate">
-                        {skill.description || (
-                          <span className="text-gray-500 italic">No description provided</span>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td className="px-6 py-4 whitespace-nowrap text-right font-medium">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => setSelectedSkill(skill)}
-                            className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 rounded transition-colors"
-                            title="Inspect Skill & Instructions"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => setSkillToDelete(skill)}
-                            className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition-colors"
-                            title="Delete Skill"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {filteredSkills.map((skill) => (
+                  <SkillTableRow
+                    key={skill.name}
+                    skill={skill}
+                    onInspect={handleInspect}
+                    onDelete={handleDelete}
+                  />
+                ))}
               </tbody>
             </table>
           </div>

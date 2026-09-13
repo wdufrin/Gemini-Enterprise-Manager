@@ -196,6 +196,27 @@ describe('OperationalAnalyticsDashboard', () => {
         expect(screen.getByText('Extended Operational Analytics')).toBeInTheDocument();
         expect(screen.getByText('Total Interactions')).toBeInTheDocument();
     });
+
+    it('switches to v_admin_feedback_review view cleanly without corrupting the router hash', async () => {
+        window.location.hash = '#/observability';
+        render(
+            <OperationalAnalyticsDashboard
+                projectId="test-project"
+                projectNumber="123456"
+                datasetId="test_dataset"
+                tables={mockTables}
+            />
+        );
+
+        const viewSelect = screen.getByRole('combobox', { name: /Select Operational View/i });
+        fireEvent.change(viewSelect, { target: { value: 'v_admin_feedback_review' } });
+
+        expect(screen.getByText('Admin Feedback Review Records')).toBeInTheDocument();
+        expect(window.location.hash).not.toBe('#v_admin_feedback_review');
+        expect(window.location.hash).toBe('#/observability?view=v_admin_feedback_review');
+        expect(sessionStorage.getItem('agentspace-observability-view')).toBe('v_admin_feedback_review');
+    });
 });
+
 
 

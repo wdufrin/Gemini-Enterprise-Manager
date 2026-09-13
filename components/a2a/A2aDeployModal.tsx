@@ -15,10 +15,11 @@
  */
 
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as api from '../../services/apiService';
 import { GcsBucket } from '../../types';
 import { assertValidGcpResourceName } from '../../services/shellSafety';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 import JSZip from 'jszip';
 
@@ -48,6 +49,7 @@ const A2aDeployModal: React.FC<A2aDeployModalProps> = ({
     files, 
     onBuildTriggered 
 }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const [projectId, setProjectId] = useState(projectNumber);
     const [isResolvingId, setIsResolvingId] = useState(false);
     
@@ -63,6 +65,13 @@ const A2aDeployModal: React.FC<A2aDeployModalProps> = ({
     const [logs, setLogs] = useState<string[]>([]);
     
     const [isPermissionsExpanded, setIsPermissionsExpanded] = useState(false);
+
+    useModalA11y({
+        isOpen,
+        onClose,
+        containerRef,
+        preventClose: isDeploying,
+    });
     const [leftTab, setLeftTab] = useState<'architecture' | 'docs' | 'cloud_build'>('architecture');
 
     useEffect(() => {
@@ -265,16 +274,37 @@ gcloud projects add-iam-policy-binding ${projectId} \\
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex justify-center items-center p-4">
-            <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col border border-gray-700">
+        <div
+            className="fixed inset-0 bg-black bg-opacity-80 z-50 flex justify-center items-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="a2a-deploy-modal-title"
+            onClick={() => {
+                if (!isDeploying) onClose();
+            }}
+        >
+            <div
+                ref={containerRef}
+                tabIndex={-1}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col border border-gray-700"
+            >
                 {/* Header */}
                 <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-900 rounded-t-xl">
-                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <h2 id="a2a-deploy-modal-title" className="text-xl font-bold text-white flex items-center gap-2">
                         <span className="text-purple-400">Deploy Function:</span> {serviceName}
                     </h2>
                     <div className="flex items-center gap-4">
                         <span className="text-xs text-gray-400 bg-gray-700 px-2 py-1 rounded-full">{files.length} Files Generated</span>
-                        <button onClick={onClose} className="text-gray-400 hover:text-white" disabled={isDeploying}>&times;</button>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="text-gray-400 hover:text-white"
+                            disabled={isDeploying}
+                            aria-label="Close dialog"
+                        >
+                            &times;
+                        </button>
                     </div>
                 </div>
 

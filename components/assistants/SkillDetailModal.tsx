@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Agent, Config, SkillScope } from '../../types';
 import * as api from '../../services/apiService';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface SkillDetailModalProps {
   skill: Agent | null;
@@ -35,10 +36,18 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   config,
   onSkillUpdated,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<'instructions' | 'config' | 'raw'>('instructions');
   const [copied, setCopied] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+    preventClose: isUpdating,
+  });
 
   if (!isOpen || !skill) return null;
 
@@ -84,8 +93,21 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 flex items-center justify-center p-4">
-      <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-fade-in-up">
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/75 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="skill-detail-title"
+      onClick={() => {
+        if (!isUpdating) onClose();
+      }}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-fade-in-up"
+      >
         {/* Modal Header */}
         <div className="p-5 border-b border-gray-700 flex items-start justify-between">
           <div className="flex items-start gap-3">
@@ -96,7 +118,7 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-lg font-bold text-gray-100">{skill.displayName}</h2>
+                <h2 id="skill-detail-title" className="text-lg font-bold text-gray-100">{skill.displayName}</h2>
                 {isOrg ? (
                   <span className="px-2 py-0.5 text-xs font-semibold bg-blue-900/60 text-blue-300 rounded border border-blue-700 flex items-center gap-1">
                     🏢 Organization-wide
@@ -122,7 +144,9 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded-lg transition-colors"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

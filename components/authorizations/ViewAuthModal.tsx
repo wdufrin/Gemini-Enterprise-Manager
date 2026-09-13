@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Authorization } from '../../types';
 import { generateToolOAuthSnippet } from '../../services/adkTemplates';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface ViewAuthModalProps {
   isOpen: boolean;
@@ -31,8 +32,15 @@ const ViewAuthModal: React.FC<ViewAuthModalProps> = ({
   authorization,
   initialTab = 'config',
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<'config' | 'adk'>(initialTab);
   const [copied, setCopied] = useState(false);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+  });
 
   useEffect(() => {
     if (initialTab) {
@@ -64,22 +72,34 @@ const ViewAuthModal: React.FC<ViewAuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-      <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-
+    <div
+      className="fixed z-50 inset-0 overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="view-auth-modal-title"
+    >
+      <div
+        className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0"
+        onClick={onClose}
+      >
         {/* Background overlay */}
-        <div className="fixed inset-0 bg-gray-900 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={onClose}></div>
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
 
         {/* Modal panel */}
         <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-        <div className="inline-block align-bottom bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl w-full border border-gray-700">
+        <div
+          ref={containerRef}
+          tabIndex={-1}
+          onClick={(e) => e.stopPropagation()}
+          className="inline-block align-bottom bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl w-full border border-gray-700"
+        >
 
           <div className="bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
             <div className="sm:flex sm:items-start">
               <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
                 <div className="flex items-center justify-between border-b border-gray-700 pb-3">
                   <div>
-                    <h3 className="text-lg leading-6 font-medium text-white" id="modal-title">
+                    <h3 className="text-lg leading-6 font-medium text-white" id="view-auth-modal-title">
                       Authorization: <span className="font-mono text-blue-400">{authId}</span>
                     </h3>
                     <p className="text-xs text-gray-400 mt-0.5">OAuth 2.0 Client & ADK Agent Integration Blueprint</p>

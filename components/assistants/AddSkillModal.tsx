@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Config, UserProfile, SkillScope } from '../../types';
 import * as api from '../../services/apiService';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface AddSkillModalProps {
   isOpen: boolean;
@@ -35,6 +36,7 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
   userProfile,
   onSkillCreated,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<ImportTab>('custom');
   const [displayName, setDisplayName] = useState('');
   const [skillId, setSkillId] = useState('');
@@ -49,6 +51,13 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
   const [uploadedFileContent, setUploadedFileContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+    preventClose: isSubmitting,
+  });
 
   if (!isOpen) return null;
 
@@ -147,8 +156,21 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-fade-in-up">
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/70 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="add-skill-modal-title"
+      onClick={() => {
+        if (!isSubmitting) onClose();
+      }}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-fade-in-up"
+      >
         {/* Modal Header */}
         <div className="flex items-center justify-between p-5 border-b border-gray-700">
           <div className="flex items-center gap-3">
@@ -158,12 +180,14 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
               </svg>
             </div>
             <div>
-              <h2 className="text-lg font-bold text-gray-100">Add Skill to Assistant</h2>
+              <h2 id="add-skill-modal-title" className="text-lg font-bold text-gray-100">Add Skill to Assistant</h2>
               <p className="text-xs text-gray-400">Configure an organizational or user-created capability for this engine</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded-lg transition-colors"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

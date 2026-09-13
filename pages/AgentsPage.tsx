@@ -24,6 +24,7 @@ import AgentDetails from '../components/agents/AgentDetails';
 import ProjectInput from '../components/ProjectInput';
 import ConfirmationModal from '../components/ConfirmationModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
+import { usePersistedConfig } from '../hooks/usePersistedConfig';
 
 type ViewMode = 'list' | 'form' | 'details';
 
@@ -34,29 +35,6 @@ interface AgentsPageProps {
   context?: any;
 }
 
-const getInitialConfig = () => {
-  try {
-    const savedConfig = sessionStorage.getItem('agentsPageConfig');
-    if (savedConfig) {
-      const parsed = JSON.parse(savedConfig);
-      delete parsed.projectNumber; // Ensure project number isn't part of this state
-      delete parsed.collectionId; // Remove deprecated keys
-      delete parsed.assistantId;  // Remove deprecated keys
-      return {
-        ...parsed,
-        appLocation: parsed.appLocation || 'global'
-      };
-    }
-  } catch (e) {
-    console.error("Failed to parse config from sessionStorage", e);
-    sessionStorage.removeItem('agentsPageConfig');
-  }
-  return {
-    appId: '',
-    appLocation: 'global',
-  };
-};
-
 const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber, accessToken, context }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
@@ -64,6 +42,25 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [togglingAgentId, setTogglingAgentId] = useState<string | null>(null);
+
+  // Configuration state with persistent sessionStorage
+  const [config, setConfig] = usePersistedConfig(
+    'agentsPageConfig',
+    {
+      appLocation: 'global',
+      appId: '',
+      collectionId: 'default_collection',
+      assistantId: 'default_assistant',
+    },
+    {
+      migrate: (parsed) => ({
+        appLocation: parsed?.appLocation || 'global',
+        appId: parsed?.appId || '',
+        collectionId: 'default_collection',
+        assistantId: 'default_assistant',
+      }),
+    }
+  );
 
   // Handle navigation context
   useEffect(() => {
@@ -94,7 +91,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         setViewMode('form');
       }
     }
-  }, [context]);
+  }, [context, setConfig]);
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
   const [deletingAgentIds, setDeletingAgentIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
@@ -102,26 +99,11 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   // State for delete confirmation modal
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [agentsToDelete, setAgentsToDelete] = useState<Agent[]>([]);
-
-  // Configuration state
-  const [config, setConfig] = useState(() => ({
-    appLocation: 'global', // fallback if getInitialConfig doesn't have it
-    ...getInitialConfig(),
-    collectionId: 'default_collection',
-    assistantId: 'default_assistant',
-  }));
   const [sortConfig, setSortConfig] = useState<{ key: SortableAgentKey; direction: SortDirection }>({ key: 'displayName', direction: 'asc' });
 
   // State for dropdown options and their loading status
   const [apps, setApps] = useState<any[]>([]);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
-
-  // Save config to session storage on change
-  useEffect(() => {
-    // Only save the user-configurable parts
-    const { appId, appLocation } = config;
-    sessionStorage.setItem('agentsPageConfig', JSON.stringify({ appId, appLocation }));
-  }, [config]);
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -184,7 +166,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         }
     };
     fetchApps();
-  }, [projectNumber, config.appLocation, config.collectionId]);
+  }, [projectNumber, config.appLocation, config.collectionId, setConfig]);
 
   const fetchAgents = useCallback(async () => {
     if (!apiConfig.projectId || !apiConfig.appId) {

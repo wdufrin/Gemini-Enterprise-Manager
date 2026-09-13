@@ -335,7 +335,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                     
                     if (replyContent) {
                         if (replyContent.thought && replyContent.text) {
-                            setThinkingProcess(prev => (prev ? prev + replyContent.text : replyContent.text));
+                            const thoughtText = replyContent.text;
+                            setThinkingProcess(prev => (prev ? prev + thoughtText : thoughtText));
                         }
                         else if (replyContent.text) {
                             wasMessageReceived = true;

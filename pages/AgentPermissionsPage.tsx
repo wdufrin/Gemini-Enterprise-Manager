@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import * as api from '../services/apiService';
-import { Agent, Config } from '../types';
+import { Agent, Config, IamPolicy, IamBinding, AppEngine, Assistant } from '../types';
 import ProjectInput from '../components/ProjectInput';
 import PartialResultsBanner, { PartialFailure } from '../components/common/PartialResultsBanner';
 import { toErrorMessage } from '../utils/errors';
@@ -121,23 +121,23 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
 
         try {
             // First fetch the project-level IAM policy to get inherited permissions
-            let projectPolicy: any = { bindings: [] };
+            let projectPolicy: IamPolicy = { bindings: [] };
             try {
                 projectPolicy = await api.getProjectIamPolicy(apiConfig.projectId!);
-            } catch (projectErr: any) {
+            } catch (projectErr: unknown) {
                 console.warn("Could not fetch project IAM policy for inherited permissions", projectErr);
                 failures.push({
                     id: `project-iam-${apiConfig.projectId}`,
                     name: `Project IAM Policy (${apiConfig.projectId})`,
                     resourceType: 'Project IAM Policy',
-                    status: projectErr?.status || projectErr?.code || (toErrorMessage(projectErr).includes('403') ? 403 : undefined),
+                    status: (projectErr as { status?: number; code?: number })?.status || (projectErr as { status?: number; code?: number })?.code || (toErrorMessage(projectErr).includes('403') ? 403 : undefined),
                     error: toErrorMessage(projectErr),
                     reason: `Could not fetch inherited project IAM policy: ${toErrorMessage(projectErr)}`,
                 });
             }
 
             // Extract inherited project roles related to agent access
-            const inheritedBindings = projectPolicy.bindings?.filter((binding: any) => {
+            const inheritedBindings: IamBinding[] = projectPolicy.bindings?.filter((binding: IamBinding) => {
                 if (!binding.role) return false;
                 const role = binding.role.toLowerCase();
                 // We care about project-level owner/editor/viewer, or any discovery engine specific role
@@ -149,17 +149,17 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
             
             for (const location of locationsToScan) {
                 const locConfig = { ...apiConfig, appLocation: location };
-                let appsInLocation: any[] = [];
+                let appsInLocation: AppEngine[] = [];
                 try {
                     const enginesResponse = await api.listResources('engines', locConfig);
                     appsInLocation = enginesResponse.engines || [];
-                } catch (appErr: any) {
+                } catch (appErr: unknown) {
                     console.warn(`Could not list apps in location ${location}`, appErr);
                     failures.push({
                         id: `engines-${location}`,
                         name: `Engines (${location})`,
                         resourceType: 'Engines Collection',
-                        status: appErr?.status || appErr?.code || (toErrorMessage(appErr).includes('403') ? 403 : undefined),
+                        status: (appErr as { status?: number; code?: number })?.status || (appErr as { status?: number; code?: number })?.code || (toErrorMessage(appErr).includes('403') ? 403 : undefined),
                         error: toErrorMessage(appErr),
                         reason: `Failed listing apps in location '${location}': ${toErrorMessage(appErr)}`,
                     });
@@ -172,7 +172,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
 
                     try {
                         const assistantsResponse = await api.listResources('assistants', appConfig);
-                        const assistants: any[] = assistantsResponse.assistants || [];
+                        const assistants: Assistant[] = assistantsResponse.assistants || [];
 
                         for (const assistant of assistants) {
                             const assistantConfig = { ...appConfig, assistantId: assistant.name.split('/').pop()! };
@@ -188,8 +188,8 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
 
                                         // Combine specific bindings with inherited project bindings
                                         const allBindings = [
-                                            ...specificBindings.map((b: any) => ({ ...b, isInherited: false })),
-                                            ...inheritedBindings.map((b: any) => ({ ...b, isInherited: true }))
+                                            ...specificBindings.map((b: IamBinding) => ({ ...b, isInherited: false })),
+                                            ...inheritedBindings.map((b: IamBinding) => ({ ...b, isInherited: true }))
                                         ];
 
                                         if (allBindings.length === 0) {
@@ -242,37 +242,37 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                                                 }
                                             }
                                         }
-                                    } catch (policyErr: any) {
+                                    } catch (policyErr: unknown) {
                                         console.warn(`Could not get IAM policy for agent ${agent.displayName}`, policyErr);
                                         failures.push({
                                             id: `iam-${agent.name}`,
                                             name: agent.displayName || agent.name,
                                             resourceType: 'Agent IAM Policy',
-                                            status: policyErr?.status || policyErr?.code || (toErrorMessage(policyErr).includes('403') ? 403 : undefined),
+                                            status: (policyErr as { status?: number; code?: number })?.status || (policyErr as { status?: number; code?: number })?.code || (toErrorMessage(policyErr).includes('403') ? 403 : undefined),
                                             error: toErrorMessage(policyErr),
                                             reason: `Could not fetch IAM policy for agent '${agent.displayName || agent.name}': ${toErrorMessage(policyErr)}`,
                                         });
                                     }
                                 }
-                            } catch (agentErr: any) {
+                            } catch (agentErr: unknown) {
                                 console.warn(`Could not list agents for assistant ${assistant.displayName}`, agentErr);
                                 failures.push({
                                     id: `agents-${assistant.name}`,
                                     name: assistant.displayName || assistant.name,
                                     resourceType: 'Assistant Agents',
-                                    status: agentErr?.status || agentErr?.code || (toErrorMessage(agentErr).includes('403') ? 403 : undefined),
+                                    status: (agentErr as { status?: number; code?: number })?.status || (agentErr as { status?: number; code?: number })?.code || (toErrorMessage(agentErr).includes('403') ? 403 : undefined),
                                     error: toErrorMessage(agentErr),
                                     reason: `Could not list agents for assistant '${assistant.displayName || assistant.name}': ${toErrorMessage(agentErr)}`,
                                 });
                             }
                         }
-                    } catch (appErr: any) {
+                    } catch (appErr: unknown) {
                         console.warn(`Could not list assistants for app ${appName}`, appErr);
                         failures.push({
                             id: `assistants-${appId}`,
                             name: appName,
                             resourceType: 'Engine Assistants',
-                            status: appErr?.status || appErr?.code || (toErrorMessage(appErr).includes('403') ? 403 : undefined),
+                            status: (appErr as { status?: number; code?: number })?.status || (appErr as { status?: number; code?: number })?.code || (toErrorMessage(appErr).includes('403') ? 403 : undefined),
                             error: toErrorMessage(appErr),
                             reason: `Could not list assistants for app '${appName}': ${toErrorMessage(appErr)}`,
                         });
@@ -285,7 +285,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
             if (rows.length === 0) {
                 console.log("No explicit IAM permissions found on agents across any location.");
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             setError(toErrorMessage(err) || 'An unexpected error occurred while fetching permissions.');
             setPermissionsData([]);
             setPartialFailures(failures);

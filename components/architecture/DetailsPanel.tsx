@@ -16,18 +16,18 @@
 
 
 import React from 'react';
-import { GraphNode, Page, ReasoningEngine, CloudRunService } from '../../types';
+import { GraphNode, Page, ReasoningEngine, CloudRunService, Agent, AppEngine, DataStore, Authorization } from '../../types';
 
 interface DetailsPanelProps {
-    node: GraphNode | null;
+    node: GraphNode | null | undefined;
     projectNumber: string;
     onClose: () => void;
-    onNavigate: (page: Page, context?: any) => void;
+    onNavigate: (page: Page, context?: unknown) => void;
     onDirectQuery: (engine: ReasoningEngine) => void;
 }
 
 const getGcpConsoleUrl = (node: GraphNode, projectNumber: string): string | null => {
-    const { type, id, data } = node;
+    const { type, id } = node;
     const projectId = id.split('/')[1] || projectNumber;
 
     switch (type) {
@@ -97,19 +97,27 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
 
     const renderDetails = () => {
         switch (node.type) {
-            case 'Agent':
+            case 'Agent': {
+                const agent = node.data as Partial<Agent> & { state?: string };
                 return <>
-                    <DetailItem label="Status" value={node.data.state} />
-                    <DetailItem label="Description">{node.data.description || 'Not set'}</DetailItem>
+                    <DetailItem label="Status" value={agent.state} />
+                    <DetailItem label="Description">{agent.description || 'Not set'}</DetailItem>
                 </>;
+            }
             case 'ReasoningEngine':
                 return <DetailItem label="Location" value={node.id.split('/')[3]} />;
-            case 'DataStore':
-                return <DetailItem label="Content Config" value={node.data.contentConfig} />;
-            case 'Engine':
-                 return <DetailItem label="Solution Type" value={node.data.solutionType} />;
-            case 'Authorization':
-                return <DetailItem label="Client ID" value={node.data.serverSideOauth2?.clientId} />;
+            case 'DataStore': {
+                const ds = node.data as Partial<DataStore>;
+                return <DetailItem label="Content Config" value={ds.contentConfig} />;
+            }
+            case 'Engine': {
+                const engine = node.data as Partial<AppEngine>;
+                return <DetailItem label="Solution Type" value={engine.solutionType} />;
+            }
+            case 'Authorization': {
+                const auth = node.data as Partial<Authorization>;
+                return <DetailItem label="Client ID" value={auth.serverSideOauth2?.clientId} />;
+            }
             case 'CloudRunService': {
                 const crService = node.data as CloudRunService;
                 return <>
@@ -177,8 +185,8 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
                     <h3 className="text-sm font-semibold text-gray-400 mb-3 border-b border-gray-700 pb-1">Resource Details</h3>
                     <dl className="space-y-3">
                         <DetailItem label="Full Resource Name" value={node.id} />
-                        <DetailItem label="Created" value={node.data.createTime ? new Date(node.data.createTime).toLocaleString() : 'N/A'} />
-                        <DetailItem label="Last Updated" value={node.data.updateTime ? new Date(node.data.updateTime).toLocaleString() : 'N/A'} />
+                        <DetailItem label="Created" value={(node.data as Record<string, unknown>)?.createTime ? new Date(String((node.data as Record<string, unknown>).createTime)).toLocaleString() : 'N/A'} />
+                        <DetailItem label="Last Updated" value={(node.data as Record<string, unknown>)?.updateTime ? new Date(String((node.data as Record<string, unknown>).updateTime)).toLocaleString() : 'N/A'} />
                         {renderDetails()}
                     </dl>
                 </section>

@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Config, AppEngine } from '../../types';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface DataStorePermissionsScriptModalProps {
   isOpen: boolean;
@@ -36,8 +37,15 @@ const DataStorePermissionsScriptModal: React.FC<DataStorePermissionsScriptModalP
   connectedLegacyDataStores,
   targetMember = 'userA@example.com',
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<'guide' | 'python' | 'curl' | 'gcloud'>('guide');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+  });
 
   if (!isOpen) return null;
 
@@ -229,11 +237,22 @@ if __name__ == "__main__":
   "https://discoveryengine.googleapis.com/v1/projects/${projectId}/locations/${location}/collections/default_collection/engines/${appId}:setIamPolicy"`;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex justify-center items-center z-50 p-4" aria-modal="true" role="dialog">
-      <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[88vh] flex flex-col border border-gray-700 animate-fade-in">
+    <div
+      className="fixed inset-0 bg-black/80 backdrop-blur-xs flex justify-center items-center z-50 p-4"
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="datastore-scripts-title"
+      onClick={onClose}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[88vh] flex flex-col border border-gray-700 animate-fade-in"
+      >
         <header className="p-5 border-b border-gray-700 bg-gray-800/90 shrink-0 flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <h2 id="datastore-scripts-title" className="text-xl font-bold text-white flex items-center gap-2">
               <span>DataStore ACL Automation Scripts & Commands</span>
               <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-900/50 text-blue-300 border border-blue-700">
                 Beta
@@ -247,6 +266,7 @@ if __name__ == "__main__":
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close dialog"
             className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-gray-700 transition-colors"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -14,16 +14,20 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as api from '../../services/apiService';
+import { UserLicense } from './types';
+import { BigQueryDataset, BigQueryTable } from '../../services/api/bigquery';
+import { toErrorMessage } from '../../utils/errors';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import Spinner from '../Spinner';
 
 interface ExportLicenseModalProps {
   isOpen: boolean;
   onClose: () => void;
   projectNumber: string;
-  userLicenses: any[];
-  filteredUserLicenses: any[];
+  userLicenses: UserLicense[];
+  filteredUserLicenses: UserLicense[];
   licenseNames: Record<string, string>;
   onExportSuccess?: () => void;
 }
@@ -37,11 +41,12 @@ const ExportLicenseModal: React.FC<ExportLicenseModalProps> = ({
   licenseNames,
   onExportSuccess
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [exportType, setExportType] = useState<'csv' | 'bigquery'>('csv');
   const [exportSource, setExportSource] = useState<'all' | 'filtered'>('filtered');
   
   // BigQuery-specific states
-  const [datasets, setDatasets] = useState<any[]>([]);
+  const [datasets, setDatasets] = useState<BigQueryDataset[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
   const [newDatasetId, setNewDatasetId] = useState<string>('gemini_licenses');
   const [tableId, setTableId] = useState<string>('license_assignments');
@@ -49,6 +54,13 @@ const ExportLicenseModal: React.FC<ExportLicenseModalProps> = ({
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+    preventClose: isExporting,
+  });
 
   // Set default export source based on whether filters are active
   useEffect(() => {
@@ -80,7 +92,7 @@ const ExportLicenseModal: React.FC<ExportLicenseModalProps> = ({
           } else {
             setSelectedDatasetId('__create_new__');
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.warn("Failed to fetch BigQuery datasets", err);
           // Don't crash, let them type a new dataset
           setSelectedDatasetId('__create_new__');
@@ -99,36 +111,34 @@ const ExportLicenseModal: React.FC<ExportLicenseModalProps> = ({
   const handleExportCsv = () => {
     setError(null);
     setSuccessMessage(null);
+
     try {
       if (dataToExport.length === 0) {
         throw new Error("No license records to export.");
       }
 
-      const headers = ['User Principal', 'State', 'License Config Resource', 'License Config Name', 'License ID', 'Last Login Time'];
-      
+      // Build CSV content
+      const headers = ["User Principal", "State", "License Config", "License Config Name", "License ID", "Last Login Time"];
       const rows = dataToExport.map(l => {
         const resourceName = l.licenseConfig || '';
         const friendlyName = licenseNames[resourceName] || resourceName.split('/').pop() || 'N/A';
-        const licenseId = l.name ? l.name.split('/').pop() : 'N/A';
+        const licenseId = l.name ? l.name.split('/').pop() : '';
+        const lastLogin = l.lastLoginTime ? new Date(l.lastLoginTime).toISOString() : 'Never';
+
         return [
-          l.userPrincipal || 'Unknown',
-          l.licenseAssignmentState || 'N/A',
-          resourceName,
-          friendlyName,
-          licenseId,
-          l.lastLoginTime ? new Date(l.lastLoginTime).toISOString() : 'Never'
-        ];
+          `"${(l.userPrincipal || 'Unknown').replace(/"/g, '""')}"`,
+          `"${(l.licenseAssignmentState || 'N/A').replace(/"/g, '""')}"`,
+          `"${resourceName.replace(/"/g, '""')}"`,
+          `"${friendlyName.replace(/"/g, '""')}"`,
+          `"${(licenseId || '').replace(/"/g, '""')}"`,
+          `"${lastLogin}"`
+        ].join(',');
       });
 
-      const csvContent = [
-        headers.join(','),
-        ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
-      ].join('\n');
-
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
+      const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows].join('\n');
+      const encodedUri = encodeURI(csvContent);
       const link = document.createElement('a');
-      link.setAttribute('href', url);
+      link.setAttribute('href', encodedUri);
       link.setAttribute('download', `gemini_licenses_${projectNumber}_${new Date().toISOString().split('T')[0]}.csv`);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
@@ -140,8 +150,8 @@ const ExportLicenseModal: React.FC<ExportLicenseModalProps> = ({
       if (onExportSuccess) {
          onExportSuccess();
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to export CSV.");
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, "Failed to export CSV."));
     }
   };
 
@@ -166,11 +176,12 @@ const ExportLicenseModal: React.FC<ExportLicenseModalProps> = ({
         // Try creating dataset
         try {
           await api.createBigQueryDataset(projectNumber, targetDataset);
-        } catch (err: any) {
-          if (err.message && (err.message.includes('Already Exists') || err.message.includes('409'))) {
+        } catch (err: unknown) {
+          const errMsg = toErrorMessage(err);
+          if (errMsg.includes('Already Exists') || errMsg.includes('409')) {
             console.log("Dataset already exists, proceeding.");
           } else {
-            throw new Error(`Failed to create BigQuery dataset: ${err.message}`);
+            throw new Error(`Failed to create BigQuery dataset: ${errMsg}`);
           }
         }
       }
@@ -185,15 +196,15 @@ const ExportLicenseModal: React.FC<ExportLicenseModalProps> = ({
       }
 
       // 1. Check if table exists in dataset
-      let tables: any[] = [];
+      let tables: BigQueryTable[] = [];
       try {
         const res = await api.listBigQueryTables(projectNumber, targetDataset);
         tables = res.tables || [];
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.warn("Failed to list tables, will attempt to create table assuming it might not exist", err);
       }
 
-      const tableExists = tables.some((t: any) => t.tableReference?.tableId === tId);
+      const tableExists = tables.some((t: BigQueryTable) => t.tableReference?.tableId === tId);
 
       if (!tableExists) {
         // Create table with schema
@@ -211,8 +222,8 @@ const ExportLicenseModal: React.FC<ExportLicenseModalProps> = ({
 
         try {
           await api.createBigQueryTableWithSchema(projectNumber, targetDataset, tId, schema);
-        } catch (err: any) {
-          throw new Error(`Failed to create BigQuery table: ${err.message}`);
+        } catch (err: unknown) {
+          throw new Error(`Failed to create BigQuery table: ${toErrorMessage(err)}`);
         }
       }
 
@@ -246,8 +257,8 @@ const ExportLicenseModal: React.FC<ExportLicenseModalProps> = ({
       if (onExportSuccess) {
         onExportSuccess();
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to export to BigQuery.");
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, "Failed to export to BigQuery."));
     } finally {
       setIsExporting(false);
     }
@@ -262,13 +273,26 @@ const ExportLicenseModal: React.FC<ExportLicenseModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4" aria-modal="true" role="dialog">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-lg overflow-hidden flex flex-col border border-gray-700">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4 animate-fade-in"
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="export-license-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isExporting) onClose();
+      }}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-lg overflow-hidden flex flex-col border border-gray-700 outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="p-4 border-b border-gray-700 flex items-center bg-gray-900/40">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-400 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
-          <h2 className="text-xl font-bold text-white">Export License Information</h2>
+          <h2 id="export-license-title" className="text-xl font-bold text-white">Export License Information</h2>
         </header>
 
         <main className="p-6 space-y-5 overflow-y-auto max-h-[70vh]">

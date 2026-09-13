@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useId } from 'react';
+import React, { useState, useEffect, useId, useRef } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 export interface DestructiveResourceItem {
   name: string;
@@ -67,6 +68,16 @@ export const DestructiveConfirmModal: React.FC<DestructiveConfirmModalProps> = (
 }) => {
   const [typedKeyword, setTypedKeyword] = useState('');
   const inputId = useId();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+    initialFocusRef: inputRef,
+    preventClose: isLoading,
+  });
 
   useEffect(() => {
     if (isOpen) {
@@ -85,14 +96,25 @@ export const DestructiveConfirmModal: React.FC<DestructiveConfirmModalProps> = (
     }
   };
 
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget && !isLoading) {
+      onClose();
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 bg-black/80 backdrop-blur-sm flex justify-center items-center z-50 p-4"
       aria-modal="true"
       role="dialog"
       aria-labelledby={`${inputId}-title`}
+      onClick={handleBackdropClick}
     >
-      <div className="bg-gray-850 bg-gray-800 border border-red-500/30 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in">
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="bg-gray-850 bg-gray-800 border border-red-500/30 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in"
+      >
         {/* Header */}
         <div className="p-5 border-b border-gray-700/80 bg-red-950/20 flex items-start gap-3">
           <div className="p-2 rounded-lg bg-red-900/40 border border-red-700/50 text-red-400 shrink-0 mt-0.5">

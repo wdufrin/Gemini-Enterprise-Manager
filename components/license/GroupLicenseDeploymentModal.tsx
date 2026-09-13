@@ -1,7 +1,9 @@
-import { toErrorMessage } from '../../utils/errors';
-import React, { useState, useEffect } from 'react';
-import { Config, GcsBucket } from '../../types';
+import React, { useState, useEffect, useRef } from 'react';
+import JSZip from 'jszip';
+import { Config, GcsBucket, LicenseConfig, GroupLicensingEditConfig } from '../../types';
 import * as api from '../../services/apiService';
+import { toErrorMessage } from '../../utils/errors';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import {
     assertValidBucketPath,
     assertValidGcpResourceName,
@@ -10,15 +12,13 @@ import {
 } from '../../services/shellSafety';
 import mainPyTemplate from './main.py.template?raw';
 
-declare let JSZip: any;
-
 interface GroupLicenseDeploymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   projectNumber: string;
   currentConfig: { appLocation: string; userStoreId: string; };
-  apiLicenseConfigs: any[];
-  editConfig?: any;
+  apiLicenseConfigs: LicenseConfig[];
+  editConfig?: GroupLicensingEditConfig | null;
   onBuildTriggered?: (buildId: string) => void;
 }
 
@@ -140,6 +140,7 @@ const generateDeploySh = (
 };
 
 const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = ({ isOpen, onClose, projectNumber, currentConfig, apiLicenseConfigs, editConfig, onBuildTriggered }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const [config, setConfig] = useState({
         projectId: projectNumber,
         runRegion: 'us-central1',
@@ -147,7 +148,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
         userStoreId: currentConfig.userStoreId || 'default_user_store',
         secretName: 'group-licensing-config'
     });
-    
+
     const [groupsInput, setGroupsInput] = useState('');
     const [selectedTier, setSelectedTier] = useState(() => {
         if (apiLicenseConfigs.length > 0) {
@@ -156,10 +157,10 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
         }
         return 'SUBSCRIPTION_TIER_ENTERPRISE';
     });
-    
+
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [appLocation, setAppLocation] = useState(currentConfig.appLocation || 'global');
-    const [modalLicenseConfigs, setModalLicenseConfigs] = useState<any[]>(apiLicenseConfigs);
+    const [modalLicenseConfigs, setModalLicenseConfigs] = useState<LicenseConfig[]>(apiLicenseConfigs);
     const [isLoadingLicenses, setIsLoadingLicenses] = useState(false);
     const [activeTab, setActiveTab] = useState<'deploy' | 'main' | 'requirements' | 'permissions'>('deploy');
     const [copySuccess, setCopySuccess] = useState('');
@@ -170,6 +171,13 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
     const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
     const [isDeploying, setIsDeploying] = useState(false);
     const [deployError, setDeployError] = useState<string | null>(null);
+
+    useModalA11y({
+        isOpen,
+        onClose,
+        containerRef,
+        preventClose: isDeploying,
+    });
     
     useEffect(() => {
         if (isOpen) {
@@ -211,9 +219,9 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                     projectId: config.projectId,
                     appLocation: appLocation,
                     collectionId: '', appId: '', assistantId: ''
-                } as any;
+                };
                 const res = await api.listLicenseConfigs(configForApi);
-                const activeConfigs = (res.licenseConfigs || []).filter((cfg: any) => cfg.state === 'ACTIVE');
+                const activeConfigs = (res.licenseConfigs || []).filter((cfg: LicenseConfig) => cfg.state === 'ACTIVE');
                 setModalLicenseConfigs(activeConfigs);
                 
                 if (activeConfigs.length > 0) {
@@ -451,11 +459,24 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
-            <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+        <div
+            className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4 animate-fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="group-licensing-modal-title"
+            onClick={(e) => {
+                if (e.target === e.currentTarget && !isDeploying) onClose();
+            }}
+        >
+            <div
+                ref={containerRef}
+                tabIndex={-1}
+                className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col outline-none"
+                onClick={(e) => e.stopPropagation()}
+            >
                 <header className="p-4 border-b border-gray-700 flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-white">Setup Group Licensing Job</h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white" disabled={isDeploying}>&times;</button>
+                    <h2 id="group-licensing-modal-title" className="text-xl font-bold text-white">Setup Group Licensing Job</h2>
+                    <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white" disabled={isDeploying}>&times;</button>
                 </header>
                 
                 <main className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-y-auto">

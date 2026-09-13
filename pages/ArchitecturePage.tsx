@@ -19,9 +19,11 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { GraphEdge, GraphNode, Page, ReasoningEngine, Agent } from '../types';
 import ProjectInput from '../components/ProjectInput';
 import ArchitectureGraph from '../components/architecture/ArchitectureGraph';
+import { ArchitectureMatrixTable } from '../components/architecture/ArchitectureMatrixTable';
 import CurlInfoModal from '../components/CurlInfoModal';
 import DetailsPanel from '../components/architecture/DetailsPanel';
 import * as api from '../services/apiService';
+import { useArchitectureScanner } from '../hooks/useArchitectureScanner';
 
 const InfoIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -56,12 +58,13 @@ interface ArchitecturePageProps {
   setProjectNumber: (projectNumber: string) => void;
   onNavigate: (page: Page, context?: any) => void;
   onDirectQuery: (engine: ReasoningEngine) => void;
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  logs: string[];
-  isLoading: boolean;
-  error: string | null;
-  onScan: () => void;
+  projectId?: string;
+  nodes?: GraphNode[];
+  edges?: GraphEdge[];
+  logs?: string[];
+  isLoading?: boolean;
+  error?: string | null;
+  onScan?: () => void;
   onCancelScan?: () => void;
   elapsedSeconds?: number;
 }
@@ -71,21 +74,34 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
     setProjectNumber, 
     onNavigate, 
     onDirectQuery,
-    nodes,
-    edges,
-    logs,
-    isLoading,
-    error,
+    projectId,
+    nodes: propNodes,
+    edges: propEdges,
+    logs: propLogs,
+    isLoading: propIsLoading,
+    error: propError,
     onScan: parentOnScan,
-    onCancelScan,
-    elapsedSeconds,
+    onCancelScan: propOnCancelScan,
+    elapsedSeconds: propElapsedSeconds,
 }) => {
+    const scanner = useArchitectureScanner(projectNumber);
+
+    const nodes = propNodes ?? scanner.nodes;
+    const edges = propEdges ?? scanner.edges;
+    const logs = propLogs ?? scanner.logs;
+    const isLoading = propIsLoading ?? scanner.isLoading;
+    const error = propError !== undefined ? propError : scanner.error;
+    const onScan = parentOnScan ?? scanner.scan;
+    const onCancelScan = propOnCancelScan ?? scanner.cancelScan;
+    const elapsedSeconds = propElapsedSeconds ?? scanner.elapsedSeconds;
+
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
     const [isLogExpanded, setIsLogExpanded] = useState(false);
     const [isFullScreen, setIsFullScreen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [viewMode, setViewMode] = useState<'graph' | 'table'>('graph');
     
     // Track previous loading state
     const isLoadingRef = useRef(isLoading);
@@ -98,7 +114,7 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
     
     const handleScanClick = () => {
         setIsLogExpanded(true);
-        parentOnScan();
+        onScan();
     };
 
     const handleNodeClick = useCallback((nodeId: string) => {
@@ -324,6 +340,44 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                 
                 {/* Graph Controls Overlay */}
                 <div className="absolute top-4 right-4 z-10 flex gap-2">
+                    {/* View Mode Toggle: Graph vs Accessible Table */}
+                    {nodes.length > 0 && !isLoading && (
+                        <div className="flex rounded-md bg-gray-800/90 backdrop-blur-sm border border-gray-600 p-0.5 shadow-lg">
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('graph')}
+                                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                                    viewMode === 'graph'
+                                        ? 'bg-blue-600 text-white shadow'
+                                        : 'text-gray-300 hover:text-white'
+                                }`}
+                                aria-pressed={viewMode === 'graph'}
+                                aria-label="Interactive Graph View"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                                </svg>
+                                <span>Graph</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('table')}
+                                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                                    viewMode === 'table'
+                                        ? 'bg-blue-600 text-white shadow'
+                                        : 'text-gray-300 hover:text-white'
+                                }`}
+                                aria-pressed={viewMode === 'table'}
+                                aria-label="Accessible Table Matrix View (WCAG 2.1.1)"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                </svg>
+                                <span>Table (WCAG)</span>
+                            </button>
+                        </div>
+                    )}
+
                     {/* Search Input */}
                     <div className="relative">
                         <input 
@@ -368,6 +422,14 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                                 <p className="mt-1 text-sm">Click &quot;Scan Project&quot; to begin.</p>
                             </div>
                         </div>
+                    ) : viewMode === 'table' ? (
+                        <ArchitectureMatrixTable
+                            nodes={nodes}
+                            edges={edges}
+                            selectedNodeId={selectedNodeId}
+                            onSelectNode={handleNodeClick}
+                            searchQuery={searchQuery}
+                        />
                     ) : (
                         <ArchitectureGraph
                             nodes={nodes}

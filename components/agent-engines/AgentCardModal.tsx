@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Config } from "../../types";
 import * as api from "../../services/apiService";
 import Spinner from "../Spinner";
+import { useModalA11y } from "../../hooks/useModalA11y";
 
 interface AgentCardModalProps {
   isOpen: boolean;
@@ -59,10 +60,17 @@ const AgentCardModal: React.FC<AgentCardModalProps> = ({
   engineDisplayName,
   config,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<"visual" | "raw">("visual");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentCard, setAgentCard] = useState<any>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+  });
 
   const getLoggingUrl = () => {
     const engineId = engineName.split("/").pop() || "";
@@ -75,28 +83,30 @@ const AgentCardModal: React.FC<AgentCardModalProps> = ({
   useEffect(() => {
     if (!isOpen || !engineName) return;
 
-    const fetchCard = async () => {
-      setIsLoading(true);
-      setError(null);
-      setAgentCard(null);
-      try {
-        const card = await api.fetchReasoningEngineAgentCard(
-          engineName,
-          config,
-        );
-        setAgentCard(card);
-      } catch (err: any) {
-        console.error("Failed to fetch agent card", err);
-        setError(
-          err.message ||
-            "Failed to fetch agent card. Make sure the agent exposes a card.",
-        );
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    let isMounted = true;
+    setIsLoading(true);
+    setError(null);
 
-    fetchCard();
+    api
+      .fetchReasoningEngineAgentCard(engineName, config)
+      .then((data) => {
+        if (isMounted) {
+          setAgentCard(data);
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setError(
+            err.message || "Failed to retrieve agent card for this engine.",
+          );
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [isOpen, engineName, config]);
 
   if (!isOpen) return null;
@@ -108,17 +118,26 @@ const AgentCardModal: React.FC<AgentCardModalProps> = ({
       className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4"
       aria-modal="true"
       role="dialog"
+      aria-labelledby="agent-card-modal-title"
+      onClick={onClose}
     >
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col"
+      >
         <header className="p-4 border-b border-gray-700 flex justify-between items-center shrink-0">
           <div>
-            <h2 className="text-xl font-bold text-white">Agent Card</h2>
+            <h2 id="agent-card-modal-title" className="text-xl font-bold text-white">Agent Card</h2>
             <p className="text-xs text-gray-400 font-mono mt-0.5">
               {engineDisplayName}
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close dialog"
             className="text-gray-400 hover:text-white text-2xl font-semibold"
           >
             &times;

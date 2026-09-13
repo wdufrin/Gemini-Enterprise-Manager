@@ -14,22 +14,24 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from 'react';
-import { Config } from '../../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Config, IamPolicy, IamBinding } from '../../types';
 import * as api from '../../services/apiService';
+import { toErrorMessage } from '../../utils/errors';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 export type ResourceType = 'engine' | 'datastore' | 'connector' | 'entity';
 
 export interface SetDataStoreIamPolicyModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (updatedPolicy: any) => void;
+  onSuccess: (updatedPolicy: IamPolicy) => void;
   resourceId: string;
   resourceDisplayName?: string;
   resourceType: ResourceType;
   resourcePath: string;
   config: Config;
-  currentPolicy: any;
+  currentPolicy: IamPolicy | null;
 }
 
 const DEFAULT_ROLE = 'roles/discoveryengine.agentspaceUser';
@@ -45,14 +47,22 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
   config,
   currentPolicy,
 }) => {
-  const [editablePolicy, setEditablePolicy] = useState<any | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [editablePolicy, setEditablePolicy] = useState<IamPolicy | null>(null);
   const [newMemberInputs, setNewMemberInputs] = useState<{ [key: number]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useModalA11y({
+    isOpen: isOpen && !!editablePolicy,
+    onClose,
+    containerRef,
+    preventClose: isSubmitting,
+  });
+
   useEffect(() => {
     if (isOpen && currentPolicy) {
-      const policyCopy = JSON.parse(JSON.stringify(currentPolicy));
+      const policyCopy: IamPolicy = JSON.parse(JSON.stringify(currentPolicy));
       if (!policyCopy.bindings) {
         policyCopy.bindings = [];
       }
@@ -62,9 +72,10 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
     }
   }, [isOpen, currentPolicy]);
 
-  const updateBindings = (updateFn: (draftBindings: any[]) => any[]) => {
-    setEditablePolicy((prevPolicy: any) => {
-      const newPolicy = JSON.parse(JSON.stringify(prevPolicy));
+  const updateBindings = (updateFn: (draftBindings: IamBinding[]) => IamBinding[]) => {
+    setEditablePolicy((prevPolicy: IamPolicy | null) => {
+      if (!prevPolicy) return null;
+      const newPolicy: IamPolicy = JSON.parse(JSON.stringify(prevPolicy));
       newPolicy.bindings = updateFn(newPolicy.bindings || []);
       return newPolicy;
     });
@@ -80,14 +91,14 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
 
   const handleBindingChange = (index: number, field: string, value: string) => {
     updateBindings(bindings => {
-      bindings[index][field] = value;
+      (bindings[index] as unknown as Record<string, unknown>)[field] = value;
       return bindings;
     });
   };
 
   const handleRemoveMember = (bindingIndex: number, memberIndex: number) => {
     updateBindings(bindings => {
-      bindings[bindingIndex].members.splice(memberIndex, 1);
+      bindings[bindingIndex].members?.splice(memberIndex, 1);
       return bindings;
     });
   };
@@ -120,7 +131,7 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
   const handleConditionChange = (bindingIndex: number, field: 'title' | 'description' | 'expression', value: string) => {
     updateBindings(bindings => {
       if (bindings[bindingIndex].condition) {
-        bindings[bindingIndex].condition[field] = value;
+        bindings[bindingIndex].condition![field] = value;
       }
       return bindings;
     });
@@ -150,13 +161,13 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
     setError(null);
 
     try {
-      const finalPolicy = JSON.parse(JSON.stringify(editablePolicy));
+      const finalPolicy: IamPolicy = JSON.parse(JSON.stringify(editablePolicy));
       finalPolicy.bindings = (finalPolicy.bindings || []).filter(
-        (b: any) => b.members && b.members.length > 0 && b.role && b.role.trim() !== ''
+        (b: IamBinding) => b.members && b.members.length > 0 && b.role && b.role.trim() !== ''
       );
       finalPolicy.etag = currentPolicy.etag;
 
-      let responsePolicy: any;
+      let responsePolicy: IamPolicy;
       if (resourceType === 'engine') {
         responsePolicy = await api.setEngineIamPolicy(resourceId, finalPolicy, config);
       } else if (resourceType === 'connector') {
@@ -167,8 +178,8 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
       }
 
       onSuccess(responsePolicy);
-    } catch (err: any) {
-      setError(err.message || "An unknown error occurred while updating the policy.");
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, "An unknown error occurred while updating the policy."));
     } finally {
       setIsSubmitting(false);
     }
@@ -186,14 +197,27 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
       : 'Legacy DataStore';
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex justify-center items-center z-50 p-4" aria-modal="true" role="dialog">
-      <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col border border-gray-700 animate-fade-in">
+    <div
+      className="fixed inset-0 bg-black/80 backdrop-blur-xs flex justify-center items-center z-50 p-4 animate-fade-in"
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="datastore-iam-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isSubmitting) onClose();
+      }}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col border border-gray-700 outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
         <form onSubmit={handleSubmit} className="flex flex-col h-full overflow-hidden">
           <header className="p-5 border-b border-gray-700 bg-gray-800/90 shrink-0">
             <div className="flex justify-between items-start">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-bold text-white">Edit Resource IAM Policy</h2>
+                  <h2 id="datastore-iam-title" className="text-xl font-bold text-white">Edit Resource IAM Policy</h2>
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-900/60 text-purple-300 border border-purple-700">
                     {resourceTypeLabel}
                   </span>
@@ -224,7 +248,7 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
               </div>
             </div>
 
-            {editablePolicy.bindings.map((binding: any, index: number) => (
+            {(editablePolicy.bindings || []).map((binding: IamBinding, index: number) => (
               <div key={index} className="bg-gray-900/70 p-4 rounded-lg border border-gray-700 space-y-4">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">

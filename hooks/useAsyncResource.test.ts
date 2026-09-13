@@ -155,12 +155,11 @@ describe('useAsyncResource', () => {
       void result.current.execute();
     });
 
-    expect(capturedSignal).not.toBeNull();
-    expect(capturedSignal?.aborted).toBe(false);
+    expect((capturedSignal as unknown as AbortSignal)?.aborted).toBe(false);
 
     unmount();
 
-    expect(capturedSignal?.aborted).toBe(true);
+    expect((capturedSignal as unknown as AbortSignal)?.aborted).toBe(true);
   });
 
   it('collects partial failures reported via context.reportPartialFailure', async () => {
@@ -266,7 +265,7 @@ describe('useAsyncResource', () => {
     expect(result.current.data).toBe('init');
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error).toBeNull();
-    expect(capturedSignal?.aborted).toBe(true);
+    expect((capturedSignal as unknown as AbortSignal)?.aborted).toBe(true);
   });
 
   it('executes immediately on mount if immediate is true', async () => {

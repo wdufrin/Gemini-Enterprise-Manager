@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import * as api from "../../services/apiService";
 import { Config } from "../../types";
+import { useModalA11y } from "../../hooks/useModalA11y";
 import Spinner from "../Spinner";
 
 interface RetractLicenseModalProps {
@@ -40,6 +41,7 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
   currentProjectNumber,
   onSuccess,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [count, setCount] = useState<number | "">(1);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingUsage, setIsFetchingUsage] = useState(false);
@@ -47,6 +49,13 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
     used: number;
     available: number;
   } | null>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef,
+    preventClose: isLoading,
+  });
   const [userLicenses, setUserLicenses] = useState<any[]>([]);
   const [revokingPrincipal, setRevokingPrincipal] = useState<string | null>(
     null,
@@ -160,11 +169,24 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
   const maxRetractable = usageStats ? usageStats.available : allocatedCount;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-4">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-lg border border-gray-700">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-4 animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="retract-license-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isLoading) onClose();
+      }}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-lg border border-gray-700 outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex justify-between items-center p-4 border-b border-gray-700">
-          <h3 className="text-lg font-semibold text-white">Retract Licenses</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
+          <h3 id="retract-license-title" className="text-lg font-semibold text-white">Retract Licenses</h3>
+          <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white">
             <svg
               className="w-6 h-6"
               fill="none"

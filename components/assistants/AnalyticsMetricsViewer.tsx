@@ -18,19 +18,26 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Config } from '../../types';
 import * as api from '../../services/apiService';
+import { toErrorMessage } from '../../utils/errors';
 import Spinner from '../Spinner';
 
 interface AnalyticsMetricsViewerProps {
     config: Config;
 }
 
+interface LeaderboardItem {
+    agentId: string;
+    users: number;
+    sessions: number;
+}
+
 const AnalyticsMetricsViewer: React.FC<AnalyticsMetricsViewerProps> = ({ config }) => {
-    const [datasets, setDatasets] = useState<any[]>([]);
-    const [tables, setTables] = useState<any[]>([]);
+    const [datasets, setDatasets] = useState<api.BigQueryDataset[]>([]);
+    const [tables, setTables] = useState<api.BigQueryTable[]>([]);
     const [selectedDataset, setSelectedDataset] = useState('');
     const [selectedTable, setSelectedTable] = useState('');
     
-    const [queryResults, setQueryResults] = useState<any>(null);
+    const [queryResults, setQueryResults] = useState<api.BigQueryQueryResponse | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -78,8 +85,8 @@ const AnalyticsMetricsViewer: React.FC<AnalyticsMetricsViewerProps> = ({ config 
         try {
             const result = await api.runBigQueryQuery(config.projectId, query);
             setQueryResults(result);
-        } catch (err: any) {
-            setError(err.message || "Failed to run query.");
+        } catch (err: unknown) {
+            setError(toErrorMessage(err) || "Failed to run query.");
         } finally {
             setIsLoading(false);
         }
@@ -89,7 +96,7 @@ const AnalyticsMetricsViewer: React.FC<AnalyticsMetricsViewerProps> = ({ config 
     const parsedMetrics = useMemo(() => {
         if (!queryResults || !queryResults.rows || queryResults.rows.length === 0) return null;
 
-        const fields = queryResults.schema.fields.map((f: any) => f.name.toLowerCase());
+        const fields = queryResults.schema?.fields?.map((f: { name: string }) => f.name.toLowerCase()) || [];
         
         // Try to identify specific columns for the Leaderboard
         let agentIdIdx = fields.findIndex((f: string) => f.includes('agent') || f.includes('name') || f.includes('id'));
@@ -98,14 +105,14 @@ const AnalyticsMetricsViewer: React.FC<AnalyticsMetricsViewerProps> = ({ config 
 
         // Fallbacks based on data types if names don't match
         if (agentIdIdx === -1) {
-            agentIdIdx = queryResults.schema.fields.findIndex((f: any) => f.type === 'STRING');
+            agentIdIdx = queryResults.schema?.fields?.findIndex((f: { type: string }) => f.type === 'STRING') ?? -1;
         }
         if (agentIdIdx === -1) agentIdIdx = 0; // Ultimate fallback to first column
         
-        const numericIndices = queryResults.schema.fields
-            .map((f: any, idx: number) => ({ type: f.type, idx }))
-            .filter((f: any) => f.type === 'INTEGER' || f.type === 'FLOAT' || f.type === 'NUMERIC')
-            .map((f: any) => f.idx);
+        const numericIndices = (queryResults.schema?.fields || [])
+            .map((f: { type: string }, idx: number) => ({ type: f.type, idx }))
+            .filter((f: { type: string }) => f.type === 'INTEGER' || f.type === 'FLOAT' || f.type === 'NUMERIC')
+            .map((f: { idx: number }) => f.idx);
 
         if (sessionsIdx === -1 && numericIndices.length > 0) {
             sessionsIdx = numericIndices[0];
@@ -119,17 +126,17 @@ const AnalyticsMetricsViewer: React.FC<AnalyticsMetricsViewerProps> = ({ config 
         const uniqueAgents = new Set<string>();
         let totalSessions = 0;
         
-        const leaderboardData = queryResults.rows.map((row: any) => {
+        const leaderboardData: LeaderboardItem[] = queryResults.rows.map((row: { f: Array<{ v: unknown }> }) => {
             const getVal = (idx: number) => idx >= 0 && row.f[idx] ? row.f[idx].v : null;
             
-            const agentId = getVal(agentIdIdx) || 'Unknown Agent';
-            const users = getVal(mauIdx) ? parseInt(getVal(mauIdx), 10) : 0;
-            const sessions = getVal(sessionsIdx) ? parseInt(getVal(sessionsIdx), 10) : 1; // Default to 1 if just counting rows
+            const agentId = (getVal(agentIdIdx) as string) || 'Unknown Agent';
+            const users = getVal(mauIdx) ? parseInt(String(getVal(mauIdx)), 10) : 0;
+            const sessions = getVal(sessionsIdx) ? parseInt(String(getVal(sessionsIdx)), 10) : 1; // Default to 1 if just counting rows
 
             uniqueAgents.add(String(agentId));
             totalSessions += sessions;
 
-            return { agentId, users, sessions };
+            return { agentId: String(agentId), users, sessions };
         });
 
         // Group by agentId to aggregate if there are multiple rows per agent
@@ -147,7 +154,7 @@ const AnalyticsMetricsViewer: React.FC<AnalyticsMetricsViewerProps> = ({ config 
         const aggregatedLeaderboard = Array.from(aggregatedMap.values());
 
         // Sort leaderboard by sessions descending
-        aggregatedLeaderboard.sort((a: any, b: any) => b.sessions - a.sessions);
+        aggregatedLeaderboard.sort((a: LeaderboardItem, b: LeaderboardItem) => b.sessions - a.sessions);
 
         return {
             leaderboard: aggregatedLeaderboard.slice(0, 10), // Top 10
@@ -240,7 +247,7 @@ const AnalyticsMetricsViewer: React.FC<AnalyticsMetricsViewerProps> = ({ config 
                                              </tr>
                                          </thead>
                                          <tbody className="divide-y divide-gray-800 text-gray-300">
-                                             {parsedMetrics.leaderboard.map((row: any, i: number) => (
+                                             {parsedMetrics.leaderboard.map((row: LeaderboardItem, i: number) => (
                                                  <tr key={i} className="hover:bg-gray-800/50">
                                                      <td className="px-4 py-2 text-center text-gray-500">{i + 1}</td>
                                                      <td className="px-4 py-2 font-mono truncate max-w-[200px]" title={row.agentId}>{row.agentId}</td>
@@ -282,15 +289,15 @@ const AnalyticsMetricsViewer: React.FC<AnalyticsMetricsViewerProps> = ({ config 
                                 <table className="min-w-full divide-y divide-gray-700 text-sm text-left">
                         <thead className="bg-gray-800 text-gray-300 sticky top-0">
                             <tr>
-                                {queryResults.schema.fields.map((field: any, i: number) => (
+                                {queryResults.schema?.fields?.map((field: { name: string }, i: number) => (
                                     <th key={i} className="px-4 py-3 font-medium whitespace-nowrap">{field.name}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-800 text-gray-200">
-                            {queryResults.rows?.map((row: any, rIndex: number) => (
+                            {queryResults.rows?.map((row: { f: Array<{ v: unknown }> }, rIndex: number) => (
                                 <tr key={rIndex} className="hover:bg-gray-800/50">
-                                    {row.f.map((cell: any, cIndex: number) => (
+                                    {row.f.map((cell: { v: unknown }, cIndex: number) => (
                                         <td key={cIndex} className="px-4 py-2 whitespace-nowrap max-w-xs truncate" title={String(cell.v)}>
                                             {String(cell.v)}
                                         </td>
