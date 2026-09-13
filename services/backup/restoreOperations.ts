@@ -27,6 +27,14 @@ import {
 } from '../../types';
 import * as api from '../apiService';
 import { toErrorMessage } from '../../utils/errors';
+import {
+  RestoreOutcome,
+  createRestoreOutcome,
+  mergeRestoreOutcomes,
+  recordCreated,
+  recordFailure,
+  recordSkipped,
+} from './restoreOutcome';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -74,7 +82,8 @@ export async function restoreAgentsIntoAssistant(
   restoreConfig: Omit<Config, 'accessToken'>,
   addLog: (msg: string) => void,
   promptForSecret: (auth: Authorization, customMessage?: string) => Promise<string | null>
-): Promise<void> {
+): Promise<RestoreOutcome> {
+  const outcome = createRestoreOutcome();
   addLog(`  - Restoring ${agents.length} agent(s)...`);
   for (const agent of agents) {
     const originalAgentId = agent.name.split('/').pop()!;
@@ -148,6 +157,7 @@ export async function restoreAgentsIntoAssistant(
       addLog(
         `      - CREATED: Agent '${agent.displayName}' created successfully with new ID '${newAgentId}'.`
       );
+      recordCreated(outcome, agent.displayName || newAgentId);
 
       if (agent.iamPolicy && agent.iamPolicy.bindings) {
         try {
@@ -170,6 +180,12 @@ export async function restoreAgentsIntoAssistant(
         if (!originalAuthName) {
           addLog(
             `      - ERROR: Cannot resolve authorization conflict. Agent in backup has no authorization specified. Skipping agent.`
+          );
+          recordFailure(
+            outcome,
+            'Agent',
+            agent.displayName || originalAgentId,
+            'Authorization is in use and the backup specifies no authorization to clone.'
           );
           continue;
         }
@@ -197,6 +213,7 @@ export async function restoreAgentsIntoAssistant(
             addLog(
               `        - SKIPPED: User canceled secret prompt for new authorization. Skipping agent '${agent.displayName}'.`
             );
+            recordSkipped(outcome, agent.displayName || originalAgentId);
             continue;
           }
 
@@ -230,6 +247,7 @@ export async function restoreAgentsIntoAssistant(
           addLog(
             `      - CREATED: Agent '${agent.displayName}' created successfully with new ID '${newAgentId}' and new authorization.`
           );
+          recordCreated(outcome, agent.displayName || newAgentId);
 
           if (agent.iamPolicy && agent.iamPolicy.bindings) {
             try {
@@ -243,26 +261,34 @@ export async function restoreAgentsIntoAssistant(
             }
           }
         } catch (recoveryErr: unknown) {
+          const reason = toErrorMessage(recoveryErr);
           addLog(
-            `      - ERROR: Failed during authorization recovery process: ${toErrorMessage(recoveryErr)}. Skipping agent.`
+            `      - ERROR: Failed during authorization recovery process: ${reason}. Skipping agent.`
           );
+          recordFailure(outcome, 'Agent', agent.displayName || originalAgentId, reason);
         }
       } else {
         addLog(
           `      - ERROR: Failed to create new agent for '${agent.displayName}': ${errorMsg}`
         );
+        recordFailure(outcome, 'Agent', agent.displayName || originalAgentId, errorMsg);
       }
     }
     await delay(1000);
   }
+  return outcome;
 }
 
 export async function executeRestoreDiscovery(
   data: { collections: Collection[] },
   apiConfig: Omit<Config, 'accessToken'>,
   addLog: (msg: string) => void,
-  restoreAssistantFn: (backupData: unknown, useModal?: boolean) => Promise<void>
-): Promise<void> {
+  restoreAssistantFn: (
+    backupData: unknown,
+    useModal?: boolean
+  ) => Promise<RestoreOutcome | void>
+): Promise<RestoreOutcome> {
+  const outcome = createRestoreOutcome();
   addLog(`Restoring ${data.collections.length} Collection(s)...`);
   for (const collection of data.collections) {
     const collectionId = collection.name.split('/').pop()!;
@@ -276,12 +302,17 @@ export async function executeRestoreDiscovery(
         restoreConfig
       );
       addLog(`  - CREATED: Collection '${collectionId}'`);
+      recordCreated(outcome, collectionId);
     } catch (err: unknown) {
       const errorMsg = toErrorMessage(err);
       if (errorMsg.includes('ALREADY_EXISTS')) {
         addLog(`  - INFO: Collection '${collectionId}' already exists. Proceeding...`);
+        recordSkipped(outcome, collectionId);
       } else {
         addLog(`  - ERROR: Failed to create collection '${collectionId}': ${errorMsg}`);
+        // Everything nested under this collection is skipped too, so the
+        // blast radius is the whole subtree -- record it and move on.
+        recordFailure(outcome, 'Collection', collectionId, errorMsg);
         continue;
       }
     }
@@ -320,33 +351,38 @@ export async function executeRestoreDiscovery(
             addLog
           );
           addLog(`      - CREATED: App/Engine '${engineId}' with linked data store.`);
+          recordCreated(outcome, engineId);
         } catch (err: unknown) {
           const errorMsg = toErrorMessage(err);
           if (errorMsg.includes('ALREADY_EXISTS')) {
             addLog(`      - INFO: App/Engine '${engineId}' already exists. Proceeding...`);
+            recordSkipped(outcome, engineId);
           } else {
             addLog(`      - ERROR: Failed to create App/Engine '${engineId}': ${errorMsg}`);
+            recordFailure(outcome, 'App/Engine', engineId, errorMsg);
             continue;
           }
         }
 
         if (engine.assistants && engine.assistants.length > 0) {
           for (const assistant of engine.assistants) {
-            await restoreAssistantFn({ assistant }, false);
+            mergeRestoreOutcomes(outcome, await restoreAssistantFn({ assistant }, false));
           }
         }
       }
     }
   }
+  return outcome;
 }
 
 export async function executeRestoreReasoningEngine(
   data: { engine?: ReasoningEngine },
   apiConfig: Omit<Config, 'accessToken'>,
   addLog: (msg: string) => void
-): Promise<void> {
+): Promise<RestoreOutcome> {
+  const outcome = createRestoreOutcome();
   const engineToRestore = data.engine;
-  if (!engineToRestore) return;
+  if (!engineToRestore) return outcome;
 
   addLog(
     `Restoring Agent Engine '${engineToRestore.displayName}' to ${apiConfig.reasoningEngineLocation}...`
@@ -362,6 +398,7 @@ export async function executeRestoreReasoningEngine(
     let currentOp = operation;
     let attempts = 0;
     const maxAttempts = 60;
+    let consecutivePollFailures = 0;
     while (!currentOp.done) {
       if (attempts++ >= maxAttempts) {
         throw new Error(
@@ -371,9 +408,21 @@ export async function executeRestoreReasoningEngine(
       await delay(10000);
       try {
         currentOp = await api.getVertexAiOperation(operation.name, apiConfig);
+        consecutivePollFailures = 0;
         addLog(`    - Polling status: ${currentOp.done ? 'DONE' : 'IN_PROGRESS'}`);
       } catch (pollErr: unknown) {
-        console.warn('Polling error', pollErr);
+        // A transient poll failure is worth retrying, but silently looping
+        // until the attempt limit hides an expired token or a deleted
+        // operation behind a generic "timed out" message.
+        consecutivePollFailures++;
+        addLog(
+          `    - WARNING: Polling attempt ${attempts} failed (${consecutivePollFailures} in a row): ${toErrorMessage(pollErr)}`
+        );
+        if (consecutivePollFailures >= 5) {
+          throw new Error(
+            `Lost contact with the Agent Engine restore operation after ${consecutivePollFailures} consecutive polling failures: ${toErrorMessage(pollErr)}`
+          );
+        }
       }
     }
 
@@ -384,17 +433,27 @@ export async function executeRestoreReasoningEngine(
       addLog(
         `  - SUCCESS: Agent Engine '${engineToRestore.displayName}' restored successfully.`
       );
+      recordCreated(outcome, engineToRestore.displayName || 'Agent Engine');
     }
   } catch (err: unknown) {
-    addLog(`  - ERROR: Failed to create Agent Engine: ${toErrorMessage(err)}`);
+    const reason = toErrorMessage(err);
+    addLog(`  - ERROR: Failed to create Agent Engine: ${reason}`);
+    recordFailure(
+      outcome,
+      'Agent Engine',
+      engineToRestore.displayName || 'Agent Engine',
+      reason
+    );
   }
+  return outcome;
 }
 
 export async function executeRestoreDataStores(
   data: { dataStores: DataStore[] },
   apiConfig: Omit<Config, 'accessToken'>,
   addLog: (msg: string) => void
-): Promise<void> {
+): Promise<RestoreOutcome> {
+  const outcome = createRestoreOutcome();
   addLog(
     `Restoring ${data.dataStores.length} Data Store(s) into collection '${apiConfig.collectionId}'...`
   );
@@ -409,16 +468,20 @@ export async function executeRestoreDataStores(
       };
       await api.createDataStore(dsId, payload, apiConfig);
       addLog(`    - CREATED: Data Store '${dsId}'`);
+      recordCreated(outcome, dsId);
     } catch (err: unknown) {
       const errorMsg = toErrorMessage(err);
       if (errorMsg.includes('ALREADY_EXISTS')) {
         addLog(`    - INFO: Data Store '${dsId}' already exists. Skipping.`);
+        recordSkipped(outcome, dsId);
       } else {
         addLog(`    - ERROR: Failed to create Data Store '${dsId}': ${errorMsg}`);
+        recordFailure(outcome, 'Data Store', dsId, errorMsg);
       }
     }
     await delay(1000);
   }
+  return outcome;
 }
 
 export interface RestoredNotebookSource {
@@ -451,7 +514,8 @@ export async function executeRestoreNotebooks(
   data: { notebooks: RestoredNotebook[] },
   apiConfig: Omit<Config, 'accessToken'>,
   addLog: (msg: string) => void
-): Promise<void> {
+): Promise<RestoreOutcome> {
+  const outcome = createRestoreOutcome();
   addLog(`Restoring ${data.notebooks.length} Notebooks...`);
   for (const notebook of data.notebooks) {
     const { name: _name, displayName, createTime: _ct, updateTime: _ut, sources, ...rest } = notebook;
@@ -464,6 +528,7 @@ export async function executeRestoreNotebooks(
       const newNotebook = await api.createNotebook(apiConfig, payload);
       const newNotebookId = newNotebook.name.split('/').pop()!;
       addLog(`    - CREATED: Notebook '${newNotebookId}'`);
+      recordCreated(outcome, newNotebookId);
 
       if (notebook.sources && notebook.sources.length > 0) {
         const sourceRequests = notebook.sources.map((source: RestoredNotebookSource) => {
@@ -516,18 +581,35 @@ export async function executeRestoreNotebooks(
           await api.batchCreateNotebookSources(apiConfig, newNotebookId, sourceRequests);
           addLog(`      - SUCCESS: Batch created ${sourceRequests.length} sources.`);
         } catch (srcErr: unknown) {
+          const reason = toErrorMessage(srcErr);
           addLog(
-            `      - ERROR: Failed to batch create sources for notebook '${newNotebookId}': ${toErrorMessage(srcErr)}`
+            `      - ERROR: Failed to batch create sources for notebook '${newNotebookId}': ${reason}`
+          );
+          // The notebook exists but is empty, which is a data-loss outcome the
+          // operator has to know about.
+          recordFailure(
+            outcome,
+            'Notebook sources',
+            newNotebookId,
+            reason
           );
         }
       }
     } catch (err: unknown) {
+      const reason = toErrorMessage(err);
       addLog(
-        `    - ERROR: Failed to create notebook '${notebook.displayName}': ${toErrorMessage(err)}`
+        `    - ERROR: Failed to create notebook '${notebook.displayName}': ${reason}`
+      );
+      recordFailure(
+        outcome,
+        'Notebook',
+        notebook.displayName || notebook.name || 'unnamed',
+        reason
       );
     }
     await delay(2000);
   }
+  return outcome;
 }
 
 export async function executeRestoreAuthorizations(
@@ -535,13 +617,15 @@ export async function executeRestoreAuthorizations(
   apiConfig: Omit<Config, 'accessToken'>,
   addLog: (msg: string) => void,
   promptForSecret: (auth: Authorization, customMessage?: string) => Promise<string | null>
-): Promise<void> {
+): Promise<RestoreOutcome> {
+  const outcome = createRestoreOutcome();
   addLog(`Restoring ${data.authorizations.length} Authorization(s)...`);
   for (const auth of data.authorizations) {
     const authId = auth.name.split('/').pop()!;
     const clientSecret = await promptForSecret(auth);
     if (!clientSecret) {
       addLog(`  - SKIPPED: User canceled secret input for Authorization '${authId}'`);
+      recordSkipped(outcome, authId);
       continue;
     }
     try {
@@ -553,14 +637,18 @@ export async function executeRestoreAuthorizations(
       };
       await api.createAuthorization(authId, payload, apiConfig);
       addLog(`  - CREATED: Authorization '${authId}'`);
+      recordCreated(outcome, authId);
     } catch (err: unknown) {
       const errorMsg = toErrorMessage(err);
       if (errorMsg.includes('ALREADY_EXISTS')) {
         addLog(`  - INFO: Authorization '${authId}' already exists. Skipping.`);
+        recordSkipped(outcome, authId);
       } else {
         addLog(`  - ERROR: Failed to create Authorization '${authId}': ${errorMsg}`);
+        recordFailure(outcome, 'Authorization', authId, errorMsg);
       }
     }
     await delay(1000);
   }
+  return outcome;
 }

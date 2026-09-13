@@ -48,7 +48,7 @@ export const listServiceAccounts = async (
   let pageToken = "";
   do {
     let url = `https://iam.googleapis.com/v1/projects/${projectId}/serviceAccounts?pageSize=100`;
-    if (pageToken) url += `&pageToken=${pageToken}`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
     const response = await gapiRequest<{ accounts?: ServiceAccount[]; nextPageToken?: string }>(url, "GET", projectId);
     if (response.accounts) {
       allAccounts = allAccounts.concat(response.accounts);
@@ -65,7 +65,7 @@ export const listWorkloadIdentityPools = async (
   let pageToken = "";
   do {
     let url = `https://iam.googleapis.com/v1/projects/${projectId}/locations/global/workloadIdentityPools?pageSize=50`;
-    if (pageToken) url += `&pageToken=${pageToken}`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
     const response = await gapiRequest<{
       workloadIdentityPools?: WorkloadIdentityPool[];
       workforcePools?: WorkloadIdentityPool[];
@@ -90,7 +90,7 @@ export const listWorkloadIdentityProviders = async (
   let pageToken = "";
   do {
     let url = `https://iam.googleapis.com/v1/${poolName}/providers?pageSize=50`;
-    if (pageToken) url += `&pageToken=${pageToken}`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
     const response = await gapiRequest<{
       workloadIdentityProviders?: WorkloadIdentityProvider[];
       workforcePoolProviders?: WorkloadIdentityProvider[];

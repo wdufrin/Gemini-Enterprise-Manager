@@ -43,7 +43,7 @@ export const listReasoningEngines = async (
 ) => {
   const location = config.reasoningEngineLocation || "us-central1";
   let url = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${config.projectId}/locations/${location}/reasoningEngines?pageSize=${pageSize}`;
-  if (pageToken) url += `&pageToken=${pageToken}`;
+  if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
   return gapiRequest<{
     reasoningEngines: ReasoningEngine[];
     nextPageToken?: string;

@@ -584,7 +584,7 @@ export const listAuthorizations = async (
 ) => {
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
   let url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/${config.appLocation}/authorizations?pageSize=${pageSize}`;
-  if (pageToken) url += `&pageToken=${pageToken}`;
+  if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
   return gapiRequest<{
     authorizations: Authorization[];
     nextPageToken?: string;

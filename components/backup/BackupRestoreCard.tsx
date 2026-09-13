@@ -15,6 +15,7 @@
  */
 
 import React from 'react';
+import type { RestoreProcessor } from '../../hooks/useBackupOperations';
 
 const InfoIcon: React.FC = () => (
   <svg
@@ -35,10 +36,10 @@ export interface BackupRestoreCardProps {
   section: string;
   title: string;
   onBackup: () => Promise<void>;
-  onRestore: (section: string, processor: (data: any) => Promise<void>) => Promise<void>;
+  onRestore: (section: string, processor: RestoreProcessor) => Promise<void>;
   onDeleteBackup?: (section: string) => void | Promise<void>;
   onDownloadBackup?: (section: string) => Promise<void>;
-  processor: (data: any) => Promise<void>;
+  processor: RestoreProcessor;
   availableBackups: string[];
   selectedBackup: string;
   onBackupSelectionChange: (section: string, value: string) => void;

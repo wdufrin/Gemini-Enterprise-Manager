@@ -34,10 +34,33 @@ export const listMcpTools = async (
     };
 
     let response: Record<string, unknown>;
-    if (
-      mcpEndpointUrl.startsWith("https://") &&
-      !isGoogleApiEndpoint(mcpEndpointUrl)
-    ) {
+    if (isGoogleApiEndpoint(mcpEndpointUrl)) {
+      // First-party Google API (or a relative path resolved against one).
+      // gapiRequest attaches the caller's OAuth token, which is correct here.
+      response = await gapiRequest<Record<string, unknown>>(
+        mcpEndpointUrl,
+        "POST",
+        projectId,
+        undefined, // params
+        payload,
+        { "X-Goog-User-Project": projectId },
+      );
+    } else {
+      // SECURITY (CWE-522/CWE-319): everything that is not a recognised Google
+      // API endpoint is treated as untrusted and must never reach gapiRequest,
+      // which would attach the GCP OAuth bearer token unconditionally.
+      //
+      // This check is deliberately a *reject* rather than a fall-through. The
+      // previous form gated on `startsWith("https://")`, so `http://evil/mcp`
+      // and the protocol-relative `//evil/mcp` both bypassed it and had the
+      // token attached in cleartext.
+      if (!mcpEndpointUrl.startsWith("https://")) {
+        throw new Error(
+          `MCP endpoint must use https:// -- refusing to send credentials ` +
+            `to "${mcpEndpointUrl}".`,
+        );
+      }
+
       // Custom endpoint, use fetch to avoid gapi CORS/handling issues.
       //
       // SECURITY: do not leak the GCP OAuth bearer token to external endpoints.
@@ -68,16 +91,6 @@ export const listMcpTools = async (
         throw new Error(`HTTP Error ${res.status}: ${await res.text()}`);
       }
       response = await res.json();
-    } else {
-      // Google API or relative path, use gapiRequest
-      response = await gapiRequest<Record<string, unknown>>(
-        mcpEndpointUrl,
-        "POST",
-        projectId,
-        undefined, // params
-        payload,
-        { "X-Goog-User-Project": projectId },
-      );
     }
 
     // Detailed logging of the JSON-RPC response body

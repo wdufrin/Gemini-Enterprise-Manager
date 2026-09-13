@@ -308,3 +308,47 @@ export const assertValidGcpResourceName = (
   }
   return value.trim();
 };
+
+/**
+ * Dotted-quad IPv4. The octet range is checked separately in
+ * `isValidIpv4Address` -- a regex that also range-checks is unreadable and
+ * easy to get subtly wrong.
+ */
+export const IPV4_PATTERN = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/**
+ * True when `value` is a dotted-quad IPv4 address with every octet in 0-255
+ * and no leading zeros (which some resolvers interpret as octal).
+ *
+ * Used for values that are spliced into generated `gcloud` shell commands --
+ * an address matching this pattern cannot contain a shell metacharacter.
+ */
+export const isValidIpv4Address = (value: string): boolean => {
+  const match = IPV4_PATTERN.exec(value.trim());
+  if (!match) return false;
+  return match.slice(1).every((octet) => {
+    if (octet.length > 1 && octet.startsWith("0")) return false;
+    const n = Number(octet);
+    return n >= 0 && n <= 255;
+  });
+};
+
+/**
+ * Throws unless `value` is a shell-safe IPv4 address.
+ *
+ * @returns the trimmed address
+ */
+export const assertValidIpv4Address = (
+  value: string,
+  fieldName = "IP address",
+): string => {
+  if (!isValidIpv4Address(value)) {
+    throw new Error(
+      `${fieldName} is not a valid IPv4 address: "${value}". ` +
+        `It must be four dot-separated octets in the range 0-255 ` +
+        `(for example 10.128.0.100).`,
+    );
+  }
+  return value.trim();
+};
+

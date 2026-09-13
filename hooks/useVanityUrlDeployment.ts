@@ -21,6 +21,7 @@ import {
   assertValidHostname,
   assertValidGcpResourceName,
   assertValidOpaqueId,
+  assertValidIpv4Address,
   isValidHostname,
   isValidGcpResourceName,
 } from '../services/shellSafety';
@@ -225,6 +226,26 @@ export function useVanityUrlDeployment(
       assertValidOpaqueId(widgetConfigId, 'Portal widget config ID');
       if (customDomain) {
         assertValidHostname(customDomain, 'Custom domain');
+      }
+
+      // SECURITY (CWE-78): every value below is spliced into a `bash -c` step
+      // in the generated Cloud Build config, and several are interpolated
+      // *unquoted* (e.g. `--network=${vpcNetwork}`). Cloud Build runs as the
+      // project's @cloudbuild.gserviceaccount.com, which holds roles/editor by
+      // default -- so an unvalidated value here is full project compromise.
+      //
+      // Allowlist rather than escape: a value matching these patterns cannot
+      // contain a shell metacharacter, and unlike quoting it cannot silently
+      // break a working deploy. See services/shellSafety.ts for the rationale.
+      assertValidGcpResourceName(location, 'Region');
+      if (isPrivateMode) {
+        assertValidGcpResourceName(vpcNetwork, 'VPC network');
+        assertValidGcpResourceName(vpcSubnet, 'VPC subnet');
+        assertValidGcpResourceName(pscIpName, 'PSC IP name');
+        assertValidGcpResourceName(pscRuleName, 'PSC forwarding rule name');
+        if (!autoAllocatePscIp) {
+          assertValidIpv4Address(customPscIp, 'PSC IP address');
+        }
       }
 
       const steps: Record<string, unknown>[] = [];

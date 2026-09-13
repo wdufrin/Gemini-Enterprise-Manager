@@ -66,7 +66,7 @@ export const listResources = async <T = unknown>(
   }
 
   url += `?pageSize=${pageSize}`;
-  if (pageToken) url += `&pageToken=${pageToken}`;
+  if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
 
   return gapiRequest<ListResourcesResponse<T>>(
     url,

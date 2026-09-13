@@ -102,7 +102,7 @@ export const listDiscoverySessions = async (
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
   let url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId || "default_collection"}/engines/${config.appId}/sessions?pageSize=${pageSize}`;
   if (pageToken) {
-    url += `&pageToken=${pageToken}`;
+    url += `&pageToken=${encodeURIComponent(pageToken)}`;
   }
   return gapiRequest<{ sessions: DiscoverySession[]; nextPageToken?: string }>(
     url,

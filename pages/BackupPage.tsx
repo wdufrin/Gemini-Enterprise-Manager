@@ -21,6 +21,7 @@ import BackupConfigHeader from '../components/backup/BackupConfigHeader';
 import BackupLogConsole from '../components/backup/BackupLogConsole';
 import BackupModals from '../components/backup/BackupModals';
 import { useBackupOperations } from '../hooks/useBackupOperations';
+import type { RestoreProcessor } from '../hooks/useBackupOperations';
 
 // Re-export validateBackupSchema for backward compatibility and tests
 export { validateBackupSchema };
@@ -47,7 +48,7 @@ const BackupPage: React.FC<BackupPageProps> = ({
     title: string;
     scope: 'Global' | 'User Specific';
     backupHandler: () => Promise<void>;
-    restoreProcessor: (data: any) => Promise<void>;
+    restoreProcessor: RestoreProcessor;
   }> = [
     {
       section: 'DiscoveryResources',

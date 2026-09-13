@@ -21,6 +21,7 @@ import ClientSecretPrompt from './ClientSecretPrompt';
 import CurlInfoModal from '../CurlInfoModal';
 import DestructiveConfirmModal from '../DestructiveConfirmModal';
 import { Authorization, Config, DiscoverySession } from '../../types';
+import type { RestoreProcessor } from '../../hooks/useBackupOperations';
 
 export interface BackupModalsProps {
   chatHistoryArchiveData: { sessions: DiscoverySession[]; fileName: string } | null;
@@ -30,7 +31,7 @@ export interface BackupModalsProps {
     section: string;
     title: string;
     items: SelectableItem[];
-    processor: (data: any) => Promise<void>;
+    processor: RestoreProcessor;
     originalData: any;
   } | null;
   onCloseModalData: () => void;
@@ -52,7 +53,7 @@ export interface BackupModalsProps {
   restoreConfirmData: {
     section: string;
     items: SelectableItem[];
-    processor: (data: any) => Promise<void>;
+    processor: RestoreProcessor;
     originalData: any;
   } | null;
   onCloseRestoreConfirm: () => void;

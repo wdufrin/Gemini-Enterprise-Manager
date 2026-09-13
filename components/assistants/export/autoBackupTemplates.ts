@@ -99,17 +99,39 @@ gcloud functions deploy auto-backup-metrics \\
 COMPUTE_SA="\${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 echo "Granting invoker role to Compute Engine default Service Account: \${COMPUTE_SA}"
 
-gcloud functions add-iam-policy-binding auto-backup-metrics \\
-  --region \${REGION} \\
-  --project \${PROJECT_ID} \\
-  --member="serviceAccount:\${COMPUTE_SA}" \\
-  --role="roles/cloudfunctions.invoker" || true
+# The function lands on Cloud Functions (Gen1) or Cloud Run (Gen2) depending on
+# the project's gcloud defaults, and only the matching command works -- so one
+# of these two failing is expected and harmless. BOTH failing is not: Cloud
+# Scheduler would be unable to invoke the function, and the scheduled backup
+# would silently never run until someone needed a restore.
+INVOKER_GRANTED=0
 
-gcloud run services add-iam-policy-binding auto-backup-metrics \\
+if gcloud functions add-iam-policy-binding auto-backup-metrics \\
   --region \${REGION} \\
   --project \${PROJECT_ID} \\
   --member="serviceAccount:\${COMPUTE_SA}" \\
-  --role="roles/run.invoker" || true
+  --role="roles/cloudfunctions.invoker" >/dev/null 2>&1; then
+  echo "  Granted roles/cloudfunctions.invoker (1st gen function)."
+  INVOKER_GRANTED=1
+fi
+
+if gcloud run services add-iam-policy-binding auto-backup-metrics \\
+  --region \${REGION} \\
+  --project \${PROJECT_ID} \\
+  --member="serviceAccount:\${COMPUTE_SA}" \\
+  --role="roles/run.invoker" >/dev/null 2>&1; then
+  echo "  Granted roles/run.invoker (2nd gen function)."
+  INVOKER_GRANTED=1
+fi
+
+if [ "\${INVOKER_GRANTED}" -eq 0 ]; then
+  echo "ERROR: Could not grant an invoker role to \${COMPUTE_SA} through either the" >&2
+  echo "Cloud Functions or the Cloud Run API. Cloud Scheduler will NOT be able to" >&2
+  echo "trigger auto-backup-metrics, which means scheduled backups would never run." >&2
+  echo "Re-run this command without the output redirect to see the underlying error:" >&2
+  echo "  gcloud run services add-iam-policy-binding auto-backup-metrics --region \${REGION} --project \${PROJECT_ID} --member=\\"serviceAccount:\${COMPUTE_SA}\\" --role=\\"roles/run.invoker\\"" >&2
+  exit 1
+fi
 
 echo "Creating Cloud Scheduler Job..."
 if gcloud scheduler jobs describe trigger-auto-backup --location \${REGION} --project \${PROJECT_ID} > /dev/null 2>&1; then

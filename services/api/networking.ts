@@ -89,11 +89,14 @@ export const listDnsZones = async (projectId: string): Promise<{ managedZones?: 
 export const deleteVanityUrl = async (
   projectId: string,
   serviceName: string,
+  location = "us-central1",
 ) => {
   // SECURITY (F-01): `serviceName` is interpolated into a `bash -c` script that
   // runs in Cloud Build with the build service account. Validate against the
   // GCP resource-name allowlist so no shell metacharacter can reach the script.
   serviceName = assertValidGcpResourceName(serviceName, "Service name");
+  // Same treatment for the region, which is also spliced into the script.
+  location = assertValidGcpResourceName(location, "Region");
   const buildConfig = {
     steps: [
       {
@@ -138,7 +141,7 @@ teardown_resource "SSL Certificate" "${serviceName}-cert" gcloud compute ssl-cer
 
 # 2. Dismantling Regional Internal Load Balancer (if exists)
 echo "2. Dismantling Regional Forwarding Rules and subnets..."
-LOCATION="us-central1"
+LOCATION="${location}"
 teardown_resource "Internal Forwarding Rule" "${serviceName}-internal-fwd-rule" gcloud compute forwarding-rules delete "${serviceName}-internal-fwd-rule" --region="$$LOCATION" --quiet
 teardown_resource "Internal Target HTTP Proxy" "${serviceName}-internal-target-proxy" gcloud compute target-http-proxies delete "${serviceName}-internal-target-proxy" --region="$$LOCATION" --quiet
 teardown_resource "Internal URL Map" "${serviceName}-internal-map" gcloud compute url-maps delete "${serviceName}-internal-map" --region="$$LOCATION" --quiet

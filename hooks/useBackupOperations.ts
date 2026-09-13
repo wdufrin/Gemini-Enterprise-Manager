@@ -51,6 +51,14 @@ import {
 } from '../services/backup/restoreOperations';
 import { SelectableItem } from '../components/backup/RestoreSelectionModal';
 import { toErrorMessage } from '../utils/errors';
+import {
+  RestoreOutcome,
+  assertRestoreComplete,
+  createRestoreOutcome,
+  mergeRestoreOutcomes,
+  recordFailure,
+  summarizeRestoreOutcome,
+} from '../services/backup/restoreOutcome';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -68,7 +76,15 @@ export interface BackupRestorePayload {
   [key: string]: unknown;
 }
 
-export type RestoreProcessor = (data: BackupRestorePayload) => Promise<void>;
+/**
+ * Returns a RestoreOutcome when the processor restores resources, so the
+ * caller can distinguish a complete restore from a partial one. `void` is
+ * still allowed for processors that only open a viewer.
+ */
+export type RestoreProcessor = (
+  data: BackupRestorePayload
+) => Promise<RestoreOutcome | void>;
+
 
 export interface UseBackupOperationsProps {
   accessToken: string;
@@ -353,17 +369,18 @@ export function useBackupOperations({
   const processRestoreAssistant = async (
     backupData: { assistant?: { name: string; displayName?: string; generationConfig?: Record<string, unknown>; agents?: Agent[] } },
     useModal = true
-  ) => {
+  ): Promise<RestoreOutcome> => {
+    const outcome = createRestoreOutcome();
     const { assistant } = backupData;
     if (!assistant) {
       addLog('No Assistant data found in the backup.');
-      return;
+      return outcome;
     }
 
     if (useModal) {
       if (!assistant.agents || assistant.agents.length === 0) {
         addLog('No agents found in the assistant backup file to restore.');
-        return;
+        return outcome;
       }
       const processor = async (data: { assistant?: { agents?: Agent[] } }) => {
         const agentsToRestore = data.assistant?.agents || [];
@@ -376,7 +393,12 @@ export function useBackupOperations({
         addLog(
           `Restoring ${agentsToRestore.length} agent(s) into selected assistant '${restoreConfig.assistantId}'...`
         );
-        await restoreAgentsIntoAssistant(agentsToRestore, restoreConfig, addLog, promptForSecret);
+        return restoreAgentsIntoAssistant(
+          agentsToRestore,
+          restoreConfig,
+          addLog,
+          promptForSecret
+        );
       };
 
       setModalData({
@@ -390,7 +412,13 @@ export function useBackupOperations({
       const assistantToRestore = backupData.assistant;
       if (!assistantToRestore) {
         addLog('  - ERROR: Backup does not contain assistant configuration.');
-        return;
+        recordFailure(
+          outcome,
+          'Assistant',
+          'unknown',
+          'Backup does not contain assistant configuration.'
+        );
+        return outcome;
       }
       const assistantId = assistantToRestore.name.split('/').pop()!;
       const restoreConfig = { ...apiConfig, assistantId };
@@ -413,7 +441,11 @@ export function useBackupOperations({
             addLog(`  - UPDATED: Assistant '${assistantId}' settings applied.`);
           }
         } catch (updateErr: unknown) {
-          addLog(`  - ERROR: Failed to update assistant '${assistantId}': ${toErrorMessage(updateErr)}.`);
+          const reason = toErrorMessage(updateErr);
+          addLog(`  - ERROR: Failed to update assistant '${assistantId}': ${reason}.`);
+          // The assistant keeps its old displayName/generationConfig, so the
+          // restore did not actually reproduce the backed-up configuration.
+          recordFailure(outcome, 'Assistant', assistantId, reason);
         }
       };
 
@@ -438,14 +470,18 @@ export function useBackupOperations({
       }
       await delay(2000);
       if (assistantToRestore.agents && assistantToRestore.agents.length > 0) {
-        await restoreAgentsIntoAssistant(
-          assistantToRestore.agents,
-          restoreConfig,
-          addLog,
-          promptForSecret
+        mergeRestoreOutcomes(
+          outcome,
+          await restoreAgentsIntoAssistant(
+            assistantToRestore.agents,
+            restoreConfig,
+            addLog,
+            promptForSecret
+          )
         );
       }
     }
+    return outcome;
   };
 
   const processRestoreDiscovery = async (backupData: { collections?: Collection[] }) => {
@@ -644,7 +680,19 @@ export function useBackupOperations({
         setChatHistoryArchiveData({ sessions, fileName: filename });
         addLog(`Opened Chat History Archive Viewer for ${filename}.`);
       } else {
-        await processor(backupData);
+        const outcome = await processor(backupData);
+        if (outcome) {
+          addLog(
+            `Restore process for ${sectionName} finished: ${summarizeRestoreOutcome(outcome)}.`
+          );
+          for (const failure of outcome.failed) {
+            addLog(
+              `  - NOT RESTORED: ${failure.resourceType} '${failure.resourceId}' -- ${failure.reason}`
+            );
+          }
+          assertRestoreComplete(outcome, sectionName);
+          return;
+        }
       }
 
       addLog(`Restore process for ${sectionName} finished.`);
@@ -711,8 +759,20 @@ export function useBackupOperations({
       }
 
       addLog(`Starting restore of ${items.length} selected ${sectionName}...`);
-      await processor(dataToRestore);
-      addLog(`Restore process for ${sectionName} finished.`);
+      const outcome = await processor(dataToRestore);
+      if (outcome) {
+        addLog(`Restore process for ${sectionName} finished: ${summarizeRestoreOutcome(outcome)}.`);
+        for (const failure of outcome.failed) {
+          addLog(`  - NOT RESTORED: ${failure.resourceType} '${failure.resourceId}' -- ${failure.reason}`);
+        }
+        // Throws when anything failed, so executeOperation surfaces an error
+        // state. Previously a restore that created nothing still ended with
+        // "finished" and no error, which is indistinguishable from success
+        // during a disaster recovery.
+        assertRestoreComplete(outcome, sectionName);
+      } else {
+        addLog(`Restore process for ${sectionName} finished.`);
+      }
     });
   };
 

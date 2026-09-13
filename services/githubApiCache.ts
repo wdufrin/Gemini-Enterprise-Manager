@@ -58,8 +58,65 @@ export const createGithubRepo = async (token: string, name: string, description:
     return await response.json();
 };
 
+interface GithubErrorBody {
+    message?: string;
+    errors?: Array<{ message?: string }>;
+}
+
+/**
+ * Turns a failed GitHub response into a message an operator can act on.
+ *
+ * GitHub returns 404 (not 403) for repositories a token cannot see, and 403
+ * for both missing scopes and un-authorized SSO, so the raw status alone is
+ * routinely misleading. We surface the hint alongside the API's own message.
+ */
+const describeGithubFailure = async (response: Response, action: string): Promise<string> => {
+    let detail = response.statusText || 'no status text';
+    try {
+        const body = (await response.json()) as GithubErrorBody;
+        if (body?.message) {
+            detail = body.message;
+            const nested = body.errors?.[0]?.message;
+            if (nested) detail += `: ${nested}`;
+        }
+    } catch {
+        // Non-JSON error body (e.g. an HTML error page from a proxy).
+    }
+    if (response.status === 401) {
+        detail += ' (the GitHub token is invalid or expired)';
+    } else if (response.status === 403) {
+        detail += " (the token is likely missing the 'repo' / 'contents: write' scope, or needs SSO authorization for this organization)";
+    } else if (response.status === 404) {
+        detail += ' (the repository does not exist, or the token cannot see it — GitHub returns 404 rather than 403 for private repos)';
+    }
+    return `${action} failed (HTTP ${response.status}): ${detail}`;
+};
+
+/** Performs a GitHub API call and throws on any non-2xx response. */
+const githubApiJson = async <T>(url: string, init: RequestInit, action: string): Promise<T> => {
+    const response = await fetch(url, init);
+    if (!response.ok) {
+        throw new Error(await describeGithubFailure(response, action));
+    }
+    return (await response.json()) as T;
+};
+
+/**
+ * A 2xx response with a missing SHA means GitHub accepted the call but did not
+ * create the object we asked for. Propagating `undefined` here is what
+ * previously produced silently-corrupt trees, so we stop instead.
+ */
+const requireSha = (value: unknown, action: string): string => {
+    if (typeof value !== 'string' || value.length === 0) {
+        throw new Error(`${action} succeeded but returned no SHA; aborting push to avoid writing a corrupt tree.`);
+    }
+    return value;
+};
+
 export const pushToGithub = async (token: string, owner: string, repo: string, files: { path: string, content: string, encoding?: string }[], commitMessage: string): Promise<Record<string, unknown>> => {
-    const baseUrl = `https://api.github.com/repos/${owner}/${repo}`;
+    // Encode the path segments: owner/repo are caller-supplied and must not be
+    // able to escape the intended repository via '/' or '..'.
+    const baseUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
     const headers = {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/vnd.github.v3+json',
@@ -68,78 +125,103 @@ export const pushToGithub = async (token: string, owner: string, repo: string, f
 
     // 1. Get the current commit object (usually from main branch)
     let refResponse = await fetch(`${baseUrl}/git/refs/heads/main`, { headers });
-    
+
     // Fallback to master if main doesn't exist
     if (!refResponse.ok) {
+        const mainFailure = await describeGithubFailure(refResponse.clone(), "Reading branch 'main'");
         refResponse = await fetch(`${baseUrl}/git/refs/heads/master`, { headers });
         if (!refResponse.ok) {
-             throw new Error("Could not find 'main' or 'master' branch.");
+            // Report the ORIGINAL failure too: if 'main' failed with 401/403,
+            // saying "could not find main or master" sends the operator
+            // chasing a branch-naming problem instead of a token problem.
+            throw new Error(`Could not read 'main' or 'master' branch. ${mainFailure}`);
         }
     }
     const refData = await refResponse.json();
-    const commitSha = refData.object.sha;
-    const branchRef = refData.ref;
+    const commitSha = requireSha(refData?.object?.sha, 'Resolving the branch head');
+    const branchRef = refData?.ref;
+    if (typeof branchRef !== 'string' || !branchRef.startsWith('refs/heads/')) {
+        throw new Error(`GitHub returned an unexpected ref for the target branch: ${JSON.stringify(branchRef)}`);
+    }
 
     // 2. Get the tree from the commit
-    const commitResponse = await fetch(`${baseUrl}/git/commits/${commitSha}`, { headers });
-    const commitData = await commitResponse.json();
-    const treeSha = commitData.tree.sha;
+    const commitData = await githubApiJson<{ tree?: { sha?: string } }>(
+        `${baseUrl}/git/commits/${encodeURIComponent(commitSha)}`,
+        { headers },
+        'Reading the base commit'
+    );
+    const treeSha = requireSha(commitData?.tree?.sha, 'Reading the base commit tree');
 
     const tree: Array<{ path: string; mode: string; type: string; sha: string }> = [];
     for (const file of files) {
          // Create blob
-         const blobResponse = await fetch(`${baseUrl}/git/blobs`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                 content: file.content,
-                 encoding: file.encoding || 'utf-8'
-            })
-         });
-         const blobData = await blobResponse.json();
-         
+         const blobData = await githubApiJson<{ sha?: string }>(
+            `${baseUrl}/git/blobs`,
+            {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                     content: file.content,
+                     encoding: file.encoding || 'utf-8'
+                })
+            },
+            `Uploading '${file.path}'`
+         );
+
          tree.push({
              path: file.path,
              mode: '100644', // File
              type: 'blob',
-             sha: blobData.sha
+             sha: requireSha(blobData?.sha, `Uploading '${file.path}'`)
          });
     }
 
     // 4. Create new tree
-    const newTreeResponse = await fetch(`${baseUrl}/git/trees`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-             base_tree: treeSha,
-             tree: tree
-        })
-    });
-    const newTreeData = await newTreeResponse.json();
+    const newTreeData = await githubApiJson<{ sha?: string }>(
+        `${baseUrl}/git/trees`,
+        {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                 base_tree: treeSha,
+                 tree: tree
+            })
+        },
+        'Creating the file tree'
+    );
+    const newTreeSha = requireSha(newTreeData?.sha, 'Creating the file tree');
 
     // 5. Create new commit
-    const newCommitResponse = await fetch(`${baseUrl}/git/commits`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-             message: commitMessage,
-             tree: newTreeData.sha,
-             parents: [commitSha]
-        })
-    });
-    const newCommitData = await newCommitResponse.json();
+    const newCommitData = await githubApiJson<{ sha?: string }>(
+        `${baseUrl}/git/commits`,
+        {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                 message: commitMessage,
+                 tree: newTreeSha,
+                 parents: [commitSha]
+            })
+        },
+        'Creating the commit'
+    );
+    const newCommitSha = requireSha(newCommitData?.sha, 'Creating the commit');
 
-    // 6. Update reference
-    const updateRefResponse = await fetch(`${baseUrl}/git/${branchRef}`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify({
-             sha: newCommitData.sha
-        })
-    });
-    
-    return await updateRefResponse.json();
+    // 6. Update reference. This is the step that actually publishes the commit;
+    // previously its error body was returned to the caller as a success value.
+    return await githubApiJson<Record<string, unknown>>(
+        `${baseUrl}/git/${branchRef}`,
+        {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({
+                 sha: newCommitSha
+            })
+        },
+        'Updating the branch reference'
+    );
 };
+
 
 export const searchReusableWorkflows = async (token: string, owner: string): Promise<{ items?: GitHubWorkflowItem[]; total_count?: number }> => {
     // Search for Repositories containing "template" in their name, bypassing Code Search indexing delays

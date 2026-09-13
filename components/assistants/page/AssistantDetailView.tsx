@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Agent, AppEngine, Assistant, Config, UserProfile } from '../../../types';
 import { AssistantRowData } from '../../../hooks/useAssistantList';
 import Spinner from '../../Spinner';
@@ -26,6 +26,7 @@ import AuditLoggingModal from '../AuditLoggingModal';
 import ChatHistoryViewer from '../ChatHistoryViewer';
 import NotebookListViewer from '../NotebookListViewer';
 import VanityUrlDeploymentForm from '../VanityUrlDeploymentForm';
+import ProvisionedRedirectList from '../vanity/ProvisionedRedirectList';
 import ConnectedDataStorePermissions from '../ConnectedDataStorePermissions';
 import UserMemoriesViewer from '../UserMemoriesViewer';
 import SkillsViewer from '../SkillsViewer';
@@ -81,6 +82,9 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
   onAssistantUpdateSuccess,
   onRefreshAgents,
 }) => {
+  // Declared before the early return below so hook order stays stable.
+  const [redirectRefreshToken, setRedirectRefreshToken] = useState(0);
+
   if (!selectedRow.assistant) return null;
 
   const currentConfig = {
@@ -263,12 +267,26 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
             )}
 
             {activeTab === 'customize' && (
-              <VanityUrlDeploymentForm
-                engine={selectedRow.engine}
-                config={currentConfig}
-                projectNumber={projectNumber}
-                onBuildTriggered={onBuildTriggered}
-              />
+              <div className="space-y-6">
+                {/* Teardown lives next to provisioning: deploying a load
+                    balancer the operator cannot remove leaves billed Google
+                    Cloud resources stranded. */}
+                <ProvisionedRedirectList
+                  engine={selectedRow.engine}
+                  projectId={currentConfig.projectId}
+                  onBuildTriggered={onBuildTriggered}
+                  refreshToken={redirectRefreshToken}
+                />
+                <VanityUrlDeploymentForm
+                  engine={selectedRow.engine}
+                  config={currentConfig}
+                  projectNumber={projectNumber}
+                  onBuildTriggered={(buildId, buildProjectId) => {
+                    setRedirectRefreshToken((v) => v + 1);
+                    onBuildTriggered?.(buildId, buildProjectId);
+                  }}
+                />
+              </div>
             )}
           </div>
 
