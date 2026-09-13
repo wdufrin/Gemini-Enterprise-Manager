@@ -42,7 +42,9 @@ const NavItem: React.FC<{
     return (
       <div className="flex justify-center w-full mb-1.5 px-2 relative group">
         <button
+          type="button"
           onClick={() => setCurrentPage(page)}
+          aria-label={page}
           className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors duration-200 focus:outline-none ${
             isCurrent
               ? 'bg-blue-600 text-white shadow-md'
@@ -63,6 +65,7 @@ const NavItem: React.FC<{
   return (
     <div className="flex items-center w-full group mb-1">
       <button
+        type="button"
         onClick={() => setCurrentPage(page)}
         className={`flex items-center flex-grow pl-4 pr-2 py-2 text-sm font-medium rounded-l-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
           isCurrent
@@ -74,10 +77,12 @@ const NavItem: React.FC<{
         <span className="ml-3 truncate">{page}</span>
       </button>
       <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
           onShowInfo(page);
         }}
+        aria-label={`Show API commands for ${page}`}
         className={`px-2 py-2 h-full rounded-r-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
           isCurrent
             ? 'bg-purple-600 text-purple-200 hover:bg-purple-500 hover:text-white'
@@ -158,7 +163,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
         {!isCollapsed && (
           <div className="flex flex-col ml-3 justify-center animate-fadeIn">
             <span className="text-lg font-bold text-gray-100 tracking-tight leading-none">Gemini Enterprise</span>
-            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0912.327</span>
+            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0913.328</span>
           </div>
         )}
       </div>
@@ -223,6 +228,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
                       History ({filteredHistory.length})
                     </h4>
                     <button
+                      type="button"
                       onClick={() => setFilterGet(!filterGet)}
                       className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${filterGet
                         ? 'bg-blue-900/50 text-blue-300 border-blue-800'
@@ -234,6 +240,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
                     </button>
                   </div>
                   <button
+                    type="button"
                     onClick={clearHistory}
                     className="text-[10px] text-red-400 hover:text-red-300 uppercase"
                   >
@@ -244,6 +251,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
                   {filteredHistory.map((item) => (
                     <button
                       key={item.id}
+                      type="button"
                       onClick={() => setSelectedHistoryItem(item)}
                       className="w-full text-left p-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 transition-colors group"
                     >
@@ -278,7 +286,9 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
       {/* Collapse/Expand Toggle Chevron Button at the bottom */}
       <div className="p-3 border-t border-gray-800 shrink-0 bg-gray-900/40">
         <button
+          type="button"
           onClick={onToggleCollapse}
+          aria-label={isCollapsed ? "Expand Navigation" : "Collapse Navigation"}
           className="w-full flex items-center justify-center py-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-800 hover:border-gray-700"
           title={isCollapsed ? "Expand Navigation" : "Collapse Navigation"}
         >
