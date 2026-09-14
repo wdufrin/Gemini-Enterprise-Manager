@@ -39,7 +39,7 @@
  * is the repo `.venv`; in CI it is the dedicated `codegen-import` job.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -66,6 +66,12 @@ const REPO_ROOT = path.resolve(HERE, '..', '..');
 const VENV_PYTHON = path.join(REPO_ROOT, '.venv', 'bin', 'python');
 const PYTHON = fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python3';
 const RUN_IMPORT_CHECK = process.env.ADK_IMPORT_CHECK === '1';
+/**
+ * When set, a case that bails out on a missing Python dependency is a FAILURE
+ * rather than a warning. CI sets this: in CI a missing module means the
+ * dependency list is wrong, and the resulting "pass" is meaningless.
+ */
+const IMPORT_STRICT = process.env.ADK_IMPORT_STRICT === '1';
 
 const BASE: AdkAgentConfig = {
   adkVersion: '1.35.1',
@@ -356,7 +362,7 @@ describe('ADK Studio codegen matrix', () => {
         enableThinking: true,
         thinkingBudget: 1024,
       });
-      expect(code).toContain('thinking_budget = int(os.getenv("THINKING_BUDGET", "1024"))');
+      expect(code).toContain('thinking_budget = int(raw_budget) if raw_budget else 1024');
       expect(code).toContain('thinking_config = genai_types.ThinkingConfig(');
       expect(code).toContain('thinking_budget=thinking_budget');
     });
@@ -371,6 +377,31 @@ describe('ADK Studio codegen matrix', () => {
       });
       expect(code).toContain('thinking_level = os.getenv("THINKING_LEVEL", "MEDIUM")');
       expect(code).toContain('thinking_level=thinking_level');
+    });
+
+    it('emits thinking_budget for gemini-flash-latest (auto-updating Gemini 2.x)', () => {
+      const code = generateAdkPythonCode({
+        ...BASE,
+        model: 'gemini-flash-latest',
+        enableThinking: true,
+        thinkingBudget: 1024,
+      });
+      expect(code).toContain('thinking_budget = int(raw_budget) if raw_budget else 1024');
+      expect(code).toContain('thinking_config = genai_types.ThinkingConfig(');
+      expect(code).toContain('thinking_budget=thinking_budget');
+    });
+
+    it('emits thinking_budget in ADK 2.2 for gemini-flash-latest', () => {
+      const code = generateAdk22PythonCode({
+        ...BASE,
+        adkVersion: '2.2',
+        model: 'gemini-flash-latest',
+        enableThinking: true,
+        thinkingBudget: 1024,
+      });
+      expect(code).toContain('thinking_budget = int(raw_budget) if raw_budget else 1024');
+      expect(code).toContain('types.ThinkingConfig(');
+      expect(code).toContain('thinking_budget=thinking_budget');
     });
   });
 
@@ -389,6 +420,44 @@ describe('ADK Studio codegen matrix', () => {
   );
 
   describe.runIf(RUN_IMPORT_CHECK)('imports against a real ADK install', () => {
+    /**
+     * Importing a generated agent pulls in the whole ADK object graph. Measured
+     * cost is ~10s per case (a bare `import google.adk` is already ~2.6s), and
+     * vitest's default per-test timeout is 5s -- so without this explicit value
+     * 12 of 16 deep cases fail with "Test timed out in 5000ms" and the job
+     * reports a codegen defect that does not exist. Do not lower this below the
+     * observed import cost.
+     */
+    const IMPORT_TIMEOUT_MS = 120_000;
+
+    /**
+     * Cases that bailed out because a third-party module was absent. Tracked so
+     * that `ADK_IMPORT_STRICT=1` can turn "silently validated nothing" into a
+     * hard failure. See the afterAll below.
+     */
+    const skipped: { name: string; missing: string }[] = [];
+
+    afterAll(() => {
+      if (skipped.length === 0) return;
+
+      const detail = skipped.map((s) => `  - ${s.name}: ${s.missing}`).join('\n');
+
+      if (IMPORT_STRICT) {
+        throw new Error(
+          `${skipped.length} import check(s) were skipped because a Python dependency is missing.\n` +
+            `In strict mode this is a failure: a skipped case validates NOTHING, and the\n` +
+            `broadest cases (all_flags_on, adk22_all_on) are exactly the ones that skip\n` +
+            `first. Install the missing modules in the CI "Install ADK runtime" step.\n\n` +
+            detail
+        );
+      }
+
+      console.warn(
+        `[codegen-matrix] ${skipped.length} case(s) skipped for missing Python deps. ` +
+          `These validated nothing. Run with ADK_IMPORT_STRICT=1 to make this fatal.\n${detail}`
+      );
+    });
+
     it.each(CASES.filter((c) => c.deep).map((c) => [c.name, c] as const))(
       'imports cleanly: %s',
       (_name, testCase) => {
@@ -403,10 +472,12 @@ describe('ADK Studio codegen matrix', () => {
           !/No module named ['"]agent['"]/.test(result.output);
 
         if (!result.ok && isMissingDependency) {
-          console.warn(
-            `[codegen-matrix] skipping import check for "${testCase.name}": ` +
-              result.output.split('\n').pop()
-          );
+          const missing =
+            /ModuleNotFoundError: (.*)$/m.exec(result.output)?.[1] ??
+            result.output.split('\n').pop() ??
+            'unknown module';
+          skipped.push({ name: testCase.name, missing });
+          console.warn(`[codegen-matrix] skipping import check for "${testCase.name}": ${missing}`);
           return;
         }
 
@@ -415,10 +486,12 @@ describe('ADK Studio codegen matrix', () => {
           `Generated agent.py failed to import for "${testCase.name}".\n` +
             `Sources: ${dir}\n\n${result.output}`
         ).toBe(true);
-      }
+      },
+      IMPORT_TIMEOUT_MS
     );
   });
 });
+
 
 /**
  * Shell-injection guards on the deploy templates (F-01).

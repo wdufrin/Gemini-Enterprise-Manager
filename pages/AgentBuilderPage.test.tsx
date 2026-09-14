@@ -315,6 +315,15 @@ describe('AgentBuilderPage - Helper Functions', () => {
       // Should now show Thinking Level selector and hide Budget input
       expect(container.querySelector('select[name="thinkingLevel"]')).toBeDefined();
       expect(container.querySelector('input[name="thinkingBudget"]')).toBeNull();
+
+      // Switch model to gemini-flash-latest (auto-updating 2.x Flash)
+      act(() => {
+        fireEvent.change(modelSelect, { target: { value: 'gemini-flash-latest' } });
+      });
+
+      // gemini-flash-latest is Gemini 2.x -> should show Budget input and hide Level selector
+      expect(container.querySelector('input[name="thinkingBudget"]')).toBeDefined();
+      expect(container.querySelector('select[name="thinkingLevel"]')).toBeNull();
     });
   });
 

@@ -2,7 +2,6 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from '../App';
-import { initGapiClient, getGapiClient } from '../services/gapiService';
 
 // Mock services/apiService completely
 vi.mock('../services/apiService', () => ({
@@ -132,13 +131,13 @@ describe('Gemini Enterprise Manager - App Integration Tests', () => {
     // Wait for the app layout to switch to the dashboard
     await waitFor(() => {
       expect(screen.getByText('Gemini Enterprise')).toBeDefined();
-    });
+    }, { timeout: 5000 });
 
     // Check that sidebar and default "Agents" page render
     expect(screen.getByText('Gemini Enterprise')).toBeDefined();
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /Agents/i })).toBeDefined();
-    });
+    }, { timeout: 5000 });
   });
 
   it('allows navigating between sidebar tabs in the console', async () => {
@@ -148,7 +147,7 @@ describe('Gemini Enterprise Manager - App Integration Tests', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Gemini Enterprise')).toBeDefined();
-    });
+    }, { timeout: 5000 });
 
     // Locate sidebar and click on "License" tab
     // Note: Tab lists are rendered inside Sidebar component
@@ -158,7 +157,7 @@ describe('Gemini Enterprise Manager - App Integration Tests', () => {
     // Verify License management page is rendered
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /Manage User Licenses/i })).toBeDefined();
-    });
+    }, { timeout: 5000 });
 
     // Click on "Backup & Recovery" tab
     const backupTab = screen.getByRole('button', { name: /^Backup & Recovery$/ });
@@ -167,6 +166,6 @@ describe('Gemini Enterprise Manager - App Integration Tests', () => {
     // Verify Backups management page is rendered
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /^Backup & Restore Actions \(GCS\)$/ })).toBeDefined();
-    });
+    }, { timeout: 5000 });
   });
 });

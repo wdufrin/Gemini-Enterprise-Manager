@@ -219,18 +219,18 @@ export const AdkBasicSettings: React.FC<AdkBasicSettingsProps> = ({
           onChange={handleAdkConfigChange}
           className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
         >
-          <optgroup label="Auto-Updating & Cutting-Edge (Global)">
-            <option value="gemini-flash-latest">Gemini Flash (Latest Auto-Updating)</option>
-            <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
-            <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended)</option>
-            <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+          <optgroup label="Gemini 3.x — Cutting-Edge Reasoning (Global)">
+            <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended - Reasoning Depth)</option>
+            <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (Fast Reasoning)</option>
+            <option value="gemini-3.8-flash">Gemini 3.8 Flash (Deep Reasoning)</option>
             <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
             <option value="gemini-3-flash-preview">Gemini 3.0 Flash (Preview - Legacy)</option>
           </optgroup>
-          <optgroup label="Stable Regional (us-central1)">
-            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-            <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
-            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+          <optgroup label="Gemini 2.x — Production & Auto-Updating">
+            <option value="gemini-flash-latest">Gemini 2.x Flash (Latest Auto-Updating - Global)</option>
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Stable - Regional us-central1)</option>
+            <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (Stable - Regional us-central1)</option>
+            <option value="gemini-2.5-pro">Gemini 2.5 Pro (Stable - Regional us-central1)</option>
           </optgroup>
         </select>
       </div>

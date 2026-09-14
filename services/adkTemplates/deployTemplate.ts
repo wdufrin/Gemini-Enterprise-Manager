@@ -109,7 +109,7 @@ ENABLE_A2A="true"`;
       config.model?.startsWith("gemini-3") ||
       config.model?.includes("3.5") ||
       config.model?.includes("3.8") ||
-      config.model?.includes("latest");
+      config.model?.includes("3.1");
     if (isGemini3) {
       env += `\nTHINKING_LEVEL="${config.thinkingLevel || "HIGH"}"`;
     } else {

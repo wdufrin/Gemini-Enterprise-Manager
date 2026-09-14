@@ -234,28 +234,48 @@ describe('apiService', () => {
   });
 
   describe('listMcpTools', () => {
-    it('should query Google API endpoints via gapiRequest using JSON-RPC', async () => {
+    /**
+     * Builds a real `Response`. The production reader inspects `content-type`
+     * and consumes the body with `text()` so it can distinguish JSON from SSE
+     * framing; an `{ ok, json }` stub does not exercise that path.
+     */
+    const jsonResponse = (body: unknown): Response =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=UTF-8' },
+      });
+
+    it('should query first-party Google MCP endpoints with a preflight-free fetch', async () => {
+      // Previously this asserted the call went through gapiRequest. That was
+      // the bug: gapi.client rewrites the host to
+      // content-bigquery.googleapis.com/mcp?alt=json, which does not serve
+      // /mcp. The endpoint is reached directly, with only CORS-safelisted
+      // headers so the browser skips the OPTIONS preflight (these endpoints
+      // answer OPTIONS with a 404 carrying no CORS headers).
       const mockGapiClient = {
-        request: vi.fn().mockResolvedValue({
-          result: {
-            tools: [{ name: 'list_dataset_ids', description: 'Lists BigQuery datasets' }]
-          }
-        }),
+        request: vi.fn(),
         getToken: () => ({ access_token: 'mock-token' }),
       };
       vi.mocked(getGapiClient).mockResolvedValue(mockGapiClient as unknown as GapiClient);
 
+      mockFetch.mockResolvedValue(
+        jsonResponse({
+          result: {
+            tools: [{ name: 'list_dataset_ids', description: 'Lists BigQuery datasets' }],
+          },
+        }),
+      );
+
       const tools = await listMcpTools('test-project', 'https://bigquery.googleapis.com/mcp');
-      expect(mockGapiClient.request).toHaveBeenCalledWith(
+
+      expect(mockGapiClient.request).not.toHaveBeenCalled();
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://bigquery.googleapis.com/mcp',
         expect.objectContaining({
-          path: 'https://bigquery.googleapis.com/mcp',
           method: 'POST',
-          body: {
-            jsonrpc: '2.0',
-            id: 0,
-            method: 'tools/list'
-          }
-        })
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'tools/list' }),
+        }),
       );
       expect(tools).toHaveLength(1);
       expect(tools[0].name).toBe('list_dataset_ids');
@@ -276,13 +296,10 @@ describe('apiService', () => {
         }
       };
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => mockResponse
-      } as Response);
+      mockFetch.mockResolvedValue(jsonResponse(mockResponse));
 
       const tools = await listMcpTools('test-project', 'https://my-custom-mcp.com/tools');
-      
+
       expect(global.fetch).toHaveBeenCalledWith(
         'https://my-custom-mcp.com/tools',
         expect.objectContaining({
@@ -315,13 +332,10 @@ describe('apiService', () => {
         }
       };
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => mockResponse
-      } as Response);
+      mockFetch.mockResolvedValue(jsonResponse(mockResponse));
 
       const tools = await listMcpTools('test-project', 'https://my-service-uc.a.run.app/tools');
-      
+
       expect(global.fetch).toHaveBeenCalledWith(
         'https://my-service-uc.a.run.app/tools',
         expect.objectContaining({

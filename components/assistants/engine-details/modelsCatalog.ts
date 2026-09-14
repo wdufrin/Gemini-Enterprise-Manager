@@ -23,6 +23,7 @@ export interface EnterpriseModel {
 }
 
 export const formatModelDisplayName = (id: string): string => {
+    if (id === 'gemini-flash-latest') return 'Gemini 2.x Flash (Latest Auto-Updating)';
     if (id === 'gemini-3.1-pro-preview') return 'Gemini 3.1 Pro (Thinking)';
     if (id === 'gemini-3.1-pro') return 'Gemini 3.1 Pro (Legacy)';
     if (id === 'gemini-3-flash-preview') return 'Gemini 3 Flash (Preview)';

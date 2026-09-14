@@ -199,7 +199,7 @@ export const AdkToolsConfig: React.FC<AdkToolsConfigProps> = ({
                   {adkConfig.model?.startsWith('gemini-3') ||
                   adkConfig.model?.includes('3.5') ||
                   adkConfig.model?.includes('3.8') ||
-                  adkConfig.model?.includes('latest') ? (
+                  adkConfig.model?.includes('3.1') ? (
                     <>
                       <span className="text-xs text-gray-300">Reasoning Depth:</span>
                       <select

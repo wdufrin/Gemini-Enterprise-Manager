@@ -189,20 +189,34 @@ class SyncAgentWrapper(BaseModel):
             prompt = (input if isinstance(input, str) else "") or (message if isinstance(message, str) else "")
 
         async with self._lazy_agent as agent:
-            response = await agent.chat(prompt)
-            async for chunk in response:
-                txt = getattr(chunk, "text", "") or str(chunk)
-                if txt:
-                    yield {
-                        "candidates": [
-                            {
-                                "content": {
-                                    "parts": [{"text": txt}],
-                                    "role": "model"
+            try:
+                response = await agent.chat(prompt)
+                async for chunk in response:
+                    txt = getattr(chunk, "text", "") or str(chunk)
+                    if txt:
+                        yield {
+                            "candidates": [
+                                {
+                                    "content": {
+                                        "parts": [{"text": txt}],
+                                        "role": "model"
+                                    }
                                 }
+                            ]
+                        }
+            except Exception as e:
+                import logging
+                logging.exception(f"Stream query failed: {e}")
+                yield {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [{"text": f"Agent error: {type(e).__name__} - {str(e)}"}],
+                                "role": "model"
                             }
-                        ]
-                    }
+                        }
+                    ]
+                }
 
     async def _run_async_impl(self, input: str = "", message: str = "", **kwargs):
         async for chunk in self.stream_query(input, message, **kwargs):
@@ -238,11 +252,16 @@ class SyncAgentWrapper(BaseModel):
                         return PartText(text)
 
         async with self._lazy_agent as agent:
-            response = await agent.chat(prompt)
-            async for chunk in response:
-                txt = str(chunk)
-                if txt:
-                    yield Event(content=genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=txt)]))
+            try:
+                response = await agent.chat(prompt)
+                async for chunk in response:
+                    txt = str(chunk)
+                    if txt:
+                        yield Event(content=genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=txt)]))
+            except Exception as e:
+                import logging
+                logging.exception(f"run_async chat failed: {e}")
+                yield Event(content=genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=f"Agent error: {type(e).__name__} - {str(e)}")]))
 
     async def streaming_agent_run_with_events(self, request_json: str):
         """Streams responses asynchronously from the ADK application (AgentSpace/A2A entrypoint)."""
@@ -267,21 +286,36 @@ class SyncAgentWrapper(BaseModel):
                     os.environ[f"temp:{a_id}"] = tok
 
         async with self._lazy_agent as agent:
-            response = await agent.chat(prompt)
-            async for chunk in response:
-                txt = getattr(chunk, "text", "") or str(chunk)
-                if txt:
-                    event_dict = {
-                        "content": {
-                            "role": "model",
-                            "parts": [{"text": txt}]
+            try:
+                response = await agent.chat(prompt)
+                async for chunk in response:
+                    txt = getattr(chunk, "text", "") or str(chunk)
+                    if txt:
+                        event_dict = {
+                            "content": {
+                                "role": "model",
+                                "parts": [{"text": txt}]
+                            }
                         }
+                        yield {
+                            "events": [event_dict],
+                            "artifacts": [],
+                            "session_id": session_id
+                        }
+            except Exception as e:
+                import logging
+                logging.exception(f"Streaming agent run failed: {e}")
+                err_dict = {
+                    "content": {
+                        "role": "model",
+                        "parts": [{"text": f"Agent error: {type(e).__name__} - {str(e)}"}]
                     }
-                    yield {
-                        "events": [event_dict],
-                        "artifacts": [],
-                        "session_id": session_id
-                    }
+                }
+                yield {
+                    "events": [err_dict],
+                    "artifacts": [],
+                    "session_id": session_id
+                }
 
     def register_operations(self) -> dict[str, list[str]]:
         return {
@@ -344,14 +378,18 @@ def create_agent():
     thinking_config = None
     ${config.enableThinking
         ? `
-    is_gemini_3 = model_name.startswith("gemini-3") or "3.5" in model_name or "3.8" in model_name or "latest" in model_name
+    is_gemini_3 = model_name.startswith("gemini-3") or "3.5" in model_name or "3.8" in model_name or "3.1" in model_name
     if is_gemini_3:
         thinking_level = os.getenv("THINKING_LEVEL", "${config.thinkingLevel || "HIGH"}")
         thinking_config = types.ThinkingConfig(
             thinking_level=thinking_level,
         )
     else:
-        thinking_budget = int(os.getenv("THINKING_BUDGET", "${config.thinkingBudget || 1024}"))
+        raw_budget = os.getenv("THINKING_BUDGET")
+        try:
+            thinking_budget = int(raw_budget) if raw_budget else ${config.thinkingBudget || 1024}
+        except ValueError:
+            thinking_budget = ${config.thinkingBudget || 1024}
         thinking_config = types.ThinkingConfig(
             thinking_budget=thinking_budget,
         )

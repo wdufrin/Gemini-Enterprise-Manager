@@ -51,23 +51,32 @@ export const updateWidgetConfig = async (
   return gapiRequest<WidgetConfig>(url, "PATCH", projectId, undefined, payload);
 };
 
-export const getIdpConfig = async (name: string, config: Config): Promise<IdpConfig> => {
-  const { projectId, appLocation } = config;
-  const baseUrl = getDiscoveryEngineUrl(appLocation);
-  const url = `${baseUrl}/v1alpha/${name}/idpConfig`;
-  return gapiRequest<IdpConfig>(url, "GET", projectId, undefined, undefined, undefined, true);
+/**
+ * Retrieves the Identity Provider configuration for the project/location via AclConfig.
+ *
+ * NOTE: Google Cloud Discovery Engine does not provide an engine-level `.../engines/{id}/idpConfig`
+ * endpoint. IdP configuration is a regional setting on `projects/{project}/locations/{location}/aclConfig`.
+ */
+export const getIdpConfig = async (
+  _name: string,
+  config: Config,
+): Promise<IdpConfig | undefined> => {
+  const acl = await getAclConfig(config);
+  return acl?.idpConfig;
 };
 
+/**
+ * Updates the Identity Provider configuration for the project/location via AclConfig.
+ */
 export const updateIdpConfig = async (
-  name: string,
+  _name: string,
   payload: Partial<IdpConfig> | Record<string, unknown>,
   config: Config,
-): Promise<IdpConfig> => {
-  const { projectId, appLocation } = config;
-  const baseUrl = getDiscoveryEngineUrl(appLocation);
-  const url = `${baseUrl}/v1alpha/${name}/idpConfig`;
-  return gapiRequest<IdpConfig>(url, "PATCH", projectId, undefined, payload);
+): Promise<IdpConfig | undefined> => {
+  const acl = await updateAclConfig({ idpConfig: payload as IdpConfig }, config);
+  return acl?.idpConfig;
 };
+
 
 export const getAclConfig = async (config: Config): Promise<AclConfig> => {
   const { projectId, appLocation } = config;

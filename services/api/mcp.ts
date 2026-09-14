@@ -19,8 +19,49 @@ import {
   isGoogleApiEndpoint,
   mayReceiveGoogleCredentials,
 } from "../urlSecurity";
-import { gapiRequest } from "./core";
 import { checkServiceEnabled } from "./project";
+
+/**
+ * Reads a JSON-RPC response body from an MCP endpoint, tolerating both of the
+ * framings the MCP "streamable HTTP" transport permits for a POST response.
+ *
+ * Google's first-party MCP endpoints currently answer with
+ * `content-type: application/json; charset=UTF-8` and a plain JSON-RPC object
+ * (verified 2026-09-13 against bigquery, logging, monitoring, spanner,
+ * firestore, compute, container, sqladmin, bigtableadmin and
+ * cloudresourcemanager). The transport nevertheless allows a server to answer
+ * the identical request with `text/event-stream`, delivering the payload as
+ * one or more `data:` lines. Handling both means a future transport switch
+ * surfaces as a normal JSON-RPC error rather than an opaque
+ * `Unexpected token 'e'` parse failure with no indication of the cause.
+ */
+const readMcpBody = async (res: Response): Promise<Record<string, unknown>> => {
+  const text = await res.text();
+  const contentType = res.headers?.get?.("content-type") ?? "";
+  const isEventStream =
+    contentType.includes("text/event-stream") ||
+    /^\s*(?:event|data):/m.test(text);
+
+  if (!isEventStream) {
+    return JSON.parse(text) as Record<string, unknown>;
+  }
+
+  // SSE framing: take the last non-sentinel `data:` payload, which carries the
+  // response to our single `tools/list` request.
+  const dataPayloads = text
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trim())
+    .filter((line) => line.length > 0 && line !== "[DONE]");
+
+  const last = dataPayloads[dataPayloads.length - 1];
+  if (!last) {
+    throw new Error(
+      "MCP endpoint returned an event stream with no JSON-RPC payload.",
+    );
+  }
+  return JSON.parse(last) as Record<string, unknown>;
+};
 
 export const listMcpTools = async (
   projectId: string,
@@ -35,16 +76,40 @@ export const listMcpTools = async (
 
     let response: Record<string, unknown>;
     if (isGoogleApiEndpoint(mcpEndpointUrl)) {
-      // First-party Google API (or a relative path resolved against one).
-      // gapiRequest attaches the caller's OAuth token, which is correct here.
-      response = await gapiRequest<Record<string, unknown>>(
-        mcpEndpointUrl,
-        "POST",
-        projectId,
-        undefined, // params
-        payload,
-        { "X-Goog-User-Project": projectId },
-      );
+      // First-party Google MCP endpoint (e.g. https://bigquery.googleapis.com/mcp).
+      //
+      // This deliberately does NOT use gapiRequest, and deliberately sends a
+      // "simple" CORS request. Both choices are load-bearing:
+      //
+      //   1. gapi.client rewrites the URL to
+      //      `content-<service>.googleapis.com/mcp?alt=json`. That host does
+      //      not serve /mcp and returns a 404 HTML error page.
+      //
+      //   2. These endpoints DO return `access-control-allow-origin` on the
+      //      actual POST, but they return 404 with NO CORS headers for the
+      //      OPTIONS preflight. So the request must not trigger a preflight.
+      //      `Authorization`, `X-Goog-User-Project`, and
+      //      `Content-Type: application/json` each force one.
+      //      `text/plain;charset=UTF-8` is CORS-safelisted, so none is sent.
+      //
+      // Sending no credentials is correct here as well as necessary:
+      // `tools/list` is a public schema/discovery call that returns the same
+      // tool definitions for every caller. Tool *invocation* is not performed
+      // by this function. If Google ever requires auth for tools/list, this
+      // will surface as a 401 rather than failing silently.
+      const res = await fetch(mcpEndpointUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error(
+          `MCP endpoint ${mcpEndpointUrl} returned HTTP ${res.status}: ` +
+            `${await res.text()}`,
+        );
+      }
+      response = await readMcpBody(res);
     } else {
       // SECURITY (CWE-522/CWE-319): everything that is not a recognised Google
       // API endpoint is treated as untrusted and must never reach gapiRequest,
@@ -90,8 +155,9 @@ export const listMcpTools = async (
       if (!res.ok) {
         throw new Error(`HTTP Error ${res.status}: ${await res.text()}`);
       }
-      response = await res.json();
+      response = await readMcpBody(res);
     }
+
 
     // Detailed logging of the JSON-RPC response body
     const resultObj = response?.result as Record<string, unknown> | undefined;

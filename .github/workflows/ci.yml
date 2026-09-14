@@ -111,15 +111,25 @@ jobs:
       # the task 1.10 regression guard silently stopped running locally until
       # bigquery-storage and pyarrow were installed. Pinning them here keeps the
       # guard honest. Bump google-adk deliberately, not automatically.
+      #
+      # google-cloud-monitoring was missing from this list, which silently
+      # skipped the three BROADEST cases -- all_flags_on, adk22_all_on and
+      # template_2_gcp_health_monitoring_agent_api. ADK_IMPORT_STRICT below now
+      # turns any such omission into a failure instead of a vacuous pass, so
+      # this list cannot silently rot again.
       - name: Install ADK runtime
         run: |
           python -m pip install --upgrade pip
           python -m pip install \
             'google-adk==2.3.0' \
             'google-cloud-bigquery-storage' \
+            'google-cloud-monitoring' \
             'pyarrow'
 
       - name: Generate and import every template permutation
         env:
           ADK_IMPORT_CHECK: '1'
+          # Treat a skipped case as a failure: a skip validates nothing.
+          ADK_IMPORT_STRICT: '1'
         run: npx vitest run tests/codegen/codegenMatrix.test.ts
+

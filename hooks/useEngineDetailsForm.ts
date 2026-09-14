@@ -239,7 +239,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                     collectionId: 'default_collection',
                     appId: '',
                 });
-                const activeConfigs = (res.licenseConfigs || []).filter((cfg: LicenseConfig) => cfg.state === 'ACTIVE');
+                const activeConfigs = (res?.licenseConfigs || []).filter((cfg: LicenseConfig) => cfg.state === 'ACTIVE');
                 setProjectLicenseConfigs(activeConfigs);
             } catch (e) {
                 console.error("Failed to fetch license configs in EngineDetailsForm", e);
@@ -355,27 +355,50 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         const fetchConfigs = async () => {
             setIsLoadingIdp(true);
             try {
-                const idp = await api.getIdpConfig(engine.name, config);
-                const widget = await api.getWidgetConfig(engine.name, config);
+                // Decouple location-level AclConfig (IdP) from engine-level WidgetConfig.
+                // Previously, getIdpConfig hit a nonexistent endpoint (.../engines/{id}/idpConfig),
+                // throwing a network/CORS error that prevented getWidgetConfig from ever executing.
+                const [aclResult, widgetResult] = await Promise.allSettled([
+                    api.getAclConfig(config),
+                    api.getWidgetConfig(engine.name, config),
+                ]);
 
-                if (idp) {
-                    const type = idp.idpType || 'IDP_TYPE_UNSPECIFIED';
-                    const poolName = idp.workforcePoolName || '';
-                    setIdpData({ idpType: type, workforcePoolName: poolName });
-                    setOriginalIdpData({ idpType: type, workforcePoolName: poolName });
+                if (aclResult.status === 'fulfilled') {
+                    const acl = aclResult.value;
+                    const idp = acl?.idpConfig;
+                    if (idp) {
+                        const type = idp.idpType || 'IDP_TYPE_UNSPECIFIED';
+                        const poolName = idp.workforcePoolName || idp.externalIdpConfig?.workforcePoolName || '';
+                        setIdpData({ idpType: type, workforcePoolName: poolName });
+                        setOriginalIdpData({ idpType: type, workforcePoolName: poolName });
 
-                    if (type === 'THIRD_PARTY' && poolName) {
-                        const providerData = await api.getWorkforcePoolProviders(poolName, config);
-                        if (providerData && providerData.workforcePoolProviders) {
-                            setIdpProviders(providerData.workforcePoolProviders);
+                        if (type === 'THIRD_PARTY' && poolName) {
+                            try {
+                                const providerData = await api.getWorkforcePoolProviders(poolName, config);
+                                if (providerData && providerData.workforcePoolProviders) {
+                                    setIdpProviders(providerData.workforcePoolProviders);
+                                }
+                            } catch (err) {
+                                console.warn("Failed to fetch workforce pool providers:", err);
+                            }
                         }
                     }
+                } else {
+                    console.warn("Failed to load ACL / IdP config:", aclResult.reason);
                 }
 
-                if (widget) {
-                    setWidgetConfig(widget);
-                    setOriginalWidgetConfig(JSON.parse(JSON.stringify(widget)));
+                if (widgetResult.status === 'fulfilled') {
+                    const widget = widgetResult.value;
+                    if (widget) {
+                        setWidgetConfig(widget);
+                        setOriginalWidgetConfig(JSON.parse(JSON.stringify(widget)));
+                    } else {
+                        const newConfig = { name: `${engine.name}/widgetConfigs/default_search_widget_config`, accessSettings: {} };
+                        setWidgetConfig(newConfig);
+                        setOriginalWidgetConfig(JSON.parse(JSON.stringify(newConfig)));
+                    }
                 } else {
+                    console.warn("Failed to load widget config:", widgetResult.reason);
                     const newConfig = { name: `${engine.name}/widgetConfigs/default_search_widget_config`, accessSettings: {} };
                     setWidgetConfig(newConfig);
                     setOriginalWidgetConfig(JSON.parse(JSON.stringify(newConfig)));
@@ -549,9 +572,13 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
 
             let idpChanged = false;
             if (idpData.idpType !== originalIdpData.idpType || idpData.workforcePoolName !== originalIdpData.workforcePoolName) {
-                await api.updateIdpConfig(engine.name, {
-                    idpType: idpData.idpType,
-                    workforcePoolName: idpData.idpType === 'THIRD_PARTY' ? idpData.workforcePoolName : ''
+                await api.updateAclConfig({
+                    idpConfig: {
+                        idpType: idpData.idpType,
+                        ...(idpData.idpType === 'THIRD_PARTY' && idpData.workforcePoolName
+                            ? { externalIdpConfig: { workforcePoolName: idpData.workforcePoolName } }
+                            : {})
+                    }
                 }, config);
                 idpChanged = true;
             }

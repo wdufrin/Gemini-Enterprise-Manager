@@ -35,9 +35,18 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
     const [showEnablePopup, setShowEnablePopup] = useState(false);
     const [isEnabling, setIsEnabling] = useState(false);
     const [tools, setTools] = useState<any[]>([]);
+    const [toolsLoading, setToolsLoading] = useState(false);
+    const [toolsError, setToolsError] = useState<string | null>(null);
     const [showTools, setShowTools] = useState(false);
     const [expandedTool, setExpandedTool] = useState<number | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+
+    // Monotonic id for the in-flight validate/tool-fetch pair. Switching
+    // projects or toggling the checkbox restarts the sequence while the
+    // previous fetch is still outstanding; without this, a slow response for
+    // project A can land after project B's and populate the browser with
+    // another project's tools.
+    const requestIdRef = useRef(0);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -52,34 +61,74 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
         };
     }, []);
 
+    /**
+     * Populates the Tool Browser.
+     *
+     * A failure here must never be swallowed. Previously this was a bare
+     * `.catch(console.warn)`, so a total transport failure (the MCP CORS
+     * regression, an expired token, a 403) rendered as a green
+     * "Ready (0 tools)" badge -- visually identical to a healthy service that
+     * genuinely exposes no tools. Operators had no way to tell the difference
+     * without opening the browser console.
+     */
+    const loadTools = useCallback(async (requestId: number) => {
+        setToolsLoading(true);
+        setToolsError(null);
+        try {
+            const fetched = await listMcpTools(projectId, mcpEndpoint);
+            if (requestId !== requestIdRef.current) return;
+            setTools(fetched);
+        } catch (e) {
+            if (requestId !== requestIdRef.current) return;
+            console.error(`[McpServiceCheck] Tool discovery failed for ${mcpEndpoint}:`, e);
+            setTools([]);
+            setToolsError(toErrorMessage(e));
+        } finally {
+            if (requestId === requestIdRef.current) setToolsLoading(false);
+        }
+    }, [projectId, mcpEndpoint]);
+
     const validate = useCallback(async () => {
         setStatus('loading');
+        const requestId = ++requestIdRef.current;
 
         try {
             // Use the authoritative MCP compliance check from user (v2beta API)
             const isMcpEnabled = await checkMcpCompliance(projectId, serviceName);
+            if (requestId !== requestIdRef.current) return;
 
             if (!isMcpEnabled) {
                 setStatus('disabled');
             } else {
                 setStatus('enabled');
-                // Optimistically fetch tools for the "Tool Browser" feature, but don't block/fail status
-                listMcpTools(projectId, mcpEndpoint)
-                    .then(setTools)
-                    .catch(e => console.warn("Background tool fetch failed:", e));
+                // Tool discovery is separate from the enablement status: the
+                // service can be enabled while the MCP surface is unreachable.
+                // Both outcomes are reported, neither is inferred from the other.
+                void loadTools(requestId);
             }
 
         } catch (e) {
+            if (requestId !== requestIdRef.current) return;
             console.error("Validation failed:", e);
             setStatus('error');
         }
-    }, [projectId, serviceName, mcpEndpoint]);
+    }, [projectId, serviceName, loadTools]);
+
+    const retryToolDiscovery = useCallback(() => {
+        void loadTools(++requestIdRef.current);
+    }, [loadTools]);
 
     useEffect(() => {
         if (checked && projectId) {
             validate();
         } else {
+            // Invalidate any in-flight response so it cannot repopulate the
+            // browser after the service has been unchecked.
+            requestIdRef.current++;
             setStatus('unchecked');
+            setTools([]);
+            setToolsError(null);
+            setToolsLoading(false);
         }
     }, [checked, projectId, validate]);
 
@@ -99,14 +148,17 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
                     setStatus('enabled');
                     setIsEnabling(false);
                     setShowEnablePopup(false);
-                    // Fetch tools in background
-                    listMcpTools(projectId, mcpEndpoint)
-                        .then(setTools)
-                        .catch(e => console.warn("Background tool fetch failed:", e));
+                    void loadTools(++requestIdRef.current);
                 } else if (attempts > 15) {
                     clearInterval(poll);
                     setIsEnabling(false);
-                    // Failed to enable after timeout
+                    // The service did not become MCP-compliant within the
+                    // polling window. Say so rather than leaving the dialog in
+                    // a state that looks like nothing happened.
+                    toast.error(
+                        `${serviceName} did not report MCP compliance within 30s. ` +
+                        `It may still be propagating -- re-check in a minute.`,
+                    );
                 }
             }, 2000);
         } catch (e) {
@@ -129,11 +181,24 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
                     {status === 'enabled' && (
                         <div className="relative">
                             <span
-                                className="text-green-500 text-lg flex items-center space-x-1 cursor-pointer hover:opacity-80 transition-opacity"
-                                title="Service Ready - Click to view tools"
+                                className={`text-lg flex items-center space-x-1 cursor-pointer hover:opacity-80 transition-opacity ${
+                                    toolsError ? 'text-amber-500' : 'text-green-500'
+                                }`}
+                                title={
+                                    toolsError
+                                        ? `API enabled, but tool discovery failed: ${toolsError}`
+                                        : 'Service Ready - Click to view tools'
+                                }
                                 onClick={() => setShowTools(!showTools)}
                             >
-                                <span>●</span> <span className="text-xs text-green-400">Ready ({tools.length} tools)</span>
+                                <span>●</span>
+                                {toolsError ? (
+                                    <span className="text-xs text-amber-400">Tools unavailable</span>
+                                ) : toolsLoading ? (
+                                    <span className="text-xs text-gray-400">Loading tools…</span>
+                                ) : (
+                                    <span className="text-xs text-green-400">Ready ({tools.length} tools)</span>
+                                )}
                             </span>
                             {showTools && (
                                 <div className="absolute left-0 mt-2 w-96 max-h-96 overflow-y-auto bg-gray-800 border border-gray-700 rounded-md shadow-lg z-50 p-3 text-xs text-gray-300">
@@ -141,7 +206,28 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
                                     <div className="text-[11px] text-amber-300 bg-amber-950/40 border border-amber-800/60 rounded px-2 py-1 mb-2">
                                         Requires IAM role <code className="font-mono text-amber-200">roles/mcp.toolUser</code> (<code className="font-mono">mcp.tools.call</code>) for the executing identity.
                                     </div>
-                                    {tools.length === 0 ? (
+                                    {toolsError ? (
+                                        <div className="text-[11px] text-red-300 bg-red-950/40 border border-red-800/60 rounded px-2 py-2 space-y-2">
+                                            <p className="font-semibold text-red-200">Tool discovery failed</p>
+                                            <p className="text-red-300/90 break-words font-mono">{toolsError}</p>
+                                            <p className="text-gray-400">
+                                                The {serviceName} API is enabled, but its MCP endpoint did not
+                                                return a tool list. Tools cannot be verified until this succeeds.
+                                            </p>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    retryToolDiscovery();
+                                                }}
+                                                disabled={toolsLoading}
+                                                className="px-2 py-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-gray-200 transition-colors"
+                                            >
+                                                {toolsLoading ? 'Retrying…' : 'Retry'}
+                                            </button>
+                                        </div>
+                                    ) : toolsLoading ? (
+                                        <p className="italic text-gray-500">Loading tools…</p>
+                                    ) : tools.length === 0 ? (
                                         <p className="italic text-gray-500">No tools returned.</p>
                                     ) : (
                                         <ul className="space-y-4">
