@@ -82,6 +82,7 @@ export interface BigQueryQueryResponse<T = Record<string, unknown>> {
   totalRows?: string;
   pageToken?: string;
   rows?: Array<{ f: Array<{ v: unknown }> }>;
+  parsedRows?: T[];
   totalBytesProcessed?: string;
   jobComplete?: boolean;
   error?: BigQueryErrorProto;

@@ -15,8 +15,6 @@
  */
 
 
-import { GitHubService } from './gitHubService';
-
 export interface SampleAgent {
   name: string;
   path: string;

@@ -4,7 +4,6 @@ import {
     setCachedGithubData,
     getStoredGithubToken,
     fetchCachedGithubJson,
-    fetchCachedGithubText,
     pushToGithub
 } from './githubApiCache';
 

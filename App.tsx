@@ -24,7 +24,7 @@ import Spinner from './components/Spinner';
 import { pageToRoute, routeToPage } from './utils/routeUtils';
 import { Page, ReasoningEngine, UserProfile, ServiceAgentValidation, UserPermissionsValidation } from './types';
 import AccessTokenInput from './components/AccessTokenInput';
-import { initGapiClient, getGapiClient } from './services/gapiService';
+import { initGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
 import Breadcrumbs from './components/Breadcrumbs';
 import HeaderProjectInput from './components/HeaderProjectInput';

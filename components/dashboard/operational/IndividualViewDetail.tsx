@@ -58,6 +58,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
     isLoading = false,
     overviewLiveData
 }) => {
+    const [showMetricsGuide, setShowMetricsGuide] = useState(false);
     const viewDef: ViewDefinition = OPERATIONAL_VIEWS[viewId];
     if (!viewDef) {
         return (
@@ -76,7 +77,6 @@ export const IndividualViewDetail: React.FC<Props> = ({
     const isInstalled = installedViews.has(viewId);
     const actualViewName = installedViewsMap.get(viewId) || viewDef.viewName;
     const viewMeta = getViewMetadata(viewId);
-    const [showMetricsGuide, setShowMetricsGuide] = useState(false);
 
     const renderAnalyticsContent = () => {
         switch (viewId) {

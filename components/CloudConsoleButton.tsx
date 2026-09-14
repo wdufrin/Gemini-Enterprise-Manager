@@ -9,7 +9,7 @@ interface CloudConsoleButtonProps {
     className?: string;
 }
 
-const CloudConsoleButton: React.FC<CloudConsoleButtonProps> = ({ currentPage, projectId, projectNumber, url, className = "" }) => {
+const CloudConsoleButton: React.FC<CloudConsoleButtonProps> = ({ currentPage, projectId, projectNumber: _projectNumber, url, className = "" }) => {
     
     const consoleUrl = useMemo(() => {
         if (url) return url;
