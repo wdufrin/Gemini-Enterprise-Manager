@@ -64,7 +64,7 @@ import type { A2aConfig, AdkAgentConfig, AgentTool } from '../../services/adkTem
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');
 const VENV_PYTHON = path.join(REPO_ROOT, '.venv', 'bin', 'python');
-const PYTHON = fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python3';
+const PYTHON = process.env.PYTHON_BIN || (fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python3');
 const RUN_IMPORT_CHECK = process.env.ADK_IMPORT_CHECK === '1';
 /**
  * When set, a case that bails out on a missing Python dependency is a FAILURE

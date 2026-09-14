@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AdkAgentConfig } from '../../services/adkTemplates';
 import { Authorization } from '../../types';
 import { McpServiceCheck } from '../McpServiceCheck';
@@ -54,30 +54,6 @@ export const AdkToolsConfig: React.FC<AdkToolsConfigProps> = ({
   setAuthInputMode,
   authorizations,
 }) => {
-  const [openSections, setOpenSections] = useState<{ [key: string]: boolean }>({
-    capabilities: true,
-    mcps: true,
-    customEndpoints: false,
-    apis: false,
-    oauth: false,
-    observability: false,
-  });
-
-  const toggleSection = (section: string) => {
-    setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
-  };
-
-  const toggleAll = (expand: boolean) => {
-    setOpenSections({
-      capabilities: expand,
-      mcps: expand,
-      customEndpoints: expand,
-      apis: expand,
-      oauth: expand,
-      observability: expand,
-    });
-  };
-
   // Counts of enabled items per group
   const capabilitiesCount = [
     adkConfig.enableThinking,
@@ -118,6 +94,104 @@ export const AdkToolsConfig: React.FC<AdkToolsConfigProps> = ({
   const customEndpointCount = adkConfig.customMcpEndpoints?.length || 0;
   const oauthCount = adkConfig.enableOAuth ? 1 : 0;
   const observabilityCount = [adkConfig.enableTelemetry, adkConfig.enableMessageLogging].filter(Boolean).length;
+
+  const isOAuthActive = Boolean(adkConfig.enableOAuth);
+
+  // Tools that trigger or require OAuth delegation
+  const oauthToolsCount = [
+    adkConfig.enableOAuth,
+    adkConfig.enableBigQueryMcp,
+    adkConfig.enableCloudLoggingMcp,
+    adkConfig.enableBigtableAdminMcp,
+    adkConfig.enableCloudSqlMcp,
+    adkConfig.enableCloudMonitoringMcp,
+    adkConfig.enableComputeEngineMcp,
+    adkConfig.enableFirestoreMcp,
+    adkConfig.enableGkeMcp,
+    adkConfig.enableResourceManagerMcp,
+    adkConfig.enableSpannerMcp,
+    adkConfig.enableDeveloperKnowledgeMcp,
+    adkConfig.enableMapsGroundingMcp,
+    adkConfig.enableSecurityCommandCenterApi,
+    adkConfig.enableRecommenderApi,
+    adkConfig.enableServiceHealthApi,
+    adkConfig.enableNetworkManagementApi,
+    adkConfig.enableCloudLoggingApi,
+    adkConfig.enableCloudMonitoringApi,
+    adkConfig.enableCloudRunApi,
+    adkConfig.enableResourceManagerApi,
+    adkConfig.enableAdminActivityApi,
+    adkConfig.enableDatabaseFleetApi,
+    adkConfig.enableCloudAssistApi,
+    adkConfig.enableEmailTool,
+    adkConfig.enableBqAnalytics,
+  ].filter(Boolean).length;
+
+  const [openSections, setOpenSections] = useState<{ [key: string]: boolean }>(() => ({
+    capabilities: true,
+    mcps: true,
+    customEndpoints: customEndpointCount > 0,
+    apis: apiCount > 0,
+    oauth: isOAuthActive,
+    observability: observabilityCount > 0,
+  }));
+
+  const toggleSection = (section: string) => {
+    setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const toggleAll = (expand: boolean) => {
+    setOpenSections({
+      capabilities: expand,
+      mcps: expand,
+      customEndpoints: expand,
+      apis: expand,
+      oauth: expand,
+      observability: expand,
+    });
+  };
+
+  // If any checkboxes inside a hidden category are checked (or newly selected), ensure the category unhides (is not minimized)
+  useEffect(() => {
+    setOpenSections((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      if (capabilitiesCount > 0 && !next.capabilities) {
+        next.capabilities = true;
+        changed = true;
+      }
+      if (mcpCount > 0 && !next.mcps) {
+        next.mcps = true;
+        changed = true;
+      }
+      if (customEndpointCount > 0 && !next.customEndpoints) {
+        next.customEndpoints = true;
+        changed = true;
+      }
+      if (apiCount > 0 && !next.apis) {
+        next.apis = true;
+        changed = true;
+      }
+      if ((isOAuthActive || oauthCount > 0) && !next.oauth) {
+        next.oauth = true;
+        changed = true;
+      }
+      if (observabilityCount > 0 && !next.observability) {
+        next.observability = true;
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [
+    capabilitiesCount,
+    mcpCount,
+    customEndpointCount,
+    apiCount,
+    oauthCount,
+    isOAuthActive,
+    oauthToolsCount,
+    observabilityCount,
+  ]);
 
   return (
     <div className="space-y-4 pt-2">

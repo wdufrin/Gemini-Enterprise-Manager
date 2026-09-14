@@ -117,6 +117,7 @@ export const generateAdk22PythonCode = (
     "from dotenv import load_dotenv",
     "from google.antigravity import Agent, LocalAgentConfig, ToolContext, types",
     "from google.antigravity.hooks import policy",
+    "from google.genai import types as genai_types",
     "from pydantic import BaseModel, PrivateAttr",
     "from typing import Any",
     ...Array.from(toolImports),
@@ -381,7 +382,7 @@ def create_agent():
     is_gemini_3 = model_name.startswith("gemini-3") or "3.5" in model_name or "3.8" in model_name or "3.1" in model_name
     if is_gemini_3:
         thinking_level = os.getenv("THINKING_LEVEL", "${config.thinkingLevel || "HIGH"}")
-        thinking_config = types.ThinkingConfig(
+        thinking_config = genai_types.ThinkingConfig(
             thinking_level=thinking_level,
         )
     else:
@@ -390,7 +391,7 @@ def create_agent():
             thinking_budget = int(raw_budget) if raw_budget else ${config.thinkingBudget || 1024}
         except ValueError:
             thinking_budget = ${config.thinkingBudget || 1024}
-        thinking_config = types.ThinkingConfig(
+        thinking_config = genai_types.ThinkingConfig(
             thinking_budget=thinking_budget,
         )
     `
