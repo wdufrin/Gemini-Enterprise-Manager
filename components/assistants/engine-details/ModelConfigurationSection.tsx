@@ -66,6 +66,8 @@ export const ModelConfigurationSection: React.FC<ModelConfigurationSectionProps>
         if (id) {
             onAddCustomModel(id);
             setCustomModelInput('');
+            setModelCategory('All');
+            setModelSearchQuery('');
         }
     };
 
@@ -199,6 +201,12 @@ export const ModelConfigurationSection: React.FC<ModelConfigurationSectionProps>
                         placeholder="e.g., gemini-3.1-flash-lite or gemini-exp-1206"
                         value={customModelInput}
                         onChange={(e) => setCustomModelInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddCustom();
+                            }
+                        }}
                         className="flex-1 bg-gray-950 border border-gray-700 rounded px-2.5 py-1 text-xs text-white font-mono placeholder-gray-600 focus:ring-1 focus:ring-purple-500 outline-none"
                     />
                     <button

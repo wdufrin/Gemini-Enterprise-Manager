@@ -65,34 +65,32 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
     const [success, setSuccess] = useState<string | null>(null);
     const [showLegacyModels, setShowLegacyModels] = useState(false);
     const [projectLicenseConfigs, setProjectLicenseConfigs] = useState<LicenseConfig[]>([]);
+    const [customFeatures, setCustomFeatures] = useState<string[]>([]);
+    const [customModels, setCustomModels] = useState<string[]>([]);
 
     const allDynamicFeatures = useMemo(() => {
-        const knownKeys = new Set(FEATURE_DEFS.map(f => f.key));
         const result: FeatureDefinition[] = [...FEATURE_DEFS];
 
-        if (engine.features) {
-            Object.keys(engine.features).forEach(k => {
-                if (!knownKeys.has(k) && k !== 'disable-mobile-app-access' && k !== 'enable-qr-code-widget') {
-                    const isDisable = k.startsWith('disable-');
-                    const cleanName = k
-                        .replace(/^disable-/, '')
-                        .replace(/^enable-/, '')
-                        .split('-')
-                        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-                        .join(' ');
-                    result.push({
-                        key: k,
-                        displayName: `${cleanName} (Custom)`,
-                        description: `Custom engine feature key (${k})`,
-                        isInverted: isDisable,
-                        category: 'Models & Intelligence'
-                    });
-                }
+        customFeatures.forEach(k => {
+            const isDisable = k.startsWith('disable-');
+            const cleanName = k
+                .replace(/^disable-/, '')
+                .replace(/^enable-/, '')
+                .split('-')
+                .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+                .join(' ');
+            result.push({
+                key: k,
+                displayName: `${cleanName} (Custom)`,
+                description: `Custom engine feature key (${k})`,
+                isInverted: isDisable,
+                category: 'Models & Intelligence',
+                isCustom: true
             });
-        }
+        });
 
         return result;
-    }, [engine.features]);
+    }, [customFeatures]);
 
     const { activeModels, legacyModels } = useMemo(() => {
         const activeMap = new Map<string, EnterpriseModel>();
@@ -126,7 +124,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             });
         }
 
-        const extraKeys = new Set<string>();
+        const extraKeys = new Set<string>(customModels);
         if (engine.modelConfigs) {
             Object.keys(engine.modelConfigs).forEach(id => {
                 if (!activeMap.has(id)) extraKeys.add(id);
@@ -172,7 +170,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             activeModels: Array.from(activeMap.values()),
             legacyModels: legacyList
         };
-    }, [engine.modelConfigs, widgetConfig]);
+    }, [engine.modelConfigs, widgetConfig, customModels]);
 
     const dynamicModels = useMemo(() => {
         return showLegacyModels ? [...activeModels, ...legacyModels] : activeModels;
@@ -312,6 +310,24 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             }
         });
 
+        const knownKeys = new Set(FEATURE_DEFS.map(f => f.key));
+        const initialCustomKeys: string[] = [];
+        if (engine.features) {
+            Object.keys(engine.features).forEach(k => {
+                if (!knownKeys.has(k) && k !== 'disable-mobile-app-access' && k !== 'enable-qr-code-widget') {
+                    initialCustomKeys.push(k);
+                    const isDisable = k.startsWith('disable-');
+                    const apiVal = engine.features![k];
+                    if (isDisable) {
+                        currentFeatures[k] = apiVal !== 'FEATURE_STATE_ON';
+                    } else {
+                        currentFeatures[k] = apiVal === 'FEATURE_STATE_ON';
+                    }
+                }
+            });
+        }
+        setCustomFeatures(initialCustomKeys);
+
         const disableMobileVal = engine.features?.['disable-mobile-app-access'];
         const qrCodeVal = engine.features?.['mobile-app-access'];
         const mobileAppAccessEnabled = qrCodeVal !== undefined
@@ -334,7 +350,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         setFeatures(currentFeatures);
 
         const currentModels: Record<string, boolean> = {};
-        dynamicModels.forEach(m => {
+        STANDARD_ENTERPRISE_MODELS.forEach(m => {
             currentModels[m.id] = false;
         });
         if (engine.modelConfigs) {
@@ -349,7 +365,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             });
         }
         setModelConfigs(currentModels);
-    }, [engine, widgetConfig, dynamicModels, isSupportedIdpForQrCode]);
+    }, [engine, widgetConfig, isSupportedIdpForQrCode]);
 
     useEffect(() => {
         const fetchConfigs = async () => {
@@ -437,6 +453,35 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         });
     };
 
+    const handleAddCustomFeature = useCallback((key: string) => {
+        const trimmed = key.trim();
+        if (!trimmed) return;
+        setCustomFeatures(prev => prev.includes(trimmed) ? prev : [...prev, trimmed]);
+        setFeatures(prev => ({
+            ...prev,
+            [trimmed]: true
+        }));
+    }, []);
+
+    const handleRemoveCustomFeature = useCallback((key: string) => {
+        setCustomFeatures(prev => prev.filter(k => k !== key));
+        setFeatures(prev => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+    }, []);
+
+    const handleAddCustomModel = useCallback((id: string) => {
+        const trimmed = id.trim();
+        if (!trimmed) return;
+        setCustomModels(prev => prev.includes(trimmed) ? prev : [...prev, trimmed]);
+        setModelConfigs(prev => ({
+            ...prev,
+            [trimmed]: true
+        }));
+    }, []);
+
     const handleIdpChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
         setIdpData(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
@@ -488,15 +533,8 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 updateMask.push('observabilityConfig');
             }
 
-            const currentSearchTier = engine.searchEngineConfig?.searchTier || 'SEARCH_TIER_STANDARD';
-            const currentAddOnLlm = engine.searchEngineConfig?.searchAddOns?.includes('SEARCH_ADD_ON_LLM') || false;
-            const currentRequiredSub = engine.searchEngineConfig?.requiredSubscriptionTier || 'SUBSCRIPTION_TIER_UNSPECIFIED';
-
-            if (formData.searchTier !== currentSearchTier || formData.searchAddOnLlm !== currentAddOnLlm || formData.requiredSubscriptionTier !== currentRequiredSub) {
-                const searchAddOns: string[] = [];
-                if (formData.searchAddOnLlm) {
-                    searchAddOns.push('SEARCH_ADD_ON_LLM');
-                }
+            if (formData.searchTier || formData.searchAddOnLlm || formData.requiredSubscriptionTier) {
+                const searchAddOns = formData.searchAddOnLlm ? ['SEARCH_ADD_ON_LLM'] : [];
                 payload.searchEngineConfig = {
                     searchTier: formData.searchTier,
                     searchAddOns: searchAddOns,
@@ -508,7 +546,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             const newFeaturesMap: Record<string, string> = { ...engine.features };
             let featuresChanged = false;
 
-            FEATURE_DEFS.forEach(f => {
+            allDynamicFeatures.forEach(f => {
                 const isEnabled = features[f.key];
                 let apiState: string;
                 if (f.isInverted) {
@@ -522,6 +560,20 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                     featuresChanged = true;
                 }
             });
+
+            // If any previously existing custom feature was removed from customFeatures, turn it OFF
+            const activeCustomKeys = new Set(customFeatures);
+            const knownKeys = new Set(FEATURE_DEFS.map(f => f.key));
+            if (engine.features) {
+                Object.keys(engine.features).forEach(k => {
+                    if (!knownKeys.has(k) && k !== 'disable-mobile-app-access' && k !== 'enable-qr-code-widget') {
+                        if (!activeCustomKeys.has(k) && newFeaturesMap[k] !== 'FEATURE_STATE_OFF') {
+                            newFeaturesMap[k] = 'FEATURE_STATE_OFF';
+                            featuresChanged = true;
+                        }
+                    }
+                });
+            }
 
             const mobileEnabled = features['mobile-app-access'];
             const disableMobileState = mobileEnabled ? 'FEATURE_STATE_OFF' : 'FEATURE_STATE_ON';
@@ -685,6 +737,9 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         handleIdpChange,
         handleSelectProvider,
         handleSubmit,
+        handleAddCustomFeature,
+        handleRemoveCustomFeature,
+        handleAddCustomModel,
         setFeatures,
         setModelConfigs,
         setShowLegacyModels,

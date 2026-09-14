@@ -68,6 +68,9 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
         handleIdpChange,
         handleSelectProvider,
         handleSubmit,
+        handleAddCustomFeature,
+        handleRemoveCustomFeature,
+        handleAddCustomModel,
         setFeatures,
         setModelConfigs,
         setShowLegacyModels,
@@ -90,12 +93,13 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
                 </div>
 
                 <div>
-                    <label htmlFor="marketplaceAgentVisibility" className="block text-sm font-medium text-gray-300 mb-1">
-                        Marketplace Agent Visibility <InfoTooltip text="Configures which marketplace agents are visible to end-users in the agent gallery." />
+                    <label htmlFor="marketplaceAgentVisibility" className="block text-sm font-medium text-gray-300">
+                        Marketplace Agent Visibility
+                        <InfoTooltip text="Configures whether end users can see all agents, only purchased/integrated agents, or available marketplace agents." />
                     </label>
                     <select
-                        name="marketplaceAgentVisibility"
                         id="marketplaceAgentVisibility"
+                        name="marketplaceAgentVisibility"
                         value={formData.marketplaceAgentVisibility}
                         onChange={handleChange}
                         className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-gray-200 focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 h-[42px]"
@@ -126,7 +130,8 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
                 <FeatureManagementSection
                     features={features}
                     onFeatureChange={handleFeatureChange}
-                    onAddCustomFeature={(key) => setFeatures(prev => ({ ...prev, [key]: true }))}
+                    onAddCustomFeature={handleAddCustomFeature}
+                    onRemoveCustomFeature={handleRemoveCustomFeature}
                     allDynamicFeatures={allDynamicFeatures}
                     isDataStoreAclSupported={isDataStoreAclSupported}
                 />
@@ -134,7 +139,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
                 <ModelConfigurationSection
                     modelConfigs={modelConfigs}
                     onModelChange={handleModelChange}
-                    onAddCustomModel={(id) => setModelConfigs(prev => ({ ...prev, [id]: true }))}
+                    onAddCustomModel={handleAddCustomModel}
                     dynamicModels={dynamicModels}
                     legacyModels={legacyModels}
                     showLegacyModels={showLegacyModels}

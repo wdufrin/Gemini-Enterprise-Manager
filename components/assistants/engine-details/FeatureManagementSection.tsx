@@ -23,6 +23,7 @@ interface FeatureManagementSectionProps {
     features: Record<string, boolean>;
     onFeatureChange: (featureKey: string) => void;
     onAddCustomFeature: (featureKey: string) => void;
+    onRemoveCustomFeature?: (featureKey: string) => void;
     allDynamicFeatures: FeatureDefinition[];
     isDataStoreAclSupported?: boolean | null;
 }
@@ -31,6 +32,7 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
     features,
     onFeatureChange,
     onAddCustomFeature,
+    onRemoveCustomFeature,
     allDynamicFeatures,
     isDataStoreAclSupported
 }) => {
@@ -58,6 +60,8 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
         if (key) {
             onAddCustomFeature(key);
             setCustomFeatureInput('');
+            setFeatureCategory('All');
+            setFeatureSearchQuery('');
         }
     };
 
@@ -128,7 +132,25 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
                             <div className="flex-grow min-w-0">
                                 <div className="flex items-center justify-between gap-1">
                                     <span className="text-xs font-bold text-gray-200 truncate">{feature.displayName}</span>
-                                    <InfoTooltip text={feature.description} />
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                        <InfoTooltip text={feature.description} />
+                                        {feature.isCustom && onRemoveCustomFeature && (
+                                            <button
+                                                type="button"
+                                                title={`Remove custom flag ${feature.key}`}
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    onRemoveCustomFeature(feature.key);
+                                                }}
+                                                className="text-gray-500 hover:text-red-400 p-0.5 rounded transition-colors"
+                                            >
+                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                </svg>
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                                 <span className="text-[10px] text-gray-500 font-mono block truncate mt-0.5">{feature.key}</span>
                                 <span className="inline-block mt-1 text-[9px] px-1.5 py-0.2 bg-gray-950/80 text-gray-400 rounded">
@@ -147,6 +169,12 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
                         placeholder="e.g., custom-preview-flag"
                         value={customFeatureInput}
                         onChange={(e) => setCustomFeatureInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddCustom();
+                            }
+                        }}
                         className="flex-1 bg-gray-950 border border-gray-700 rounded px-2.5 py-1 text-xs text-white font-mono placeholder-gray-600 focus:ring-1 focus:ring-blue-500 outline-none"
                     />
                     <button

@@ -243,3 +243,200 @@ describe('useEngineDetailsForm hook — IdP and WidgetConfig decoupling', () => 
     expect(api.updateIdpConfig).not.toHaveBeenCalled();
   });
 });
+
+describe('useEngineDetailsForm hook — feature flags and custom flag management', () => {
+  const mockEngine: AppEngine = {
+    name: 'projects/test-project/locations/global/collections/default_collection/engines/cosmere-123',
+    displayName: 'Cosmere Search',
+    solutionType: 'SOLUTION_TYPE_SEARCH',
+    features: {
+      'custom-preexisting-flag': 'FEATURE_STATE_ON',
+      'speech-to-text': 'FEATURE_STATE_ON',
+    },
+  };
+
+  const mockConfig: Config = {
+    projectId: 'test-project',
+    appLocation: 'global',
+    collectionId: 'default_collection',
+    appId: 'cosmere-123',
+  };
+
+  const onUpdateSuccess = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.listLicenseConfigs).mockResolvedValue({ licenseConfigs: [] });
+    vi.mocked(api.getWidgetConfig).mockResolvedValue(null);
+    vi.mocked(api.getAclConfig).mockResolvedValue(null);
+    vi.mocked(api.updateEngine).mockResolvedValue(mockEngine);
+  });
+
+  it('includes canonical flags like speech-to-text, projects, skill-sharing, and canvas-app-builder', async () => {
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: mockEngine,
+        config: mockConfig,
+        onUpdateSuccess,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoadingIdp).toBe(false);
+    });
+
+    const featureKeys = result.current.allDynamicFeatures.map(f => f.key);
+    expect(featureKeys).toContain('speech-to-text');
+    expect(featureKeys).toContain('projects');
+    expect(featureKeys).toContain('disable-projects');
+    expect(featureKeys).toContain('skill-sharing');
+    expect(featureKeys).toContain('skill-sharing-without-admin-approval');
+    expect(featureKeys).toContain('canvas-app-builder');
+    expect(featureKeys).toContain('single-agent-orchestration');
+    expect(featureKeys).toContain('multi-agent-orchestration');
+    expect(featureKeys).toContain('sobi');
+
+    // And speech-to-text is initialized as true because it was in mockEngine.features
+    expect(result.current.features['speech-to-text']).toBe(true);
+  });
+
+  it('populates preexisting custom flags from engine.features into allDynamicFeatures and features state', async () => {
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: mockEngine,
+        config: mockConfig,
+        onUpdateSuccess,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoadingIdp).toBe(false);
+    });
+
+    const customFeature = result.current.allDynamicFeatures.find(f => f.key === 'custom-preexisting-flag');
+    expect(customFeature).toBeDefined();
+    expect(customFeature?.isCustom).toBe(true);
+    expect(result.current.features['custom-preexisting-flag']).toBe(true);
+  });
+
+  it('immediately renders a new feature card when handleAddCustomFeature is called and persists it on submit', async () => {
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: mockEngine,
+        config: mockConfig,
+        onUpdateSuccess,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoadingIdp).toBe(false);
+    });
+
+    // Initially, new custom flag is NOT in allDynamicFeatures
+    expect(result.current.allDynamicFeatures.some(f => f.key === 'my-new-preview-flag')).toBe(false);
+
+    // Add custom flag
+    act(() => {
+      result.current.handleAddCustomFeature('my-new-preview-flag');
+    });
+
+    // It MUST immediately appear in allDynamicFeatures so a card is rendered in the UI
+    const addedFeature = result.current.allDynamicFeatures.find(f => f.key === 'my-new-preview-flag');
+    expect(addedFeature).toBeDefined();
+    expect(addedFeature?.isCustom).toBe(true);
+    expect(result.current.features['my-new-preview-flag']).toBe(true);
+
+    // When submitted, it MUST be serialized into payload.features and sent to updateEngine
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
+    });
+
+    expect(api.updateEngine).toHaveBeenCalledWith(
+      mockEngine.name,
+      expect.objectContaining({
+        features: expect.objectContaining({
+          'my-new-preview-flag': 'FEATURE_STATE_ON',
+        }),
+      }),
+      expect.arrayContaining(['features']),
+      mockConfig,
+    );
+  });
+
+  it('allows removing a custom feature and turns it FEATURE_STATE_OFF in payload on submit', async () => {
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: mockEngine,
+        config: mockConfig,
+        onUpdateSuccess,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoadingIdp).toBe(false);
+    });
+
+    expect(result.current.allDynamicFeatures.some(f => f.key === 'custom-preexisting-flag')).toBe(true);
+
+    // Remove the custom flag
+    act(() => {
+      result.current.handleRemoveCustomFeature('custom-preexisting-flag');
+    });
+
+    expect(result.current.allDynamicFeatures.some(f => f.key === 'custom-preexisting-flag')).toBe(false);
+
+    // Submit form
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
+    });
+
+    expect(api.updateEngine).toHaveBeenCalledWith(
+      mockEngine.name,
+      expect.objectContaining({
+        features: expect.objectContaining({
+          'custom-preexisting-flag': 'FEATURE_STATE_OFF',
+        }),
+      }),
+      expect.arrayContaining(['features']),
+      mockConfig,
+    );
+  });
+
+  it('immediately includes custom models in dynamicModels when handleAddCustomModel is called', async () => {
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: mockEngine,
+        config: mockConfig,
+        onUpdateSuccess,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoadingIdp).toBe(false);
+    });
+
+    act(() => {
+      result.current.handleAddCustomModel('gemini-3.1-flash-lite');
+    });
+
+    const model = result.current.dynamicModels.find(m => m.id === 'gemini-3.1-flash-lite');
+    expect(model).toBeDefined();
+    expect(result.current.modelConfigs['gemini-3.1-flash-lite']).toBe(true);
+
+    // Submit form
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
+    });
+
+    expect(api.updateEngine).toHaveBeenCalledWith(
+      mockEngine.name,
+      expect.objectContaining({
+        modelConfigs: expect.objectContaining({
+          'gemini-3.1-flash-lite': 'MODEL_ENABLED',
+        }),
+      }),
+      expect.arrayContaining(['modelConfigs']),
+      mockConfig,
+    );
+  });
+});
