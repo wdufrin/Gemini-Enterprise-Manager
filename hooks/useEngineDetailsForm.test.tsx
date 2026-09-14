@@ -264,11 +264,21 @@ describe('useEngineDetailsForm hook — feature flags and custom flag management
 
   const onUpdateSuccess = vi.fn();
 
+  const mockWidget: WidgetConfig = {
+    name: `${mockEngine.name}/widgetConfigs/default_search_widget_config`,
+    displayName: 'default_search_widget_config',
+    enableAutocomplete: true,
+    enableSummarization: true,
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(api.listLicenseConfigs).mockResolvedValue({ licenseConfigs: [] });
-    vi.mocked(api.getWidgetConfig).mockResolvedValue(null);
-    vi.mocked(api.getAclConfig).mockResolvedValue(null);
+    vi.mocked(api.getWidgetConfig).mockResolvedValue(mockWidget);
+    vi.mocked(api.getAclConfig).mockResolvedValue({
+      name: 'projects/test-project/locations/global/aclConfig',
+      idpConfig: { idpType: 'GSUITE' },
+    });
     vi.mocked(api.updateEngine).mockResolvedValue(mockEngine);
   });
 
