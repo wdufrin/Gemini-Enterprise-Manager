@@ -15,6 +15,8 @@
  */
 
 import React from 'react';
+import { KPI_METRICS_INFO } from './analyticsMetadata';
+import { MetricInfoTooltip } from './MetricInfoTooltip';
 
 interface OverviewKpiCardsProps {
     isUserActivityLive: boolean;
@@ -37,9 +39,21 @@ export const OverviewKpiCards: React.FC<OverviewKpiCardsProps> = ({
 }) => {
     return (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* 1. Total Interactions */}
             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-400 uppercase tracking-wide">Total Interactions</span>
+                    <div className="flex items-center gap-1">
+                        <span className="text-xs text-gray-400 uppercase tracking-wide">Total Interactions</span>
+                        <MetricInfoTooltip
+                            title={KPI_METRICS_INFO.total_interactions.label}
+                            whatItShows={KPI_METRICS_INFO.total_interactions.whatItShows}
+                            meaning={KPI_METRICS_INFO.total_interactions.meaning}
+                            formula={KPI_METRICS_INFO.total_interactions.formula}
+                            sourceTables={KPI_METRICS_INFO.total_interactions.sourceTables}
+                            fieldsUsed={KPI_METRICS_INFO.total_interactions.fieldsUsed}
+                            align="left"
+                        />
+                    </div>
                     {isUserActivityLive ? (
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                             LIVE
@@ -61,9 +75,21 @@ export const OverviewKpiCards: React.FC<OverviewKpiCardsProps> = ({
                 </div>
             </div>
 
+            {/* 2. Telemetry Events */}
             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-400 uppercase tracking-wide">Telemetry Events</span>
+                    <div className="flex items-center gap-1">
+                        <span className="text-xs text-gray-400 uppercase tracking-wide">Telemetry Events</span>
+                        <MetricInfoTooltip
+                            title={KPI_METRICS_INFO.telemetry_events.label}
+                            whatItShows={KPI_METRICS_INFO.telemetry_events.whatItShows}
+                            meaning={KPI_METRICS_INFO.telemetry_events.meaning}
+                            formula={KPI_METRICS_INFO.telemetry_events.formula}
+                            sourceTables={KPI_METRICS_INFO.telemetry_events.sourceTables}
+                            fieldsUsed={KPI_METRICS_INFO.telemetry_events.fieldsUsed}
+                            align="left"
+                        />
+                    </div>
                     {isGenAiTelemetryLive ? (
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                             LIVE
@@ -85,9 +111,21 @@ export const OverviewKpiCards: React.FC<OverviewKpiCardsProps> = ({
                 </div>
             </div>
 
+            {/* 3. Tokens Tracked */}
             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-400 uppercase tracking-wide">Tokens Tracked</span>
+                    <div className="flex items-center gap-1">
+                        <span className="text-xs text-gray-400 uppercase tracking-wide">Tokens Tracked</span>
+                        <MetricInfoTooltip
+                            title={KPI_METRICS_INFO.tokens_tracked.label}
+                            whatItShows={KPI_METRICS_INFO.tokens_tracked.whatItShows}
+                            meaning={KPI_METRICS_INFO.tokens_tracked.meaning}
+                            formula={KPI_METRICS_INFO.tokens_tracked.formula}
+                            sourceTables={KPI_METRICS_INFO.tokens_tracked.sourceTables}
+                            fieldsUsed={KPI_METRICS_INFO.tokens_tracked.fieldsUsed}
+                            align="right"
+                        />
+                    </div>
                     {isGenAiTelemetryLive ? (
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                             LIVE
@@ -107,9 +145,21 @@ export const OverviewKpiCards: React.FC<OverviewKpiCardsProps> = ({
                 </div>
             </div>
 
+            {/* 4. Active Connectors */}
             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-400 uppercase tracking-wide">Active Connectors</span>
+                    <div className="flex items-center gap-1">
+                        <span className="text-xs text-gray-400 uppercase tracking-wide">Active Connectors</span>
+                        <MetricInfoTooltip
+                            title={KPI_METRICS_INFO.active_connectors.label}
+                            whatItShows={KPI_METRICS_INFO.active_connectors.whatItShows}
+                            meaning={KPI_METRICS_INFO.active_connectors.meaning}
+                            formula={KPI_METRICS_INFO.active_connectors.formula}
+                            sourceTables={KPI_METRICS_INFO.active_connectors.sourceTables}
+                            fieldsUsed={KPI_METRICS_INFO.active_connectors.fieldsUsed}
+                            align="right"
+                        />
+                    </div>
                     {isConnectorUsageLive ? (
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                             LIVE

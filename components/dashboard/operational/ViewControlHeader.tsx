@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { getViewSourceTables, getViewMetadata } from './analyticsMetadata';
+import { MetricInfoTooltip } from './MetricInfoTooltip';
 
 interface Props {
     title: string;
@@ -13,6 +15,7 @@ interface Props {
     onDrop: () => void;
     ddlQuery: string;
     selectQuery?: string;
+    sourceTables?: string[];
 }
 
 export const ViewControlHeader: React.FC<Props> = ({
@@ -27,12 +30,16 @@ export const ViewControlHeader: React.FC<Props> = ({
     onCreate,
     onDrop,
     ddlQuery,
-    selectQuery
+    selectQuery,
+    sourceTables
 }) => {
     const [showTooltip, setShowTooltip] = useState(false);
     const [copiedDdl, setCopiedDdl] = useState(false);
     const [showConfirmDrop, setShowConfirmDrop] = useState(false);
     const tooltipRef = useRef<HTMLDivElement>(null);
+
+    const tables = sourceTables || getViewSourceTables(viewName);
+    const viewMeta = getViewMetadata(viewName);
 
     const handleCopyDdl = () => {
         navigator.clipboard.writeText(ddlQuery);
@@ -78,6 +85,39 @@ export const ViewControlHeader: React.FC<Props> = ({
                     )}
                 </div>
                 {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+
+                {/* Source Tables for this View */}
+                {tables && tables.length > 0 && (
+                    <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2 1.5 3 3.5 3h9c2 0 3.5-1 3.5-3V7c0-2-1.5-3-3.5-3h-9C5.5 4 4 5 4 7zM4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                            </svg>
+                            Source:
+                        </span>
+                        {tables.map((tbl) => (
+                            <code
+                                key={tbl}
+                                className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-950 text-amber-300 border border-gray-800/80"
+                                title={`Direct source: ${tbl}`}
+                            >
+                                {tbl}
+                            </code>
+                        ))}
+                        {viewMeta?.rawSyncTables && viewMeta.rawSyncTables.length > 0 && !tables.some(t => viewMeta.rawSyncTables.includes(t)) && (
+                            <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                                <span>(Base BQ Sync:</span>
+                                {viewMeta.rawSyncTables.map((rst, idx) => (
+                                    <code key={idx} className="font-mono text-cyan-300 bg-gray-950 px-1 rounded border border-gray-800">
+                                        {rst}
+                                    </code>
+                                ))}
+                                <span>)</span>
+                            </span>
+                        )}
+                    </div>
+                )}
+
                 {!isInstalled && (
                     <div className="mt-2 flex items-center justify-between bg-amber-950/20 border border-amber-800/40 rounded px-2.5 py-1 text-xs text-amber-300/90">
                         <span>
@@ -95,6 +135,15 @@ export const ViewControlHeader: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+                {/* Metric & Column Info Tooltip */}
+                <MetricInfoTooltip
+                    title={`${title} Metrics & Schema`}
+                    whatItShows={viewMeta?.description || subtitle || 'Operational metrics extracted from enterprise logs.'}
+                    meaning={viewMeta?.primarySourceDescription || 'Underlying BigQuery view providing aggregated metrics.'}
+                    sourceTables={tables}
+                    fieldsUsed={viewMeta?.keyMetrics.map((km) => `${km.name}: ${km.description}`)}
+                />
+
                 {/* DDL & Query Tooltip */}
                 <div className="relative" ref={tooltipRef}>
                     <button

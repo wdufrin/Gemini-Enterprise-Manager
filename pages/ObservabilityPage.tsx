@@ -3,6 +3,7 @@ import CloudConsoleButton from '../components/CloudConsoleButton';
 import { listLoggingSinks, listBigQueryTables, runBigQueryQuery, gapiRequest, LoggingSink, BigQueryTable, BigQueryQueryResponse } from '../services/apiService';
 import ObservabilityDashboard from '../components/dashboard/ObservabilityDashboard';
 import { OperationalAnalyticsDashboard } from '../components/dashboard/operational/OperationalAnalyticsDashboard';
+import { ObservabilityDataDictionaryModal } from '../components/dashboard/operational/ObservabilityDataDictionaryModal';
 import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
 
@@ -32,6 +33,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
     const [selectedSinkName, setSelectedSinkName] = useState<string | null>(null);
     const [sinksLoading, setSinksLoading] = useState(false);
     const [queryLoading, setQueryLoading] = useState(false);
+    const [showDataDictionary, setShowDataDictionary] = useState(false);
 
     const queryCache = useRef<Map<string, ObservabilityDashboardMetrics>>(new Map());
 
@@ -504,14 +506,27 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
     return (
         <div className="flex-1 overflow-auto bg-gray-900 border-l border-gray-800 custom-scrollbar">
             <div className="p-8 max-w-7xl mx-auto">
-                <div className="mb-8 flex justify-between items-start">
+                <div className="mb-8 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div>
                         <h1 className="text-3xl font-bold text-white tracking-tight">Observability</h1>
                         <p className="mt-2 text-sm text-gray-400">
                             Monitor and analyze your agent activities and performance.
                         </p>
                     </div>
-                    <CloudConsoleButton url={`https://console.cloud.google.com/logs/query?project=${projectNumber}`} />
+                    <div className="flex items-center gap-3 flex-wrap">
+                        <button
+                            type="button"
+                            onClick={() => setShowDataDictionary(true)}
+                            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-gray-800 hover:bg-gray-700 text-blue-400 hover:text-blue-300 border border-gray-700 hover:border-gray-600 transition-all shadow-sm"
+                            title="Open Observability Data Dictionary & Tables Reference"
+                        >
+                            <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                            </svg>
+                            <span>Data Dictionary & Tables Reference</span>
+                        </button>
+                        <CloudConsoleButton url={`https://console.cloud.google.com/logs/query?project=${projectNumber}`} />
+                    </div>
                 </div>
                 
                 <div className="mt-6 bg-gray-800 p-6 rounded-lg border border-gray-700">
@@ -739,6 +754,12 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     )}
                 </div>
             </div>
+
+            <ObservabilityDataDictionaryModal
+                isOpen={showDataDictionary}
+                onClose={() => setShowDataDictionary(false)}
+                activeDatasetId={datasetId}
+            />
         </div>
     );
 };

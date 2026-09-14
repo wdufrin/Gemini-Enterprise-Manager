@@ -14,6 +14,8 @@ import {
     Pie,
     Cell
 } from 'recharts';
+import { KPI_METRICS_INFO, CHARTS_METADATA } from './operational/analyticsMetadata';
+import { MetricInfoTooltip } from './operational/MetricInfoTooltip';
 
 export interface AgentDataItem {
     name: string;
@@ -192,19 +194,31 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
 
     return (
         <div className="space-y-6">
-            {/* Header with Time Range Dropdown */}
-            <div className="flex justify-between items-center mb-4 bg-gray-800 p-4 rounded-lg border border-gray-700">
+            {/* Header with Dataset & Source Table Indicator */}
+            <div className="flex justify-between items-center mb-4 bg-gray-800 p-4 rounded-lg border border-gray-700 flex-wrap gap-3">
                 <div>
-                    {datasetId ? (
-                        <p className="text-sm text-gray-300">
-                            Dataset: <code className="text-green-400">{datasetId}</code>
-                            {roleData || agentData || customData?.volumeData || isUsersLive ? ' (Using live data)' : ' (Using example data)'}
-                        </p>
-                    ) : (
-                        <p className="text-sm text-gray-400">No specific dataset identified. Showing example data.</p>
-                    )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                        {datasetId ? (
+                            <p className="text-sm text-gray-300">
+                                Dataset: <code className="text-green-400 font-mono font-semibold">{datasetId}</code>
+                                {roleData || agentData || customData?.volumeData || isUsersLive ? ' (Using live data)' : ' (Using example data)'}
+                            </p>
+                        ) : (
+                            <p className="text-sm text-gray-400">No specific dataset identified. Showing example data.</p>
+                        )}
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-xs text-gray-400">
+                        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2 1.5 3 3.5 3h9c2 0 3.5-1 3.5-3V7c0-2-1.5-3-3.5-3h-9C5.5 4 4 5 4 7zM4 7c0 2 1.5 3 3.5 3h9c2 0 3.5-1 3.5-3M4 12c0 2 1.5 3 3.5 3h9c2 0 3.5-1 3.5-3" />
+                            </svg>
+                            Source Tables:
+                        </span>
+                        <code className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-900 text-amber-300 border border-gray-700">
+                            discoveryengine_googleapis_com_gemini_enterprise_user_activity_*
+                        </code>
+                    </div>
                 </div>
-
             </div>
 
             {/* Summary Cards */}
@@ -213,32 +227,67 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                     {customData?.totalRequests === undefined && !datasetId && (
                         <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                     )}
-                    <div className="flex justify-between items-center">
-                        <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Total Queries</div>
+                    <div className="flex justify-between items-center mb-1">
+                        <div className="flex items-center gap-1">
+                            <div className="text-xs text-gray-400 uppercase tracking-wide">Total Queries</div>
+                            <MetricInfoTooltip
+                                title={KPI_METRICS_INFO.total_queries.label}
+                                whatItShows={KPI_METRICS_INFO.total_queries.whatItShows}
+                                meaning={KPI_METRICS_INFO.total_queries.meaning}
+                                formula={KPI_METRICS_INFO.total_queries.formula}
+                                sourceTables={KPI_METRICS_INFO.total_queries.sourceTables}
+                                fieldsUsed={KPI_METRICS_INFO.total_queries.fieldsUsed}
+                                align="left"
+                            />
+                        </div>
                         {queries?.summaryQuery && <QueryTooltip query={queries.summaryQuery} />}
                     </div>
                     <div className="text-3xl font-light text-white">
                         {totalRequests.toLocaleString()}
                     </div>
                 </div>
+
                 <div className={`bg-gray-900 border rounded-lg p-4 relative ${isUsersLive || datasetId ? 'border-gray-700' : 'border-yellow-700/50'}`}>
                     {!isUsersLive && !datasetId && (
                         <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                     )}
-                    <div className="flex justify-between items-center">
-                        <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Unique Users</div>
+                    <div className="flex justify-between items-center mb-1">
+                        <div className="flex items-center gap-1">
+                            <div className="text-xs text-gray-400 uppercase tracking-wide">Unique Users</div>
+                            <MetricInfoTooltip
+                                title={KPI_METRICS_INFO.unique_users_live.label}
+                                whatItShows={KPI_METRICS_INFO.unique_users_live.whatItShows}
+                                meaning={KPI_METRICS_INFO.unique_users_live.meaning}
+                                formula={KPI_METRICS_INFO.unique_users_live.formula}
+                                sourceTables={KPI_METRICS_INFO.unique_users_live.sourceTables}
+                                fieldsUsed={KPI_METRICS_INFO.unique_users_live.fieldsUsed}
+                                align="left"
+                            />
+                        </div>
                         {queries?.userCountQuery && <QueryTooltip query={queries.userCountQuery} />}
                     </div>
                     <div className={`text-3xl font-light ${isUsersLive || datasetId ? 'text-green-400' : 'text-white'}`}>
                         {isUsersLive || datasetId ? uniqueUsers : 2}
                     </div>
                 </div>
+
                 <div className={`bg-gray-900 border rounded-lg p-4 relative ${(isSessionsLive && customData?.totalRequests !== undefined) || datasetId ? 'border-gray-700' : 'border-yellow-700/50'}`}>
                     {(!isSessionsLive || customData?.totalRequests === undefined) && !datasetId && (
                         <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                     )}
-                    <div className="flex justify-between items-center">
-                        <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Avg Messages / Session</div>
+                    <div className="flex justify-between items-center mb-1">
+                        <div className="flex items-center gap-1">
+                            <div className="text-xs text-gray-400 uppercase tracking-wide">Avg Messages / Session</div>
+                            <MetricInfoTooltip
+                                title={KPI_METRICS_INFO.avg_messages_session.label}
+                                whatItShows={KPI_METRICS_INFO.avg_messages_session.whatItShows}
+                                meaning={KPI_METRICS_INFO.avg_messages_session.meaning}
+                                formula={KPI_METRICS_INFO.avg_messages_session.formula}
+                                sourceTables={KPI_METRICS_INFO.avg_messages_session.sourceTables}
+                                fieldsUsed={KPI_METRICS_INFO.avg_messages_session.fieldsUsed}
+                                align="right"
+                            />
+                        </div>
                         {queries?.summaryQuery && (
                             <QueryTooltip query={`Derived Metric: Total Queries / Total Distinct Sessions\n\n-- Summary metrics query:\n${queries.summaryQuery}`} />
                         )}
@@ -249,12 +298,24 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                             : (datasetId ? '0.0' : '5.2')}
                     </div>
                 </div>
+
                 <div className={`bg-gray-900 border rounded-lg p-4 relative ${customData?.uniqueAgents !== undefined || isAgentLive || datasetId ? 'border-gray-700' : 'border-yellow-700/50'}`}>
                     {customData?.uniqueAgents === undefined && !isAgentLive && !datasetId && (
                         <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                     )}
-                    <div className="flex justify-between items-center">
-                        <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Used Agents</div>
+                    <div className="flex justify-between items-center mb-1">
+                        <div className="flex items-center gap-1">
+                            <div className="text-xs text-gray-400 uppercase tracking-wide">Used Agents</div>
+                            <MetricInfoTooltip
+                                title={KPI_METRICS_INFO.used_agents.label}
+                                whatItShows={KPI_METRICS_INFO.used_agents.whatItShows}
+                                meaning={KPI_METRICS_INFO.used_agents.meaning}
+                                formula={KPI_METRICS_INFO.used_agents.formula}
+                                sourceTables={KPI_METRICS_INFO.used_agents.sourceTables}
+                                fieldsUsed={KPI_METRICS_INFO.used_agents.fieldsUsed}
+                                align="right"
+                            />
+                        </div>
                         {queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />}
                     </div>
                     <div className={`text-3xl font-light ${customData?.uniqueAgents !== undefined || isAgentLive || datasetId ? 'text-green-400' : 'text-white'}`}>
@@ -275,7 +336,17 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         )}
                         {queries?.volumeQuery && <QueryTooltip query={queries.volumeQuery} />}
                     </div>
-                    <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Request Volume</h4>
+                    <div className="flex items-center gap-1.5 mb-4 px-2">
+                        <h4 className="text-sm font-medium text-gray-300">Request Volume</h4>
+                        <MetricInfoTooltip
+                            title={CHARTS_METADATA.request_volume.title}
+                            whatItShows={CHARTS_METADATA.request_volume.whatItShows}
+                            meaning={CHARTS_METADATA.request_volume.metricMeaning}
+                            sourceTables={CHARTS_METADATA.request_volume.sourceTables}
+                            fieldsUsed={CHARTS_METADATA.request_volume.fieldsUsed}
+                            align="left"
+                        />
+                    </div>
                     <div className="h-64 w-full flex justify-center items-center">
                         {isVolumeLive && volumeData.length === 0 ? (
                             <span className="text-sm text-gray-500">No request logs in this time range.</span>
@@ -304,7 +375,17 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         )}
                         {queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />}
                     </div>
-                    <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Agent Activity Breakdown</h4>
+                    <div className="flex items-center gap-1.5 mb-4 px-2">
+                        <h4 className="text-sm font-medium text-gray-300">Agent Activity Breakdown</h4>
+                        <MetricInfoTooltip
+                            title={CHARTS_METADATA.agent_activity_table.title}
+                            whatItShows={CHARTS_METADATA.agent_activity_table.whatItShows}
+                            meaning={CHARTS_METADATA.agent_activity_table.metricMeaning}
+                            sourceTables={CHARTS_METADATA.agent_activity_table.sourceTables}
+                            fieldsUsed={CHARTS_METADATA.agent_activity_table.fieldsUsed}
+                            align="left"
+                        />
+                    </div>
                     <div className="h-64 w-full overflow-y-auto custom-scrollbar pr-2">
                         {isAgentLive && agentData && agentData.length === 0 ? (
                             <div className="h-full flex justify-center items-center">
@@ -349,7 +430,17 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         )}
                         {queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />}
                     </div>
-                    <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Top Agents (Visualized)</h4>
+                    <div className="flex items-center gap-1.5 mb-4 px-2">
+                        <h4 className="text-sm font-medium text-gray-300">Top Agents (Visualized)</h4>
+                        <MetricInfoTooltip
+                            title={CHARTS_METADATA.top_agents_chart.title}
+                            whatItShows={CHARTS_METADATA.top_agents_chart.whatItShows}
+                            meaning={CHARTS_METADATA.top_agents_chart.metricMeaning}
+                            sourceTables={CHARTS_METADATA.top_agents_chart.sourceTables}
+                            fieldsUsed={CHARTS_METADATA.top_agents_chart.fieldsUsed}
+                            align="left"
+                        />
+                    </div>
                     <div className="h-64 w-full flex justify-center items-center">
                         {isAgentLive && agentData && agentData.length === 0 ? (
                             <span className="text-sm text-gray-500">No agent logs in this time range.</span>

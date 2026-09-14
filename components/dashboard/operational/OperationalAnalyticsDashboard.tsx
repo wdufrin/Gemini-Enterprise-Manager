@@ -20,6 +20,7 @@ import { DetailDrawer } from './DetailDrawer';
 import { OverviewKpiCards } from './OverviewKpiCards';
 import { OverviewChartsGrid } from './OverviewChartsGrid';
 import { VIEW_CATEGORIES, OPERATIONAL_VIEWS, FALLBACK_SNAPSHOT } from './analyticsData';
+import { getViewSourceTables } from './analyticsMetadata';
 import { useOperationalDashboardState } from '../../../hooks/useOperationalDashboardState';
 
 interface Props {
@@ -346,6 +347,7 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
                                 {Object.values(OPERATIONAL_VIEWS).map((vDef) => {
                                     const isDepl = installedViews.has(vDef.id);
+                                    const sourceTables = getViewSourceTables(vDef.id);
                                     return (
                                         <div
                                             key={vDef.id}
@@ -373,6 +375,29 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                                                 <p className="text-xs text-gray-400 mt-1 line-clamp-2 leading-relaxed">
                                                     {vDef.description}
                                                 </p>
+
+                                                {/* Underlying Tables */}
+                                                <div className="mt-2.5 pt-2 border-t border-gray-900">
+                                                    <span className="text-[9px] font-semibold text-gray-500 uppercase tracking-wider block mb-1">
+                                                        Source Tables:
+                                                    </span>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {sourceTables.slice(0, 2).map((t) => (
+                                                            <code
+                                                                key={t}
+                                                                className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-gray-900 border border-gray-800 text-amber-300 truncate max-w-[200px]"
+                                                                title={t}
+                                                            >
+                                                                {t}
+                                                            </code>
+                                                        ))}
+                                                        {sourceTables.length > 2 && (
+                                                            <span className="text-[9px] text-gray-500 font-mono self-center">
+                                                                +{sourceTables.length - 2} more
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
                                             <div className="mt-3 pt-2.5 border-t border-gray-800/80 flex items-center justify-between text-[11px] text-gray-500 group-hover:text-blue-400 transition-colors">
                                                 <span className="font-mono">{vDef.columns.length} columns</span>

@@ -32,6 +32,8 @@ import {
 } from 'recharts';
 import { ViewControlHeader } from './ViewControlHeader';
 import { OPERATIONAL_VIEWS } from './analyticsData';
+import { CHARTS_METADATA } from './analyticsMetadata';
+import { MetricInfoTooltip } from './MetricInfoTooltip';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16', '#F97316'];
 
@@ -124,9 +126,19 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2">
                         <div className="lg:col-span-2">
                             <div className="flex items-center justify-between mb-3">
-                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                                    Daily Interaction Volume
-                                </h4>
+                                <div className="flex items-center gap-1.5">
+                                    <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                        Daily Interaction Volume
+                                    </h4>
+                                    <MetricInfoTooltip
+                                        title={CHARTS_METADATA.daily_interaction_volume.title}
+                                        whatItShows={CHARTS_METADATA.daily_interaction_volume.whatItShows}
+                                        meaning={CHARTS_METADATA.daily_interaction_volume.metricMeaning}
+                                        sourceTables={CHARTS_METADATA.daily_interaction_volume.sourceTables}
+                                        fieldsUsed={CHARTS_METADATA.daily_interaction_volume.fieldsUsed}
+                                        align="left"
+                                    />
+                                </div>
                                 <button
                                     type="button"
                                     onClick={() => handleViewChange('v_consolidated_user_activity')}
@@ -159,9 +171,19 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                         </div>
 
                         <div>
-                            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                                Agent Popularity Share
-                            </h4>
+                            <div className="flex items-center gap-1.5 mb-3">
+                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                    Agent Popularity Share
+                                </h4>
+                                <MetricInfoTooltip
+                                    title={CHARTS_METADATA.agent_popularity_share.title}
+                                    whatItShows={CHARTS_METADATA.agent_popularity_share.whatItShows}
+                                    meaning={CHARTS_METADATA.agent_popularity_share.metricMeaning}
+                                    sourceTables={CHARTS_METADATA.agent_popularity_share.sourceTables}
+                                    fieldsUsed={CHARTS_METADATA.agent_popularity_share.fieldsUsed}
+                                    align="right"
+                                />
+                            </div>
                             {agentPopularityData.length === 0 ? (
                                 <EmptyChartState message="No agent popularity records" subtext="No agent distribution found in this view." />
                             ) : (
@@ -213,9 +235,19 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
                         <div>
                             <div className="flex items-center justify-between mb-3">
-                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                                    Token Consumption by Agent
-                                </h4>
+                                <div className="flex items-center gap-1.5">
+                                    <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                        Token Consumption by Agent
+                                    </h4>
+                                    <MetricInfoTooltip
+                                        title={CHARTS_METADATA.genai_tokens_by_agent.title}
+                                        whatItShows={CHARTS_METADATA.genai_tokens_by_agent.whatItShows}
+                                        meaning={CHARTS_METADATA.genai_tokens_by_agent.metricMeaning}
+                                        sourceTables={CHARTS_METADATA.genai_tokens_by_agent.sourceTables}
+                                        fieldsUsed={CHARTS_METADATA.genai_tokens_by_agent.fieldsUsed}
+                                        align="left"
+                                    />
+                                </div>
                                 <button
                                     type="button"
                                     onClick={() => handleViewChange('v_gemini_genai_telemetry')}
@@ -244,9 +276,19 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                         </div>
 
                         <div>
-                            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                                Tool Invocations by Tool Name
-                            </h4>
+                            <div className="flex items-center gap-1.5 mb-3">
+                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                    Tool Invocations by Tool Name
+                                </h4>
+                                <MetricInfoTooltip
+                                    title={CHARTS_METADATA.tool_invocations_by_name.title}
+                                    whatItShows={CHARTS_METADATA.tool_invocations_by_name.whatItShows}
+                                    meaning={CHARTS_METADATA.tool_invocations_by_name.metricMeaning}
+                                    sourceTables={CHARTS_METADATA.tool_invocations_by_name.sourceTables}
+                                    fieldsUsed={CHARTS_METADATA.tool_invocations_by_name.fieldsUsed}
+                                    align="right"
+                                />
+                            </div>
                             {toolInvocationsData.length === 0 ? (
                                 <EmptyChartState message="No tool invocation records" subtext="No tool execution events recorded in this dataset." />
                             ) : (
@@ -288,9 +330,19 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
                         <div>
                             <div className="flex items-center justify-between mb-3">
-                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                                    Invocations by Connector
-                                </h4>
+                                <div className="flex items-center gap-1.5">
+                                    <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                        Invocations by Connector
+                                    </h4>
+                                    <MetricInfoTooltip
+                                        title={CHARTS_METADATA.connector_invocations_30d.title}
+                                        whatItShows={CHARTS_METADATA.connector_invocations_30d.whatItShows}
+                                        meaning={CHARTS_METADATA.connector_invocations_30d.metricMeaning}
+                                        sourceTables={CHARTS_METADATA.connector_invocations_30d.sourceTables}
+                                        fieldsUsed={CHARTS_METADATA.connector_invocations_30d.fieldsUsed}
+                                        align="left"
+                                    />
+                                </div>
                                 <button
                                     type="button"
                                     onClick={() => handleViewChange('v_user_connector_usage_30d')}
@@ -317,9 +369,19 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                         </div>
 
                         <div>
-                            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                                Top Connector Users
-                            </h4>
+                            <div className="flex items-center gap-1.5 mb-3">
+                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                    Top Connector Users
+                                </h4>
+                                <MetricInfoTooltip
+                                    title={CHARTS_METADATA.top_connector_users.title}
+                                    whatItShows={CHARTS_METADATA.top_connector_users.whatItShows}
+                                    meaning={CHARTS_METADATA.top_connector_users.metricMeaning}
+                                    sourceTables={CHARTS_METADATA.top_connector_users.sourceTables}
+                                    fieldsUsed={CHARTS_METADATA.top_connector_users.fieldsUsed}
+                                    align="right"
+                                />
+                            </div>
                             {topConnectorUsersData.length === 0 ? (
                                 <EmptyChartState message="No connector user records" subtext="No user email attribution available for connectors." />
                             ) : (
@@ -360,9 +422,19 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
                         <div>
-                            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                                Model Finish Reasons Breakdown
-                            </h4>
+                            <div className="flex items-center gap-1.5 mb-3">
+                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                    Model Finish Reasons Breakdown
+                                </h4>
+                                <MetricInfoTooltip
+                                    title={CHARTS_METADATA.ai_finish_reasons.title}
+                                    whatItShows={CHARTS_METADATA.ai_finish_reasons.whatItShows}
+                                    meaning={CHARTS_METADATA.ai_finish_reasons.metricMeaning}
+                                    sourceTables={CHARTS_METADATA.ai_finish_reasons.sourceTables}
+                                    fieldsUsed={CHARTS_METADATA.ai_finish_reasons.fieldsUsed}
+                                    align="left"
+                                />
+                            </div>
                             {aiChoicesData.length === 0 ? (
                                 <EmptyChartState message="No model finish reason records" subtext="No finish reasons found in view." />
                             ) : (
@@ -383,9 +455,19 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                         </div>
 
                         <div>
-                            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                                Choice Frequency
-                            </h4>
+                            <div className="flex items-center gap-1.5 mb-3">
+                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                    Choice Frequency
+                                </h4>
+                                <MetricInfoTooltip
+                                    title={CHARTS_METADATA.ai_choice_frequency.title}
+                                    whatItShows={CHARTS_METADATA.ai_choice_frequency.whatItShows}
+                                    meaning={CHARTS_METADATA.ai_choice_frequency.metricMeaning}
+                                    sourceTables={CHARTS_METADATA.ai_choice_frequency.sourceTables}
+                                    fieldsUsed={CHARTS_METADATA.ai_choice_frequency.fieldsUsed}
+                                    align="right"
+                                />
+                            </div>
                             {aiChoicesData.length === 0 ? (
                                 <EmptyChartState message="No model choice records" subtext="No generation choices recorded." />
                             ) : (
@@ -430,9 +512,19 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
                         <div>
-                            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                                Feedback Ratings per Agent
-                            </h4>
+                            <div className="flex items-center gap-1.5 mb-3">
+                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                    Feedback Ratings per Agent
+                                </h4>
+                                <MetricInfoTooltip
+                                    title={CHARTS_METADATA.agent_feedback_ratings.title}
+                                    whatItShows={CHARTS_METADATA.agent_feedback_ratings.whatItShows}
+                                    meaning={CHARTS_METADATA.agent_feedback_ratings.metricMeaning}
+                                    sourceTables={CHARTS_METADATA.agent_feedback_ratings.sourceTables}
+                                    fieldsUsed={CHARTS_METADATA.agent_feedback_ratings.fieldsUsed}
+                                    align="left"
+                                />
+                            </div>
                             {agentFeedbackData.length === 0 ? (
                                 <EmptyChartState message="No agent feedback ratings submitted yet" subtext="Live view is active in BigQuery, but returned 0 feedback events." />
                             ) : (
@@ -454,9 +546,19 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
 
                         <div className="flex flex-col justify-between space-y-4 bg-gray-950/60 p-5 rounded-lg border border-gray-800">
                             <div>
-                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                                    Quality & Satisfaction Summary
-                                </h4>
+                                <div className="flex items-center gap-1.5 mb-3">
+                                    <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                        Quality & Satisfaction Summary
+                                    </h4>
+                                    <MetricInfoTooltip
+                                        title={CHARTS_METADATA.quality_satisfaction_summary.title}
+                                        whatItShows={CHARTS_METADATA.quality_satisfaction_summary.whatItShows}
+                                        meaning={CHARTS_METADATA.quality_satisfaction_summary.metricMeaning}
+                                        sourceTables={CHARTS_METADATA.quality_satisfaction_summary.sourceTables}
+                                        fieldsUsed={CHARTS_METADATA.quality_satisfaction_summary.fieldsUsed}
+                                        align="right"
+                                    />
+                                </div>
                                 <div className="grid grid-cols-3 gap-3">
                                     <div className="p-3 bg-gray-900 rounded border border-gray-800">
                                         <div className="text-[11px] text-emerald-400 font-semibold mb-1">Total Positive</div>
