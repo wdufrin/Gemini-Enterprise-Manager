@@ -215,10 +215,11 @@ const InnerApp: React.FC = () => {
             const expiresIn = response.expires_in ? Number(response.expires_in) : 3600;
             tokenExpiryRef.current = Date.now() + expiresIn * 1000;
             setAccessToken(response.access_token);
-            sessionStorage.setItem('agentspace-accessToken', response.access_token);
+            // Pure in-memory storage: Never write access token to sessionStorage!
             initGapiClient(response.access_token).catch((err) => {
               console.warn('[SSO] Reinitializing gapi client with refreshed token failed:', err);
             });
+            setIsGapiReady(true);
             resolve(response.access_token);
           } else {
             resolve(null);
@@ -256,7 +257,9 @@ const InnerApp: React.FC = () => {
 
   const handleSetAccessToken = useCallback(async (token: string) => {
     setAccessToken(token);
-    sessionStorage.setItem('agentspace-accessToken', token);
+    // Pure in-memory storage: Never write access token to sessionStorage!
+    // Defensively purge any legacy token that may exist in storage
+    sessionStorage.removeItem('agentspace-accessToken');
 
     if (token) {
       setIsTokenValidating(true);
@@ -329,10 +332,30 @@ const InnerApp: React.FC = () => {
           }
         },
       });
+
+      // On initial load or page reload, if user was previously signed in via SSO,
+      // silently request a fresh access token directly into memory
+      if (userEmailRef.current && !accessToken) {
+        setIsGapiLoading(true);
+        renewTokenSilently()
+          .then((freshToken) => {
+            setIsGapiLoading(false);
+            if (freshToken) {
+              const savedProject = sessionStorage.getItem('agentspace-projectNumber');
+              if (savedProject) {
+                setIsGapiInitialized(true);
+              }
+            }
+          })
+          .catch((err) => {
+            setIsGapiLoading(false);
+            console.warn('[SSO] Initial silent token restoration failed:', err);
+          });
+      }
     } catch (e: unknown) {
       setGapiError(`Failed to initialize Google Sign-In client: ${toErrorMessage(e)}`);
     }
-  }, [googleClientId, handleSetAccessToken]);
+  }, [googleClientId, handleSetAccessToken, accessToken, renewTokenSilently]);
 
   useEffect(() => {
     if (!googleClientId) return;
@@ -345,11 +368,12 @@ const InnerApp: React.FC = () => {
     return () => clearInterval(checkGsi);
   }, [initGoogleClient, googleClientId]);
 
-  // Try to restore session on initial load
+  // Restore user profile and purge any legacy tokens on initial load
   useEffect(() => {
-    const savedToken = sessionStorage.getItem('agentspace-accessToken');
-    const savedProfile = sessionStorage.getItem('agentspace-userProfile');
+    // Defensively purge any legacy access tokens from sessionStorage
+    sessionStorage.removeItem('agentspace-accessToken');
 
+    const savedProfile = sessionStorage.getItem('agentspace-userProfile');
     if (savedProfile) {
       try {
         const parsed = JSON.parse(savedProfile);
@@ -359,16 +383,21 @@ const InnerApp: React.FC = () => {
         console.warn('Failed to parse saved user profile', e);
       }
     }
+  }, []);
 
-    if (savedToken) {
-      handleSetAccessToken(savedToken).then(() => {
-        const savedProject = sessionStorage.getItem('agentspace-projectNumber');
-        if (savedProject) {
-          setIsGapiInitialized(true);
-        }
-      });
-    }
-  }, [handleSetAccessToken]);
+  // Proactive background token renewal before expiration (within 5 minutes)
+  useEffect(() => {
+    if (!accessToken || !tokenClient.current || !userEmailRef.current) return;
+    const interval = setInterval(() => {
+      if (tokenExpiryRef.current && Date.now() > tokenExpiryRef.current - 5 * 60 * 1000) {
+        console.log('[SSO] Proactively renewing access token in background...');
+        renewTokenSilently().catch((err) => {
+          console.warn('[SSO] Proactive background renewal failed:', err);
+        });
+      }
+    }, 60 * 1000);
+    return () => clearInterval(interval);
+  }, [accessToken, renewTokenSilently]);
 
   const handleSetProjectNumber = async (identifier: string) => {
     setProjectNumber(identifier);

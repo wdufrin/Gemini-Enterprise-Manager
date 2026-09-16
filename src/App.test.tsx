@@ -168,4 +168,23 @@ describe('Gemini Enterprise Manager - App Integration Tests', () => {
       expect(screen.getByRole('heading', { name: /^Backup & Restore Actions \(GCS\)$/ })).toBeDefined();
     }, { timeout: 5000 });
   });
+
+  it('guarantees access token is stored in memory only and NEVER persisted in sessionStorage', async () => {
+    // Pre-populate sessionStorage with a legacy token to test defensive purge
+    sessionStorage.setItem('agentspace-accessToken', 'stale-leaked-token');
+    expect(sessionStorage.getItem('agentspace-accessToken')).toBe('stale-leaked-token');
+
+    render(<App />);
+
+    // App mount should immediately purge any legacy token from sessionStorage
+    expect(sessionStorage.getItem('agentspace-accessToken')).toBeNull();
+
+    // Now set a new token
+    const tokenInput = screen.getByPlaceholderText('Paste GCP Access Token');
+    fireEvent.change(tokenInput, { target: { value: 'super-secret-token' } });
+    fireEvent.click(screen.getByText('Set Token'));
+
+    // Token must NOT be written to sessionStorage
+    expect(sessionStorage.getItem('agentspace-accessToken')).toBeNull();
+  });
 });
