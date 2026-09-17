@@ -27,6 +27,7 @@ scripts/
 # Application Demo Guide
 docs/Gemini_Enterprise_Demo_Guide.md
 examples/
+/public/docs/
 
 # Test artifacts (generated output only -- test SOURCES must be tracked)
 coverage/

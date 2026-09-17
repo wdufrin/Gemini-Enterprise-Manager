@@ -619,7 +619,7 @@ const InnerApp: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-4">
-              <HelpButton />
+              <HelpButton onNavigateToPage={handleMenuClick} />
               <div className="h-8 w-px bg-gray-700 mx-2 hidden md:block"></div>
               <AccessTokenInput
                 accessToken={accessToken}
