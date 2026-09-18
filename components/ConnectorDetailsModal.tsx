@@ -32,6 +32,7 @@ interface ConnectorDetailsModalProps {
   status: 'success' | 'error' | 'unvalidated';
   config: Config;
   onRefreshSuccess?: () => void;
+  activeVendors?: string[];
 }
 
 const escapeHtml = (text: string): string => {
@@ -51,6 +52,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
   status,
   config,
   onRefreshSuccess,
+  activeVendors,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -525,7 +527,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
             </div>
           ) : activeTab === 'verification' ? (
             <div className="space-y-6 animate-fadeIn">
-              <ConnectorVerificationTab connector={data} />
+              <ConnectorVerificationTab connector={data} config={config} activeVendors={activeVendors} />
             </div>
           ) : activeTab === 'filters' ? (
             <div className="space-y-6 animate-fadeIn">

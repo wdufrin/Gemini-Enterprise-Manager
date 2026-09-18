@@ -17,7 +17,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "sync-checklists": "node scripts/syncChecklists.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.40.0",

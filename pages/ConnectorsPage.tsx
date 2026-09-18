@@ -21,6 +21,7 @@ import ConfirmationModal from "../components/ConfirmationModal";
 import { ConnectorConfigHeader } from "../components/connectors/ConnectorConfigHeader";
 import { ConnectorCollectionTable } from "../components/connectors/ConnectorCollectionTable";
 import { useConnectorsPage } from "../hooks/useConnectorsPage";
+import { detectConnectorVendor } from "../components/connectors/checklist/checklistRegistry";
 
 export { type ValidationResult } from "../components/connectors/connectorDiagnostics";
 
@@ -68,6 +69,15 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
     fetchCollections,
     handleLocationChange,
   } = useConnectorsPage({ projectNumber });
+
+  const activeVendors = React.useMemo(() => {
+    const set = new Set<string>();
+    collections.forEach((col) => {
+      const v = detectConnectorVendor(col.dataConnector || col);
+      if (v && v !== "GENERIC") set.add(v);
+    });
+    return Array.from(set);
+  }, [collections]);
 
   return (
     <div className="space-y-6">
@@ -120,6 +130,7 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
         }
         config={config}
         onRefreshSuccess={fetchCollections}
+        activeVendors={activeVendors}
       />
 
       {duplicatingCollection && (

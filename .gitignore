@@ -21,8 +21,7 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
-scripts/
+scripts/out/
 
 # Application Demo Guide
 docs/Gemini_Enterprise_Demo_Guide.md
