@@ -9,7 +9,7 @@ import { assertValidGcpResourceName } from "../shellSafety";
 
 const CLOUD_RUN_DEPLOY_REGION = "us-central1";
 
-export const generateTestConfigJson = (config: AdkAgentConfig): string => {
+export const generateTestConfigJson = (_config?: AdkAgentConfig): string => {
   return JSON.stringify(
     {
       criteria: {
@@ -143,7 +143,7 @@ deploy-cloud-run:
 
 export const generateCloudBuildYaml = (
   config: AdkAgentConfig,
-  projectId: string,
+  _projectId?: string,
 ): string => {
   // SECURITY (F-01): the two `bash -c` steps below interpolate nothing directly,
   // but the second one runs `make deploy`, and the generated Makefile splices the
@@ -182,7 +182,7 @@ options:
   logging: CLOUD_LOGGING_ONLY`;
 };
 
-export const generateGithubWorkflow = (config: AdkAgentConfig): string => {
+export const generateGithubWorkflow = (_config?: AdkAgentConfig): string => {
   return `name: Deploy Agent (Reusable Template)
 
 on:

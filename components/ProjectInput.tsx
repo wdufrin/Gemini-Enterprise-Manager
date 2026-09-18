@@ -47,8 +47,9 @@ const ProjectInput: React.FC<ProjectInputProps> = ({ value, onChange }) => {
     try {
       const projectNumber = await api.getProjectNumber(trimmedValue);
       onChange(projectNumber);
-    } catch (err: any) {
-      setError(`Failed to resolve Project ID: ${err.message}. Ensure the API client is initialized.`);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to resolve Project ID: ${errMsg}. Ensure the API client is initialized.`);
       // Do not update parent on error
     } finally {
       setIsLoading(false);

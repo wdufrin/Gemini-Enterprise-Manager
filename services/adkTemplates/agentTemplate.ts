@@ -26,7 +26,6 @@ export const generateAdkPythonCode = (
   const modelName = config.model;
   const agentClass = "Agent";
   const agentImport = "from google.adk.agents import Agent";
-  const adkAppImport = "from google.adk.apps import App";
 
   toolImports.add("import google.auth");
 
@@ -607,7 +606,7 @@ app = StudioAdkApp(
 `.trim();
 };
 
-export const generateAppPy = (configOrRelative: boolean | AdkAgentConfig = false): string => {
+export const generateAppPy = (_configOrRelative: boolean | AdkAgentConfig = false): string => {
   return `
 import logging
 import os

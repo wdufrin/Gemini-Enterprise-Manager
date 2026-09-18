@@ -603,13 +603,13 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                           const host = location === 'global' ? 'discoveryengine.googleapis.com' : `${location}-discoveryengine.googleapis.com`;
                           
                           const cleanEntities = connectorState.entities?.map((e: { dataStore?: unknown; [key: string]: unknown }) => {
-                            const { dataStore, ...rest } = e;
+                            const rest = { ...e };
+                            delete rest.dataStore;
                             return rest;
                           }) || [];
 
                           const dsLower = (connectorState.dataSource || '').toLowerCase();
                           const isMicrosoft = ['sharepoint', 'onedrive', 'ms-onedrive', 'outlook', 'ms-outlook', 'teams', 'ms-teams', 'entraid', 'entra', 'azure_active_directory'].includes(dsLower);
-                          const isAtlassian = ['jira', 'confluence'].includes(dsLower);
 
                           const cleanParams = { ...connectorState.params };
                           delete cleanParams.static_ip_enabled;

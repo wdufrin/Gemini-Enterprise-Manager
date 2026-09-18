@@ -1,5 +1,4 @@
 import { AdkAgentConfig } from "./types";
-import { toCloudRunServiceName } from "./agentName";
 
 export * from "./cicdTemplates";
 export * from "./adkDeployScriptTemplate";
@@ -23,7 +22,7 @@ ${config.tools.map((t) => `- ${t.variableName} (${t.type})`).join("\n")}
 `;
 };
 
-export const generateLaunchScript = (config: AdkAgentConfig): string => {
+export const generateLaunchScript = (_config?: AdkAgentConfig): string => {
   return `#!/bin/bash
 
 # Ensure we are in the script's directory or project root

@@ -115,7 +115,7 @@ describe('BYOMCPConfigTab', () => {
   });
 
   it('calls updateDataConnector with proper payload and updateMask when saving', async () => {
-    (api.updateDataConnector as any).mockResolvedValueOnce({
+    vi.mocked(api.updateDataConnector).mockResolvedValueOnce({
       ...mockConnector,
       actionConfig: {
         ...mockConnector.actionConfig,
@@ -192,7 +192,7 @@ describe('BYOMCPConfigTab', () => {
   });
 
   it('tests connectivity using listMcpTools', async () => {
-    (api.listMcpTools as any).mockResolvedValueOnce([
+    vi.mocked(api.listMcpTools).mockResolvedValueOnce([
       { name: 'search', description: 'Enterprise search tool' },
       { name: 'get_doc', description: 'Fetch document' },
     ]);

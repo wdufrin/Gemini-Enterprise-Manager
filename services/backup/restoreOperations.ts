@@ -518,8 +518,12 @@ export async function executeRestoreNotebooks(
   const outcome = createRestoreOutcome();
   addLog(`Restoring ${data.notebooks.length} Notebooks...`);
   for (const notebook of data.notebooks) {
-    const { name: _name, displayName, createTime: _ct, updateTime: _ut, sources, ...rest } = notebook;
-    const payload: Record<string, unknown> = { ...rest };
+    const payload: Record<string, unknown> = { ...notebook };
+    delete payload.name;
+    delete payload.displayName;
+    delete payload.createTime;
+    delete payload.updateTime;
+    delete payload.sources;
     if (notebook.displayName || notebook.title) {
       payload.title = notebook.displayName || notebook.title;
     }

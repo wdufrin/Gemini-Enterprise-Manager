@@ -128,8 +128,8 @@ describe('SkillsRegistryPage Component', () => {
   });
 
   it('opens Publish Enterprise Skill modal and submits new skill', async () => {
-    vi.mocked(api.createRegistrySkill).mockResolvedValue({} as any);
-    vi.mocked(api.updateRegistrySkill).mockResolvedValue({} as any);
+    vi.mocked(api.createRegistrySkill).mockResolvedValue({} as unknown as RegistrySkill);
+    vi.mocked(api.updateRegistrySkill).mockResolvedValue({} as unknown as RegistrySkill);
 
     renderWithToast(
       <SkillsRegistryPage

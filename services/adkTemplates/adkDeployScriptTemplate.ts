@@ -1,5 +1,4 @@
 import { AdkAgentConfig } from "./types";
-import { assertValidGcpResourceName } from "../shellSafety";
 
 export const generateAdkDeployBashWrapper = (): string => `#!/usr/bin/env bash
 set -e

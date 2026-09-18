@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runConfigAudit, generateAuditMarkdown } from './configAuditService';
 import * as api from './apiService';
-import { Config } from '../types';
+import { Config, AppEngine } from '../types';
 
 vi.mock('./apiService', () => ({
   getEngine: vi.fn(),
@@ -39,7 +39,7 @@ describe('configAuditService', () => {
         displayName: 'Test Engine',
         solutionType: 'SOLUTION_TYPE_SEARCH_AND_ASSISTANT',
         searchEngineConfig: { searchTier: 'ENTERPRISE' },
-      } as any;
+      } as unknown as AppEngine;
     });
 
     vi.mocked(api.listResources).mockImplementation(async (type, cfg) => {
@@ -55,7 +55,7 @@ describe('configAuditService', () => {
 
     vi.mocked(api.listRegistrySkills).mockResolvedValue([]);
     vi.mocked(api.listAuthorizations).mockResolvedValue({ authorizations: [] });
-    vi.mocked(api.listLicenseConfigsUsageStats).mockResolvedValue({ licenseConfigUsageStats: [] } as any);
+    vi.mocked(api.listLicenseConfigsUsageStats).mockResolvedValue({ licenseConfigUsageStats: [] } as unknown as { licenseConfigUsageStats: [] });
 
     const progressSteps: string[] = [];
     const summary = await runConfigAudit(sourceConfig, targetConfig, (step) => {
@@ -81,9 +81,10 @@ describe('configAuditService', () => {
 
   it('detects missing target DataStores and computes readiness score reduction', async () => {
     vi.mocked(api.getEngine).mockResolvedValue({
+      name: 'projects/source-project-100/locations/global/collections/default_collection/engines/default_engine',
       displayName: 'Test Engine',
       solutionType: 'SOLUTION_TYPE_SEARCH_AND_ASSISTANT',
-    } as any);
+    } as unknown as AppEngine);
 
     vi.mocked(api.listResources).mockImplementation(async (type, cfg) => {
       if (type === 'dataStores') {
@@ -102,7 +103,7 @@ describe('configAuditService', () => {
 
     vi.mocked(api.listRegistrySkills).mockResolvedValue([]);
     vi.mocked(api.listAuthorizations).mockResolvedValue({ authorizations: [] });
-    vi.mocked(api.listLicenseConfigsUsageStats).mockResolvedValue({ licenseConfigUsageStats: [] } as any);
+    vi.mocked(api.listLicenseConfigsUsageStats).mockResolvedValue({ licenseConfigUsageStats: [] } as unknown as { licenseConfigUsageStats: [] });
 
     const summary = await runConfigAudit(sourceConfig, targetConfig);
 
@@ -120,7 +121,7 @@ describe('configAuditService', () => {
   });
 
   it('does not report success when zero meaningful checks could be executed', async () => {
-    vi.mocked(api.getEngine).mockResolvedValue(null as any);
+    vi.mocked(api.getEngine).mockResolvedValue(null as unknown as AppEngine);
     vi.mocked(api.listResources).mockResolvedValue({ dataStores: [] });
     vi.mocked(api.listRegistrySkills).mockRejectedValue(new Error('Auth error'));
     vi.mocked(api.listAuthorizations).mockRejectedValue(new Error('Auth error'));

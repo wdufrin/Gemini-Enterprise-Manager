@@ -19,14 +19,25 @@ import { AdkAgentConfig } from '../../services/adkTemplates';
 import { isValidAdkAgentName } from '../../services/adkTemplates/agentName';
 import CloudRunAccessSelector from './CloudRunAccessSelector';
 
+export interface WifProviderOption {
+  name: string;
+  displayName?: string;
+  [key: string]: unknown;
+}
+
+export interface ServiceAccountOption {
+  email: string;
+  [key: string]: unknown;
+}
+
 export interface AdkDeploymentConfigProps {
   adkConfig: AdkAgentConfig;
   setAdkConfig: React.Dispatch<React.SetStateAction<AdkAgentConfig>>;
   handleAdkConfigChange: (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => void;
-  wifProviders: any[];
-  serviceAccounts: any[];
+  wifProviders: WifProviderOption[];
+  serviceAccounts: ServiceAccountOption[];
   validationStatus: 'unchecked' | 'testing' | 'valid' | 'invalid';
   validationMessage: string;
   showWifInstructions: boolean;

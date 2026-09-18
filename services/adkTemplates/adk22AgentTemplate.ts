@@ -3,7 +3,7 @@ import { formatPythonString } from "./stringUtils";
 
 export const generateAdk22PythonCode = (
   config: AdkAgentConfig,
-  useRelativeImports: boolean = false,
+  _useRelativeImports: boolean = false,
 ): string => {
   const toolImports = new Set<string>();
   const toolInitializations: string[] = [];

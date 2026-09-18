@@ -118,7 +118,7 @@ describe('ConnectorFiltersTab', () => {
       },
     };
 
-    (api.updateDataConnector as any).mockResolvedValueOnce({
+    vi.mocked(api.updateDataConnector).mockResolvedValueOnce({
       ...mockConnector,
       params: {
         structured_search_filter: {

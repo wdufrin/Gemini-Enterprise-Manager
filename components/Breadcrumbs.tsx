@@ -19,7 +19,7 @@ import { Page } from '../types';
 
 interface BreadcrumbsProps {
   currentPage: Page;
-  context?: any;
+  context?: unknown;
 }
 
 const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ currentPage, context }) => {
@@ -28,11 +28,12 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ currentPage, context }) => {
     { label: currentPage, active: !context }
   ];
 
-  if (context) {
-    if (context.displayName) {
-        items.push({ label: context.displayName, active: true });
-    } else if (context.name) {
-        items.push({ label: context.name.split('/').pop(), active: true });
+  if (context && typeof context === 'object') {
+    const ctx = context as { displayName?: string; name?: string };
+    if (ctx.displayName) {
+        items.push({ label: ctx.displayName, active: true });
+    } else if (ctx.name) {
+        items.push({ label: ctx.name.split('/').pop() || '', active: true });
     }
   }
 

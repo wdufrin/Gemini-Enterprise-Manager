@@ -32,9 +32,9 @@ interface SkillsRegistryPageProps {
 const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   projectNumber,
   projectId = '',
-  setProjectNumber,
-  accessToken,
-  userProfile,
+  setProjectNumber: _setProjectNumber,
+  accessToken: _accessToken,
+  userProfile: _userProfile,
 }) => {
   const [selectedLocation, setSelectedLocation] = useState<string>('global');
   const [skills, setSkills] = useState<RegistrySkill[]>([]);
@@ -62,9 +62,9 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
     try {
       const result = await api.listRegistrySkills(currentConfig);
       setSkills(result);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to list Agent Registry skills:', err);
-      setError(err.message || 'Failed to fetch enterprise skills from Google Cloud Agent Registry.');
+      setError(err instanceof Error ? err.message : 'Failed to fetch enterprise skills from Google Cloud Agent Registry.');
     } finally {
       setIsLoading(false);
     }

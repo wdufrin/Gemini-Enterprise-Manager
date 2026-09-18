@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Config } from '../../types';
+import { Config, AppEngine, Authorization } from '../../types';
 import * as api from '../../services/apiService';
 import { toErrorMessage } from '../../utils/errors';
 import { useModalA11y } from '../../hooks/useModalA11y';
@@ -47,8 +47,8 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
   });
 
   const [regAuthRows, setRegAuthRows] = useState<string[]>([]);
-  const [regEngines, setRegEngines] = useState<any[]>([]);
-  const [regAuthorizations, setRegAuthorizations] = useState<any[]>([]);
+  const [regEngines, setRegEngines] = useState<AppEngine[]>([]);
+  const [regAuthorizations, setRegAuthorizations] = useState<Authorization[]>([]);
   const [isLoadingEngines, setIsLoadingEngines] = useState(false);
   const [isLoadingAuths, setIsLoadingAuths] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
@@ -151,7 +151,7 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
 
       if (!displayName) throw new Error('Agent Display Name or Name is required.');
 
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         displayName,
         description,
       };
@@ -304,7 +304,7 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
                   className="flex-1 bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-xs text-white disabled:opacity-50 focus:outline-none focus:border-blue-500"
                 >
                   <option value="">-- Select Target Engine or Enter Manually --</option>
-                  {regEngines.map((eng: any) => {
+                  {regEngines.map((eng) => {
                     const id = eng.name?.split('/').pop() || eng.name;
                     return (
                       <option key={eng.name} value={id}>
@@ -425,7 +425,7 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
                       className="flex-1 bg-gray-900 border border-gray-700 rounded-md px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
                     >
                       <option value="">-- Select Authorization --</option>
-                      {regAuthorizations.map((a: any) => {
+                      {regAuthorizations.map((a) => {
                         const name = a.name || '';
                         const label = a.displayName
                           ? `${a.displayName} (${name.split('/').pop()})`

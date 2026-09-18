@@ -21,7 +21,6 @@ export const generateAuthPy = (
   allowAdcFallback?: boolean,
 ): string => {
   const effectiveAllowAdcFallback = allowAdcFallback !== undefined ? allowAdcFallback : (config.allowAdcFallback ?? false);
-  const isV2 = config.adkVersion === "2.2";
   const toolContextImport = "from google.adk.tools import ToolContext";
 
   return `"""

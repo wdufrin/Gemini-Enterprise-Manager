@@ -44,14 +44,14 @@ describe('dataStores OIDC Auth Flow', () => {
         });
 
         // Mock popup window object
-        const mockPopup: any = {
+        const mockPopup = {
             closed: false,
             close: vi.fn(),
             location: {
                 href: 'http://localhost:3000/callback#id_token=' + fakeToken + '&state=',
                 hash: '#id_token=' + fakeToken + '&state=',
             },
-        };
+        } as unknown as Window;
 
         window.open = vi.fn().mockImplementation((url: string) => {
             const parsedUrl = new URL(url);
@@ -76,14 +76,14 @@ describe('dataStores OIDC Auth Flow', () => {
 
     it('successfully decodes Base64URL JWT payload and resolves email when nonce matches', async () => {
         let capturedNonce: string | null = null;
-        const mockPopup: any = {
+        const mockPopup = {
             closed: false,
             close: vi.fn(),
             location: {
                 href: '',
                 hash: '',
             },
-        };
+        } as unknown as Window;
 
         window.open = vi.fn().mockImplementation((url: string) => {
             const parsedUrl = new URL(url);

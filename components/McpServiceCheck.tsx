@@ -15,10 +15,20 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { checkServiceEnabled, enableService, listMcpTools, checkMcpCompliance } from '../services/apiService';
+import { listMcpTools, checkMcpCompliance } from '../services/apiService';
 import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
 import { Modal } from './common/Modal';
+
+interface McpTool {
+    name: string;
+    description?: string;
+    inputSchema?: {
+        required?: string[];
+        [key: string]: unknown;
+    };
+    [key: string]: unknown;
+}
 
 interface McpServiceCheckProps {
     projectId: string;
@@ -33,8 +43,7 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
     const { toast } = useToast();
     const [status, setStatus] = useState<'loading' | 'enabled' | 'disabled' | 'error' | 'unchecked'>('unchecked');
     const [showEnablePopup, setShowEnablePopup] = useState(false);
-    const [isEnabling, setIsEnabling] = useState(false);
-    const [tools, setTools] = useState<any[]>([]);
+    const [tools, setTools] = useState<McpTool[]>([]);
     const [toolsLoading, setToolsLoading] = useState(false);
     const [toolsError, setToolsError] = useState<string | null>(null);
     const [showTools, setShowTools] = useState(false);
@@ -77,7 +86,7 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
         try {
             const fetched = await listMcpTools(projectId, mcpEndpoint);
             if (requestId !== requestIdRef.current) return;
-            setTools(fetched);
+            setTools(fetched as unknown as McpTool[]);
         } catch (e) {
             if (requestId !== requestIdRef.current) return;
             console.error(`[McpServiceCheck] Tool discovery failed for ${mcpEndpoint}:`, e);
@@ -131,42 +140,6 @@ export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, ser
             setToolsLoading(false);
         }
     }, [checked, projectId, validate]);
-
-    const handleEnable = async () => {
-        setIsEnabling(true);
-        try {
-            await enableService(projectId, serviceName);
-            // Poll for up to 30 seconds
-            let attempts = 0;
-            const poll = setInterval(async () => {
-                attempts++;
-                // Check MCP Compliance first
-                const isCompliant = await checkMcpCompliance(projectId, serviceName);
-
-                if (isCompliant) {
-                    clearInterval(poll);
-                    setStatus('enabled');
-                    setIsEnabling(false);
-                    setShowEnablePopup(false);
-                    void loadTools(++requestIdRef.current);
-                } else if (attempts > 15) {
-                    clearInterval(poll);
-                    setIsEnabling(false);
-                    // The service did not become MCP-compliant within the
-                    // polling window. Say so rather than leaving the dialog in
-                    // a state that looks like nothing happened.
-                    toast.error(
-                        `${serviceName} did not report MCP compliance within 30s. ` +
-                        `It may still be propagating -- re-check in a minute.`,
-                    );
-                }
-            }, 2000);
-        } catch (e) {
-            console.error(e);
-            setIsEnabling(false);
-            toast.error("Failed to enable service: " + toErrorMessage(e));
-        }
-    };
 
     return (
         <div className="flex items-center space-x-2 relative" ref={containerRef}>

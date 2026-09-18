@@ -46,7 +46,7 @@ vi.mock('../services/gapiService', () => {
 // Mock window.google accounts API
 const mockInitTokenClient = vi.fn();
 if (typeof window !== 'undefined') {
-  (window as any).google = {
+  (window as unknown as Record<string, unknown>).google = {
     accounts: {
       oauth2: {
         initTokenClient: mockInitTokenClient,

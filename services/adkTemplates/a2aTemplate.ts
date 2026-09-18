@@ -316,7 +316,7 @@ ${config.instruction
 `.trim();
 };
 
-export const generateDockerfile = (config: AdkAgentConfig): string => `
+export const generateDockerfile = (_config?: AdkAgentConfig): string => `
 # Use an official lightweight Python image.
 FROM python:3.11-slim
 

@@ -53,8 +53,8 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
       const projectNum = await api.getProjectNumber(trimmedValue);
       onChange(projectNum);
       setIsEditing(false);
-    } catch (err: any) {
-      setError(err.message || 'Failed to resolve Project ID');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to resolve Project ID');
     } finally {
       setIsLoading(false);
     }

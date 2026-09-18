@@ -15,7 +15,7 @@
  */
 
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as api from '../../services/apiService';
 import { GcsBucket } from '../../types';
 import { assertValidGcpResourceName } from '../../services/shellSafety';
@@ -45,7 +45,7 @@ const A2aDeployModal: React.FC<A2aDeployModalProps> = ({
     onClose, 
     projectNumber, 
     serviceName, 
-    region, 
+    region: _region, 
     files, 
     onBuildTriggered 
 }) => {
@@ -116,9 +116,9 @@ const A2aDeployModal: React.FC<A2aDeployModalProps> = ({
                 if (items.length > 0) {
                     setSelectedBucket(items[0].name);
                 }
-            } catch (e: any) {
+            } catch (e: unknown) {
                 console.error("Failed to fetch buckets", e);
-                setBucketError(e.message || "Failed to list buckets.");
+                setBucketError(e instanceof Error ? e.message : "Failed to list buckets.");
             } finally {
                 setIsLoadingBuckets(false);
             }
@@ -251,9 +251,10 @@ This function is deployed using Google Cloud Build.
             // Don't auto-close immediately so user can see the build ID log
             // onClose(); 
 
-        } catch (err: any) {
-            setError(err.message || 'Deployment failed');
-            addLog(`Error: ${err.message}`);
+        } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : 'Deployment failed';
+            setError(errMsg);
+            addLog(`Error: ${errMsg}`);
             setIsDeploying(false);
         }
     };

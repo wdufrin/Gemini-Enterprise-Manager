@@ -72,7 +72,7 @@ export const AdkBasicSettings: React.FC<AdkBasicSettingsProps> = ({
           onChange={(e) => {
             const template = TEMPLATES.find((t) => t.id === e.target.value);
             if (template) {
-              setAdkConfig((prev) => {
+              setAdkConfig((_prev) => {
                 const cleanConfig: AdkAgentConfig = {
                   name: '',
                   description: 'An agent that can do awesome things.',

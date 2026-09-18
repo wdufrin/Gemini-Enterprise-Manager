@@ -38,7 +38,7 @@ export const hasAnyTools = (config: AdkAgentConfig): boolean => {
 
 export const generateToolsPy = (
   config: AdkAgentConfig,
-  useRelativeImports: boolean = false,
+  _useRelativeImports: boolean = false,
 ): string => {
   const isV2 = config.adkVersion === "2.2";
   const toolContextImport = isV2

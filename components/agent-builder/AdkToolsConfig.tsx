@@ -42,7 +42,7 @@ export interface AdkToolsConfigProps {
 
 export const AdkToolsConfig: React.FC<AdkToolsConfigProps> = ({
   adkConfig,
-  setAdkConfig,
+  setAdkConfig: _setAdkConfig,
   handleAdkConfigChange,
   deployProjectId,
   handleAddCustomMcp,

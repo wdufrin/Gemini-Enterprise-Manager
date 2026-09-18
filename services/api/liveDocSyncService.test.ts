@@ -21,6 +21,7 @@ import {
   clearLiveChecklistCache,
 } from './liveDocSyncService';
 import { ConnectorChecklistDefinition } from '../../components/connectors/checklist/types';
+import { Config } from '../../types';
 import * as core from './core';
 
 vi.mock('./core', async () => {
@@ -30,6 +31,14 @@ vi.mock('./core', async () => {
     gapiRequest: vi.fn(),
   };
 });
+
+const mockConfig: Config = {
+  projectId: 'test-proj',
+  appLocation: 'us-central1',
+  collectionId: 'default_collection',
+  appId: 'default_engine',
+  assistantId: 'default_assistant',
+};
 
 const mockBaseline: ConnectorChecklistDefinition = {
   vendorId: 'JIRA_CLOUD',
@@ -87,7 +96,7 @@ describe('Live KB Documentation Synchronization Service', () => {
   });
 
   it('returns bundled baseline when projectId is missing', async () => {
-    const config = { projectId: '' } as any;
+    const config: Config = { ...mockConfig, projectId: '' };
     const result = await syncLiveDocChecklist(mockBaseline, config);
     expect(result.syncSource).toBe('BUNDLED');
     expect(result.vendorId).toBe('JIRA_CLOUD');
@@ -107,7 +116,7 @@ describe('Live KB Documentation Synchronization Service', () => {
       })
     );
 
-    const config = { projectId: 'test-proj' } as any;
+    const config: Config = { ...mockConfig };
     const result = await syncLiveDocChecklist(mockBaseline, config, false);
     expect(result.syncSource).toBe('CACHED');
     expect(core.gapiRequest).not.toHaveBeenCalled();
@@ -152,7 +161,7 @@ describe('Live KB Documentation Synchronization Service', () => {
 
     vi.mocked(core.gapiRequest).mockResolvedValueOnce(mockApiResponse);
 
-    const config = { projectId: 'test-proj', appLocation: 'us-central1' } as any;
+    const config: Config = { ...mockConfig };
     const result = await syncLiveDocChecklist(mockBaseline, config, true);
 
     expect(core.gapiRequest).toHaveBeenCalledTimes(1);
@@ -163,10 +172,6 @@ describe('Live KB Documentation Synchronization Service', () => {
     const newItem = result.sections[0].items.find((i) => i.id === 'new_scope_offline_access');
     expect(newItem).toBeDefined();
     expect(newItem?.isLiveDocUpdate).toBe(true);
-
-    // Verify existing probe preserved
-    const probeItem = result.sections[0].items.find((i) => i.id === 'jira_service_agent_probe');
-    // Note: if API did not return jira_service_agent_probe in sections, let's verify probe preservation
   });
 
   it('preserves automated probes during section merge', () => {
@@ -203,7 +208,7 @@ describe('Live KB Documentation Synchronization Service', () => {
   it('falls back gracefully to bundled baseline if Vertex AI fails or returns error', async () => {
     vi.mocked(core.gapiRequest).mockRejectedValueOnce(new Error('PermissionDenied: 403'));
 
-    const config = { projectId: 'test-proj' } as any;
+    const config: Config = { ...mockConfig };
     const result = await syncLiveDocChecklist(mockBaseline, config, true);
 
     expect(result.syncSource).toBe('BUNDLED');
