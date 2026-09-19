@@ -9,7 +9,6 @@ import {
     YAxis,
     CartesianGrid,
     Tooltip,
-    Legend,
     ResponsiveContainer,
     LineChart,
     Line
@@ -21,18 +20,23 @@ interface AgentEngineMetricsViewerProps {
     filterBy?: 'engine_id' | 'tool_id';
 }
 
-// Helper to determine the P95 from Cloud Monitoring DISTRIBUTION.
-const calculateP95 = (bucketCounts: number[], bucketOptions: any) => {
-    // Cloud Monitoring Distribution bucketOptions usually include exponentialBuckets or linearBuckets.
-    // For simplicity, we approximate P95 here. In a real environment we'd use the explicit boundaries or proper MQL.
-    // Given the complexity of manually parsing bucket boundaries, we can just return a basic average of the distribution mean,
-    // or estimate based on available properties. Often there's an explicit `mean` available on the points.
-    // We'll calculate a placeholder P95 until we see the exact payload layout.
-    return 0; // To be refined when real data arrives
-};
+interface DistributionPoint {
+    value?: {
+        distributionValue?: {
+            count?: string;
+            mean?: number;
+        };
+    };
+}
+
+interface TimeSeriesItem {
+    resource?: { labels?: Record<string, string> };
+    metric?: { labels?: Record<string, string> };
+    points?: DistributionPoint[];
+}
 
 const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ config, engineId, filterBy = 'engine_id' }) => {
-    const [timeSeries, setTimeSeries] = useState<any[]>([]);
+    const [timeSeries, setTimeSeries] = useState<TimeSeriesItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -58,14 +62,14 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                     filterBy
                 );
                 
-                setTimeSeries(response.timeSeries || []);
-            } catch (err: any) {
+                setTimeSeries((response.timeSeries as TimeSeriesItem[]) || []);
+            } catch (err: unknown) {
                 console.error("Failed to load tool latencies", err);
-                // We'll ignore 403s on metrics typically for non-admins, but show it if critical
-                if (err.message && err.message.includes('403')) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                if (errMsg.includes('403')) {
                     setError("You don't have permission to view Cloud Monitoring metrics for this project.");
                 } else {
-                    setError(err.message || "Failed to load tool metrics.");
+                    setError(errMsg || "Failed to load tool metrics.");
                 }
             } finally {
                 setIsLoading(false);
@@ -93,7 +97,7 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
             }
             const stats = toolStats.get(toolId)!;
 
-            series.points?.forEach((point: any) => {
+            series.points?.forEach((point: DistributionPoint) => {
                 const dist = point.value?.distributionValue;
                 if (!dist) return;
 

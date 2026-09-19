@@ -15,11 +15,9 @@ interface AuditLoggingModalProps {
     projectNumber: string;
 }
 
-const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, config, engine, onUpdateSuccess, projectNumber }) => {
+const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, config, engine, onUpdateSuccess, projectNumber: _projectNumber }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [step, setStep] = useState(1);
-    const [isDeploying, setIsDeploying] = useState(false);
-    const [deployMethod, setDeployMethod] = useState<'gcloud' | 'cloud-build'>('gcloud');
     const [status, setStatus] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -29,15 +27,9 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
     const [enforceOnAgents, setEnforceOnAgents] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
-    // Cloud Build staging bucket config (needed if doing cloud build)
-    const [buckets, setBuckets] = useState<GcsBucket[]>([]);
-    const [selectedBucket, setSelectedBucket] = useState<string>('');
-    const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
-
     // BigQuery Log Sync states
     const [datasetId, setDatasetId] = useState('agentspace_audit_logs');
     const [isSyncing, setIsSyncing] = useState(false);
-    const [writerIdentity, setWriterIdentity] = useState<string | null>(null);
     const [availableDatasets, setAvailableDatasets] = useState<BigQueryDataset[]>([]);
     const [isLoadingDatasets, setIsLoadingDatasets] = useState(false);
     const [isCreatingNewDataset, setIsCreatingNewDataset] = useState(false);
@@ -46,7 +38,7 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
         isOpen,
         onClose,
         containerRef,
-        preventClose: isDeploying || isSaving || isSyncing,
+        preventClose: isSaving || isSyncing,
     });
 
     useEffect(() => {
@@ -61,26 +53,6 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
         }
     }, [isOpen, engine]);
 
-    useEffect(() => {
-        if (isOpen && deployMethod === 'cloud-build') {
-            const fetchBuckets = async () => {
-                setIsLoadingBuckets(true);
-                try {
-                    const res = await api.listBuckets(config.projectId);
-                    const items = res.items || [];
-                    setBuckets(items);
-                    if (items.length > 0) {
-                        setSelectedBucket(items[0].name);
-                    }
-                } catch (e) {
-                    console.error("Failed to fetch buckets", e);
-                } finally {
-                    setIsLoadingBuckets(false);
-                }
-            };
-            fetchBuckets();
-        }
-    }, [isOpen, deployMethod, config.projectId]);
 
     useEffect(() => {
         if (isOpen && step === 4) {
@@ -192,12 +164,10 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                     console.log("Sink already exists. Fetching existing sink identity...");
                     const existingSink = await api.getLoggingSink(config.projectId, sinkName);
                     writerIdentity = existingSink.writerIdentity || '';
-                    setStatus("Found existing Log Sink identity!");
                 } else {
                     throw sinkErr;
                 }
             }
-            setWriterIdentity(writerIdentity);
 
             // 3. Attempt dataset access update automatically
             try {
@@ -227,13 +197,6 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
         }
     };
 
-    const pythonScript = ``; // Removed as not needed by the guide
-    const cloudbuildYaml = ``;
-    const gcloudScript = ``;
-    const deployCommand = ``;
-
-    const handleCloudBuildDeploy = async () => {}; // Removed
-
     const logsUrl = `https://console.cloud.google.com/logs/query;query=logName%3D%22projects%2F${config.projectId}%2Flogs%2Fdiscoveryengine.googleapis.com%252Fgemini_enterprise_user_activity%22%20OR%20logName%3D~%22projects%2F${config.projectId}%2Flogs%2Fdiscoveryengine.googleapis.com%252Fgen_ai.*%22?project=${config.projectId}`;
 
     if (!isOpen) return null;
@@ -245,7 +208,7 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
             aria-modal="true"
             aria-labelledby="audit-logging-title"
             onClick={(e) => {
-                if (e.target === e.currentTarget && !(isDeploying || isSaving || isSyncing)) onClose();
+                if (e.target === e.currentTarget && !(isSaving || isSyncing)) onClose();
             }}
         >
             <div

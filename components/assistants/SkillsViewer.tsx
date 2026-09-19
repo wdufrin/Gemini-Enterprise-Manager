@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Agent, Config, UserProfile, SkillScope } from '../../types';
+import { Agent, Config, UserProfile } from '../../types';
 import * as api from '../../services/apiService';
 import AddSkillModal from './AddSkillModal';
 import SkillDetailModal from './SkillDetailModal';

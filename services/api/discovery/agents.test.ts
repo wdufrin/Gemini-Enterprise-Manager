@@ -30,7 +30,7 @@ describe('agents API - Observability policy and bulk enforcer', () => {
       displayName: 'Customer Support Bot',
     };
 
-    (core.gapiRequest as any).mockResolvedValue({
+    vi.mocked(core.gapiRequest).mockResolvedValue({
       ...mockAgent,
       observabilityConfig: {
         observabilityEnabled: true,
@@ -50,7 +50,7 @@ describe('agents API - Observability policy and bulk enforcer', () => {
     );
 
     expect(core.gapiRequest).toHaveBeenCalledTimes(1);
-    const [url, method, projectId, , payload] = (core.gapiRequest as any).mock.calls[0];
+    const [url, method, projectId, , payload] = vi.mocked(core.gapiRequest).mock.calls[0];
 
     expect(method).toBe('PATCH');
     expect(projectId).toBe('test-project');
@@ -83,7 +83,7 @@ describe('agents API - Observability policy and bulk enforcer', () => {
       },
     ];
 
-    (core.gapiRequest as any).mockResolvedValue({ name: 'updated' });
+    vi.mocked(core.gapiRequest).mockResolvedValue({ name: 'updated' });
 
     const result = await bulkEnforceAgentsObservability(agents, mockConfig, {
       observabilityEnabled: true,
@@ -113,7 +113,7 @@ describe('agents API - Observability policy and bulk enforcer', () => {
       },
     ];
 
-    (core.gapiRequest as any)
+    vi.mocked(core.gapiRequest)
       .mockResolvedValueOnce({ name: 'updated' })
       .mockRejectedValueOnce(new Error('Permission denied on AgentService.UpdateAgent'));
 
@@ -137,7 +137,7 @@ describe('agents API - Observability policy and bulk enforcer', () => {
       observabilityConfig: { observabilityEnabled: false },
     };
 
-    (core.gapiRequest as any).mockRejectedValueOnce(
+    vi.mocked(core.gapiRequest).mockRejectedValueOnce(
       new Error(
         "The 'agent.authorizations' field is deprecated. Please use 'agent.authorization_config' instead. [ORIGINAL ERROR] generic::invalid_argument: ...",
       ),

@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { Agent, Config, SkillScope } from '../../types';
+import { Agent, Config } from '../../types';
 import * as api from '../../services/apiService';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';

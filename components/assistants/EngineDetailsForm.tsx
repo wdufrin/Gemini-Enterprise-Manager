@@ -72,7 +72,6 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
         handleRemoveCustomFeature,
         handleAddCustomModel,
         setFeatures,
-        setModelConfigs,
         setShowLegacyModels,
     } = useEngineDetailsForm({ engine, config, onUpdateSuccess });
 

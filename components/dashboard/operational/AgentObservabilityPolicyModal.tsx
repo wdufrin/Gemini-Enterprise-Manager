@@ -36,7 +36,7 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
   onClose,
   projectId,
   projectNumber,
-  activeDatasetId,
+  activeDatasetId: _activeDatasetId,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<TabType>('coverage');

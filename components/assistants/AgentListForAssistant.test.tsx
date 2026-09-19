@@ -89,7 +89,7 @@ describe('AgentListForAssistant - Telemetry Policy Controls', () => {
   });
 
   it('toggles single agent telemetry and inherits engine sensitive logging policy', async () => {
-    (api.updateAgent as any).mockResolvedValue({
+    vi.mocked(api.updateAgent).mockResolvedValue({
       ...mockAgents[1],
       observabilityConfig: { observabilityEnabled: true, sensitiveLoggingEnabled: false },
     });
@@ -127,11 +127,12 @@ describe('AgentListForAssistant - Telemetry Policy Controls', () => {
   });
 
   it('bulk enforces telemetry policy matching the App Engine configuration', async () => {
-    (api.bulkEnforceAgentsObservability as any).mockResolvedValue({
+    vi.mocked(api.bulkEnforceAgentsObservability).mockResolvedValue({
       total: 2,
       updated: 2,
       alreadyCompliant: 0,
       failed: 0,
+      legacyAuthCount: 0,
       errors: [],
     });
 
@@ -165,11 +166,12 @@ describe('AgentListForAssistant - Telemetry Policy Controls', () => {
   });
 
   it('bulk enforces telemetry policy with sensitive logging enabled when parent engine enables it', async () => {
-    (api.bulkEnforceAgentsObservability as any).mockResolvedValue({
+    vi.mocked(api.bulkEnforceAgentsObservability).mockResolvedValue({
       total: 2,
       updated: 1,
       alreadyCompliant: 1,
       failed: 0,
+      legacyAuthCount: 0,
       errors: [],
     });
 
@@ -267,7 +269,7 @@ describe('AgentListForAssistant - Telemetry Policy Controls', () => {
       },
     ];
 
-    (api.updateAgent as any).mockRejectedValue(
+    vi.mocked(api.updateAgent).mockRejectedValue(
       new Error("The 'agent.authorizations' field is deprecated. Please use 'agent.authorization_config' instead."),
     );
 
@@ -293,7 +295,7 @@ describe('AgentListForAssistant - Telemetry Policy Controls', () => {
   });
 
   it('shows warning toast when bulk enforcement has partial failures', async () => {
-    (api.bulkEnforceAgentsObservability as any).mockResolvedValue({
+    vi.mocked(api.bulkEnforceAgentsObservability).mockResolvedValue({
       total: 2,
       updated: 1,
       alreadyCompliant: 0,
@@ -333,7 +335,7 @@ describe('AgentListForAssistant - Telemetry Policy Controls', () => {
       },
     };
 
-    (api.updateAgent as any).mockResolvedValue({
+    vi.mocked(api.updateAgent).mockResolvedValue({
       ...mockAgents[1],
       observabilityConfig: { observabilityEnabled: true, sensitiveLoggingEnabled: false },
     });
@@ -432,7 +434,7 @@ describe('AgentListForAssistant - Telemetry Policy Controls', () => {
   });
 
   it('toggles Option 1 (Traces) and Option 2 (Sensitive) directly from the row controls', async () => {
-    (api.updateAgent as any).mockResolvedValue({
+    vi.mocked(api.updateAgent).mockResolvedValue({
       ...mockAgents[1],
       observabilityConfig: { observabilityEnabled: true, sensitiveLoggingEnabled: false },
     });
@@ -473,7 +475,7 @@ describe('AgentListForAssistant - Telemetry Policy Controls', () => {
   });
 
   it('opens Configure Agent Telemetry Modal and updates options', async () => {
-    (api.updateAgent as any).mockResolvedValue({
+    vi.mocked(api.updateAgent).mockResolvedValue({
       ...mockAgents[1],
       observabilityConfig: { observabilityEnabled: true, sensitiveLoggingEnabled: true },
     });

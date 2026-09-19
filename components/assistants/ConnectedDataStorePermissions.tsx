@@ -16,7 +16,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/apiService';
-import SetDataStoreIamPolicyModal, { ResourceType } from './SetDataStoreIamPolicyModal';
+import SetDataStoreIamPolicyModal from './SetDataStoreIamPolicyModal';
 import DataStorePermissionsScriptModal from './DataStorePermissionsScriptModal';
 import DestructiveConfirmModal from '../DestructiveConfirmModal';
 import {

@@ -51,7 +51,7 @@ describe('AgentObservabilityPolicyModal', () => {
   });
 
   it('switches to Option 2 tab, loads engines and agents, and performs bulk sweep', async () => {
-    (api.listResources as any).mockImplementation((type: string) => {
+    vi.mocked(api.listResources).mockImplementation(((type: string) => {
       if (type === 'engines') {
         return Promise.resolve({
           engines: [
@@ -74,19 +74,20 @@ describe('AgentObservabilityPolicyModal', () => {
         });
       }
       return Promise.resolve({});
-    });
+    }) as unknown as typeof api.listResources);
 
-    (api.getAgent as any).mockResolvedValue({
+    vi.mocked(api.getAgent).mockResolvedValue({
       name: 'projects/test-project-123/locations/global/collections/default_collection/engines/engine-alpha/assistants/default_assistant/agents/bot-1',
       displayName: 'Support Agent',
       observabilityConfig: { observabilityEnabled: false },
     });
 
-    (api.bulkEnforceAgentsObservability as any).mockResolvedValue({
+    vi.mocked(api.bulkEnforceAgentsObservability).mockResolvedValue({
       total: 1,
       updated: 1,
       alreadyCompliant: 0,
       failed: 0,
+      legacyAuthCount: 0,
       errors: [],
     });
 
@@ -114,7 +115,7 @@ describe('AgentObservabilityPolicyModal', () => {
   });
 
   it('displays Legacy Schema badge and renders advisory when legacy auth errors occur', async () => {
-    (api.listResources as any).mockImplementation((type: string) => {
+    vi.mocked(api.listResources).mockImplementation(((type: string) => {
       if (type === 'engines') {
         return Promise.resolve({
           engines: [
@@ -138,16 +139,16 @@ describe('AgentObservabilityPolicyModal', () => {
         });
       }
       return Promise.resolve({});
-    });
+    }) as unknown as typeof api.listResources);
 
-    (api.getAgent as any).mockResolvedValue({
+    vi.mocked(api.getAgent).mockResolvedValue({
       name: 'projects/test-project-123/locations/global/collections/default_collection/engines/engine-alpha/assistants/default_assistant/agents/jira-bot',
       displayName: 'JIRA',
       authorizations: ['projects/test-project-123/locations/global/authorizations/jira-auth'],
       observabilityConfig: { observabilityEnabled: false },
     });
 
-    (api.bulkEnforceAgentsObservability as any).mockResolvedValue({
+    vi.mocked(api.bulkEnforceAgentsObservability).mockResolvedValue({
       total: 1,
       updated: 0,
       alreadyCompliant: 0,

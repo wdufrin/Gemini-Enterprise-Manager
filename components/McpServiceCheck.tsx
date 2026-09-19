@@ -16,7 +16,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { listMcpTools, checkMcpCompliance } from '../services/apiService';
-import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
 import { Modal } from './common/Modal';
 
@@ -40,7 +39,6 @@ interface McpServiceCheckProps {
 }
 
 export const McpServiceCheck: React.FC<McpServiceCheckProps> = ({ projectId, serviceName, mcpEndpoint, label, checked, onChange }) => {
-    const { toast } = useToast();
     const [status, setStatus] = useState<'loading' | 'enabled' | 'disabled' | 'error' | 'unchecked'>('unchecked');
     const [showEnablePopup, setShowEnablePopup] = useState(false);
     const [tools, setTools] = useState<McpTool[]>([]);

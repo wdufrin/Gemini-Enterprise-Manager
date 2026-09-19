@@ -66,22 +66,23 @@ describe('AuditLoggingModal - Step 2 Observability & Child Agent Enforcement', (
   });
 
   it('updates engine and enforces child agent telemetry when Apply Configuration is clicked', async () => {
-    (api.updateEngine as any).mockResolvedValue({
+    vi.mocked(api.updateEngine).mockResolvedValue({
       ...mockEngine,
       observabilityConfig: { observabilityEnabled: true, sensitiveLoggingEnabled: true },
     });
 
-    (api.listResources as any).mockResolvedValue({
+    vi.mocked(api.listResources).mockResolvedValue({
       agents: [
         { name: 'projects/test-project/.../agents/bot-1', displayName: 'Support Bot' },
       ],
     });
 
-    (api.bulkEnforceAgentsObservability as any).mockResolvedValue({
+    vi.mocked(api.bulkEnforceAgentsObservability).mockResolvedValue({
       total: 1,
       updated: 1,
       alreadyCompliant: 0,
       failed: 0,
+      legacyAuthCount: 0,
       errors: [],
     });
 
