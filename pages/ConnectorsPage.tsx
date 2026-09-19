@@ -73,7 +73,16 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
   const activeVendors = React.useMemo(() => {
     const set = new Set<string>();
     collections.forEach((col) => {
-      const v = detectConnectorVendor(col.dataConnector || col);
+      const dataConnector =
+        col.dataConnector && typeof col.dataConnector === "object"
+          ? (col.dataConnector as Record<string, unknown>)
+          : {};
+      const v = detectConnectorVendor({
+        displayName: col.displayName,
+        collectionDisplayName: col.displayName,
+        ...dataConnector,
+        name: (dataConnector.name as string | undefined) || col.name,
+      });
       if (v && v !== "GENERIC") set.add(v);
     });
     return Array.from(set);

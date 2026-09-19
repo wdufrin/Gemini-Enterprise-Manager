@@ -239,7 +239,7 @@ Diagnostics runs a fixed sequence ([connectorDiagnostics.ts](file:///usr/local/g
 [ConnectorDetailsModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx) — four tabs:
 
 - **Diagnostics** — the step list above, plus collapsibles for **Raw Data Connector State**, **Recent Operations (N)** (auto-opens and gains the suffix `(Failures Detected)` if any op errored) and **Recent Error Logs (N)**. Three canned remediations are matched on the error text ([L151-L175](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L151-L175)): `JIRA_INVALID_AUTH` → *Jira Authentication Error*; `FORBIDDEN`/`403`/`PERMISSION_DENIED` → *Access Denied (403)*; `NOT_FOUND`/`404` → *Resource Not Found (404)*. Anything else gets no advice.
-- **Pre-Flight Checklist** — headed `Pre-Flight Readiness Checklist` ([ConnectorVerificationTab.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/ConnectorVerificationTab.tsx)). The vendor is auto-detected by lowercased substring match against the connector JSON and name, across JIRA, JIRA_DC, CONFLUENCE, CONFLUENCE_DC, SALESFORCE, SERVICENOW, ENTRA_ID, SHAREPOINT, OUTLOOK, TEAMS, ONEDRIVE, SLACK, DROPBOX, NOTION, ZENDESK, BOX, GITHUB, HUBSPOT, LINEAR, MONDAY, SHOPIFY, and a GENERIC fallback. It distinguishes `INGESTION` from `FEDERATED` data modes for the 12 vendors that support both.
+- **Validation Checklist** — headed `Connector Validation & Readiness Checklist` ([ConnectorVerificationTab.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/ConnectorVerificationTab.tsx)). Audits live authentication, Domain-Wide Delegation (DWD), Discovery Engine Service Agent IAM roles, API scopes, and endpoint connectivity for existing connectors. The vendor profile is auto-detected by lowercased substring match against the connector JSON, collection display name, and name across 35+ vendors (including Google Workspace Gmail, Google Drive, Google People, Jira, Jira DC, Confluence, Confluence DC, Salesforce, ServiceNow, Entra ID, SharePoint, Outlook, Teams, OneDrive, Slack, Dropbox, Notion, Zendesk, Box, GitHub, GitLab, Asana, HubSpot, Linear, Monday, Shopify, Trello, Workday, Airtable, Stripe, Intercom, Freshservice, Miro, Smartsheet, BigQuery, Cloud Storage, Google Calendar, Google Chat, BYOMCP, and a GENERIC fallback). It distinguishes `INGESTION` from `FEDERATED` data modes for connectors that support both, with interactive action scope checklists and sign-off exports.
 - **Filters** — indexing include/exclude rules, with a badge counting active rules. The banner reads `Indexing Filters: N active rules configured` or `None configured (indexing all accessible data)`. Available keys are per-vendor ([filterDefinitions.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/filters/filterDefinitions.ts)) — SharePoint offers `Path`, `Site`, `Folder`, `InformationProtectionLabelId`, `FileType`; OneDrive offers `Path`, `User`, `Folder`, `FileType`.
 - **Configuration** — relabelled **BYOMCP Settings & JSON** when `dataSource === 'custom_mcp'` ([L233](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L233)). Holds auth settings, agent guidelines, advanced params, discovered tools, and a raw JSON editor.
 
@@ -515,6 +515,38 @@ Before saving, an **API Command Preview (Pending Changes)** block shows the exac
 > **Web Grounding Type has a data-residency consequence and the UI says so in the option label itself.** `Google Search (not Data Residency compliant)` sends queries to public Google Search. If you are bound by EU/US data-residency commitments, use `Enterprise Web Search (Data Residency compliant)` or `Disabled`.
 
 **Engine editor** ([EngineDetailsForm.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/EngineDetailsForm.tsx)) adds `marketplaceAgentVisibility` (5 options including `Show All Marketplace Agents`), a **Disable Analytics** checkbox, model configuration, search engine config (`searchTier`, `requiredSubscriptionTier`, `searchAddOnLlm`), web-app UI settings (`enableWebApp`, `enableAutocomplete`, `enableQualityFeedback`), mobile access (`mobile-app-access`, `qr-code-widget`), IdP configuration, a collapsible **Connected DataStores & Permissions (Beta)** (ACL-gated), **Prompt Chips Administration**, and a **Raw GE App Configuration JSON** viewer.
+
+### Attached Agents & Observability Policy Enforcement
+
+Source: [AgentListForAssistant.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/AgentListForAssistant.tsx).
+
+When you click the **Agents** tab inside an engine's detail view, the console inspects all attached Vertex AI and Discovery Engine agents and assesses their telemetry posture.
+
+#### The Two-Tier Telemetry Reality
+
+In Google Cloud Gemini Enterprise, telemetry is split into two distinct boundaries:
+1. **App-Level Telemetry (App Engine)**: Controls logging for end-user chat queries, search requests, and high-level assistant turns into `discoveryengine_googleapis_com_gemini_enterprise_user_activity`.
+2. **Agent-Level Telemetry (Individual Agents)**: Controls whether an agent's internal reasoning chains, sub-agent delegations, and tool invocations emit OpenTelemetry spans into Cloud Logging (`gen_ai.*` streams) and BigQuery.
+
+> [!IMPORTANT]
+> **Out of the box in Google Cloud Console, newly created agents start with telemetry disabled.** Google treats prompt logging and trace ingestion as separate billing and consent boundaries. If you only enable logging at the App Engine level, you will capture top-level user questions, but will receive **zero** visibility into which tools the agents called, reasoning step latencies, or sub-agent errors.
+
+#### Visual Coverage Indicators
+
+- **`Telemetry: X / Y Monitored`**: Real-time coverage pill showing how many attached agents have OpenTelemetry enabled, with a breakdown into **Full** (traces + sensitive payload logging) and **Partial** (traces enabled, sensitive logging disabled).
+- **`App Telemetry: OFF` Warning Pill**: Displayed in amber when the parent App Engine has audit logging disabled. This alerts administrators that although individual agents may be configured to emit traces, top-level user prompts and search interactions are not currently being captured.
+
+#### Policy Enforcement Controls
+
+- **`Enforce Telemetry Policy` Button**: One-click synchronization that updates all non-compliant child agents to enable OpenTelemetry.
+- **Guardrail Disabled State**: If App-level telemetry is turned OFF on the parent App Engine, this button is greyed out. Hovering displays a tooltip reminding you to enable usage logging on the App Engine first, or to configure individual agents manually below.
+- **`Include Sensitive Data` Checkbox**: Allows administrators to specify whether bulk enforcement includes sensitive data logging (prompts, tool inputs/outputs). By default, this checkbox mirrors the parent App Engine's sensitive logging setting.
+- **`All Agents Monitored` State**: When every attached agent already conforms to the desired policy, the button automatically disables to prevent redundant API calls.
+
+#### Granular Agent Controls & Migration Support
+
+- **Per-Agent Telemetry Badges & Modal**: Each row displays an interactive badge (`Telemetry ON` / `Telemetry OFF`). Clicking the badge opens a configuration modal allowing you to independently toggle OpenTelemetry traces and Sensitive Data logging for that specific agent.
+- **Legacy Schema Handling**: Certain older agents created via legacy Dialogflow CX workflows contain a deprecated `agent.authorizations` schema that Google Cloud APIs reject during updates. The console detects this condition, flags the agent, and offers a **Download Config** action so you can safely export the JSON specification and re-create the agent under the modern schema without crashing batch updates.
 
 ### How to: chat with an engine (the playground)
 

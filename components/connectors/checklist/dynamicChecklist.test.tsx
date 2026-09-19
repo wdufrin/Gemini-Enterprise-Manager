@@ -106,6 +106,33 @@ describe('Dynamic Checklist: Vendor Detection', () => {
     expect(detectConnectorVendor({ connectorState: { dataSource: 'cloud_storage' } })).toBe('GCS');
     expect(detectConnectorVendor({ name: 'google-calendar-sync' })).toBe('GCAL');
     expect(detectConnectorVendor({ name: 'google-chat-bot' })).toBe('GCHAT');
+    expect(detectConnectorVendor({ name: 'trello_project_boards' })).toBe('TRELLO');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'trello' } })).toBe('TRELLO');
+    expect(detectConnectorVendor({ name: 'workday_hcm_sync' })).toBe('WORKDAY');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'workday' } })).toBe('WORKDAY');
+  });
+
+  it('detects connectors by collection displayName when resource name is an opaque ID', () => {
+    expect(
+      detectConnectorVendor({
+        name: 'projects/123/locations/global/collections/col_1773164923720/dataConnector',
+        displayName: 'Github',
+      })
+    ).toBe('GITHUB');
+
+    expect(
+      detectConnectorVendor({
+        name: 'projects/123/locations/global/collections/col_1773165319808/dataConnector',
+        displayName: 'gmail with actions',
+      })
+    ).toBe('GMAIL');
+
+    expect(
+      detectConnectorVendor({
+        name: 'col_999999999999',
+        collectionDisplayName: 'Workday HR Directory',
+      })
+    ).toBe('WORKDAY');
   });
 
   it('falls back to GENERIC for completely unknown connector names', () => {
@@ -147,7 +174,21 @@ describe('Dynamic Checklist: Registry Definitions', () => {
   });
 
   it('validates dedicated pre-flight checklists for newly added connectors', () => {
-    const newVendors = ['AIRTABLE', 'STRIPE', 'INTERCOM', 'FRESHSERVICE', 'MIRO', 'SMARTSHEET', 'BIGQUERY', 'GCS', 'GCAL', 'GCHAT'];
+    const newVendors = [
+      'AIRTABLE',
+      'STRIPE',
+      'INTERCOM',
+      'FRESHSERVICE',
+      'MIRO',
+      'SMARTSHEET',
+      'BIGQUERY',
+      'GCS',
+      'GCAL',
+      'GCHAT',
+      'GMAIL',
+      'TRELLO',
+      'WORKDAY',
+    ];
     for (const vendorId of newVendors) {
       const def = getChecklistDefinition(vendorId);
       expect(def.vendorId).toBe(vendorId);
@@ -269,7 +310,7 @@ describe('Dynamic Checklist: DynamicConnectorVerification Component', () => {
     );
 
     // Verify header progress is visible
-    expect(screen.getByText(/Pre-Flight Readiness Progress/i)).toBeInTheDocument();
+    expect(screen.getByText(/Validation & Readiness Progress/i)).toBeInTheDocument();
 
     // Verify first item label is visible
     const dwdItem = screen.getByText(/Domain-Wide Delegation \(DWD\) Provisioned/i);

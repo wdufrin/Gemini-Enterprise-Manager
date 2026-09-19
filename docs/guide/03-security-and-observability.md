@@ -612,7 +612,39 @@ It answers: how much is this being used, by whom, with which agents, burning how
 
 ### The screen, explained
 
-**Header** — title **Observability**, a **Data Dictionary & Tables Reference** button, and an **Cloud Console** button to Logs Explorer.
+**Header** — title **Observability**, an **Agent Telemetry Policy & Coverage** button (`Policy Hub`), a **Data Dictionary & Tables Reference** button, and a **Cloud Console** button to Logs Explorer.
+
+### Agent Observability Policy & Telemetry Coverage Hub
+
+Source: [AgentObservabilityPolicyModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/dashboard/operational/AgentObservabilityPolicyModal.tsx).
+
+Clicking **Agent Telemetry Policy & Coverage** opens the Policy Hub modal, which addresses the fundamental two-tier logging boundary in Google Cloud Gemini Enterprise.
+
+#### The Observability Gap
+
+When an enterprise administrator turns on usage logging on an App Engine, Google Cloud routes high-level user questions and search queries to Cloud Logging and BigQuery (`discoveryengine_googleapis_com_gemini_enterprise_user_activity`).
+
+However, **child agent execution traces, reasoning step durations, token breakdowns, and tool invocation parameters are NOT emitted by default.** Because trace ingestion and prompt logging represent distinct billing and data-governance boundaries, every newly created no-code agent starts with `observabilityConfig.observabilityEnabled = false`.
+
+The Policy Hub provides two concrete solutions to enforce company-wide observability across all agents:
+
+#### Option 1: Automated Event-Driven Sync (Cloud Function + Eventarc)
+
+For organizations requiring hands-off, automated enforcement whenever developers create new agents:
+- **Architecture**: A Cloud Audit Logs filter catches `AgentService.CreateAgent` and `AgentService.UpdateAgent` events and dispatches them via Eventarc to a serverless Cloud Function.
+- **Auto-Remediation**: The Cloud Function receives the event payload and immediately calls `AgentService.UpdateAgent` to patch `observabilityConfig.observabilityEnabled = true`.
+- **Deployable Artifacts**: The modal provides production-ready, copy-pasteable assets including:
+  - `main.py` Python Cloud Function utilizing Google Application Default Credentials (ADC).
+  - `requirements.txt` specifying required SDK dependencies.
+  - Complete `gcloud functions deploy` command with `--trigger-event-filters` targeting Cloud Audit Logs.
+
+#### Option 2: Bulk Sweep in Manager
+
+For immediate compliance auditing and one-click remediation directly in the web console:
+- **Multi-Engine Audit**: Discovers every Discovery Engine App Engine and attached agent in the active project and location.
+- **Compliance Assessment**: Evaluates each agent's telemetry flags against the administrator's target policy (OpenTelemetry traces enabled, with an optional toggle for sensitive data logging).
+- **One-Click Sync**: Executes batch updates via `bulkEnforceAgentsObservability` to bring all unmonitored agents into full compliance in seconds.
+- **Non-blocking Legacy Handling**: Identifies older agents using deprecated Dialogflow `authorizations` schemas and isolates them so they do not block batch synchronization.
 
 **Log Router Sinks & Tables panel**
 

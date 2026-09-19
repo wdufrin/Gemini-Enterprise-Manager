@@ -35,6 +35,7 @@ Built with **React 18**, **TypeScript**, **Vite**, and **Tailwind CSS**, communi
 7. **Engines & Assistants**: Configure Discovery Engine reasoning engines and default assistants:
    - Manage system instructions, search grounding parameters, and safety thresholds.
    - Link datastores and manage agent attachments.
+   - **Agent Telemetry & Observability Enforcement**: Visual coverage breakdown (`X / Y Monitored`, `Full` vs `Partial`), App Engine vs Agent telemetry guardrails (`App Telemetry: OFF`), bulk policy synchronization with sensitive data logging alignment, per-agent configuration drawers, and Dialogflow legacy schema detection.
 8. **Quota & Cost Estimator**: Inspect real-time API quota utilization via Cloud Monitoring API time-series and estimate monthly SKU costs across Discovery Engine, Gemini queries, and vector indexing.
 9. **Playground (Assistant Testing)**: Interactive chat playground with streaming completions, tool call inspector, citation badges, grounding metadata viewer, and raw request/response JSON explorer.
 
@@ -54,6 +55,7 @@ Built with **React 18**, **TypeScript**, **Vite**, and **Tailwind CSS**, communi
 16. **Observability**: Live operational analytics powered by Google Cloud Logging and BigQuery:
     - Request volume, latency percentiles, error rates, and message distributions.
     - Copyable SQL queries and direct links to Cloud Trace.
+    - **Agent Observability Policy & Telemetry Coverage Hub**: Multi-engine telemetry audit and enforcement resolving the two-tier logging boundary (App Engine user queries vs individual agent reasoning traces), featuring automated event-driven sync (Cloud Functions/Eventarc) and one-click bulk sweep remediation.
 17. **Backup & Recovery**: Granular snapshot and restoration for Collections, Engines, Agents, and User Sessions to Cloud Storage (`gs://`).
 18. **Licenses**: Enterprise Gemini license allocation and active pruner:
     - Filter user assignments by principal, assignment state, license config, and last login.

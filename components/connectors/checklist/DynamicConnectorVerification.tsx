@@ -117,7 +117,7 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
 
   const handleExportAuditReport = () => {
     const lines = [
-      `# Pre-Flight Readiness Audit Sign-Off`,
+      `# Connector Validation & Readiness Audit Sign-Off`,
       `**Connector**: \`${connectorName}\``,
       `**Vendor Profile**: ${checklistDef.vendorDisplayName}`,
       `**Data Mode**: ${dataMode}`,
@@ -156,7 +156,7 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
-                Pre-Flight Readiness Progress
+                Validation & Readiness Progress
               </span>
               <span
                 className={`px-2 py-0.5 rounded text-[10px] font-bold ${

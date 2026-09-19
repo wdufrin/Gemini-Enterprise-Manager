@@ -192,6 +192,106 @@ export const CHECKLIST_REGISTRY: Record<string, ConnectorChecklistDefinition> = 
       },
     ],
   },
+
+  GMAIL: {
+    vendorId: 'GMAIL',
+    vendorDisplayName: 'Gmail / Google Mail',
+    category: 'Google First-Party & MCP',
+    detectionPatterns: {
+      dataSources: ['gmail', 'google_mail', 'mail'],
+      nameSubstrings: ['gmail', 'google-mail', 'google_mail', 'mail'],
+    },
+    supportsDataModeToggle: true,
+    supportsActions: true,
+    documentationUrl: 'https://cloud.google.com/generative-ai-app-builder/docs/connectors/gmail',
+    sections: [
+      {
+        id: 'auth_access',
+        title: 'Authentication & Service Account Configuration',
+        stepNumber: 1,
+        description: 'Verify Google Workspace Domain-Wide Delegation and Discovery Engine Service Agent permissions.',
+        items: [
+          {
+            id: 'gmail_dwd',
+            label: 'Domain-Wide Delegation (DWD) Configured',
+            subLabel: 'Service Account authorized in Google Workspace Admin Console with Gmail API scopes.',
+            badge: 'Required',
+            documentationUrl: 'https://admin.google.com/ac/owl/domainwidedelegation',
+          },
+          {
+            id: 'gmail_iam_service_agent',
+            label: 'Discovery Engine Service Agent Role',
+            subLabel: 'Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.',
+            badge: 'Automated',
+            automatedProbe: {
+              type: 'IAM_PERMISSION_CHECK',
+              requiredPermissions: ['discoveryengine.dataStores.get', 'discoveryengine.collections.get'],
+              description: 'Checks Discovery Engine service agent role bindings on project.',
+            },
+          },
+          {
+            id: 'gmail_connector_health',
+            label: 'Connector State Health',
+            subLabel: 'Connector status in Discovery Engine is ACTIVE with healthy sync logs.',
+            badge: 'Automated',
+            automatedProbe: {
+              type: 'CONNECTOR_STATUS',
+              description: 'Validates connector state and recent crawl operations.',
+            },
+          },
+        ],
+      },
+      {
+        id: 'scopes_permissions',
+        title: 'Gmail API Scopes (Read)',
+        stepNumber: 2,
+        description: 'Ensure read-only and metadata scopes are authorized for indexing emails and threads.',
+        items: [
+          {
+            id: 'gmail_scope_readonly',
+            label: 'Gmail Readonly Scope',
+            subLabel: 'Allows indexing email messages, attachments, threads, and labels.',
+            codeSnippet: 'https://www.googleapis.com/auth/gmail.readonly',
+            badge: 'Required',
+          },
+          {
+            id: 'gmail_scope_metadata',
+            label: 'Gmail Metadata Readonly',
+            subLabel: 'Enables reading message headers, sender, date, and subject metadata.',
+            codeSnippet: 'https://www.googleapis.com/auth/gmail.metadata',
+            badge: 'Required',
+          },
+        ],
+      },
+      {
+        id: 'actions_permissions',
+        title: 'Assistant Actions & Email Dispatch (Write)',
+        stepNumber: 3,
+        description: 'Write permissions required when enabling Gemini Assistant actions to draft or send emails.',
+        items: [
+          {
+            id: 'gmail_scope_send',
+            label: 'Gmail Send Scope',
+            subLabel: 'Allows the assistant to dispatch emails on behalf of the authenticated user after confirmation.',
+            codeSnippet: 'https://www.googleapis.com/auth/gmail.send',
+            badge: 'Required',
+            appliesToMode: 'ACTIONS',
+            isActionRequirement: true,
+          },
+          {
+            id: 'gmail_scope_compose',
+            label: 'Gmail Compose Scope',
+            subLabel: 'Allows the assistant to create drafts in Gmail without sending immediately.',
+            codeSnippet: 'https://www.googleapis.com/auth/gmail.compose',
+            badge: 'Optional',
+            appliesToMode: 'ACTIONS',
+            isActionRequirement: true,
+          },
+        ],
+      },
+    ],
+  },
+
   BYO_MCP: {
     vendorId: 'BYO_MCP',
     vendorDisplayName: 'Model Context Protocol (BYOMCP)',
@@ -2393,6 +2493,115 @@ AIRTABLE: {
     ],
   },
 
+  TRELLO: {
+    vendorId: 'TRELLO',
+    vendorDisplayName: 'Trello',
+    category: 'Productivity & Tasks',
+    detectionPatterns: {
+      dataSources: ['trello'],
+      nameSubstrings: ['trello'],
+    },
+    supportsDataModeToggle: false,
+    supportsActions: true,
+    documentationUrl: 'https://cloud.google.com/generative-ai-app-builder/docs/connectors/trello',
+    sections: [
+      {
+        id: 'trello_auth',
+        title: 'Trello API Credentials & Authorization',
+        stepNumber: 1,
+        description: 'Verify Power-Up API Key and User OAuth Token with board read permissions.',
+        items: [
+          {
+            id: 'trello_api_key',
+            label: 'Trello API Key & Token',
+            subLabel: 'Developer API key and server token generated with read access to target workspaces.',
+            badge: 'Required',
+          },
+          {
+            id: 'trello_token_scope',
+            label: 'Scope: read,write,account',
+            subLabel: 'Ensures token has permission to read board content, lists, custom fields, and cards.',
+            codeSnippet: 'scope=read,write,account',
+            badge: 'Required',
+          },
+        ],
+      },
+      {
+        id: 'trello_actions',
+        title: 'Assistant Actions & Card Management',
+        stepNumber: 2,
+        description: 'Write permissions for Gemini Assistant to create cards, add checklists, and move lists.',
+        items: [
+          {
+            id: 'trello_action_write',
+            label: 'Board Write Permission',
+            subLabel: 'Allows creating cards, setting due dates, and updating card labels.',
+            badge: 'Required',
+            appliesToMode: 'ACTIONS',
+            isActionRequirement: true,
+          },
+        ],
+      },
+    ],
+  },
+
+  WORKDAY: {
+    vendorId: 'WORKDAY',
+    vendorDisplayName: 'Workday',
+    category: 'Enterprise Platforms',
+    detectionPatterns: {
+      dataSources: ['workday', 'workday_hcm', 'workday_financials'],
+      nameSubstrings: ['workday'],
+    },
+    supportsDataModeToggle: true,
+    supportsActions: true,
+    documentationUrl: 'https://cloud.google.com/generative-ai-app-builder/docs/connectors/workday',
+    sections: [
+      {
+        id: 'workday_auth',
+        title: 'Workday Integration System User (ISU)',
+        stepNumber: 1,
+        description: 'Verify ISU account and Integration System Security Group (ISSG) configuration in Workday.',
+        items: [
+          {
+            id: 'workday_isu',
+            label: 'Integration System User (ISU) Created',
+            subLabel: 'Dedicated service account with Do Not Allow UI Sessions enabled.',
+            badge: 'Required',
+          },
+          {
+            id: 'workday_security_group',
+            label: 'ISSG Domain Security Policies',
+            subLabel: 'Grant Get/Put permissions on Worker Data, Organization, and Report-as-a-Service domains.',
+            badge: 'Required',
+          },
+          {
+            id: 'workday_endpoint',
+            label: 'Workday Tenant REST/RaaS Endpoint',
+            subLabel: 'Configured with tenant name and valid Web Services endpoint URL.',
+            badge: 'Required',
+          },
+        ],
+      },
+      {
+        id: 'workday_actions',
+        title: 'Workday Assistant Actions & Self-Service',
+        stepNumber: 2,
+        description: 'Permissions for employee self-service actions (time-off requests, directory lookups).',
+        items: [
+          {
+            id: 'workday_action_scope',
+            label: 'Worker Self-Service API Access',
+            subLabel: 'Enables assistant to initiate PTO requests and retrieve benefit summaries.',
+            badge: 'Required',
+            appliesToMode: 'ACTIONS',
+            isActionRequirement: true,
+          },
+        ],
+      },
+    ],
+  },
+
   BIGQUERY: {
     vendorId: 'BIGQUERY',
     vendorDisplayName: 'Google BigQuery',
@@ -2920,10 +3129,28 @@ export function detectConnectorVendor(connector: any): string {
   if (!connector) return 'GENERIC';
 
   const connectorState = connector.connectorState || connector;
-  const dataSource = (connectorState.dataSource || '').toLowerCase();
-  const connectorType = (connectorState.connectorType || '').toLowerCase();
-  const nameString = (connector.name || connectorState.name || '').toLowerCase();
-  const stateString = JSON.stringify(connectorState).toLowerCase();
+  const dataSource = (
+    connectorState.dataSource ||
+    connector.dataSource ||
+    ''
+  ).toLowerCase();
+  const connectorType = (
+    connectorState.connectorType ||
+    connector.connectorType ||
+    ''
+  ).toLowerCase();
+  const nameString = (
+    (connector.name || '') + ' ' +
+    (connectorState.name || '') + ' ' +
+    (connector.displayName || '') + ' ' +
+    (connectorState.displayName || '') + ' ' +
+    (connector.collectionDisplayName || '') + ' ' +
+    (connector.title || '')
+  ).toLowerCase();
+  const stateString = (
+    JSON.stringify(connectorState) + ' ' +
+    JSON.stringify(connector)
+  ).toLowerCase();
 
   // 1. First-Party Google & BYOMCP detection
   if (dataSource === 'custom_mcp' || stateString.includes('custom_mcp') || nameString.includes('mcp')) {
@@ -2931,12 +3158,29 @@ export function detectConnectorVendor(connector: any): string {
   }
 
   if (
+    dataSource === 'gmail' ||
+    dataSource === 'google_mail' ||
+    nameString.includes('gmail') ||
+    nameString.includes('google-mail') ||
+    nameString.includes('google_mail')
+  ) {
+    return 'GMAIL';
+  }
+
+  if (
     dataSource === 'gcp_people' ||
     dataSource === 'google_people' ||
     nameString.includes('gcp-people') ||
     nameString.includes('gcp_people') ||
-    nameString.includes('people') ||
-    nameString.includes('directory')
+    nameString.includes('gcp people') ||
+    nameString.includes('google-people') ||
+    nameString.includes('google people') ||
+    nameString.includes('workspace-directory') ||
+    nameString.includes('workspace directory') ||
+    nameString.includes('people-directory') ||
+    nameString.includes('people_directory') ||
+    ((nameString.includes('people') || nameString.includes('directory')) &&
+      (nameString.includes('google') || nameString.includes('workspace') || nameString.includes('gcp')))
   ) {
     return 'GCP_PEOPLE';
   }
@@ -2975,7 +3219,7 @@ export function detectConnectorVendor(connector: any): string {
 
   // 3. Exact match on known registry keys
   for (const [vendorId, def] of Object.entries(CHECKLIST_REGISTRY)) {
-    if (vendorId === 'GENERIC' || vendorId === 'GCP_PEOPLE' || vendorId === 'GCP_DRIVE' || vendorId === 'BYO_MCP' || vendorId === 'JIRA_DC' || vendorId === 'CONFLUENCE_DC') {
+    if (vendorId === 'GENERIC' || vendorId === 'GCP_PEOPLE' || vendorId === 'GCP_DRIVE' || vendorId === 'GMAIL' || vendorId === 'BYO_MCP' || vendorId === 'JIRA_DC' || vendorId === 'CONFLUENCE_DC') {
       continue;
     }
 

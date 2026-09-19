@@ -215,7 +215,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
               className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'verification' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
               onClick={() => setActiveTab('verification')}
             >
-              Pre-Flight Checklist
+              Validation Checklist
             </button>
             <button
               className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors flex items-center gap-1.5 ${activeTab === 'filters' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
@@ -527,7 +527,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
             </div>
           ) : activeTab === 'verification' ? (
             <div className="space-y-6 animate-fadeIn">
-              <ConnectorVerificationTab connector={data} config={config} activeVendors={activeVendors} />
+              <ConnectorVerificationTab connector={data && typeof data === 'object' ? { ...data, title } : data} config={config} activeVendors={activeVendors} />
             </div>
           ) : activeTab === 'filters' ? (
             <div className="space-y-6 animate-fadeIn">
