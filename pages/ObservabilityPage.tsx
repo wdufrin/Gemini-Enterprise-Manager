@@ -4,6 +4,7 @@ import { listLoggingSinks, listBigQueryTables, runBigQueryQuery, gapiRequest, Lo
 import ObservabilityDashboard from '../components/dashboard/ObservabilityDashboard';
 import { OperationalAnalyticsDashboard } from '../components/dashboard/operational/OperationalAnalyticsDashboard';
 import { ObservabilityDataDictionaryModal } from '../components/dashboard/operational/ObservabilityDataDictionaryModal';
+import { AgentObservabilityPolicyModal } from '../components/dashboard/operational/AgentObservabilityPolicyModal';
 import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
 
@@ -34,6 +35,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
     const [sinksLoading, setSinksLoading] = useState(false);
     const [queryLoading, setQueryLoading] = useState(false);
     const [showDataDictionary, setShowDataDictionary] = useState(false);
+    const [showPolicyModal, setShowPolicyModal] = useState(false);
 
     const queryCache = useRef<Map<string, ObservabilityDashboardMetrics>>(new Map());
 
@@ -516,6 +518,20 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     <div className="flex items-center gap-3 flex-wrap">
                         <button
                             type="button"
+                            onClick={() => setShowPolicyModal(true)}
+                            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-gray-800 hover:bg-gray-700 text-purple-400 hover:text-purple-300 border border-gray-700 hover:border-gray-600 transition-all shadow-sm"
+                            title="Open Agent Observability Policy & Telemetry Coverage Hub"
+                        >
+                            <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10c0-1.718-.433-3.333-1.2-4.782" />
+                            </svg>
+                            <span>Agent Telemetry Policy & Coverage</span>
+                            <span className="text-[10px] bg-purple-900/80 text-purple-200 px-1.5 py-0.2 rounded border border-purple-700/60 font-bold">
+                                Policy Hub
+                            </span>
+                        </button>
+                        <button
+                            type="button"
                             onClick={() => setShowDataDictionary(true)}
                             className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-gray-800 hover:bg-gray-700 text-blue-400 hover:text-blue-300 border border-gray-700 hover:border-gray-600 transition-all shadow-sm"
                             title="Open Observability Data Dictionary & Tables Reference"
@@ -680,6 +696,36 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     )}
                 </div>
 
+                {/* Telemetry Coverage Insight Card */}
+                <div className="mt-4 p-4 rounded-xl border border-purple-800/50 bg-purple-950/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                        <span className="p-2 bg-purple-900/60 rounded-lg border border-purple-700/50 text-purple-300 mt-0.5 shrink-0">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </span>
+                        <div className="text-xs">
+                            <div className="text-white font-semibold flex items-center gap-2 flex-wrap">
+                                <span>Agent Telemetry Coverage Notice:</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-900/80 text-purple-200 border border-purple-700/60 font-bold">
+                                    App Level (~65%) vs Agent Level (~35%)
+                                </span>
+                            </div>
+                            <p className="text-gray-300 mt-1 leading-relaxed">
+                                BigQuery sinks record user sessions and assistant queries, but internal agent reasoning, tool payloads, and prompt traces require per-agent OpenTelemetry. Newly created no-code agents in Google Cloud Console start with telemetry disabled by default.
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowPolicyModal(true)}
+                        className="text-xs text-white font-semibold px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 transition-colors whitespace-nowrap shadow-sm shrink-0 flex items-center gap-1.5"
+                    >
+                        <span>Manage Policy & Auto-Enabler</span>
+                        <span>→</span>
+                    </button>
+                </div>
+
                 <div className="mt-8">
                     {/* Dashboard Mode Tabs */}
                     <div className="flex border-b border-gray-700 mb-6">
@@ -758,6 +804,14 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
             <ObservabilityDataDictionaryModal
                 isOpen={showDataDictionary}
                 onClose={() => setShowDataDictionary(false)}
+                activeDatasetId={datasetId}
+            />
+
+            <AgentObservabilityPolicyModal
+                isOpen={showPolicyModal}
+                onClose={() => setShowPolicyModal(false)}
+                projectId={projectId}
+                projectNumber={projectNumber}
                 activeDatasetId={datasetId}
             />
         </div>

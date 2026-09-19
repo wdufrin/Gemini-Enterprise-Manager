@@ -230,6 +230,7 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
               <AgentListForAssistant
                 agents={agents}
                 config={currentConfig}
+                engine={selectedRow.engine}
                 onRefreshAgents={onRefreshAgents}
               />
             )}

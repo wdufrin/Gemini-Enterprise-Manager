@@ -26,6 +26,7 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
     // Engine states (Observability)
     const [observabilityEnabled, setObservabilityEnabled] = useState(false);
     const [sensitiveLoggingEnabled, setSensitiveLoggingEnabled] = useState(false);
+    const [enforceOnAgents, setEnforceOnAgents] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
     // Cloud Build staging bucket config (needed if doing cloud build)
@@ -50,8 +51,10 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
 
     useEffect(() => {
         if (isOpen) {
-            setObservabilityEnabled(engine.observabilityConfig?.observabilityEnabled || false);
-            setSensitiveLoggingEnabled(engine.observabilityConfig?.sensitiveLoggingEnabled || false);
+            const obs = Boolean(engine.observabilityConfig?.observabilityEnabled);
+            setObservabilityEnabled(obs);
+            setSensitiveLoggingEnabled(Boolean(engine.observabilityConfig?.sensitiveLoggingEnabled));
+            setEnforceOnAgents(obs);
             setStatus(null);
             setError(null);
             setStep(1);
@@ -115,7 +118,26 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
             };
             const updated = await api.updateEngine(engine.name, payload, ['observabilityConfig'], config);
             onUpdateSuccess(updated);
-            setStatus("Engine configuration updated successfully!");
+
+            let agentFeedback = '';
+            if (observabilityEnabled && enforceOnAgents) {
+                try {
+                    const res = await api.listResources('agents', config);
+                    const agentList = res.agents || [];
+                    if (agentList.length > 0) {
+                        const bulkRes = await api.bulkEnforceAgentsObservability(agentList, config, {
+                            observabilityEnabled: true,
+                            sensitiveLoggingEnabled,
+                        });
+                        agentFeedback = ` Also enforced telemetry on ${bulkRes.updated} child agent(s) (${bulkRes.alreadyCompliant} already compliant).`;
+                    }
+                } catch (agentErr) {
+                    console.warn("Child agent telemetry enforcement note:", agentErr);
+                    agentFeedback = " (Note: App Engine updated, but could not enforce on child agents.)";
+                }
+            }
+
+            setStatus(`Engine configuration updated successfully!${agentFeedback}`);
         } catch (err: unknown) {
             setError(toErrorMessage(err, "Failed to update engine configuration."));
         } finally {
@@ -301,17 +323,47 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                             Enable usage audit logging by updating the app&apos;s <code>observabilityConfig</code>.
                         </p>
 
+                        {/* Telemetry Coverage Scope Notice */}
+                        <div className="p-3.5 bg-blue-950/40 border border-blue-800/70 rounded-lg text-xs space-y-2">
+                            <div className="flex items-center justify-between">
+                                <span className="text-blue-300 font-bold flex items-center gap-1.5">
+                                    <svg className="w-4 h-4 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    Telemetry Coverage Notice (App vs Agent)
+                                </span>
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-blue-900/80 text-blue-200 border border-blue-700/60 font-semibold">
+                                    App ~65% | Agent ~35%
+                                </span>
+                            </div>
+                            <p className="text-gray-300 leading-relaxed">
+                                Enabling observability below activates <strong>App-Level</strong> logging (~65% of telemetry, covering user prompts, Search queries, and session boundaries).
+                            </p>
+                            <div className="p-2.5 bg-amber-950/50 border border-amber-800/70 rounded text-amber-200/95 leading-relaxed text-[11px]">
+                                <strong>⚠️ Google Cloud Console Default:</strong> Every newly created no-code agent starts with its telemetry set to <code className="font-mono text-white">false</code> (due to trace billing and consent boundaries). Without agent-level OpenTelemetry, sub-agent reasoning loops and tool execution traces are omitted.
+                            </div>
+                        </div>
+
                         <div className="space-y-4 p-4 bg-gray-900/30 rounded-md border border-gray-700">
                             <div className="flex items-center space-x-3 cursor-pointer">
                                 <input
                                     type="checkbox"
                                     id="observabilityEnabledModal"
                                     checked={observabilityEnabled}
-                                    onChange={(e) => setObservabilityEnabled(e.target.checked)}
+                                    onChange={(e) => {
+                                        const checked = e.target.checked;
+                                        setObservabilityEnabled(checked);
+                                        if (!checked) {
+                                            setSensitiveLoggingEnabled(false);
+                                            setEnforceOnAgents(false);
+                                        } else {
+                                            setEnforceOnAgents(true);
+                                        }
+                                    }}
                                     className="h-5 w-5 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
                                 />
                                 <label htmlFor="observabilityEnabledModal" className="flex items-center text-sm font-medium text-gray-200 cursor-pointer">
-                                    Enable Usage Audit Logging
+                                    Enable App-Level Usage Audit Logging
                                     <InfoTooltip text="Captures request and response data, including prompts and grounding metadata, and stores it in Cloud Logging." />
                                 </label>
                             </div>
@@ -328,6 +380,26 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                                 <label htmlFor="sensitiveLoggingEnabledModal" className="flex items-center text-xs font-medium text-gray-300 cursor-pointer">
                                     Enable Sensitive Data Logging
                                     <InfoTooltip text="WARNING: Sensitive data isn't filtered out of the audit logs when this is enabled." />
+                                </label>
+                            </div>
+
+                            <div className={`pt-3 border-t border-gray-700/60 flex items-start space-x-3 transition-opacity ${observabilityEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <input
+                                    type="checkbox"
+                                    id="enforceOnAgentsModal"
+                                    checked={observabilityEnabled && enforceOnAgents}
+                                    onChange={(e) => setEnforceOnAgents(e.target.checked)}
+                                    disabled={!observabilityEnabled}
+                                    className="h-4 w-4 mt-0.5 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 disabled:opacity-40"
+                                />
+                                <label htmlFor="enforceOnAgentsModal" className="text-xs text-gray-200 cursor-pointer">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="font-semibold text-white">Also enforce OpenTelemetry on all child agents in this engine</span>
+                                        <span className="text-[10px] bg-blue-900/80 text-blue-300 px-1.5 py-0.2 rounded border border-blue-700/50">Option 2 Bulk Sweep</span>
+                                    </div>
+                                    <p className="text-gray-400 text-[11px] mt-0.5">
+                                        Automatically discovers child agents under this engine and batch-patches their <code className="font-mono text-gray-300">observabilityConfig</code> to eliminate blindspots.
+                                    </p>
                                 </label>
                             </div>
                         </div>

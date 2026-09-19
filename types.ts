@@ -141,6 +141,10 @@ export interface Agent {
   skillAgentDefinition?: SkillAgentDefinition;
   authorizations?: string[]; // Deprecated
   authorizationConfig?: AuthorizationConfig;
+  observabilityConfig?: {
+    observabilityEnabled?: boolean;
+    sensitiveLoggingEnabled?: boolean;
+  };
   entitlements?: unknown[];
   iamPolicy?: IamPolicy;
   state?: 'ENABLED' | 'DISABLED' | 'PRIVATE' | 'CONFIGURED' | 'DEPLOYING' | 'DEPLOYMENT_FAILED' | 'SUSPENDED' | 'CREATING' | 'CREATION_FAILED' | string;

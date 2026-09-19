@@ -83,6 +83,7 @@ export const updateAgent = async (
   if (payload.sharingConfig) updateMask.push("sharing_config");
   if (payload.authorizations) updateMask.push("authorizations");
   if (payload.authorizationConfig) updateMask.push("authorization_config");
+  if (payload.observabilityConfig) updateMask.push("observabilityConfig");
 
   const agentName = agent.name && agent.name.startsWith("projects/")
     ? agent.name
@@ -90,6 +91,75 @@ export const updateAgent = async (
 
   const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}?updateMask=${updateMask.join(",")}`;
   return gapiRequest<Agent>(url, "PATCH", config.projectId, undefined, payload);
+};
+
+export interface BulkObservabilityResult {
+  total: number;
+  updated: number;
+  alreadyCompliant: number;
+  failed: number;
+  errors: string[];
+  legacyAuthCount: number;
+}
+
+export const bulkEnforceAgentsObservability = async (
+  agents: Agent[],
+  config: Config,
+  options: {
+    observabilityEnabled?: boolean;
+    sensitiveLoggingEnabled?: boolean;
+  } = { observabilityEnabled: true, sensitiveLoggingEnabled: false },
+): Promise<BulkObservabilityResult> => {
+  const result: BulkObservabilityResult = {
+    total: agents.length,
+    updated: 0,
+    alreadyCompliant: 0,
+    failed: 0,
+    errors: [],
+    legacyAuthCount: 0,
+  };
+
+  const targetObs = options.observabilityEnabled !== false;
+  const targetSensitive = Boolean(options.sensitiveLoggingEnabled);
+
+  for (const agent of agents) {
+    const currentObs = Boolean(agent.observabilityConfig?.observabilityEnabled);
+    const currentSensitive = Boolean(agent.observabilityConfig?.sensitiveLoggingEnabled);
+
+    if (currentObs === targetObs && currentSensitive === targetSensitive) {
+      result.alreadyCompliant++;
+      continue;
+    }
+
+    try {
+      await updateAgent(
+        agent,
+        {
+          observabilityConfig: {
+            observabilityEnabled: targetObs,
+            sensitiveLoggingEnabled: targetSensitive,
+          },
+        },
+        config,
+      );
+      result.updated++;
+    } catch (err: unknown) {
+      result.failed++;
+      const raw = (err as Error).message || String(err);
+      let clean = raw;
+      if (raw.includes("agent.authorizations") && raw.includes("deprecated")) {
+        result.legacyAuthCount++;
+        clean = "Legacy Schema: Created with deprecated 'agent.authorizations' field. Google Cloud API blocks in-place updates to this resource until re-created with 'authorizationConfig'.";
+      } else if (clean.includes("[ORIGINAL ERROR]")) {
+        clean = clean.split("[ORIGINAL ERROR]")[0].trim().replace(/\(\s*$/, "").trim();
+      }
+      result.errors.push(
+        `${agent.displayName || agent.name.split("/").pop() || "Agent"}: ${clean}`,
+      );
+    }
+  }
+
+  return result;
 };
 
 export const requestAgentReview = async (name: string, config: Config) => {
