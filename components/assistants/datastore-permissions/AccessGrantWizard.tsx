@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { ConnectorResource, LegacyDataStoreResource } from './types';
 
 interface AccessGrantWizardProps {
@@ -33,6 +33,8 @@ interface AccessGrantWizardProps {
   onChangeSelectedResources: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   connectors: ConnectorResource[];
   legacyDataStores: LegacyDataStoreResource[];
+  includeUnattachedInSync?: boolean;
+  onChangeIncludeUnattached?: (val: boolean) => void;
   isDryRun: boolean;
   onChangeDryRun: (val: boolean) => void;
   isExecutingWizard: boolean;
@@ -58,6 +60,8 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
   onChangeSelectedResources,
   connectors,
   legacyDataStores,
+  includeUnattachedInSync = false,
+  onChangeIncludeUnattached,
   isDryRun,
   onChangeDryRun,
   isExecutingWizard,
@@ -66,6 +70,119 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
   onClearLogs,
   appId,
 }) => {
+  const [showUnattachedSection, setShowUnattachedSection] = useState(false);
+
+  const hasAnyAttached =
+    connectors.some(c => c.isAttached) || legacyDataStores.some(ds => ds.isAttached);
+
+  const primaryConnectors = hasAnyAttached ? connectors.filter(c => c.isAttached) : connectors;
+  const primaryDataStores = hasAnyAttached ? legacyDataStores.filter(ds => ds.isAttached) : legacyDataStores;
+
+  const unattachedConnectors = hasAnyAttached ? connectors.filter(c => !c.isAttached) : [];
+  const unattachedDataStores = hasAnyAttached ? legacyDataStores.filter(ds => !ds.isAttached) : [];
+  const totalUnattachedCount = unattachedConnectors.length + unattachedDataStores.length;
+
+  const renderConnectorItem = (conn: ConnectorResource) => (
+    <div key={conn.id} className="bg-gray-800/80 p-3 rounded-lg border border-gray-700/80">
+      <label className="flex items-center gap-2.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!selectedResourcesForGrant[`connector:${conn.id}`]}
+          onChange={(e) => {
+            const val = e.target.checked;
+            onChangeSelectedResources(prev => {
+              const updated = { ...prev, [`connector:${conn.id}`]: val };
+              conn.entities.forEach(ent => {
+                updated[`entity:${ent.id}`] = val;
+              });
+              return updated;
+            });
+          }}
+          className="rounded bg-gray-700 border-gray-600 text-purple-600 focus:ring-purple-500"
+        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold text-purple-300 font-mono">{conn.id}</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-950 text-purple-300 border border-purple-800">
+            DataConnector
+          </span>
+          {conn.isAttached ? (
+            <span className="px-1.5 py-0.5 rounded text-[10px] bg-green-950 text-green-300 border border-green-800">
+              Attached to App
+            </span>
+          ) : (
+            <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-900 text-gray-400 border border-gray-700">
+              Unlinked Project Resource
+            </span>
+          )}
+        </div>
+      </label>
+
+      {/* Connector Entities */}
+      {conn.entities.length > 0 && (
+        <div className="mt-2 pl-6 space-y-1.5 border-l-2 border-purple-900/50 ml-2">
+          {conn.entities.map(ent => (
+            <label key={ent.id} className="flex items-center gap-2 cursor-pointer text-xs">
+              <input
+                type="checkbox"
+                checked={!!selectedResourcesForGrant[`entity:${ent.id}`]}
+                onChange={(e) => {
+                  const val = e.target.checked;
+                  onChangeSelectedResources(prev => {
+                    const updated = {
+                      ...prev,
+                      [`entity:${ent.id}`]: val,
+                    };
+                    const anyEntityChecked = conn.entities.some(child =>
+                      child.id === ent.id ? val : !!updated[`entity:${child.id}`]
+                    );
+                    updated[`connector:${conn.id}`] = anyEntityChecked;
+                    return updated;
+                  });
+                }}
+                className="rounded bg-gray-700 border-gray-600 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-gray-300 font-mono text-[11px]">{ent.id}</span>
+              <span className="text-[10px] text-gray-500">(Entity DataStore)</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderDataStoreItem = (ds: LegacyDataStoreResource) => (
+    <div key={ds.id} className="bg-gray-800/80 p-3 rounded-lg border border-gray-700/80">
+      <label className="flex items-center gap-2.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!selectedResourcesForGrant[`datastore:${ds.id}`]}
+          onChange={(e) =>
+            onChangeSelectedResources(prev => ({
+              ...prev,
+              [`datastore:${ds.id}`]: e.target.checked,
+            }))
+          }
+          className="rounded bg-gray-700 border-gray-600 text-blue-600 focus:ring-blue-500"
+        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold text-gray-200 font-mono">{ds.id}</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-950 text-blue-300 border border-blue-800">
+            Legacy DataStore
+          </span>
+          {ds.isAttached ? (
+            <span className="px-1.5 py-0.5 rounded text-[10px] bg-green-950 text-green-300 border border-green-800">
+              Attached to App
+            </span>
+          ) : (
+            <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-900 text-gray-400 border border-gray-700">
+              Unlinked Project Resource
+            </span>
+          )}
+        </div>
+      </label>
+    </div>
+  );
+
   return (
     <div id="wizard-section" className="bg-gray-800 rounded-xl border border-gray-700 shadow-md overflow-hidden">
       <div
@@ -194,17 +311,17 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    const allSelected: Record<string, boolean> = {};
-                    connectors.forEach(c => {
-                      allSelected[`connector:${c.id}`] = true;
+                    const attachedSelected: Record<string, boolean> = {};
+                    primaryConnectors.forEach(c => {
+                      attachedSelected[`connector:${c.id}`] = true;
                       c.entities.forEach(e => {
-                        allSelected[`entity:${e.id}`] = true;
+                        attachedSelected[`entity:${e.id}`] = true;
                       });
                     });
-                    legacyDataStores.forEach(ds => {
-                      allSelected[`datastore:${ds.id}`] = true;
+                    primaryDataStores.forEach(ds => {
+                      attachedSelected[`datastore:${ds.id}`] = true;
                     });
-                    onChangeSelectedResources(allSelected);
+                    onChangeSelectedResources(attachedSelected);
                   }}
                   className="text-xs text-blue-400 hover:text-blue-300 font-medium"
                 >
@@ -221,97 +338,54 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
               </div>
             </div>
 
-            <div className="space-y-3 bg-gray-900/50 p-4 rounded-xl border border-gray-700 max-h-64 overflow-y-auto">
+            <div className="space-y-3 bg-gray-900/50 p-4 rounded-xl border border-gray-700 max-h-80 overflow-y-auto">
               {connectors.length === 0 && legacyDataStores.length === 0 && (
                 <p className="text-xs text-gray-500 italic py-2">No DataStores or Connectors found in this location.</p>
               )}
 
-              {/* Connectors */}
-              {connectors.map(conn => (
-                <div key={conn.id} className="bg-gray-800/80 p-3 rounded-lg border border-gray-700/80">
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={!!selectedResourcesForGrant[`connector:${conn.id}`]}
-                      onChange={(e) => {
-                        const val = e.target.checked;
-                        onChangeSelectedResources(prev => {
-                          const updated = { ...prev, [`connector:${conn.id}`]: val };
-                          conn.entities.forEach(ent => {
-                            updated[`entity:${ent.id}`] = val;
-                          });
-                          return updated;
-                        });
-                      }}
-                      className="rounded bg-gray-700 border-gray-600 text-purple-600 focus:ring-purple-500"
-                    />
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-purple-300 font-mono">{conn.id}</span>
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-950 text-purple-300 border border-purple-800">
-                        DataConnector
-                      </span>
-                      {conn.isAttached && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-green-950 text-green-300 border border-green-800">
-                          Attached to App
-                        </span>
-                      )}
-                    </div>
-                  </label>
+              {/* Primary (Attached) Connectors */}
+              {primaryConnectors.map(renderConnectorItem)}
 
-                  {/* Connector Entities */}
-                  {conn.entities.length > 0 && (
-                    <div className="mt-2 pl-6 space-y-1.5 border-l-2 border-purple-900/50 ml-2">
-                      {conn.entities.map(ent => (
-                        <label key={ent.id} className="flex items-center gap-2 cursor-pointer text-xs">
-                          <input
-                            type="checkbox"
-                            checked={!!selectedResourcesForGrant[`entity:${ent.id}`]}
-                            onChange={(e) =>
-                              onChangeSelectedResources(prev => ({
-                                ...prev,
-                                [`entity:${ent.id}`]: e.target.checked,
-                              }))
-                            }
-                            className="rounded bg-gray-700 border-gray-600 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-gray-300 font-mono text-[11px]">{ent.id}</span>
-                          <span className="text-[10px] text-gray-500">(Entity DataStore)</span>
-                        </label>
-                      ))}
+              {/* Primary (Attached) Legacy DataStores */}
+              {primaryDataStores.map(renderDataStoreItem)}
+
+              {/* Unattached Project Resources (Collapsible) */}
+              {totalUnattachedCount > 0 && (
+                <div className="pt-2 border-t border-gray-800">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-gray-800/40 p-2.5 rounded-lg border border-gray-700/60">
+                    <button
+                      type="button"
+                      onClick={() => setShowUnattachedSection(prev => !prev)}
+                      className="text-xs text-gray-300 hover:text-white font-semibold flex items-center gap-1.5 text-left"
+                    >
+                      <span>{showUnattachedSection ? '▾' : '▸'}</span>
+                      <span>
+                        Unlinked Project Resources ({unattachedConnectors.length} Connector
+                        {unattachedConnectors.length === 1 ? '' : 's'}, {unattachedDataStores.length} DataStore
+                        {unattachedDataStores.length === 1 ? '' : 's'})
+                      </span>
+                    </button>
+                    {onChangeIncludeUnattached && (
+                      <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-gray-400">
+                        <input
+                          type="checkbox"
+                          checked={includeUnattachedInSync}
+                          onChange={(e) => onChangeIncludeUnattached(e.target.checked)}
+                          className="rounded bg-gray-800 border-gray-600 text-blue-500 focus:ring-0"
+                        />
+                        <span>Sync unlinked project resources too</span>
+                      </label>
+                    )}
+                  </div>
+
+                  {showUnattachedSection && (
+                    <div className="mt-2.5 space-y-2.5 pl-2 border-l-2 border-gray-700">
+                      {unattachedConnectors.map(renderConnectorItem)}
+                      {unattachedDataStores.map(renderDataStoreItem)}
                     </div>
                   )}
                 </div>
-              ))}
-
-              {/* Legacy DataStores */}
-              {legacyDataStores.map(ds => (
-                <div key={ds.id} className="bg-gray-800/80 p-3 rounded-lg border border-gray-700/80">
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={!!selectedResourcesForGrant[`datastore:${ds.id}`]}
-                      onChange={(e) =>
-                        onChangeSelectedResources(prev => ({
-                          ...prev,
-                          [`datastore:${ds.id}`]: e.target.checked,
-                        }))
-                      }
-                      className="rounded bg-gray-700 border-gray-600 text-blue-600 focus:ring-blue-500"
-                    />
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-gray-200 font-mono">{ds.id}</span>
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-950 text-blue-300 border border-blue-800">
-                        Legacy DataStore
-                      </span>
-                      {ds.isAttached && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-green-950 text-green-300 border border-green-800">
-                          Attached to App
-                        </span>
-                      )}
-                    </div>
-                  </label>
-                </div>
-              ))}
+              )}
             </div>
           </div>
 

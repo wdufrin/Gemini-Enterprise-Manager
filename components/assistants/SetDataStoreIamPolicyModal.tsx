@@ -32,6 +32,7 @@ export interface SetDataStoreIamPolicyModalProps {
   resourcePath: string;
   config: Config;
   currentPolicy: IamPolicy | null;
+  childEntityIds?: string[];
 }
 
 const DEFAULT_ROLE = 'roles/discoveryengine.agentspaceUser';
@@ -46,6 +47,7 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
   resourcePath,
   config,
   currentPolicy,
+  childEntityIds,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [editablePolicy, setEditablePolicy] = useState<IamPolicy | null>(null);
@@ -172,6 +174,27 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
         responsePolicy = await api.setEngineIamPolicy(resourceId, finalPolicy, config);
       } else if (resourceType === 'connector') {
         responsePolicy = await api.setCollectionIamPolicy(resourceId, finalPolicy, config);
+
+        // Keep child Entity DataStores synchronized with the Connector Collection's agentspaceUser binding
+        if (childEntityIds && childEntityIds.length > 0) {
+          const desiredMembers =
+            finalPolicy.bindings.find(b => b.role === DEFAULT_ROLE && !b.condition)?.members || [];
+          for (const entId of childEntityIds) {
+            const entPolicy = await api.getDataStoreIamPolicy(entId, config);
+            const otherBindings = (entPolicy.bindings || []).filter(
+              b => !(b.role === DEFAULT_ROLE && !b.condition)
+            );
+            const updatedEntBindings =
+              desiredMembers.length > 0
+                ? [...otherBindings, { role: DEFAULT_ROLE, members: [...desiredMembers] }]
+                : otherBindings;
+            await api.setDataStoreIamPolicy(
+              entId,
+              { etag: entPolicy.etag || '', bindings: updatedEntBindings },
+              config
+            );
+          }
+        }
       } else {
         // datastore or entity
         responsePolicy = await api.setDataStoreIamPolicy(resourceId, finalPolicy, config);

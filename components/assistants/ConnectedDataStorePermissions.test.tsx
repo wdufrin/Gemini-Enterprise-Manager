@@ -364,13 +364,218 @@ describe('ConnectedDataStorePermissions Component', () => {
       expect(screen.getAllByText('Configure DataStores ↓').length).toBeGreaterThan(0);
     });
   });
+
+  it('revokes an unchecked connector (both collection and entity) without resetting checkboxes back to all attached connectors after refreshAll or clobbering unattached connectors', async () => {
+    const threeConnectorEngine: AppEngine = {
+      name: 'projects/test-project/locations/global/collections/default_collection/engines/cosmere',
+      displayName: 'Cosmere',
+      solutionType: 'SOLUTION_TYPE_SEARCH',
+      dataStoreIds: [
+        'camp-operations-tools_drive',
+        'drive_entity',
+        'gcp-people_entity',
+      ],
+    };
+
+    vi.mocked(api.listCollections).mockResolvedValue({
+      collections: [
+        { name: 'projects/test-project/locations/global/collections/camp-operations-tools' },
+        { name: 'projects/test-project/locations/global/collections/drive' },
+        { name: 'projects/test-project/locations/global/collections/gcp-people' },
+        { name: 'projects/test-project/locations/global/collections/unlinked-other-app' },
+      ],
+    });
+
+    vi.mocked(api.listResources).mockResolvedValue({
+      dataStores: [
+        {
+          name: 'projects/test-project/locations/global/collections/default_collection/dataStores/camp-operations-tools_drive',
+          displayName: 'Camp Ops Drive',
+          industryVertical: 'GENERIC',
+          solutionTypes: ['SOLUTION_TYPE_SEARCH'],
+          contentConfig: 'CONTENT_REQUIRED',
+        },
+        {
+          name: 'projects/test-project/locations/global/collections/default_collection/dataStores/drive_entity',
+          displayName: 'Drive Entity',
+          industryVertical: 'GENERIC',
+          solutionTypes: ['SOLUTION_TYPE_SEARCH'],
+          contentConfig: 'CONTENT_REQUIRED',
+        },
+        {
+          name: 'projects/test-project/locations/global/collections/default_collection/dataStores/gcp-people_entity',
+          displayName: 'GCP People Entity',
+          industryVertical: 'GENERIC',
+          solutionTypes: ['SOLUTION_TYPE_SEARCH'],
+          contentConfig: 'CONTENT_REQUIRED',
+        },
+        {
+          name: 'projects/test-project/locations/global/collections/default_collection/dataStores/unlinked-other-app_entity',
+          displayName: 'Unlinked Other App Entity',
+          industryVertical: 'GENERIC',
+          solutionTypes: ['SOLUTION_TYPE_SEARCH'],
+          contentConfig: 'CONTENT_REQUIRED',
+        },
+      ],
+    });
+
+    const collectionPolicies: Record<string, { etag: string; bindings: { role: string; members: string[] }[] }> = {
+      'camp-operations-tools': {
+        etag: 'etag-camp',
+        bindings: [{ role: 'roles/discoveryengine.agentspaceUser', members: ['user:wdufrin@google.com'] }],
+      },
+      drive: {
+        etag: 'etag-drive',
+        bindings: [{ role: 'roles/discoveryengine.agentspaceUser', members: ['user:wdufrin@google.com'] }],
+      },
+      'gcp-people': {
+        etag: 'etag-people',
+        bindings: [{ role: 'roles/discoveryengine.agentspaceUser', members: ['user:wdufrin@google.com'] }],
+      },
+      'unlinked-other-app': {
+        etag: 'etag-unlinked',
+        bindings: [{ role: 'roles/discoveryengine.agentspaceUser', members: ['user:wdufrin@google.com'] }],
+      },
+    };
+
+    const dataStorePolicies: Record<string, { etag: string; bindings: { role: string; members: string[] }[] }> = {
+      'camp-operations-tools_drive': {
+        etag: 'etag-camp-ent',
+        bindings: [{ role: 'roles/discoveryengine.agentspaceUser', members: ['user:wdufrin@google.com'] }],
+      },
+      drive_entity: {
+        etag: 'etag-drive-ent',
+        bindings: [{ role: 'roles/discoveryengine.agentspaceUser', members: ['user:wdufrin@google.com'] }],
+      },
+      'gcp-people_entity': {
+        etag: 'etag-people-ent',
+        bindings: [{ role: 'roles/discoveryengine.agentspaceUser', members: ['user:wdufrin@google.com'] }],
+      },
+      'unlinked-other-app_entity': {
+        etag: 'etag-unlinked-ent',
+        bindings: [{ role: 'roles/discoveryengine.agentspaceUser', members: ['user:wdufrin@google.com'] }],
+      },
+    };
+
+    vi.mocked(api.getProjectIamPolicy).mockResolvedValue({
+      etag: 'proj-etag-1',
+      bindings: [
+        {
+          role: 'projects/test-project/roles/customRestrictedEndUser',
+          members: ['user:wdufrin@google.com'],
+        },
+      ],
+    });
+
+    vi.mocked(api.getEngineIamPolicy).mockResolvedValue({
+      etag: 'eng-etag-1',
+      bindings: [
+        {
+          role: 'roles/discoveryengine.agentspaceUser',
+          members: ['user:wdufrin@google.com'],
+        },
+      ],
+    });
+
+    vi.mocked(api.getCollectionIamPolicy).mockImplementation(async (connId: string) => {
+      return JSON.parse(JSON.stringify(collectionPolicies[connId] || { etag: 'e', bindings: [] }));
+    });
+
+    vi.mocked(api.setCollectionIamPolicy).mockImplementation(async (connId: string, policy: any) => {
+      collectionPolicies[connId] = JSON.parse(JSON.stringify(policy));
+      return collectionPolicies[connId];
+    });
+
+    vi.mocked(api.getDataStoreIamPolicy).mockImplementation(async (dsId: string) => {
+      return JSON.parse(JSON.stringify(dataStorePolicies[dsId] || { etag: 'e', bindings: [] }));
+    });
+
+    vi.mocked(api.setDataStoreIamPolicy).mockImplementation(async (dsId: string, policy: any) => {
+      dataStorePolicies[dsId] = JSON.parse(JSON.stringify(policy));
+      return dataStorePolicies[dsId];
+    });
+
+    render(
+      <ConnectedDataStorePermissions
+        engine={threeConnectorEngine}
+        config={mockConfig}
+        projectNumber="123456789"
+      />
+    );
+
+    // Wait for initial load and click Configure DataStores for wdufrin@google.com
+    await waitFor(() => {
+      expect(screen.getAllByText('Configure DataStores ↓').length).toBeGreaterThan(0);
+    });
+    fireEvent.click(screen.getAllByText('Configure DataStores ↓')[0]);
+
+    // Find the checkbox for 'camp-operations-tools' inside the wizard and uncheck it
+    const wizardSection = document.getElementById('wizard-section')!;
+    const campConnectorLabel = Array.from(wizardSection.querySelectorAll('label')).find(el =>
+      el.textContent?.includes('camp-operations-toolsDataConnector')
+    )!;
+    const campCheckbox = campConnectorLabel.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(campCheckbox.checked).toBe(true);
+
+    // Uncheck 'camp-operations-tools'
+    fireEvent.click(campCheckbox);
+    expect(campCheckbox.checked).toBe(false);
+
+    // Submit the wizard ('Apply & Sync Permissions')
+    const submitBtn = screen.getByRole('button', { name: /Apply & Sync Permissions/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Successfully synchronized DataStore permissions for 1 member\(s\)!/i)
+      ).toBeDefined();
+    });
+
+    // Verify 'camp-operations-tools' collection and child entity were revoked
+    expect(api.setCollectionIamPolicy).toHaveBeenCalledWith(
+      'camp-operations-tools',
+      expect.objectContaining({ bindings: [] }),
+      mockConfig
+    );
+    expect(api.setDataStoreIamPolicy).toHaveBeenCalledWith(
+      'camp-operations-tools_drive',
+      expect.objectContaining({ bindings: [] }),
+      mockConfig
+    );
+
+    // Verify unlinked project connector was NOT touched/revoked by default
+    expect(api.setCollectionIamPolicy).not.toHaveBeenCalledWith(
+      'unlinked-other-app',
+      expect.anything(),
+      expect.anything()
+    );
+
+    // Verify project custom role was NOT revoked
+    expect(api.setProjectIamPolicy).not.toHaveBeenCalled();
+
+    // Crucial regression check: after post-sync refreshAll() completes, 'camp-operations-tools' must remain unchecked (NOT reset to all attached connectors!)
+    expect(campCheckbox.checked).toBe(false);
+  });
 });
 
 describe('SetDataStoreIamPolicyModal', () => {
-  it('allows adding and saving member to IAM policy', async () => {
+  it('allows adding and saving member to IAM policy and propagates connector changes to childEntityIds', async () => {
     const mockOnSuccess = vi.fn();
+    vi.mocked(api.setCollectionIamPolicy).mockResolvedValue({
+      etag: 'new-coll-etag',
+      bindings: [],
+    });
+    vi.mocked(api.getDataStoreIamPolicy).mockResolvedValue({
+      etag: 'ent-etag-1',
+      bindings: [
+        {
+          role: 'roles/discoveryengine.agentspaceUser',
+          members: ['user:userA@example.com'],
+        },
+      ],
+    });
     vi.mocked(api.setDataStoreIamPolicy).mockResolvedValue({
-      etag: 'new-etag',
+      etag: 'ent-etag-2',
       bindings: [],
     });
 
@@ -379,10 +584,10 @@ describe('SetDataStoreIamPolicyModal', () => {
         isOpen={true}
         onClose={vi.fn()}
         onSuccess={mockOnSuccess}
-        resourceId="DataStore1"
-        resourceDisplayName="DataStore 1"
-        resourceType="datastore"
-        resourcePath="projects/test-project/locations/global/collections/default_collection/dataStores/DataStore1"
+        resourceId="DataConnector3"
+        resourceDisplayName="DataConnector 3"
+        resourceType="connector"
+        resourcePath="projects/test-project/locations/global/collections/DataConnector3"
         config={mockConfig}
         currentPolicy={{
           etag: 'etag-123',
@@ -393,12 +598,34 @@ describe('SetDataStoreIamPolicyModal', () => {
             },
           ],
         }}
+        childEntityIds={['DataConnector3_entityA']}
       />
     );
 
     expect(screen.getByText('Edit Resource IAM Policy')).toBeDefined();
-    expect(screen.getByText('DataStore 1')).toBeDefined();
+    expect(screen.getByText('DataConnector 3')).toBeDefined();
     expect(screen.getByText('user:userA@example.com')).toBeDefined();
+
+    // Remove user:userA@example.com and save
+    const removeMemberBtn = screen.getByRole('button', { name: /Remove user:userA@example\.com/i });
+    fireEvent.click(removeMemberBtn);
+
+    const saveBtn = screen.getByRole('button', { name: /Save Policy/i });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(api.setCollectionIamPolicy).toHaveBeenCalledWith(
+        'DataConnector3',
+        expect.objectContaining({ bindings: [] }),
+        mockConfig
+      );
+      expect(api.setDataStoreIamPolicy).toHaveBeenCalledWith(
+        'DataConnector3_entityA',
+        expect.objectContaining({ bindings: [] }),
+        mockConfig
+      );
+      expect(mockOnSuccess).toHaveBeenCalled();
+    });
   });
 });
 
@@ -425,4 +652,5 @@ describe('DataStorePermissionsScriptModal', () => {
     expect(screen.getByText(/dataStoreAccessControlEnabled/)).toBeDefined();
   });
 });
+
 

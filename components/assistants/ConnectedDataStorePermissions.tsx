@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as api from '../../services/apiService';
 import SetDataStoreIamPolicyModal from './SetDataStoreIamPolicyModal';
 import DataStorePermissionsScriptModal from './DataStorePermissionsScriptModal';
@@ -25,8 +25,10 @@ import {
   CUSTOM_ROLE_ID,
   REQUIRED_CUSTOM_ROLE_PERMISSIONS,
   ConnectedDataStorePermissionsProps,
+  ConnectorResource,
   EditingResource,
   IsolateTarget,
+  LegacyDataStoreResource,
   RevokeTarget,
   UserAccessDetails,
 } from './datastore-permissions/types';
@@ -39,6 +41,12 @@ import { ConnectedResourcesMatrix } from './datastore-permissions/ConnectedResou
 import { IsolateUserModal } from './datastore-permissions/IsolateUserModal';
 
 export type { UserAccessDetails };
+
+const getMembersKey = (rawInput: string): string => {
+  const rawMembers = rawInput.split(/[\s,]+/).filter(m => m.trim() !== '');
+  if (rawMembers.length === 0) return '';
+  return rawMembers.map(formatMember).sort().join(',');
+};
 
 const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps> = ({
   engine,
@@ -63,8 +71,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     isRepairingConnectors,
     readiness,
     inconsistentConnectorGrants,
-    projectPolicy,
-    enginePolicy,
+     enginePolicy,
     connectors,
     legacyDataStores,
     selectedResourcesForGrant,
@@ -90,9 +97,11 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
   const [wizardCheckCustomRole, setWizardCheckCustomRole] = useState(true);
   const [wizardGrantProjectRole, setWizardGrantProjectRole] = useState(true);
   const [wizardGrantEngineRole, setWizardGrantEngineRole] = useState(true);
+  const [includeUnattachedInSync, setIncludeUnattachedInSync] = useState(false);
   const [isDryRun, setIsDryRun] = useState(false);
   const [isExecutingWizard, setIsExecutingWizard] = useState(false);
   const [executionLogs, setExecutionLogs] = useState<string[]>([]);
+  const lastPopulatedMembersKeyRef = useRef<string>('');
 
   // Modal & Guide States
   const [showInstructionsGuide, setShowInstructionsGuide] = useState(false);
@@ -106,66 +115,105 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
   };
 
   // Populate Wizard Checkboxes from Current Permissions of Member(s)
-  const populateWizardForMember = useCallback((rawInput: string) => {
-    if (!rawInput.trim()) return;
-
-    const rawMembers = rawInput.split(/[\s,]+/).filter(m => m.trim() !== '');
-    if (rawMembers.length === 0) return;
-
-    const formattedMembers = rawMembers.map(formatMember);
-
-    // 1. Step A1: Check if all target members have the custom role at project level
-    const customRoleFullName = `projects/${projectId}/roles/${CUSTOM_ROLE_ID}`;
-    const customRoleBinding = projectPolicy?.bindings?.find(
-      b => b.role === customRoleFullName || b.role?.endsWith(`/${CUSTOM_ROLE_ID}`)
-    );
-    const hasProjectRole =
-      formattedMembers.length > 0 && formattedMembers.every(m => customRoleBinding?.members?.includes(m));
-    setWizardGrantProjectRole(hasProjectRole);
-
-    // 2. Step A2: Check if all target members have App Engine access
-    const engineBinding = enginePolicy?.bindings?.find(
-      b => b.role === AGENTSPACE_USER_ROLE || b.role?.includes('agentspace')
-    );
-    const hasEngineRole =
-      formattedMembers.length > 0 && formattedMembers.every(m => engineBinding?.members?.includes(m));
-    setWizardGrantEngineRole(hasEngineRole);
-
-    // 3. Steps A3 & A4: Check DataConnectors, Entities, and Legacy DataStores
-    const newSelected: Record<string, boolean> = {};
-
-    connectors.forEach(conn => {
-      const connBinding = conn.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE);
-      if (formattedMembers.length > 0 && formattedMembers.every(m => connBinding?.members?.includes(m))) {
-        newSelected[`connector:${conn.id}`] = true;
+  const populateWizardForMember = useCallback(
+    (
+      rawInput: string,
+      options?: {
+        connectorsOverride?: ConnectorResource[];
+        legacyDataStoresOverride?: LegacyDataStoreResource[];
+        fallbackToAttachedIfNoGrants?: boolean;
       }
+    ) => {
+      if (!rawInput.trim()) return;
 
-      conn.entities.forEach(ent => {
-        const entBinding = ent.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE);
-        if (formattedMembers.length > 0 && formattedMembers.every(m => entBinding?.members?.includes(m))) {
-          newSelected[`entity:${ent.id}`] = true;
+      const rawMembers = rawInput.split(/[\s,]+/).filter(m => m.trim() !== '');
+      if (rawMembers.length === 0) return;
+
+      const formattedMembers = rawMembers.map(formatMember);
+      const connList = options?.connectorsOverride ?? connectors;
+      const dsList = options?.legacyDataStoresOverride ?? legacyDataStores;
+
+      // 1. Steps A1 & A2: Default to true when provisioning/updating a user in Two-Way Sync
+      // so we never inadvertently revoke their project custom role or App Engine access.
+      setWizardGrantProjectRole(true);
+      setWizardGrantEngineRole(true);
+
+      // 2. Steps A3 & A4: Check DataConnectors, Entities, and Legacy DataStores
+      const newSelected: Record<string, boolean> = {};
+      let hasAnyExplicitAttachedGrant = false;
+
+      connList.forEach(conn => {
+        const connBinding = conn.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE);
+        const hasConnAccess =
+          formattedMembers.length > 0 && formattedMembers.every(m => connBinding?.members?.includes(m));
+        if (hasConnAccess) {
+          newSelected[`connector:${conn.id}`] = true;
+          if (conn.isAttached) hasAnyExplicitAttachedGrant = true;
+        }
+
+        conn.entities.forEach(ent => {
+          const entBinding = ent.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE);
+          const hasEntAccess =
+            formattedMembers.length > 0 && formattedMembers.every(m => entBinding?.members?.includes(m));
+          if (hasEntAccess && (hasConnAccess || !conn.policy)) {
+            newSelected[`entity:${ent.id}`] = true;
+            if (conn.isAttached) hasAnyExplicitAttachedGrant = true;
+          }
+        });
+      });
+
+      dsList.forEach(ds => {
+        const dsBinding = ds.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE);
+        const hasDsAccess =
+          formattedMembers.length > 0 && formattedMembers.every(m => dsBinding?.members?.includes(m));
+        if (hasDsAccess) {
+          newSelected[`datastore:${ds.id}`] = true;
+          if (ds.isAttached) hasAnyExplicitAttachedGrant = true;
         }
       });
-    });
 
-    legacyDataStores.forEach(ds => {
-      const dsBinding = ds.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE);
-      if (formattedMembers.length > 0 && formattedMembers.every(m => dsBinding?.members?.includes(m))) {
-        newSelected[`datastore:${ds.id}`] = true;
+      // If a newly isolated user had 0 explicit attached grants (because they previously relied on a broad project role),
+      // pre-select the attached resources so the admin can uncheck whichever connector(s) they want to restrict.
+      if (options?.fallbackToAttachedIfNoGrants && !hasAnyExplicitAttachedGrant) {
+        connList.forEach(conn => {
+          if (conn.isAttached) {
+            newSelected[`connector:${conn.id}`] = true;
+            conn.entities.forEach(ent => {
+              newSelected[`entity:${ent.id}`] = true;
+            });
+          }
+        });
+        dsList.forEach(ds => {
+          if (ds.isAttached) {
+            newSelected[`datastore:${ds.id}`] = true;
+          }
+        });
       }
-    });
 
-    setSelectedResourcesForGrant(newSelected);
-  }, [projectId, projectPolicy, enginePolicy, connectors, legacyDataStores, setSelectedResourcesForGrant]);
+      lastPopulatedMembersKeyRef.current = formattedMembers.slice().sort().join(',');
+      setSelectedResourcesForGrant(newSelected);
+    },
+    [connectors, legacyDataStores, setSelectedResourcesForGrant]
+  );
 
-  // Automatically populate checkboxes when target input changes (debounced)
+  // Automatically populate checkboxes ONLY when target member identity changes (do not clobber manual edits on refreshAll)
   useEffect(() => {
-    if (!targetMembersInput.trim()) return;
+    const membersKey = getMembersKey(targetMembersInput);
+    if (!membersKey) {
+      lastPopulatedMembersKeyRef.current = '';
+      return;
+    }
+    if (isLoading && connectors.length === 0 && legacyDataStores.length === 0) {
+      return;
+    }
+    if (lastPopulatedMembersKeyRef.current === membersKey) {
+      return;
+    }
     const timer = setTimeout(() => {
       populateWizardForMember(targetMembersInput);
     }, 250);
     return () => clearTimeout(timer);
-  }, [targetMembersInput, populateWizardForMember]);
+  }, [targetMembersInput, isLoading, connectors.length, legacyDataStores.length, populateWizardForMember]);
 
   // Execute Guided Wizard (Two-Way Sync: Grant Checked, Revoke Unchecked)
   const handleExecuteWizard = async (e: React.FormEvent) => {
@@ -242,6 +290,26 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         }
       }
 
+      const hasAnyAttached =
+        connectors.some(c => c.isAttached) || legacyDataStores.some(ds => ds.isAttached);
+
+      const connectorsToSync = connectors.filter(
+        conn =>
+          !hasAnyAttached ||
+          conn.isAttached ||
+          includeUnattachedInSync ||
+          !!selectedResourcesForGrant[`connector:${conn.id}`] ||
+          conn.entities.some(ent => !!selectedResourcesForGrant[`entity:${ent.id}`])
+      );
+
+      const legacyDataStoresToSync = legacyDataStores.filter(
+        ds =>
+          !hasAnyAttached ||
+          ds.isAttached ||
+          includeUnattachedInSync ||
+          !!selectedResourcesForGrant[`datastore:${ds.id}`]
+      );
+
       // Loop for each target member
       for (const member of members) {
         addLog(`\n======================================================`);
@@ -276,7 +344,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         );
 
         // Step A3: DataConnectors and Entities
-        for (const conn of connectors) {
+        for (const conn of connectorsToSync) {
           const shouldGrantConn = !!selectedResourcesForGrant[`connector:${conn.id}`];
           addLog(`--- Step A3: ${shouldGrantConn ? 'Granting' : 'Revoking'} DataConnector Collection '${conn.id}' ---`);
           await syncPolicyRMW(
@@ -307,7 +375,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         }
 
         // Step A4: Legacy DataStores
-        for (const ds of legacyDataStores) {
+        for (const ds of legacyDataStoresToSync) {
           const shouldGrantDs = !!selectedResourcesForGrant[`datastore:${ds.id}`];
           addLog(`--- Step A4: ${shouldGrantDs ? 'Granting' : 'Revoking'} Legacy DataStore '${ds.id}' ---`);
           await syncPolicyRMW(
@@ -331,7 +399,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
       );
 
       if (!isDryRun) {
-        refreshAll();
+        await refreshAll();
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Workflow failed.';
@@ -396,20 +464,26 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         `Successfully isolated ${membersToIsolate.length} user(s)! Broad project-wide roles removed, and '${CUSTOM_ROLE_ID}' granted. Pre-filled into Provisioner below to assign App Engine and DataStore permissions.`
       );
 
-      // Pre-fill wizard with these members
+      // Close modal and refresh policies before populating the wizard so there is no background refresh race
+      setIsolateModalTarget(null);
+      setSelectedUsersForIsolation(new Set());
+      const refreshed = await refreshAll();
+
+      // Pre-fill wizard with these members and keep Step A1 (customRole) checked (true) so Two-Way Sync preserves it
       const cleanedMembers = membersToIsolate.map(m => m.replace(/^(user|group|serviceAccount):/, '')).join(', ');
       setTargetMembersInput(cleanedMembers);
-      setWizardGrantProjectRole(false); // already done!
+      setWizardGrantProjectRole(true);
       setWizardGrantEngineRole(true);
       setIsWizardOpen(true);
-      setSelectedUsersForIsolation(new Set());
-
-      // Refresh all policies
-      await refreshAll();
+      populateWizardForMember(cleanedMembers, {
+        connectorsOverride: refreshed?.connectors,
+        legacyDataStoresOverride: refreshed?.legacyDataStores,
+        fallbackToAttachedIfNoGrants: true,
+      });
 
       // Smooth scroll to wizard
       setTimeout(() => {
-        document.getElementById('wizard-section')?.scrollIntoView({ behavior: 'smooth' });
+        document.getElementById('wizard-section')?.scrollIntoView?.({ behavior: 'smooth' });
       }, 100);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -464,9 +538,32 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
       }).filter((b: any) => b.members && b.members.length > 0);
 
       await setFn({ etag, bindings });
+
+      // If revoking from a DataConnector Collection, also revoke from its child Entity DataStores
+      if (resourceType === 'connector') {
+        const targetConnector = connectors.find(c => c.id === resourceId);
+        if (targetConnector && targetConnector.entities.length > 0) {
+          for (const ent of targetConnector.entities) {
+            const entPolicy = await api.getDataStoreIamPolicy(ent.id, config);
+            const entBindings = (entPolicy.bindings || [])
+              .map((b: any) => {
+                if (b.role === AGENTSPACE_USER_ROLE) {
+                  return {
+                    ...b,
+                    members: (b.members || []).filter((m: string) => m !== member),
+                  };
+                }
+                return b;
+              })
+              .filter((b: any) => b.members && b.members.length > 0);
+            await api.setDataStoreIamPolicy(ent.id, { etag: entPolicy.etag || '', bindings: entBindings }, config);
+          }
+        }
+      }
+
       setSuccessMessage(`Revoked '${member}' from ${resourceDesc}.`);
       setRevokeTarget(null);
-      refreshAll();
+      await refreshAll();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(`Failed to revoke access: ${msg}`);
@@ -650,12 +747,13 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         }}
         onSetSelectedUsers={setSelectedUsersForIsolation}
         onIsolateTarget={setIsolateModalTarget}
-        onConfigureDataStores={(member, hasCustomRole) => {
+        onConfigureDataStores={(member) => {
           setTargetMembersInput(member);
-          setWizardGrantProjectRole(!hasCustomRole);
+          setWizardGrantProjectRole(true);
           setWizardGrantEngineRole(true);
           setIsWizardOpen(true);
-          document.getElementById('wizard-section')?.scrollIntoView({ behavior: 'smooth' });
+          populateWizardForMember(member);
+          document.getElementById('wizard-section')?.scrollIntoView?.({ behavior: 'smooth' });
         }}
       />
 
@@ -676,6 +774,8 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         onChangeSelectedResources={setSelectedResourcesForGrant}
         connectors={connectors}
         legacyDataStores={legacyDataStores}
+        includeUnattachedInSync={includeUnattachedInSync}
+        onChangeIncludeUnattached={setIncludeUnattachedInSync}
         isDryRun={isDryRun}
         onChangeDryRun={setIsDryRun}
         isExecutingWizard={isExecutingWizard}
@@ -715,6 +815,11 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
           resourcePath={editingResource.path}
           config={config}
           currentPolicy={editingResource.policy}
+          childEntityIds={
+            editingResource.type === 'connector'
+              ? connectors.find(c => c.id === editingResource.id)?.entities.map(e => e.id)
+              : undefined
+          }
         />
       )}
 

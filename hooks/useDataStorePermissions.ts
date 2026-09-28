@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppEngine, Config, DataStore } from '../types';
 import * as api from '../services/apiService';
 import {
@@ -86,10 +86,11 @@ export function useDataStorePermissions(
   const [connectors, setConnectors] = useState<ConnectorResource[]>([]);
   const [legacyDataStores, setLegacyDataStores] = useState<LegacyDataStoreResource[]>([]);
   const [selectedResourcesForGrant, setSelectedResourcesForGrant] = useState<Record<string, boolean>>({});
+  const initializedEngineRef = useRef<string | null>(null);
 
   // 1. Fetch All Resources, Policies, and Environment Readiness
   const refreshAll = useCallback(async () => {
-    if (!projectId) return;
+    if (!projectId) return undefined;
     setIsLoading(true);
     setError(null);
     setReadiness(prev => ({ ...prev, isEvaluating: true }));
@@ -307,26 +308,37 @@ export function useDataStorePermissions(
         missingAdminPermissions: missingAdminPerms,
       });
 
-      // Pre-select all attached resources by default
-      const initialSelected: Record<string, boolean> = {};
-      connList.forEach(c => {
-        if (c.isAttached) {
-          initialSelected[`connector:${c.id}`] = true;
-          c.entities.forEach(e => {
-            initialSelected[`entity:${e.id}`] = true;
-          });
-        }
-      });
-      legacyDsList.forEach(ds => {
-        if (ds.isAttached) {
-          initialSelected[`datastore:${ds.id}`] = true;
-        }
-      });
-      setSelectedResourcesForGrant(initialSelected);
+      // Pre-select all attached resources ONLY on the initial load for this engine
+      if (initializedEngineRef.current !== engine.name) {
+        initializedEngineRef.current = engine.name;
+        const initialSelected: Record<string, boolean> = {};
+        connList.forEach(c => {
+          if (c.isAttached) {
+            initialSelected[`connector:${c.id}`] = true;
+            c.entities.forEach(e => {
+              initialSelected[`entity:${e.id}`] = true;
+            });
+          }
+        });
+        legacyDsList.forEach(ds => {
+          if (ds.isAttached) {
+            initialSelected[`datastore:${ds.id}`] = true;
+          }
+        });
+        setSelectedResourcesForGrant(prev => (Object.keys(prev).length > 0 ? prev : initialSelected));
+      }
+
+      return {
+        connectors: connList,
+        legacyDataStores: legacyDsList,
+        projectPolicy: pPolicy,
+        enginePolicy: engPolicy,
+      };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to fetch connected datastore permissions.';
       setError(msg);
       setReadiness(prev => ({ ...prev, isEvaluating: false }));
+      return undefined;
     } finally {
       setIsLoading(false);
     }
@@ -650,41 +662,45 @@ export function useDataStorePermissions(
       }
     });
 
-    // 3. Count Total DataStores
-    let totalDsCount = 0;
-    connectors.forEach(c => {
-      totalDsCount += 1;
-      totalDsCount += c.entities.length;
-    });
-    totalDsCount += legacyDataStores.length;
+    // 3. Count Attached DataStores & Connectors (or all if none are marked attached)
+    const hasAttachedResources =
+      connectors.some(c => c.isAttached) || legacyDataStores.some(ds => ds.isAttached);
+    const relevantConnectors = hasAttachedResources
+      ? connectors.filter(c => c.isAttached)
+      : connectors;
+    const relevantLegacyDs = hasAttachedResources
+      ? legacyDataStores.filter(ds => ds.isAttached)
+      : legacyDataStores;
+    const totalDsCount = relevantConnectors.length + relevantLegacyDs.length;
 
     // 4. Process Connectors & DataStores
     connectors.forEach(conn => {
       const connMembers = conn.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE)?.members || [];
+      const isRelevant = !hasAttachedResources || conn.isAttached;
       connMembers.forEach(m => {
         const u = getOrCreate(m);
-        if (!u.accessibleDataStores.includes(conn.displayName || conn.id)) {
-          u.accessibleDataStores.push(conn.displayName || conn.id);
+        const label = conn.displayName || conn.id;
+        if (isRelevant && !u.accessibleDataStores.includes(label)) {
+          u.accessibleDataStores.push(label);
         }
       });
 
       conn.entities.forEach(ent => {
         const entMembers = ent.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE)?.members || [];
         entMembers.forEach(m => {
-          const u = getOrCreate(m);
-          if (!u.accessibleDataStores.includes(ent.displayName || ent.id)) {
-            u.accessibleDataStores.push(ent.displayName || ent.id);
-          }
+          getOrCreate(m);
         });
       });
     });
 
     legacyDataStores.forEach(ds => {
       const dsMembers = ds.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE)?.members || [];
+      const isRelevant = !hasAttachedResources || ds.isAttached;
       dsMembers.forEach(m => {
         const u = getOrCreate(m);
-        if (!u.accessibleDataStores.includes(ds.displayName || ds.id)) {
-          u.accessibleDataStores.push(ds.displayName || ds.id);
+        const label = ds.displayName || ds.id;
+        if (isRelevant && !u.accessibleDataStores.includes(label)) {
+          u.accessibleDataStores.push(label);
         }
       });
     });
