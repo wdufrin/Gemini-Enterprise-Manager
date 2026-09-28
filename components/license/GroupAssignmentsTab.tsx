@@ -25,7 +25,7 @@ interface GroupAssignmentsTabProps {
   lastRunTimes: Record<string, string>;
   apiLicenseConfigs: LicenseConfig[];
   onNewAssignment: () => void;
-  onRunService: (serviceUrl?: string) => void;
+  onRunService: (serviceOrUrl?: CloudRunServiceItem | string) => void;
   onEditService: (service: CloudRunServiceItem) => void;
   onDeleteService: (serviceName: string) => void;
 }
@@ -128,7 +128,7 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{lastRun}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button
-                          onClick={() => onRunService(service.status?.url)}
+                          onClick={() => onRunService(service)}
                           className="text-green-400 hover:text-green-300 mr-4"
                         >
                           Run

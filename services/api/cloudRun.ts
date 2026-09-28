@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-import { Config, CloudRunService } from "../../types";
-import { gapiRequest } from "./core";
+import { Config, CloudRunService, IamPolicy } from "../../types";
+import { gapiRequest, GapiError } from "./core";
 
 export const listCloudRunServices = async (config: Config, region: string): Promise<{ services?: CloudRunService[] }> => {
   const url = `https://${region}-run.googleapis.com/v2/projects/${config.projectId}/locations/${region}/services`;
@@ -33,3 +33,93 @@ export const deleteCloudRunService = async (name: string, config: Config): Promi
   const url = `https://${region}-run.googleapis.com/v2/${name}`;
   return gapiRequest<Record<string, unknown>>(url, "DELETE", config.projectId);
 };
+
+export const ensureCloudRunInvokerRole = async (
+  serviceName: string,
+  serviceAccountEmail: string,
+  quotaProjectId: string,
+): Promise<void> => {
+  const region = serviceName.split("/")[3] || "us-central1";
+  const baseUrl = `https://${region}-run.googleapis.com/v2/${serviceName}`;
+  const member = `serviceAccount:${serviceAccountEmail}`;
+  const role = "roles/run.invoker";
+
+  const policy = await gapiRequest<IamPolicy>(`${baseUrl}:getIamPolicy`, "GET", quotaProjectId);
+  const bindings = policy.bindings ? [...policy.bindings] : [];
+  const existingBinding = bindings.find((b) => b.role === role);
+
+  if (existingBinding && existingBinding.members?.includes(member)) {
+    return;
+  }
+
+  const updatedBindings = existingBinding
+    ? bindings.map((b) =>
+        b.role === role ? { ...b, members: [...(b.members || []), member] } : b,
+      )
+    : [...bindings, { role, members: [member] }];
+
+  await gapiRequest<IamPolicy>(
+    `${baseUrl}:setIamPolicy`,
+    "POST",
+    quotaProjectId,
+    undefined,
+    {
+      policy: {
+        ...policy,
+        bindings: updatedBindings,
+      },
+    },
+  );
+};
+
+export interface TriggerCloudRunServiceJobParams {
+  projectId: string;
+  quotaProjectId: string;
+  region: string;
+  jobId: string;
+  serviceUrl?: string;
+  serviceAccountEmail?: string;
+}
+
+export const triggerCloudRunServiceJob = async ({
+  projectId,
+  quotaProjectId,
+  region,
+  jobId,
+  serviceUrl,
+  serviceAccountEmail,
+}: TriggerCloudRunServiceJobParams): Promise<Record<string, unknown>> => {
+  const jobName = `projects/${projectId}/locations/${region}/jobs/${jobId}`;
+  const runUrl = `https://cloudscheduler.googleapis.com/v1/${jobName}:run`;
+
+  try {
+    return await gapiRequest<Record<string, unknown>>(runUrl, "POST", quotaProjectId, undefined, {});
+  } catch (err: unknown) {
+    const isNotFound = err instanceof GapiError && err.status === 404;
+    if (isNotFound && serviceUrl && serviceAccountEmail) {
+      const createUrl = `https://cloudscheduler.googleapis.com/v1/projects/${projectId}/locations/${region}/jobs`;
+      const schedule = jobId.includes("cleanup") ? "0 */6 * * *" : "0 4 * * *";
+      await gapiRequest<Record<string, unknown>>(
+        createUrl,
+        "POST",
+        quotaProjectId,
+        undefined,
+        {
+          name: jobName,
+          schedule,
+          timeZone: "Etc/UTC",
+          httpTarget: {
+            uri: serviceUrl,
+            httpMethod: "POST",
+            oidcToken: {
+              serviceAccountEmail,
+            },
+          },
+        },
+      );
+      return await gapiRequest<Record<string, unknown>>(runUrl, "POST", quotaProjectId, undefined, {});
+    }
+    throw err;
+  }
+};
+

@@ -94,6 +94,18 @@ const generateDeploySh = (
     content += "    --labels=\"ge-region=" + location + ",ge-sku=" + selectedTier + ",job-type=cleanup\" \\\n";
     content += "    --set-env-vars=\"GOOGLE_CLOUD_PROJECT=$PROJECT_ID,LOCATION=$LOCATION,USER_STORE_ID=$USER_STORE_ID,CONFIG_GCS_URI=" + configGcsUri + ",JOB_TYPE=cleanup,PROJECT_NUMBER=" + projectNumber + "\"\n\n";
     
+    content += "echo \"Granting Invoker permission to Service Account on Cloud Run services...\"\n";
+    content += "gcloud run services add-iam-policy-binding $SERVICE_NAME_ADDER \\\n";
+    content += "    --member=\"serviceAccount:$SA_EMAIL\" \\\n";
+    content += "    --role=\"roles/run.invoker\" \\\n";
+    content += "    --region $REGION \\\n";
+    content += "    --project $PROJECT_ID\n\n";
+    content += "gcloud run services add-iam-policy-binding $SERVICE_NAME_CLEANUP \\\n";
+    content += "    --member=\"serviceAccount:$SA_EMAIL\" \\\n";
+    content += "    --role=\"roles/run.invoker\" \\\n";
+    content += "    --region $REGION \\\n";
+    content += "    --project $PROJECT_ID\n\n";
+
     content += "SERVICE_URL_ADDER=$(gcloud run services describe $SERVICE_NAME_ADDER --project $PROJECT_ID --region $REGION --format='value(status.url)')\n";
     content += "SERVICE_URL_CLEANUP=$(gcloud run services describe $SERVICE_NAME_CLEANUP --project $PROJECT_ID --region $REGION --format='value(status.url)')\n\n";
     

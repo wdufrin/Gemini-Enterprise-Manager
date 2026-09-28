@@ -121,14 +121,50 @@ export function useGroupLicensing(
     }
   };
 
-  const handleRunService = async (serviceUrl?: string) => {
-    if (!serviceUrl) {
+  const handleRunService = async (serviceOrUrl?: CloudRunServiceItem | string) => {
+    const service = typeof serviceOrUrl === 'object' && serviceOrUrl !== null ? serviceOrUrl : undefined;
+    const serviceUrl =
+      typeof serviceOrUrl === 'string'
+        ? serviceOrUrl
+        : service?.uri || service?.status?.url;
+
+    if (!serviceUrl && !service?.name) {
       toast.warning('Service URL is not available.');
       return;
     }
+
     try {
-      const resp = await api.gapiRequest<any>(serviceUrl, 'POST', projectNumber);
-      toast.success(resp?.message || 'Job triggered.');
+      if (service?.name) {
+        const parts = service.name.split('/');
+        const serviceProject = parts[1] || projectNumber;
+        const runRegion = parts[3] || 'us-central1';
+        const serviceId = parts[parts.length - 1];
+        const jobId = `trigger-${serviceId}`;
+        const saEmail = service.template?.serviceAccount;
+
+        if (saEmail) {
+          try {
+            await api.ensureCloudRunInvokerRole(service.name, saEmail, projectNumber);
+          } catch (iamErr: unknown) {
+            console.warn('Could not verify/update Cloud Run invoker IAM policy:', iamErr);
+          }
+        }
+
+        await api.triggerCloudRunServiceJob({
+          projectId: serviceProject,
+          quotaProjectId: projectNumber,
+          region: runRegion,
+          jobId,
+          serviceUrl,
+          serviceAccountEmail: saEmail,
+        });
+
+        toast.success(`Triggered job "${jobId}".`);
+        setLastRunTimes((prev) => ({ ...prev, [serviceId]: new Date().toISOString() }));
+      } else if (serviceUrl) {
+        const resp = await api.gapiRequest<any>(serviceUrl, 'POST', projectNumber);
+        toast.success(resp?.message || 'Job triggered.');
+      }
     } catch (err: unknown) {
       toast.error(`Error triggering service: ${toErrorMessage(err)}`);
     }

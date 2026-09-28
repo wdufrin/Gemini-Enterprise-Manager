@@ -86,21 +86,27 @@ def has_member(session, group_email, user_email):
         raise RuntimeError(f"Unexpected Directory API error ({resp.status_code}): {resp.text}")
     return False
 
-def batch_update_licenses(session, base_url, parent, updates):
+def batch_update_licenses(session, base_url, parent, updates, update_mask_paths=None, delete_unassigned=None):
     """Updates licenses in batches of up to 100"""
     url = f"{base_url}/{parent}:batchUpdateUserLicenses"
     
     # Chunk updates into batches of 100
     for i in range(0, len(updates), 100):
         batch = updates[i:i+100]
-        payload = {
-            "inlineSource": {
-                "userLicenses": batch
-            }
+        inline_source = {
+            "userLicenses": batch
         }
+        if update_mask_paths:
+            inline_source["updateMask"] = {"paths": update_mask_paths}
+        payload = {
+            "inlineSource": inline_source
+        }
+        if delete_unassigned is not None:
+            payload["deleteUnassignedUserLicenses"] = delete_unassigned
         resp = session.post(url, json=payload)
         if resp.status_code not in [200, 201]:
             print(f"Failed to update batch: {resp.text}")
+            raise RuntimeError(f"batchUpdateUserLicenses failed ({resp.status_code}): {resp.text}")
         else:
             print(f"Successfully updated batch of {len(batch)} users.")
 
@@ -113,12 +119,13 @@ def get_highest_tier(tiers):
 def run_adder(session, base_url, parent, config):
     print("Running Joiner workflow...")
     projects_config = config.get("projects", {})
+    valid_project_keys = {k for k in (PROJECT_ID, PROJECT_NUMBER) if k}
     
     # Map user -> set of eligible tiers
     user_entitlements = {}
     
     for proj_id, entitlements in projects_config.items():
-        if proj_id != PROJECT_ID:
+        if valid_project_keys and proj_id not in valid_project_keys:
             continue # Sharding or project filtering
             
         for ent in entitlements:
@@ -134,10 +141,11 @@ def run_adder(session, base_url, parent, config):
                     user_entitlements[member].add(tier)
                     
     updates = []
+    target_project = PROJECT_NUMBER or PROJECT_ID
     for user, tiers in user_entitlements.items():
         highest_tier = get_highest_tier(tiers)
         if highest_tier:
-            license_config = f"projects/{PROJECT_NUMBER}/locations/{LOCATION}/licenseConfigs/{highest_tier}"
+            license_config = f"projects/{target_project}/locations/{LOCATION}/licenseConfigs/{highest_tier}"
             updates.append({
                 "userPrincipal": user,
                 "licenseConfig": license_config
@@ -162,7 +170,7 @@ def run_cleanup(session, base_url, parent, config):
         resp = session.get(full_url)
         if resp.status_code != 200:
             print(f"Failed to list user licenses: {resp.text}")
-            break
+            raise RuntimeError(f"Failed to list user licenses ({resp.status_code}): {resp.text}")
         data = resp.json()
         licensed_users.extend(data.get("userLicenses", []))
         next_page_token = data.get("nextPageToken")
@@ -171,9 +179,10 @@ def run_cleanup(session, base_url, parent, config):
             
     # 2. Check entitlement for each user
     projects_config = config.get("projects", {})
+    valid_project_keys = {k for k in (PROJECT_ID, PROJECT_NUMBER) if k}
     entitled_groups = []
     for proj_id, entitlements in projects_config.items():
-        if proj_id != PROJECT_ID:
+        if valid_project_keys and proj_id not in valid_project_keys:
             continue
         for ent in entitlements:
             entitled_groups.extend(ent.get("groups", []))
@@ -181,7 +190,8 @@ def run_cleanup(session, base_url, parent, config):
     updates = []
     for ul in licensed_users:
         user = ul.get("userPrincipal")
-        current_config = ul.get("licenseConfig")
+        if not user or ul.get("licenseAssignmentState") == "UNASSIGNED":
+            continue
         
         # Check if user is in ANY entitled group
         is_entitled = False
@@ -193,20 +203,19 @@ def run_cleanup(session, base_url, parent, config):
         if not is_entitled:
             print(f"User {user} is no longer entitled. Revoking license.")
             updates.append({
-                "userPrincipal": user,
-                "licenseConfig": "" # Empty means revoke or NO_LICENSE depending on API
-                # TDD says: "batchUpdateUserLicenses to revoke the license"
-                # Usually setting licenseConfig to empty or a specific revoke value.
-                # Let's assume empty string or omit it if the API deletes it.
-                # TDD says: "deleteUnassignedUserLicenses: false" in revokeUserLicenses example in apiService.ts!
-                # Let's look at revokeUserLicenses in apiService.ts (line 1700 approx):
-                # userLicenses: userPrincipals.map(p => ({ userPrincipal: p }))
-                # It omits licenseConfig!
+                "userPrincipal": user
             })
             
     if updates:
         print(f"Applying {len(updates)} license revocations...")
-        batch_update_licenses(session, base_url, parent, updates)
+        batch_update_licenses(
+            session,
+            base_url,
+            parent,
+            updates,
+            update_mask_paths=["userPrincipal", "licenseConfig"],
+            delete_unassigned=False,
+        )
     else:
         print("No revocations to make.")
 

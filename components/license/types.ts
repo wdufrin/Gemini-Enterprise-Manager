@@ -60,7 +60,9 @@ export interface BillingAccountLicenseConfig {
 
 export interface CloudRunServiceItem {
   name: string;
+  uri?: string;
   template?: {
+    serviceAccount?: string;
     containers?: Array<{
       env?: Array<{ name: string; value?: string }>;
     }>;
