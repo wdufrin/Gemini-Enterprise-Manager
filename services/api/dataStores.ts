@@ -38,7 +38,7 @@ export const getDataStoreIamPolicy = async (
     ? name
     : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/dataStores/${name}`;
 
-  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${resourcePath}:getIamPolicy`;
+  const url = `${baseUrl}/v1/${resourcePath}:getIamPolicy`;
   return gapiRequest<IamPolicy>(url, "GET", projectId);
 };
 
@@ -58,13 +58,70 @@ export const setDataStoreIamPolicy = async (
     ? name
     : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/dataStores/${name}`;
 
-  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${resourcePath}:setIamPolicy`;
+  const url = `${baseUrl}/v1/${resourcePath}:setIamPolicy`;
   return gapiRequest<IamPolicy>(url, "POST", projectId, undefined, { policy });
+};
+
+export interface DiscoveryProjectConfig {
+  name?: string;
+  serviceTermsMap?: Record<string, unknown>;
+  customerProvidedConfig?: {
+    resourceAccessControlConfig?: {
+      dataStoreAccessControlEnabled?: boolean;
+    };
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/**
+ * Fetches the Discovery Engine Project resource (`v1alpha/projects/{projectId}`)
+ * to inspect `customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled` (b/554172012).
+ */
+export const getDiscoveryProjectConfig = async (
+  projectId: string,
+  appLocation: string = "global",
+): Promise<DiscoveryProjectConfig> => {
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}`;
+  return gapiRequest<DiscoveryProjectConfig>(
+    url,
+    "GET",
+    projectId,
+    undefined,
+    undefined,
+    undefined,
+    true,
+  );
+};
+
+/**
+ * Updates `customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled`
+ * on the Discovery Engine Project (`v1alpha/projects/{projectId}`) via PATCH (`UpdateProject`).
+ * Opts the project into end-user and admin resource-level (`.get`) IAM filtering for DataStores & Connectors.
+ */
+export const updateDataStoreAccessControlConfig = async (
+  projectId: string,
+  enabled: boolean,
+  appLocation: string = "global",
+): Promise<DiscoveryProjectConfig> => {
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+  const updateMask =
+    "customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled";
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}?updateMask=${updateMask}`;
+  return gapiRequest<DiscoveryProjectConfig>(url, "PATCH", projectId, undefined, {
+    customerProvidedConfig: {
+      resourceAccessControlConfig: {
+        dataStoreAccessControlEnabled: enabled,
+      },
+    },
+  });
 };
 
 export interface DataStoreAclSupportDetails {
   supported: boolean;
   permissionDenied: boolean;
+  dataStoreAccessControlEnabled?: boolean | null;
   reason?: string;
 }
 
@@ -83,7 +140,7 @@ export const checkDataStoreAclDetails = async (
     if (sampleDataStoreId) {
       testPath += `/dataStores/${sampleDataStoreId}`;
     }
-    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${testPath}:getIamPolicy`;
+    const url = `${baseUrl}/v1/${testPath}:getIamPolicy`;
     const res = await gapiRequest<{ etag?: string; bindings?: unknown[] }>(url, "GET", projectId);
     return {
       supported: !!(res && (res.etag !== undefined || res.bindings !== undefined)),

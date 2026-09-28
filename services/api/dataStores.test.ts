@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as core from './core';
-import { signInWithOidcPopup, listDocuments, checkDataStoreAclDetails, checkDataStoreAclSupport } from './dataStores';
+import {
+    signInWithOidcPopup,
+    listDocuments,
+    checkDataStoreAclDetails,
+    checkDataStoreAclSupport,
+    getDataStoreIamPolicy,
+    setDataStoreIamPolicy,
+    getDiscoveryProjectConfig,
+    updateDataStoreAccessControlConfig,
+} from './dataStores';
 import { Config } from '../../types';
 
 vi.mock('./core', async (importOriginal) => {
@@ -195,5 +204,91 @@ describe('dataStores listDocuments pagination and ACL checks', () => {
             expect(details.permissionDenied).toBe(false);
         });
     });
+
+    describe('v1 DataStore IAM Policy & Self-Service Project Opt-In', () => {
+        it('calls GA /v1/ endpoint for getDataStoreIamPolicy and setDataStoreIamPolicy', async () => {
+            vi.mocked(core.gapiRequest).mockResolvedValueOnce({ etag: 'e1', bindings: [] });
+            await getDataStoreIamPolicy('ds-alpha', mockConfig);
+            expect(core.gapiRequest).toHaveBeenCalledWith(
+                'https://discoveryengine.googleapis.com/v1/projects/test-project-123/locations/global/collections/default_collection/dataStores/ds-alpha:getIamPolicy',
+                'GET',
+                'test-project-123'
+            );
+
+            const regionalConfig: Config = { ...mockConfig, appLocation: 'eu' };
+            const policyPayload = {
+                etag: 'e1',
+                bindings: [{ role: 'roles/discoveryengine.agentspaceUser', members: ['user:alice@example.com'] }],
+            };
+            vi.mocked(core.gapiRequest).mockResolvedValueOnce(policyPayload);
+            await setDataStoreIamPolicy('ds-eu', policyPayload, regionalConfig);
+            expect(core.gapiRequest).toHaveBeenCalledWith(
+                'https://eu-discoveryengine.googleapis.com/v1/projects/test-project-123/locations/eu/collections/default_collection/dataStores/ds-eu:setIamPolicy',
+                'POST',
+                'test-project-123',
+                undefined,
+                { policy: policyPayload }
+            );
+        });
+
+        it('reads and updates project-level dataStoreAccessControlEnabled via v1alpha/projects/{projectId}', async () => {
+            vi.mocked(core.gapiRequest).mockResolvedValueOnce({
+                name: 'projects/test-project-123',
+                customerProvidedConfig: {
+                    resourceAccessControlConfig: {
+                        dataStoreAccessControlEnabled: false,
+                    },
+                },
+            });
+
+            const projConfig = await getDiscoveryProjectConfig('test-project-123', 'global');
+            expect(projConfig.customerProvidedConfig?.resourceAccessControlConfig?.dataStoreAccessControlEnabled).toBe(false);
+            expect(core.gapiRequest).toHaveBeenCalledWith(
+                'https://discoveryengine.googleapis.com/v1alpha/projects/test-project-123',
+                'GET',
+                'test-project-123',
+                undefined,
+                undefined,
+                undefined,
+                true
+            );
+
+            vi.mocked(core.gapiRequest).mockResolvedValueOnce({
+                name: 'projects/test-project-123',
+                customerProvidedConfig: {
+                    resourceAccessControlConfig: {
+                        dataStoreAccessControlEnabled: true,
+                    },
+                },
+            });
+
+            const updated = await updateDataStoreAccessControlConfig('test-project-123', true, 'us');
+            expect(updated.customerProvidedConfig?.resourceAccessControlConfig?.dataStoreAccessControlEnabled).toBe(true);
+            expect(core.gapiRequest).toHaveBeenCalledWith(
+                'https://us-discoveryengine.googleapis.com/v1alpha/projects/test-project-123?updateMask=customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled',
+                'PATCH',
+                'test-project-123',
+                undefined,
+                {
+                    customerProvidedConfig: {
+                        resourceAccessControlConfig: {
+                            dataStoreAccessControlEnabled: true,
+                        },
+                    },
+                }
+            );
+        });
+
+        it('propagates 403 PERMISSION_DENIED errors when caller cannot update project access control config', async () => {
+            vi.mocked(core.gapiRequest).mockRejectedValueOnce(
+                new Error('403 PERMISSION_DENIED: Permission discoveryengine.projects.update denied on resource projects/test-project-123')
+            );
+
+            await expect(
+                updateDataStoreAccessControlConfig('test-project-123', true, 'global')
+            ).rejects.toThrow(/discoveryengine\.projects\.update denied/i);
+        });
+    });
 });
+
 

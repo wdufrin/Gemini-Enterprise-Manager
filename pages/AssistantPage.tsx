@@ -134,24 +134,18 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
       .then((supported) => {
         if (isMounted) {
           setIsDataStoreAclSupported(supported);
-          if (!supported && activeTab === 'datastores') {
-            setActiveTab('overview');
-          }
         }
       })
       .catch(() => {
         if (isMounted) {
           setIsDataStoreAclSupported(false);
-          if (activeTab === 'datastores') {
-            setActiveTab('overview');
-          }
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, [selectedRow?.engine, baseApiConfig, activeTab]);
+  }, [selectedRow?.engine, baseApiConfig]);
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { name, value } = e.target;

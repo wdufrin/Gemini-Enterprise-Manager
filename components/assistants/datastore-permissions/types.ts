@@ -103,15 +103,82 @@ export interface IsolateTarget {
   broadRoles: string[];
 }
 
+export interface ConnectorInconsistency {
+  connectorId: string;
+  connectorDisplayName: string;
+  member: string;
+  hasCollectionAccess: boolean;
+  missingEntityIds: string[];
+  grantedEntityIds: string[];
+}
+
+export interface EnvironmentReadinessState {
+  isEvaluating: boolean;
+  lastEvaluatedAt: string | null;
+  /** Project-level CustomerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled */
+  dataStoreAccessControlEnabled: boolean | null;
+  projectConfigError: string | null;
+  /** v1 IAM Meta API (:getIamPolicy) reachability */
+  v1IamApiSupported: boolean | null;
+  v1IamApiError: string | null;
+  /** Custom role status */
+  customRoleStatus: 'ready' | 'needs_upgrade' | 'deleted' | 'missing' | 'checking';
+  customRoleIncludedPermissions: string[];
+  customRoleMissingPermissions: string[];
+  /** Admin operator permissions */
+  adminPermissionsTested: boolean;
+  grantedAdminPermissions: string[];
+  missingAdminPermissions: string[];
+}
+
 export const AGENTSPACE_USER_ROLE = 'roles/discoveryengine.agentspaceUser';
 export const CUSTOM_ROLE_ID = 'customRestrictedEndUser';
+
+/**
+ * Required permissions for the project-level customRestrictedEndUser role
+ * per go/ge-end-user-ds-permission-control (updated Sep 18, 2026).
+ */
+export const REQUIRED_CUSTOM_ROLE_PERMISSIONS = [
+  'discoveryengine.locations.buildAuthorizationUrl',
+  'discoveryengine.devToolsConfigs.get',
+];
+
+/**
+ * Permissions checked via projects.testIamPermissions to verify if the current
+ * operator can configure project opt-in, custom roles, and resource IAM policies.
+ */
+export const REQUIRED_ADMIN_PERMISSIONS = [
+  'discoveryengine.projects.get',
+  'discoveryengine.projects.update',
+  'resourcemanager.projects.getIamPolicy',
+  'resourcemanager.projects.setIamPolicy',
+  'iam.roles.get',
+  'iam.roles.create',
+  'iam.roles.update',
+  'discoveryengine.engines.getIamPolicy',
+  'discoveryengine.engines.setIamPolicy',
+  'discoveryengine.dataStores.getIamPolicy',
+  'discoveryengine.dataStores.setIamPolicy',
+  'discoveryengine.collections.getIamPolicy',
+  'discoveryengine.collections.setIamPolicy',
+];
+
+/**
+ * Project-level roles that grant discoveryengine.dataStores.get or discoveryengine.collections.get
+ * across the entire project and therefore bypass DataStore-level IAM restrictions.
+ * Note: roles/discoveryengine.agentspaceRestrictedUser had dataStores.get and collections.get
+ * added on Aug 20, 2026 (cl/967961387), so it only restricts at the App level, NOT DataStore level.
+ */
 export const BROAD_PROJECT_ROLES = [
   'roles/viewer',
   'roles/editor',
   'roles/owner',
   'roles/discoveryengine.admin',
+  'roles/discoveryengine.agentspaceAdmin',
   'roles/discoveryengine.editor',
   'roles/discoveryengine.user',
   'roles/discoveryengine.agentspaceUser',
+  'roles/discoveryengine.agentspaceRestrictedUser',
   'roles/discoveryengine.viewer',
+  'roles/discoveryengine.agentspaceViewer',
 ];

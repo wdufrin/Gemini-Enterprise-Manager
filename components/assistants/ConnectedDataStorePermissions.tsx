@@ -23,6 +23,7 @@ import {
   AGENTSPACE_USER_ROLE,
   BROAD_PROJECT_ROLES,
   CUSTOM_ROLE_ID,
+  REQUIRED_CUSTOM_ROLE_PERMISSIONS,
   ConnectedDataStorePermissionsProps,
   EditingResource,
   IsolateTarget,
@@ -30,6 +31,7 @@ import {
   UserAccessDetails,
 } from './datastore-permissions/types';
 import { formatMember, useDataStorePermissions } from '../../hooks/useDataStorePermissions';
+import { EnvironmentReadinessWizard } from './datastore-permissions/EnvironmentReadinessWizard';
 import { StepByStepGuide } from './datastore-permissions/StepByStepGuide';
 import { UserAccessInspector } from './datastore-permissions/UserAccessInspector';
 import { AccessGrantWizard } from './datastore-permissions/AccessGrantWizard';
@@ -56,6 +58,11 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     customRoleExists,
     setCustomRoleExists,
     isCreatingRole,
+    isTogglingProjectOptIn,
+    isAutoEnablingEnvironment,
+    isRepairingConnectors,
+    readiness,
+    inconsistentConnectorGrants,
     projectPolicy,
     enginePolicy,
     connectors,
@@ -64,6 +71,9 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     setSelectedResourcesForGrant,
     refreshAll,
     handleCreateCustomRole,
+    handleToggleProjectAccessControl,
+    handleAutoEnableEnvironment,
+    handleRepairConnectorInconsistencies,
     syncPolicyRMW,
     allUsersList,
     principalMatrix,
@@ -183,17 +193,38 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
       if (wizardCheckCustomRole && wizardGrantProjectRole) {
         addLog(`--- Appendix A: Checking project custom role '${CUSTOM_ROLE_ID}' ---`);
         let roleFound = customRoleExists;
+        let rolePerms: string[] = [];
         if (roleFound === null) {
           try {
             const r = await api.getCustomRole(projectId, CUSTOM_ROLE_ID);
-            roleFound = !!(r && r.name);
+            roleFound = !!(r && r.name && !r.deleted);
+            rolePerms = r?.includedPermissions || [];
           } catch {
             roleFound = false;
           }
+        } else {
+          rolePerms = readiness.customRoleIncludedPermissions;
         }
 
-        if (roleFound) {
-          addLog(`[VERIFIED ✓] Custom role 'projects/${projectId}/roles/${CUSTOM_ROLE_ID}' exists.`);
+        const missingPerms = REQUIRED_CUSTOM_ROLE_PERMISSIONS.filter(p => !rolePerms.includes(p));
+
+        if (roleFound && missingPerms.length === 0) {
+          addLog(`[VERIFIED ✓] Custom role 'projects/${projectId}/roles/${CUSTOM_ROLE_ID}' exists with all required permissions.`);
+        } else if (roleFound && missingPerms.length > 0) {
+          if (isDryRun) {
+            addLog(`[DRY-RUN] Custom role exists but is missing [${missingPerms.join(', ')}]. Would upgrade custom role '${CUSTOM_ROLE_ID}'.`);
+          } else {
+            addLog(`[ACTION] Upgrading custom role '${CUSTOM_ROLE_ID}' with missing permissions: ${missingPerms.join(', ')}...`);
+            const mergedPerms = Array.from(new Set([...rolePerms, ...REQUIRED_CUSTOM_ROLE_PERMISSIONS]));
+            await api.updateCustomRole(projectId, CUSTOM_ROLE_ID, {
+              title: 'Custom Gemini Enterprise Restricted End User',
+              description: 'Base project-level permissions to view Gemini Enterprise config page and authorize end-user connectors.',
+              stage: 'GA',
+              includedPermissions: mergedPerms,
+            });
+            setCustomRoleExists(true);
+            addLog(`[VERIFIED ✓] Custom role '${CUSTOM_ROLE_ID}' upgraded successfully.`);
+          }
         } else {
           if (isDryRun) {
             addLog(`[DRY-RUN] Custom role not found. Would create custom role '${CUSTOM_ROLE_ID}'.`);
@@ -201,9 +232,9 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
             addLog(`[ACTION] Creating custom role '${CUSTOM_ROLE_ID}'...`);
             await api.createCustomRole(projectId, CUSTOM_ROLE_ID, {
               title: 'Custom Gemini Enterprise Restricted End User',
-              description: 'Base project-level permissions to view Gemini Enterprise config page.',
+              description: 'Base project-level permissions to view Gemini Enterprise config page and authorize end-user connectors.',
               stage: 'GA',
-              includedPermissions: ['discoveryengine.locations.buildAuthorizationUrl'],
+              includedPermissions: [...REQUIRED_CUSTOM_ROLE_PERMISSIONS],
             });
             setCustomRoleExists(true);
             addLog(`[VERIFIED ✓] Custom role '${CUSTOM_ROLE_ID}' created successfully.`);
@@ -327,9 +358,9 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         try {
           await api.createCustomRole(projectId, CUSTOM_ROLE_ID, {
             title: 'Custom Gemini Enterprise Restricted End User',
-            description: 'Base project-level permissions to view Gemini Enterprise config page.',
+            description: 'Base project-level permissions to view Gemini Enterprise config page and authorize end-user connectors.',
             stage: 'GA',
-            includedPermissions: ['discoveryengine.locations.buildAuthorizationUrl'],
+            includedPermissions: [...REQUIRED_CUSTOM_ROLE_PERMISSIONS],
           });
           setCustomRoleExists(true);
         } catch (e) {
@@ -451,13 +482,13 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
       <div className="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-md">
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
           <div>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 flex-wrap">
               <h2 className="text-xl font-bold text-white">Connected DataStore Permissions</h2>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-900/60 text-purple-300 border border-purple-600 animate-pulse">
                 Beta
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-700 text-gray-300 border border-gray-600">
-                Mendel Flag Controlled
+                v1 API • Self-Service Opt-In
               </span>
             </div>
             <p className="text-xs text-gray-400 mt-1.5 max-w-3xl leading-relaxed">
@@ -510,16 +541,20 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
               </svg>
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-semibold text-gray-200">
                   Project Custom Role (Appendix A): <code className="text-blue-300">{CUSTOM_ROLE_ID}</code>
                 </span>
-                {customRoleExists === true ? (
+                {customRoleExists === true && readiness.customRoleStatus !== 'needs_upgrade' ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-green-900/50 text-green-400 border border-green-700">
                     <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                     </svg>
                     Active in Project
+                  </span>
+                ) : customRoleExists === true && readiness.customRoleStatus === 'needs_upgrade' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-yellow-900/50 text-yellow-300 border border-yellow-700">
+                    Needs Permission Upgrade
                   </span>
                 ) : customRoleExists === false ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-yellow-900/50 text-yellow-300 border border-yellow-700">
@@ -530,18 +565,24 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
                 )}
               </div>
               <p className="text-[11px] text-gray-400 mt-0.5">
-                Contains permission: <code className="text-purple-300">discoveryengine.locations.buildAuthorizationUrl</code>
+                Contains permissions:{' '}
+                <code className="text-purple-300">discoveryengine.locations.buildAuthorizationUrl</code>,{' '}
+                <code className="text-purple-300">discoveryengine.devToolsConfigs.get</code>
               </p>
             </div>
           </div>
 
-          {customRoleExists === false && (
+          {(customRoleExists === false || readiness.customRoleStatus === 'needs_upgrade') && (
             <button
               onClick={handleCreateCustomRole}
               disabled={isCreatingRole}
               className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs font-semibold rounded-md shadow transition-colors disabled:opacity-50 flex items-center gap-1 whitespace-nowrap"
             >
-              {isCreatingRole ? 'Creating...' : '+ Create Custom Role in Project'}
+              {isCreatingRole
+                ? 'Updating...'
+                : customRoleExists === true
+                ? '↑ Upgrade Role Permissions'
+                : '+ Create Custom Role in Project'}
             </button>
           )}
         </div>
@@ -573,6 +614,25 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
           onClose={() => setShowInstructionsGuide(false)}
         />
       )}
+
+      {/* 1B. Live Environment Readiness Evaluator & Auto-Enablement Wizard */}
+      <EnvironmentReadinessWizard
+        projectId={projectId}
+        location={config.appLocation || 'global'}
+        appId={appId}
+        readiness={readiness}
+        allUsersList={allUsersList}
+        inconsistentConnectorGrants={inconsistentConnectorGrants}
+        isCreatingRole={isCreatingRole}
+        isTogglingProjectOptIn={isTogglingProjectOptIn}
+        isAutoEnablingEnvironment={isAutoEnablingEnvironment}
+        isRepairingConnectors={isRepairingConnectors}
+        onReEvaluate={refreshAll}
+        onCreateOrUpgradeRole={handleCreateCustomRole}
+        onToggleProjectOptIn={handleToggleProjectAccessControl}
+        onAutoEnableEnvironment={handleAutoEnableEnvironment}
+        onRepairConnectorInconsistencies={handleRepairConnectorInconsistencies}
+      />
 
       {/* 2. Active Users & Access Inspector Box */}
       <UserAccessInspector

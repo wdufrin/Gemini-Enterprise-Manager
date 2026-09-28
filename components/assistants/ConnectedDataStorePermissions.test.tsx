@@ -1,15 +1,21 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import ConnectedDataStorePermissions from './ConnectedDataStorePermissions';
 import SetDataStoreIamPolicyModal from './SetDataStoreIamPolicyModal';
 import DataStorePermissionsScriptModal from './DataStorePermissionsScriptModal';
 import * as api from '../../services/apiService';
 import { AppEngine, Config } from '../../types';
+import { REQUIRED_ADMIN_PERMISSIONS } from './datastore-permissions/types';
 
 vi.mock('../../services/apiService', () => ({
   getCustomRole: vi.fn(),
   createCustomRole: vi.fn(),
+  updateCustomRole: vi.fn(),
+  undeleteCustomRole: vi.fn(),
+  testProjectIamPermissions: vi.fn(),
+  getDiscoveryProjectConfig: vi.fn(),
+  updateDataStoreAccessControlConfig: vi.fn(),
   getProjectIamPolicy: vi.fn(),
   setProjectIamPolicy: vi.fn(),
   getEngineIamPolicy: vi.fn(),
@@ -41,10 +47,24 @@ describe('ConnectedDataStorePermissions Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
+    vi.mocked(api.getDiscoveryProjectConfig).mockResolvedValue({
+      name: 'projects/test-project',
+      customerProvidedConfig: {
+        resourceAccessControlConfig: {
+          dataStoreAccessControlEnabled: true,
+        },
+      },
+    });
+
+    vi.mocked(api.testProjectIamPermissions).mockResolvedValue([...REQUIRED_ADMIN_PERMISSIONS]);
+
     vi.mocked(api.getCustomRole).mockResolvedValue({
       name: 'projects/test-project/roles/customRestrictedEndUser',
       title: 'Custom Gemini Enterprise Restricted End User',
-      includedPermissions: ['discoveryengine.locations.buildAuthorizationUrl'],
+      includedPermissions: [
+        'discoveryengine.locations.buildAuthorizationUrl',
+        'discoveryengine.devToolsConfigs.get',
+      ],
     });
 
     vi.mocked(api.getProjectIamPolicy).mockResolvedValue({
@@ -113,7 +133,7 @@ describe('ConnectedDataStorePermissions Component', () => {
     });
   });
 
-  it('renders ConnectedDataStorePermissions header and custom role status', async () => {
+  it('renders ConnectedDataStorePermissions header, custom role status, and Environment Ready state', async () => {
     render(
       <ConnectedDataStorePermissions
         engine={mockEngine}
@@ -123,10 +143,194 @@ describe('ConnectedDataStorePermissions Component', () => {
     );
 
     expect(screen.getByText('Connected DataStore Permissions')).toBeDefined();
-    expect(screen.getByText('Beta')).toBeDefined();
+    expect(screen.getByText('Environment Readiness & Capability Enablement')).toBeDefined();
 
     await waitFor(() => {
       expect(screen.getByText('Active in Project')).toBeDefined();
+      expect(screen.getByText(/Environment Ready for Direct DataStore IAM/)).toBeDefined();
+    });
+  });
+
+  it('detects disabled project opt-in and outdated custom role missing devToolsConfigs.get, and auto-enables both via 1-click wizard', async () => {
+    vi.mocked(api.getDiscoveryProjectConfig).mockResolvedValueOnce({
+      name: 'projects/test-project',
+      customerProvidedConfig: {
+        resourceAccessControlConfig: {
+          dataStoreAccessControlEnabled: false,
+        },
+      },
+    });
+
+    // Outdated custom role created prior to Sep 18, 2026 only has buildAuthorizationUrl
+    vi.mocked(api.getCustomRole).mockResolvedValue({
+      name: 'projects/test-project/roles/customRestrictedEndUser',
+      title: 'Custom Gemini Enterprise Restricted End User',
+      includedPermissions: ['discoveryengine.locations.buildAuthorizationUrl'],
+    });
+
+    vi.mocked(api.updateCustomRole).mockResolvedValueOnce({
+      name: 'projects/test-project/roles/customRestrictedEndUser',
+      title: 'Custom Gemini Enterprise Restricted End User',
+      includedPermissions: [
+        'discoveryengine.locations.buildAuthorizationUrl',
+        'discoveryengine.devToolsConfigs.get',
+      ],
+    });
+
+    vi.mocked(api.updateDataStoreAccessControlConfig).mockResolvedValueOnce({
+      name: 'projects/test-project',
+      customerProvidedConfig: {
+        resourceAccessControlConfig: {
+          dataStoreAccessControlEnabled: true,
+        },
+      },
+    });
+
+    render(
+      <ConnectedDataStorePermissions
+        engine={mockEngine}
+        config={mockConfig}
+        projectNumber="123456789"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Action Required to Enforce DataStore Restrictions/)).toBeDefined();
+      expect(screen.getByText('Disabled')).toBeDefined();
+      expect(screen.getByText('Needs Permission Upgrade')).toBeDefined();
+      expect(screen.getByText('Needs Upgrade')).toBeDefined();
+    });
+
+    const autoEnableBtn = screen.getByRole('button', {
+      name: /Auto-Enable & Configure Environment/i,
+    });
+    fireEvent.click(autoEnableBtn);
+
+    await waitFor(() => {
+      expect(api.updateCustomRole).toHaveBeenCalledWith(
+        'test-project',
+        'customRestrictedEndUser',
+        expect.objectContaining({
+          includedPermissions: expect.arrayContaining([
+            'discoveryengine.locations.buildAuthorizationUrl',
+            'discoveryengine.devToolsConfigs.get',
+          ]),
+        })
+      );
+      expect(api.updateDataStoreAccessControlConfig).toHaveBeenCalledWith(
+        'test-project',
+        true,
+        'global'
+      );
+    });
+  });
+
+  it('flags broad project roles (including agentspaceRestrictedUser) and inconsistent DataConnector entity bindings, and repairs entity sync', async () => {
+    vi.mocked(api.getProjectIamPolicy).mockResolvedValue({
+      etag: 'proj-etag-broad',
+      bindings: [
+        {
+          role: 'roles/discoveryengine.agentspaceRestrictedUser',
+          members: ['user:bypassUser@example.com'],
+        },
+      ],
+    });
+
+    // DataConnector3 has userA@example.com, but child entity DataConnector3_entityA has empty bindings!
+    vi.mocked(api.getDataStoreIamPolicy).mockImplementation(async (dsId: string) => {
+      if (dsId === 'DataConnector3_entityA') {
+        return { etag: 'ent-empty-etag', bindings: [] };
+      }
+      return {
+        etag: 'ds-etag-1',
+        bindings: [
+          {
+            role: 'roles/discoveryengine.agentspaceUser',
+            members: ['user:userA@example.com'],
+          },
+        ],
+      };
+    });
+
+    vi.mocked(api.setDataStoreIamPolicy).mockResolvedValue({
+      etag: 'ent-repaired-etag',
+      bindings: [
+        {
+          role: 'roles/discoveryengine.agentspaceUser',
+          members: ['user:userA@example.com'],
+        },
+      ],
+    });
+
+    render(
+      <ConnectedDataStorePermissions
+        engine={mockEngine}
+        config={mockConfig}
+        projectNumber="123456789"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/2 Warning\(s\)/)).toBeDefined();
+      expect(screen.getByText(/1 Inconsistent/)).toBeDefined();
+    });
+
+    const repairBtn = screen.getByRole('button', {
+      name: /Repair 1 Connector Sync\(s\)/i,
+    });
+    fireEvent.click(repairBtn);
+
+    await waitFor(() => {
+      expect(api.setDataStoreIamPolicy).toHaveBeenCalledWith(
+        'DataConnector3_entityA',
+        expect.objectContaining({
+          bindings: [
+            {
+              role: 'roles/discoveryengine.agentspaceUser',
+              members: ['user:userA@example.com'],
+            },
+          ],
+        }),
+        mockConfig
+      );
+    });
+  });
+
+  it('surfaces 403 permission error when auto-enable fails on project config update without swallowing', async () => {
+    vi.mocked(api.getDiscoveryProjectConfig).mockResolvedValueOnce({
+      name: 'projects/test-project',
+      customerProvidedConfig: {
+        resourceAccessControlConfig: {
+          dataStoreAccessControlEnabled: false,
+        },
+      },
+    });
+
+    vi.mocked(api.updateDataStoreAccessControlConfig).mockRejectedValueOnce(
+      new Error('403 PERMISSION_DENIED: Caller lacks discoveryengine.projects.update')
+    );
+
+    render(
+      <ConnectedDataStorePermissions
+        engine={mockEngine}
+        config={mockConfig}
+        projectNumber="123456789"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Disabled')).toBeDefined();
+    });
+
+    const enableOptInBtn = screen.getByRole('button', {
+      name: /Enable Project Opt-In/i,
+    });
+    fireEvent.click(enableOptInBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/403 PERMISSION_DENIED: Caller lacks discoveryengine\.projects\.update/i)
+      ).toBeDefined();
     });
   });
 
@@ -199,7 +403,7 @@ describe('SetDataStoreIamPolicyModal', () => {
 });
 
 describe('DataStorePermissionsScriptModal', () => {
-  it('renders Python script and cURL tabs', () => {
+  it('renders Python script and cURL tabs with self-service opt-in and v1 endpoints', () => {
     render(
       <DataStorePermissionsScriptModal
         isOpen={true}
@@ -215,5 +419,10 @@ describe('DataStorePermissionsScriptModal', () => {
     expect(screen.getByText('DataStore ACL Automation Scripts & Commands')).toBeDefined();
     expect(screen.getByText('Python Automation Script')).toBeDefined();
     expect(screen.getByText('REST / cURL Steps')).toBeDefined();
+
+    fireEvent.click(screen.getByText('REST / cURL Steps'));
+    expect(screen.getByText(/Step 0 — Enable Self-Service Project Opt-In/)).toBeDefined();
+    expect(screen.getByText(/dataStoreAccessControlEnabled/)).toBeDefined();
   });
 });
+

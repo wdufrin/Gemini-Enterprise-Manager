@@ -171,15 +171,11 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
                   label: 'User Memories',
                   badge: 'Personalization',
                 },
-                ...(isDataStoreAclSupported
-                  ? [
-                      {
-                        key: 'datastores',
-                        label: 'Connected DataStores',
-                        badge: 'Beta',
-                      },
-                    ]
-                  : []),
+                {
+                  key: 'datastores',
+                  label: 'Connected DataStores',
+                  badge: 'Beta',
+                },
                 { key: 'notebooks', label: 'Notebooks' },
                 { key: 'history', label: 'History' },
                 { key: 'customize', label: 'Customize' },

@@ -206,7 +206,7 @@ export const getCollectionIamPolicy = async (
     ? name
     : `projects/${projectId}/locations/${appLocation}/collections/${name}`;
 
-  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${resourcePath}:getIamPolicy`;
+  const url = `${baseUrl}/v1/${resourcePath}:getIamPolicy`;
   return gapiRequest<IamPolicy>(url, "GET", projectId);
 };
 
@@ -222,7 +222,7 @@ export const setCollectionIamPolicy = async (
     ? name
     : `projects/${projectId}/locations/${appLocation}/collections/${name}`;
 
-  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${resourcePath}:setIamPolicy`;
+  const url = `${baseUrl}/v1/${resourcePath}:setIamPolicy`;
   return gapiRequest<IamPolicy>(url, "POST", projectId, undefined, { policy });
 };
 

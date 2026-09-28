@@ -190,49 +190,52 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
                     onSelectProvider={handleSelectProvider}
                 />
 
-                {isDataStoreAclSupported && (
-                    <CollapsibleSection title="Connected DataStores & Permissions (Beta)">
-                        <div className="p-4 bg-gray-900/50 rounded-md border border-gray-700 space-y-3">
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <h4 className="text-sm font-bold text-white">Datastore-Level ACL Controls</h4>
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-900/60 text-purple-300 border border-purple-600">
-                                            Beta
+                <CollapsibleSection title="Connected DataStores & Permissions (Beta)">
+                    <div className="p-4 bg-gray-900/50 rounded-md border border-gray-700 space-y-3">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h4 className="text-sm font-bold text-white">Datastore-Level ACL Controls</h4>
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-900/60 text-purple-300 border border-purple-600">
+                                        Beta
+                                    </span>
+                                    {isDataStoreAclSupported && (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-900/60 text-green-300 border border-green-700">
+                                            v1 API Active
                                         </span>
-                                    </div>
-                                    <p className="text-xs text-gray-400 mt-1 max-w-xl">
-                                        Manage fine-grained IAM permissions for end users and groups on this App Engine and its connected DataStores / DataConnectors without granting project-wide privileges.
-                                    </p>
+                                    )}
                                 </div>
-                                {onNavigateToDataStores && (
-                                    <button
-                                        type="button"
-                                        onClick={onNavigateToDataStores}
-                                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-md transition-colors whitespace-nowrap shadow-sm"
-                                    >
-                                        Manage DataStore Permissions →
-                                    </button>
-                                )}
+                                <p className="text-xs text-gray-400 mt-1 max-w-xl">
+                                    Evaluate environment readiness, enable project-level DataStore access control, and manage fine-grained IAM permissions for end users and groups on this App Engine and its connected DataStores / DataConnectors.
+                                </p>
                             </div>
-
-                            <div className="pt-2">
-                                <span className="text-xs text-gray-400 font-semibold block mb-1.5">Attached DataStores:</span>
-                                {engine.dataStoreIds && engine.dataStoreIds.length > 0 ? (
-                                    <div className="flex flex-wrap gap-2">
-                                        {engine.dataStoreIds.map(id => (
-                                            <span key={id} className="px-2.5 py-1 bg-gray-800 border border-gray-700 text-blue-300 rounded text-xs font-mono">
-                                                {id}
-                                            </span>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <p className="text-xs text-gray-500 italic">No DataStores currently attached to this engine.</p>
-                                )}
-                            </div>
+                            {onNavigateToDataStores && (
+                                <button
+                                    type="button"
+                                    onClick={onNavigateToDataStores}
+                                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-md transition-colors whitespace-nowrap shadow-sm"
+                                >
+                                    Manage DataStore Permissions →
+                                </button>
+                            )}
                         </div>
-                    </CollapsibleSection>
-                )}
+
+                        <div className="pt-2">
+                            <span className="text-xs text-gray-400 font-semibold block mb-1.5">Attached DataStores:</span>
+                            {engine.dataStoreIds && engine.dataStoreIds.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                    {engine.dataStoreIds.map(id => (
+                                        <span key={id} className="px-2.5 py-1 bg-gray-800 border border-gray-700 text-blue-300 rounded text-xs font-mono">
+                                            {id}
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-xs text-gray-500 italic">No DataStores currently attached to this engine.</p>
+                            )}
+                        </div>
+                    </div>
+                </CollapsibleSection>
 
                 <CollapsibleSection title="Prompt Chips Administration">
                     <div className="p-4 bg-gray-900/30 rounded-md">

@@ -160,6 +160,52 @@ export const createCustomRole = async (
   });
 };
 
+export const updateCustomRole = async (
+  projectId: string,
+  roleId: string,
+  roleData: {
+    title: string;
+    description: string;
+    stage?: string;
+    includedPermissions: string[];
+    etag?: string;
+  },
+): Promise<CustomRole> => {
+  const updateMask = "title,description,stage,includedPermissions";
+  const url = `https://iam.googleapis.com/v1/projects/${projectId}/roles/${roleId}?updateMask=${updateMask}`;
+  return gapiRequest<CustomRole>(url, "PATCH", projectId, undefined, {
+    title: roleData.title,
+    description: roleData.description,
+    stage: roleData.stage || "GA",
+    includedPermissions: roleData.includedPermissions,
+    ...(roleData.etag ? { etag: roleData.etag } : {}),
+  });
+};
+
+export const undeleteCustomRole = async (
+  projectId: string,
+  roleId: string,
+): Promise<CustomRole> => {
+  const url = `https://iam.googleapis.com/v1/projects/${projectId}/roles/${roleId}:undelete`;
+  return gapiRequest<CustomRole>(url, "POST", projectId, undefined, {});
+};
+
+export const testProjectIamPermissions = async (
+  projectId: string,
+  permissions: string[],
+): Promise<string[]> => {
+  const response = await gapiRequest<{ permissions?: string[] }>(
+    `https://cloudresourcemanager.googleapis.com/v1/projects/${projectId}:testIamPermissions`,
+    "POST",
+    projectId,
+    undefined,
+    { permissions },
+    undefined,
+    true,
+  );
+  return response.permissions || [];
+};
+
 export const getAgentIamPolicy = async (name: string, config: Config): Promise<IamPolicy> => {
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
   const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}:getIamPolicy`;

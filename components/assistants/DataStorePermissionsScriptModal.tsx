@@ -51,6 +51,7 @@ const DataStorePermissionsScriptModal: React.FC<DataStorePermissionsScriptModalP
 
   const projectId = config.projectId;
   const location = config.appLocation || 'global';
+  const endpointPrefix = location === 'global' ? '' : `${location}-`;
   const appId = engine.name.split('/').pop() || 'App1';
   const member = targetMember.includes(':') ? targetMember : `user:${targetMember}`;
 
@@ -69,7 +70,7 @@ const DataStorePermissionsScriptModal: React.FC<DataStorePermissionsScriptModalP
   const pythonScript = `#!/usr/bin/env python3
 """
 Gemini Enterprise (GE) End-User DataStore/DataConnector Permission Control Setup Script
-Automates Step A1 - A4 and Appendix A custom role creation for Gemini Enterprise.
+Automates Project Opt-In, Appendix A Custom Role Creation/Upgrade, and Step A1 - A4 IAM Bindings (v1 GA).
 """
 
 import subprocess
@@ -80,9 +81,14 @@ import sys
 
 PROJECT_ID = "${projectId}"
 LOCATION = "${location}"
+ENDPOINT_HOST = "discoveryengine.googleapis.com" if LOCATION == "global" else f"{LOCATION}-discoveryengine.googleapis.com"
 APP_ID = "${appId}"
 MEMBER = "${member}"
 CUSTOM_ROLE_ID = "customRestrictedEndUser"
+REQUIRED_PERMISSIONS = [
+    "discoveryengine.locations.buildAuthorizationUrl",
+    "discoveryengine.devToolsConfigs.get",
+]
 ROLE_RESOURCE = "roles/discoveryengine.agentspaceUser"
 
 # Connected Resources
@@ -106,21 +112,49 @@ def http_request(method, url, data=None):
         res_text = resp.read().decode("utf-8")
         return json.loads(res_text) if res_text else {}
 
+def enable_project_datastore_access_control():
+    print(f"\\n[Step 0] Enabling project-level DataStore access control on '{PROJECT_ID}'...")
+    url = f"https://{ENDPOINT_HOST}/v1alpha/projects/{PROJECT_ID}?updateMask=customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled"
+    payload = {
+        "customerProvidedConfig": {
+            "resourceAccessControlConfig": {
+                "dataStoreAccessControlEnabled": True
+            }
+        }
+    }
+    http_request("PATCH", url, data=payload)
+    print(f"[VERIFIED ✓] Project opt-in 'dataStoreAccessControlEnabled=true' is active.")
+
 def check_or_create_custom_role():
     print(f"\\n[Appendix A] Checking custom role 'projects/{PROJECT_ID}/roles/{CUSTOM_ROLE_ID}'...")
     check_cmd = ["gcloud", "iam", "roles", "describe", CUSTOM_ROLE_ID, f"--project={PROJECT_ID}", "--format=json"]
     res = subprocess.run(check_cmd, capture_output=True, text=True)
+    perms_csv = ",".join(REQUIRED_PERMISSIONS)
     if res.returncode == 0:
-        print(f"[VERIFIED ✓] Custom role '{CUSTOM_ROLE_ID}' already exists.")
+        role_data = json.loads(res.stdout or "{}")
+        existing_perms = role_data.get("includedPermissions", [])
+        missing = [p for p in REQUIRED_PERMISSIONS if p not in existing_perms]
+        if not missing:
+            print(f"[VERIFIED ✓] Custom role '{CUSTOM_ROLE_ID}' already exists with all required permissions.")
+            return
+        print(f"[ACTION] Upgrading custom role '{CUSTOM_ROLE_ID}' with missing permissions: {missing}...")
+        update_cmd = [
+            "gcloud", "iam", "roles", "update", CUSTOM_ROLE_ID,
+            f"--project={PROJECT_ID}",
+            f"--add-permissions={','.join(missing)}"
+        ]
+        subprocess.run(update_cmd, check=True)
+        print(f"[VERIFIED ✓] Custom role '{CUSTOM_ROLE_ID}' upgraded successfully.")
         return
+
     print(f"[ACTION] Creating custom role '{CUSTOM_ROLE_ID}'...")
     create_cmd = [
         "gcloud", "iam", "roles", "create", CUSTOM_ROLE_ID,
         f"--project={PROJECT_ID}",
         "--title=Custom Gemini Enterprise Restricted End User",
-        "--description=Base project-level permissions to view Gemini Enterprise config page.",
+        "--description=Base project-level permissions to view Gemini Enterprise config page and authorize end-user connectors.",
         "--stage=GA",
-        "--permissions=discoveryengine.locations.buildAuthorizationUrl"
+        f"--permissions={perms_csv}"
     ]
     subprocess.run(create_cmd, check=True)
     print(f"[VERIFIED ✓] Custom role '{CUSTOM_ROLE_ID}' created successfully.")
@@ -167,10 +201,13 @@ def update_iam_policy_rmw(resource_name, base_url, member_str, role=ROLE_RESOURC
     print(f"[VERIFIED ✓] Granted '{role}' on {resource_name}.")
 
 def main():
-    print(f"=== Gemini Enterprise Datastore-Level Access Control Setup ===")
+    print(f"=== Gemini Enterprise Datastore-Level Access Control Setup (v1 GA) ===")
     print(f"Project: {PROJECT_ID} | Location: {LOCATION} | App: {APP_ID}")
     print(f"Target Member: {MEMBER}\\n")
     
+    # Step 0: Self-service project opt-in
+    enable_project_datastore_access_control()
+
     # Appendix A: Custom Role
     check_or_create_custom_role()
     
@@ -178,22 +215,22 @@ def main():
     grant_project_custom_role(MEMBER)
     
     # Step A2: App (Engine) binding
-    app_url = f"https://discoveryengine.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/engines/{APP_ID}"
+    app_url = f"https://{ENDPOINT_HOST}/v1/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/engines/{APP_ID}"
     update_iam_policy_rmw(f"App Engine '{APP_ID}'", app_url, MEMBER)
     
     # Step A3: DataConnectors & Entities
     for conn in CONNECTORS:
         conn_id = conn["id"]
-        conn_url = f"https://discoveryengine.googleapis.com/v1alpha/projects/{PROJECT_ID}/locations/{LOCATION}/collections/{conn_id}"
+        conn_url = f"https://{ENDPOINT_HOST}/v1/projects/{PROJECT_ID}/locations/{LOCATION}/collections/{conn_id}"
         update_iam_policy_rmw(f"DataConnector Collection '{conn_id}'", conn_url, MEMBER)
         
         for entity_id in conn.get("entities", []):
-            ent_url = f"https://discoveryengine.googleapis.com/v1alpha/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/dataStores/{entity_id}"
+            ent_url = f"https://{ENDPOINT_HOST}/v1/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/dataStores/{entity_id}"
             update_iam_policy_rmw(f"Connector Entity '{entity_id}'", ent_url, MEMBER)
             
     # Step A4: Legacy DataStores
     for ds_id in DATASTORES:
-        ds_url = f"https://discoveryengine.googleapis.com/v1alpha/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/dataStores/{ds_id}"
+        ds_url = f"https://{ENDPOINT_HOST}/v1/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/dataStores/{ds_id}"
         update_iam_policy_rmw(f"Legacy DataStore '{ds_id}'", ds_url, MEMBER)
         
     print(f"\\n[COMPLETE] Successfully configured all datastore ACLs for '{MEMBER}'!")
@@ -203,12 +240,25 @@ if __name__ == "__main__":
 `;
 
   // 2. Generate cURL commands
+  const curlProjectOptIn = `curl -X PATCH \\
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: ${projectId}" \\
+  -d '{
+    "customerProvidedConfig": {
+      "resourceAccessControlConfig": {
+        "dataStoreAccessControlEnabled": true
+      }
+    }
+  }' \\
+  "https://${endpointPrefix}discoveryengine.googleapis.com/v1alpha/projects/${projectId}?updateMask=customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled"`;
+
   const curlAppendixA = `gcloud iam roles create customRestrictedEndUser \\
   --project=${projectId} \\
   --title="Custom Gemini Enterprise Restricted End User" \\
-  --description="Base project-level permissions to view Gemini Enterprise config page." \\
+  --description="Base project-level permissions to view Gemini Enterprise config page and authorize end-user connectors." \\
   --stage=GA \\
-  --permissions=discoveryengine.locations.buildAuthorizationUrl`;
+  --permissions=discoveryengine.locations.buildAuthorizationUrl,discoveryengine.devToolsConfigs.get`;
 
   const curlStepA1 = `gcloud projects add-iam-policy-binding ${projectId} \\
   --member="${member}" \\
@@ -217,7 +267,7 @@ if __name__ == "__main__":
   const curlStepA2Get = `curl -X GET \\
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
   -H "X-Goog-User-Project: ${projectId}" \\
-  "https://discoveryengine.googleapis.com/v1/projects/${projectId}/locations/${location}/collections/default_collection/engines/${appId}:getIamPolicy"`;
+  "https://${endpointPrefix}discoveryengine.googleapis.com/v1/projects/${projectId}/locations/${location}/collections/default_collection/engines/${appId}:getIamPolicy"`;
 
   const curlStepA2Set = `curl -X POST \\
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
@@ -234,7 +284,7 @@ if __name__ == "__main__":
       ]
     }
   }' \\
-  "https://discoveryengine.googleapis.com/v1/projects/${projectId}/locations/${location}/collections/default_collection/engines/${appId}:setIamPolicy"`;
+  "https://${endpointPrefix}discoveryengine.googleapis.com/v1/projects/${projectId}/locations/${location}/collections/default_collection/engines/${appId}:setIamPolicy"`;
 
   return (
     <div
@@ -338,14 +388,14 @@ if __name__ == "__main__":
                 <div className="bg-gray-800/90 border border-gray-700 rounded-lg p-4">
                   <div className="flex items-center gap-2.5 mb-2">
                     <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">0</span>
-                    <h4 className="text-sm font-semibold text-white">Prerequisites: Allowlisting & User Isolation</h4>
+                    <h4 className="text-sm font-semibold text-white">Prerequisites: Self-Service Project Opt-In & User Isolation</h4>
                   </div>
                   <ul className="list-disc pl-9 space-y-1.5 text-xs text-gray-300">
                     <li>
-                      <strong>Mendel Allowlist</strong>: Your project must be allowlisted under the Mendel feature flag (<code className="text-purple-300">bogao@</code>).
+                      <strong>Self-Service Project Opt-In</strong>: Enable <code className="text-purple-300">customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled = true</code> via the <strong>Environment Readiness Evaluator</strong> or <code className="text-blue-300">PATCH /v1alpha/projects/{projectId}</code>.
                     </li>
                     <li>
-                      <strong>Remove Broad IAM Roles</strong>: Ensure target end users or groups do <em>not</em> possess broad project-wide roles like <code className="text-red-300">roles/viewer</code>, <code className="text-red-300">roles/editor</code>, or <code className="text-red-300">roles/discoveryengine.admin</code>, as project-wide roles bypass datastore restrictions.
+                      <strong>Remove Broad IAM Roles</strong>: Ensure target end users or groups do <em>not</em> possess broad project-wide roles like <code className="text-red-300">roles/viewer</code>, <code className="text-red-300">roles/editor</code>, <code className="text-red-300">roles/discoveryengine.admin</code>, or <code className="text-red-300">roles/discoveryengine.agentspaceRestrictedUser</code> (which includes project-level <code className="text-red-300">dataStores.get</code> and bypasses datastore restrictions).
                     </li>
                   </ul>
                 </div>
@@ -357,14 +407,16 @@ if __name__ == "__main__":
                     <h4 className="text-sm font-semibold text-white">Create Project Custom Role (<code className="text-blue-300">customRestrictedEndUser</code>)</h4>
                   </div>
                   <p className="text-xs text-gray-300 pl-8 mb-2">
-                    Create a custom IAM role at the project level containing only the minimal authentication permission:
+                    Create a custom IAM role at the project level containing only the 2 minimal authentication &amp; UI config permissions:
                   </p>
                   <div className="pl-8">
-                    <div className="p-2.5 bg-gray-950 rounded text-xs font-mono text-green-400 border border-gray-800">
-                      Permission: discoveryengine.locations.buildAuthorizationUrl
+                    <div className="p-2.5 bg-gray-950 rounded text-xs font-mono text-green-400 border border-gray-800 space-y-1">
+                      <div>Permissions:</div>
+                      <div>- discoveryengine.locations.buildAuthorizationUrl</div>
+                      <div>- discoveryengine.devToolsConfigs.get</div>
                     </div>
                     <p className="text-[11px] text-gray-400 mt-1.5">
-                      💡 <em>You can create this in 1 click using the &quot;+ Create Custom Role in Project&quot; button at the top of the Connected DataStores tab.</em>
+                      💡 <em>You can create or upgrade this in 1 click using the &quot;⚡ Auto-Enable &amp; Configure Environment&quot; or &quot;+ Create Custom Role in Project&quot; button.</em>
                     </p>
                   </div>
                 </div>
@@ -401,7 +453,7 @@ if __name__ == "__main__":
                 <div className="bg-gray-800/90 border border-gray-700 rounded-lg p-4">
                   <div className="flex items-center gap-2.5 mb-2">
                     <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">4</span>
-                    <h4 className="text-sm font-semibold text-white">Grant Access ONLY to the Allowed DataStores (Steps A3 & A4)</h4>
+                    <h4 className="text-sm font-semibold text-white">Grant Access ONLY to the Allowed DataStores (Steps A3 & A4 — GA v1 API)</h4>
                   </div>
                   <div className="pl-8 space-y-2 text-xs text-gray-300">
                     <p>
@@ -409,10 +461,10 @@ if __name__ == "__main__":
                     </p>
                     <div className="space-y-1.5 pl-2">
                       <div>
-                        <strong>• For DataConnectors</strong>: Grant on <em>both</em> the connector collection (<code className="text-purple-300">collections/{'{CONNECTOR_ID}'}</code>) and each authorized sub-entity datastore (<code className="text-purple-300">collections/default_collection/dataStores/{'{ENTITY_ID}'}</code>).
+                        <strong>• For DataConnectors</strong>: Grant on <em>both</em> the connector collection (<code className="text-purple-300">/v1/.../collections/{'{CONNECTOR_ID}'}:setIamPolicy</code>) and each authorized sub-entity datastore (<code className="text-purple-300">/v1/.../collections/default_collection/dataStores/{'{ENTITY_ID}'}:setIamPolicy</code>).
                       </div>
                       <div>
-                        <strong>• For Legacy DataStores</strong>: Grant on the datastore resource (<code className="text-purple-300">collections/default_collection/dataStores/{'{DATASTORE_ID}'}</code>).
+                        <strong>• For Legacy DataStores</strong>: Grant on the datastore resource (<code className="text-purple-300">/v1/.../collections/default_collection/dataStores/{'{DATASTORE_ID}'}:setIamPolicy</code>).
                       </div>
                     </div>
                     <div className="bg-yellow-950/40 border border-yellow-800/60 p-3 rounded text-yellow-300 mt-2">
@@ -470,10 +522,26 @@ if __name__ == "__main__":
 
           {activeTab === 'curl' && (
             <div className="space-y-6">
+              {/* Step 0: Project Opt-In */}
+              <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700">
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-sm font-semibold text-white">Step 0 — Enable Self-Service Project Opt-In</h4>
+                  <button
+                    onClick={() => copyToClipboard(curlProjectOptIn, 'optIn')}
+                    className="text-xs text-blue-400 hover:text-blue-300 font-medium"
+                  >
+                    {copiedKey === 'optIn' ? 'Copied ✓' : 'Copy'}
+                  </button>
+                </div>
+                <pre className="p-3 bg-gray-950 rounded text-xs font-mono text-gray-200 overflow-x-auto select-all">
+                  {curlProjectOptIn}
+                </pre>
+              </div>
+
               {/* Appendix A */}
               <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700">
                 <div className="flex justify-between items-center mb-2">
-                  <h4 className="text-sm font-semibold text-white">Appendix A — Create Project Custom Role</h4>
+                  <h4 className="text-sm font-semibold text-white">Appendix A — Create Project Custom Role (2 Required Permissions)</h4>
                   <button
                     onClick={() => copyToClipboard(curlAppendixA, 'appA')}
                     className="text-xs text-blue-400 hover:text-blue-300 font-medium"
@@ -533,17 +601,17 @@ if __name__ == "__main__":
 
               {/* Step A3 & A4 Info */}
               <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700 space-y-2">
-                <h4 className="text-sm font-semibold text-white">Step A3 & A4 — DataConnectors & DataStores</h4>
+                <h4 className="text-sm font-semibold text-white">Step A3 & A4 — DataConnectors & DataStores (GA v1 API)</h4>
                 <p className="text-xs text-gray-300">
                   DataConnectors use endpoint:
                   <code className="block mt-1 p-2 bg-gray-950 rounded text-purple-300 font-mono">
-                    https://discoveryengine.googleapis.com/v1alpha/projects/{projectId}/locations/{location}/collections/{'{CONNECTOR_ID}'}:getIamPolicy
+                    https://{endpointPrefix}discoveryengine.googleapis.com/v1/projects/{projectId}/locations/{location}/collections/{'{CONNECTOR_ID}'}:getIamPolicy
                   </code>
                 </p>
                 <p className="text-xs text-gray-300 mt-2">
                   Connector Entities and Legacy DataStores use endpoint:
                   <code className="block mt-1 p-2 bg-gray-950 rounded text-purple-300 font-mono">
-                    https://discoveryengine.googleapis.com/v1alpha/projects/{projectId}/locations/{location}/collections/default_collection/dataStores/{'{DATASTORE_ID}'}:getIamPolicy
+                    https://{endpointPrefix}discoveryengine.googleapis.com/v1/projects/{projectId}/locations/{location}/collections/default_collection/dataStores/{'{DATASTORE_ID}'}:getIamPolicy
                   </code>
                 </p>
               </div>

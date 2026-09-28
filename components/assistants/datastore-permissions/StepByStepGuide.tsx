@@ -57,11 +57,15 @@ export const StepByStepGuide: React.FC<StepByStepGuideProps> = ({
         <div className="bg-gray-900/80 border border-gray-700/80 rounded-lg p-4 space-y-1.5">
           <div className="flex items-center gap-2 text-white font-semibold">
             <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">0</span>
-            <span>Prerequisites: Allowlisting & User Isolation</span>
+            <span>Prerequisites: Project Opt-In & User Isolation</span>
           </div>
           <ul className="list-disc pl-7 text-gray-300 space-y-1">
-            <li>Project must be allowlisted under Mendel flag (<code className="text-purple-300">bogao@</code>).</li>
-            <li><strong>Critical:</strong> Ensure target end users do <em>not</em> possess broad project-wide roles (<code className="text-red-300">roles/viewer</code>, <code className="text-red-300">roles/editor</code>, or <code className="text-red-300">roles/discoveryengine.admin</code>) as broad roles bypass datastore-level ACLs.</li>
+            <li>
+              Enable project-level DataStore access control (<code className="text-purple-300">dataStoreAccessControlEnabled = true</code>) using the <strong>Environment Readiness Evaluator</strong> below or via <code className="text-blue-300">PATCH /v1alpha/projects/{projectId}</code>.
+            </li>
+            <li>
+              <strong>Critical:</strong> Ensure target end users do <em>not</em> possess broad project-wide roles (<code className="text-red-300">roles/viewer</code>, <code className="text-red-300">roles/editor</code>, <code className="text-red-300">roles/discoveryengine.admin</code>, or <code className="text-red-300">roles/discoveryengine.agentspaceRestrictedUser</code>) as project-level <code className="text-red-300">dataStores.get</code> bypasses datastore-level ACLs.
+            </li>
           </ul>
         </div>
 
@@ -72,10 +76,10 @@ export const StepByStepGuide: React.FC<StepByStepGuideProps> = ({
             <span>Create Project Custom Role (Appendix A)</span>
           </div>
           <p className="pl-7 text-gray-300">
-            Ensure custom role <code className="text-blue-300">customRestrictedEndUser</code> exists with permission <code className="text-green-300">discoveryengine.locations.buildAuthorizationUrl</code>.
+            Ensure custom role <code className="text-blue-300">customRestrictedEndUser</code> exists with both required permissions: <code className="text-green-300">discoveryengine.locations.buildAuthorizationUrl</code> and <code className="text-green-300">discoveryengine.devToolsConfigs.get</code>.
           </p>
           <p className="pl-7 text-gray-400 italic">
-            👉 Click &quot;+ Create Custom Role in Project&quot; above if missing.
+            👉 Click &quot;⚡ Auto-Enable &amp; Configure Environment&quot; or &quot;+ Create Custom Role in Project&quot; above if missing or outdated.
           </p>
         </div>
 
@@ -89,7 +93,7 @@ export const StepByStepGuide: React.FC<StepByStepGuideProps> = ({
             Grant <code className="text-blue-300">projects/{projectId}/roles/customRestrictedEndUser</code> to the target email (<code className="text-yellow-300">user:alice@example.com</code> or <code className="text-yellow-300">group:finance-team@example.com</code>).
           </p>
           <p className="pl-7 text-gray-400">
-            Enables user to load the web app without viewing any backend data.
+            Enables user to load the web app and authorize OAuth connectors without viewing any backend data.
           </p>
         </div>
 
@@ -111,18 +115,18 @@ export const StepByStepGuide: React.FC<StepByStepGuideProps> = ({
         <div className="bg-gray-900/80 border border-gray-700/80 rounded-lg p-4 space-y-1.5 md:col-span-2">
           <div className="flex items-center gap-2 text-white font-semibold">
             <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">4</span>
-            <span>Grant Access ONLY to Authorized DataStores (Steps A3 & A4)</span>
+            <span>Grant Access ONLY to Authorized DataStores (Steps A3 & A4 — GA v1 API)</span>
           </div>
           <div className="pl-7 space-y-1.5 text-gray-300">
             <p>
               Grant <code className="text-blue-300">roles/discoveryengine.agentspaceUser</code> strictly on the DataStores/Connectors this user is allowed to query:
             </p>
             <ul className="list-disc pl-5 space-y-1 text-gray-300">
-              <li><strong>DataConnectors:</strong> Grant on both the collection resource and each entity datastore.</li>
-              <li><strong>Legacy DataStores:</strong> Grant on the datastore resource.</li>
+              <li><strong>DataConnectors:</strong> Grant on <em>both</em> the collection resource (<code className="text-purple-300">/v1/.../collections/{'{CONNECTOR_ID}'}:setIamPolicy</code>) and each child entity datastore (<code className="text-purple-300">/v1/.../collections/default_collection/dataStores/{'{ENTITY_ID}'}:setIamPolicy</code>).</li>
+              <li><strong>Legacy DataStores:</strong> Grant on the datastore resource (<code className="text-purple-300">/v1/.../collections/default_collection/dataStores/{'{DATASTORE_ID}'}:setIamPolicy</code>).</li>
             </ul>
             <div className="p-2.5 bg-yellow-950/40 border border-yellow-800/60 rounded text-yellow-300 mt-2">
-              🔒 <strong>How restriction works:</strong> Any connected DataStore where the user is <em>not</em> explicitly granted <code className="text-yellow-200">roles/discoveryengine.agentspaceUser</code> remains completely hidden and blocked from search/grounding.
+              🔒 <strong>How restriction works:</strong> Any connected DataStore where the user is <em>not</em> explicitly granted <code className="text-yellow-200">roles/discoveryengine.agentspaceUser</code> remains completely hidden from the Data Sources UI and blocked from search/grounding.
             </div>
           </div>
         </div>
