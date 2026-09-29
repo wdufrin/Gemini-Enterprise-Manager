@@ -121,10 +121,14 @@ export interface EnvironmentReadinessState {
   /** v1 IAM Meta API (:getIamPolicy) reachability */
   v1IamApiSupported: boolean | null;
   v1IamApiError: string | null;
-  /** Custom role status */
+  /** Custom role status (end user) */
   customRoleStatus: 'ready' | 'needs_upgrade' | 'deleted' | 'missing' | 'checking';
   customRoleIncludedPermissions: string[];
   customRoleMissingPermissions: string[];
+  /** Custom role status (delegated admin) */
+  customAdminRoleStatus?: 'ready' | 'needs_upgrade' | 'deleted' | 'missing' | 'checking';
+  customAdminRoleIncludedPermissions?: string[];
+  customAdminRoleMissingPermissions?: string[];
   /** Admin operator permissions */
   adminPermissionsTested: boolean;
   grantedAdminPermissions: string[];
@@ -132,15 +136,50 @@ export interface EnvironmentReadinessState {
 }
 
 export const AGENTSPACE_USER_ROLE = 'roles/discoveryengine.agentspaceUser';
+export const AGENTSPACE_ADMIN_ROLE = 'roles/discoveryengine.agentspaceAdmin';
+export const AGENTSPACE_VIEWER_ROLE = 'roles/discoveryengine.agentspaceViewer';
+
+export const RESOURCE_LEVEL_ROLES = [
+  AGENTSPACE_USER_ROLE,
+  AGENTSPACE_ADMIN_ROLE,
+  AGENTSPACE_VIEWER_ROLE,
+] as const;
+
+export type ResourceLevelRole = (typeof RESOURCE_LEVEL_ROLES)[number];
+
 export const CUSTOM_ROLE_ID = 'customRestrictedEndUser';
+export const CUSTOM_ADMIN_ROLE_ID = 'customRestrictedAdmin';
+
+export const NOTEBOOK_LM_USER_ROLE = 'roles/discoveryengine.notebookLmUser';
+export const CLOUD_AI_COMPANION_USER_ROLE = 'roles/cloudaicompanion.user';
+export const BUSINESS_AI_CODE_USER_ROLE = 'roles/businessaicode.user';
 
 /**
  * Required permissions for the project-level customRestrictedEndUser role
- * per go/ge-end-user-ds-permission-control (updated Sep 18, 2026).
+ * per GA documentation (https://docs.cloud.google.com/gemini/enterprise/docs/iam-policy-for-apps-and-data-stores).
  */
 export const REQUIRED_CUSTOM_ROLE_PERMISSIONS = [
   'discoveryengine.locations.buildAuthorizationUrl',
   'discoveryengine.devToolsConfigs.get',
+];
+
+/**
+ * Required permissions for the project-level customRestrictedAdmin role
+ * per GA documentation for delegated resource-level administrators.
+ */
+export const REQUIRED_CUSTOM_ADMIN_ROLE_PERMISSIONS = [
+  'discoveryengine.aclConfigs.get',
+  'discoveryengine.collections.list',
+  'discoveryengine.dataStores.list',
+  'discoveryengine.devToolsConfigs.get',
+  'discoveryengine.engines.list',
+  'discoveryengine.licenseConfigs.list',
+  'discoveryengine.locations.buildAuthorizationUrl',
+  'discoveryengine.locations.getConnectorSource',
+  'discoveryengine.locations.listConnectorSources',
+  'discoveryengine.projects.get',
+  'discoveryengine.userStores.listUserLicenses',
+  'resourcemanager.projects.get',
 ];
 
 /**

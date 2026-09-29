@@ -175,19 +175,28 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
       } else if (resourceType === 'connector') {
         responsePolicy = await api.setCollectionIamPolicy(resourceId, finalPolicy, config);
 
-        // Keep child Entity DataStores synchronized with the Connector Collection's agentspaceUser binding
+        // Keep child Entity DataStores synchronized with the Connector Collection's resource-level role bindings
         if (childEntityIds && childEntityIds.length > 0) {
-          const desiredMembers =
-            finalPolicy.bindings.find(b => b.role === DEFAULT_ROLE && !b.condition)?.members || [];
+          const syncedRoleNames = new Set([
+            'roles/discoveryengine.agentspaceUser',
+            'roles/discoveryengine.agentspaceAdmin',
+            'roles/discoveryengine.agentspaceViewer',
+          ]);
+          const desiredResourceBindings = finalPolicy.bindings.filter(
+            b => syncedRoleNames.has(b.role) && !b.condition && b.members && b.members.length > 0
+          );
           for (const entId of childEntityIds) {
             const entPolicy = await api.getDataStoreIamPolicy(entId, config);
             const otherBindings = (entPolicy.bindings || []).filter(
-              b => !(b.role === DEFAULT_ROLE && !b.condition)
+              b => !(syncedRoleNames.has(b.role) && !b.condition)
             );
-            const updatedEntBindings =
-              desiredMembers.length > 0
-                ? [...otherBindings, { role: DEFAULT_ROLE, members: [...desiredMembers] }]
-                : otherBindings;
+            const updatedEntBindings = [
+              ...otherBindings,
+              ...desiredResourceBindings.map(b => ({
+                role: b.role,
+                members: [...(b.members || [])],
+              })),
+            ];
             await api.setDataStoreIamPolicy(
               entId,
               { etag: entPolicy.etag || '', bindings: updatedEntBindings },
@@ -262,9 +271,9 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
 
           <main className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
             <div className="bg-blue-900/20 border border-blue-800/60 p-3.5 rounded-lg text-xs text-blue-200">
-              <p className="font-semibold mb-1 uppercase tracking-wider text-blue-300">Gemini Enterprise Access Control Pattern:</p>
+              <p className="font-semibold mb-1 uppercase tracking-wider text-blue-300">Gemini Enterprise Access Control Pattern (GA):</p>
               <p className="mb-2">
-                Assign <code>roles/discoveryengine.agentspaceUser</code> to end users or groups to grant access to this resource in the GE Web App.
+                Assign <code>roles/discoveryengine.agentspaceUser</code> (User), <code>roles/discoveryengine.agentspaceAdmin</code> (Admin), or <code>roles/discoveryengine.agentspaceViewer</code> (Viewer) to principals to grant access to this resource.
               </p>
               <div className="text-[11px] text-gray-400">
                 Supported Member Formats: <code>user:alice@example.com</code>, <code>group:analytics-team@example.com</code>, <code>serviceAccount:...</code>
@@ -291,7 +300,7 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-medium text-gray-300 mb-1">IAM Role</label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap sm:flex-nowrap gap-2">
                     <input
                       type="text"
                       value={binding.role}
@@ -302,9 +311,23 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
                     <button
                       type="button"
                       onClick={() => handleBindingChange(index, 'role', DEFAULT_ROLE)}
-                      className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-200 rounded-md border border-gray-600 whitespace-nowrap"
+                      className="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-200 rounded-md border border-gray-600 whitespace-nowrap"
                     >
                       Set agentspaceUser
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBindingChange(index, 'role', 'roles/discoveryengine.agentspaceAdmin')}
+                      className="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-200 rounded-md border border-gray-600 whitespace-nowrap"
+                    >
+                      Set agentspaceAdmin
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBindingChange(index, 'role', 'roles/discoveryengine.agentspaceViewer')}
+                      className="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-200 rounded-md border border-gray-600 whitespace-nowrap"
+                    >
+                      Set agentspaceViewer
                     </button>
                   </div>
                 </div>

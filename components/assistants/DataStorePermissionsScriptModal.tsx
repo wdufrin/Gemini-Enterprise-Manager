@@ -260,6 +260,13 @@ if __name__ == "__main__":
   --stage=GA \\
   --permissions=discoveryengine.locations.buildAuthorizationUrl,discoveryengine.devToolsConfigs.get`;
 
+  const curlAppendixAdmin = `gcloud iam roles create customRestrictedAdmin \\
+  --project=${projectId} \\
+  --title="Custom Gemini Enterprise Restricted Admin" \\
+  --description="Base project-level permissions for delegated resource-level Gemini Enterprise administrators." \\
+  --stage=GA \\
+  --permissions=discoveryengine.aclConfigs.get,discoveryengine.collections.list,discoveryengine.dataStores.list,discoveryengine.devToolsConfigs.get,discoveryengine.engines.list,discoveryengine.licenseConfigs.list,discoveryengine.locations.buildAuthorizationUrl,discoveryengine.locations.getConnectorSource,discoveryengine.locations.listConnectorSources,discoveryengine.projects.get,discoveryengine.userStores.listUserLicenses,resourcemanager.projects.get`;
+
   const curlStepA1 = `gcloud projects add-iam-policy-binding ${projectId} \\
   --member="${member}" \\
   --role="projects/${projectId}/roles/customRestrictedEndUser"`;
@@ -304,8 +311,8 @@ if __name__ == "__main__":
           <div>
             <h2 id="datastore-scripts-title" className="text-xl font-bold text-white flex items-center gap-2">
               <span>DataStore ACL Automation Scripts & Commands</span>
-              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-900/50 text-blue-300 border border-blue-700">
-                Beta
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-900/50 text-green-300 border border-green-700">
+                GA
               </span>
             </h2>
             <p className="text-xs text-gray-400 mt-1">
@@ -374,11 +381,11 @@ if __name__ == "__main__":
               <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-700/50 rounded-xl p-5 shadow-inner">
                 <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
                   <span>How Datastore Restriction Works in Gemini Enterprise</span>
-                  <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-900/60 text-purple-300 border border-purple-600">Beta</span>
+                  <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-900/60 text-green-300 border border-green-600">GA</span>
                 </h3>
                 <p className="text-xs text-gray-300 leading-relaxed">
                   By default, Gemini Enterprise users require project-level IAM roles which grant access to all datastores. 
-                  Datastore-Level Access Control (Beta) replaces this with a <strong>least-privilege 2-tier model</strong>: a minimal project-level authentication role combined with explicit resource-level bindings on only the specific App Engine and DataStores they are allowed to query.
+                  Datastore-Level Access Control (GA) replaces this with a <strong>least-privilege 2-tier model</strong>: a minimal project-level authentication role combined with explicit resource-level bindings on only the specific App Engine and DataStores they are allowed to query.
                 </p>
               </div>
 
@@ -541,7 +548,7 @@ if __name__ == "__main__":
               {/* Appendix A */}
               <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700">
                 <div className="flex justify-between items-center mb-2">
-                  <h4 className="text-sm font-semibold text-white">Appendix A — Create Project Custom Role (2 Required Permissions)</h4>
+                  <h4 className="text-sm font-semibold text-white">Appendix A — Create Project Custom Role for End Users (2 Required Permissions)</h4>
                   <button
                     onClick={() => copyToClipboard(curlAppendixA, 'appA')}
                     className="text-xs text-blue-400 hover:text-blue-300 font-medium"
@@ -551,6 +558,22 @@ if __name__ == "__main__":
                 </div>
                 <pre className="p-3 bg-gray-950 rounded text-xs font-mono text-gray-200 overflow-x-auto select-all">
                   {curlAppendixA}
+                </pre>
+              </div>
+
+              {/* Appendix B: Delegated Admin Custom Role */}
+              <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700">
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-sm font-semibold text-white">Appendix B — Create Project Custom Role for Delegated Admins (12 Required Permissions)</h4>
+                  <button
+                    onClick={() => copyToClipboard(curlAppendixAdmin, 'appAdmin')}
+                    className="text-xs text-blue-400 hover:text-blue-300 font-medium"
+                  >
+                    {copiedKey === 'appAdmin' ? 'Copied ✓' : 'Copy'}
+                  </button>
+                </div>
+                <pre className="p-3 bg-gray-950 rounded text-xs font-mono text-gray-200 overflow-x-auto select-all">
+                  {curlAppendixAdmin}
                 </pre>
               </div>
 

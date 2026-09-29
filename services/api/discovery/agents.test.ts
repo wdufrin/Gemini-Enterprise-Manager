@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as core from '../core';
-import { updateAgent, bulkEnforceAgentsObservability } from './agents';
+import {
+  updateAgent,
+  bulkEnforceAgentsObservability,
+  transferAgentOwner,
+  formatTransferTargetPrincipal,
+  buildTransferAgentOwnerPayload,
+  isCustomNoCodeAgent,
+} from './agents';
 import { Agent, Config } from '../../../types';
 
 vi.mock('../core', async (importOriginal) => {
@@ -155,3 +162,136 @@ describe('agents API - Observability policy and bulk enforcer', () => {
     expect(result.errors[0]).not.toContain('[ORIGINAL ERROR]');
   });
 });
+
+describe('agents API - Ownership Transfer (transferAgentOwner)', () => {
+  const mockConfig: Config = {
+    projectId: 'test-project',
+    appLocation: 'global',
+    collectionId: 'default_collection',
+    appId: 'test-engine',
+    assistantId: 'default_assistant',
+  };
+
+  const agentResourceName =
+    'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/nocode-agent-1';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('isCustomNoCodeAgent identifies low-code, workflow, and no-code agents and excludes ADK/A2A agents', () => {
+    expect(isCustomNoCodeAgent({ lowCodeAgentDefinition: { nodes: [] } })).toBe(true);
+    expect(isCustomNoCodeAgent({ workflowAgentDefinition: { agentFlow: {} } })).toBe(true);
+    expect(isCustomNoCodeAgent({ noCodeAgentDefinition: {} })).toBe(true);
+    expect(isCustomNoCodeAgent({ agentType: 'LOW_CODE' })).toBe(true);
+    expect(isCustomNoCodeAgent({ agentOrigin: 'AGENT_DESIGNER' })).toBe(true);
+    expect(isCustomNoCodeAgent({ adkAgentDefinition: {} })).toBe(false);
+    expect(isCustomNoCodeAgent({ a2aAgentDefinition: { jsonAgentCard: '{}' } })).toBe(false);
+    expect(isCustomNoCodeAgent(null)).toBe(false);
+  });
+
+  it('formatTransferTargetPrincipal normalizes bare emails, user: emails, and WIF principals', () => {
+    expect(formatTransferTargetPrincipal('alice@example.com')).toBe('user:alice@example.com');
+    expect(formatTransferTargetPrincipal('  user:bob@example.com  ')).toBe('user:bob@example.com');
+    expect(
+      formatTransferTargetPrincipal(
+        '//iam.googleapis.com/locations/global/workforcePools/corp-pool/subject/alice.smith',
+      ),
+    ).toBe(
+      'principal://iam.googleapis.com/locations/global/workforcePools/corp-pool/subject/alice.smith',
+    );
+    expect(
+      formatTransferTargetPrincipal(
+        'principal://iam.googleapis.com/locations/global/workforcePools/corp-pool/subject/Bob.Jones',
+      ),
+    ).toBe(
+      'principal://iam.googleapis.com/locations/global/workforcePools/corp-pool/subject/Bob.Jones',
+    );
+  });
+
+  it('formatTransferTargetPrincipal rejects empty, malformed, public, group, domain, and serviceAccount principals', () => {
+    expect(() => formatTransferTargetPrincipal('')).toThrow(/required/i);
+    expect(() => formatTransferTargetPrincipal('   ')).toThrow(/required/i);
+    expect(() => formatTransferTargetPrincipal('not-an-email')).toThrow(/Must be a valid email/i);
+    expect(() => formatTransferTargetPrincipal('allUsers')).toThrow(/single user identity/i);
+    expect(() => formatTransferTargetPrincipal('allAuthenticatedUsers')).toThrow(/single user identity/i);
+    expect(() => formatTransferTargetPrincipal('group:eng@example.com')).toThrow(/single user identity/i);
+    expect(() => formatTransferTargetPrincipal('domain:example.com')).toThrow(/single user identity/i);
+    expect(() =>
+      formatTransferTargetPrincipal('serviceAccount:bot@test-project.iam.gserviceaccount.com'),
+    ).toThrow(/single user identity/i);
+    expect(() =>
+      formatTransferTargetPrincipal(
+        'principalSet://iam.googleapis.com/locations/global/workforcePools/corp-pool/group/admins',
+      ),
+    ).toThrow(/single user identity/i);
+    expect(() =>
+      formatTransferTargetPrincipal('principal://iam.googleapis.com/locations/global/workforcePools/corp-pool'),
+    ).toThrow(/Workforce Identity principal must match/i);
+  });
+
+  it('transferAgentOwner sends currentUser: {} and KEEP_AS_AGENT_USER when transferring to self', async () => {
+    vi.mocked(core.gapiRequest).mockResolvedValue({});
+
+    await transferAgentOwner(agentResourceName, { toSelf: true }, mockConfig);
+
+    expect(core.gapiRequest).toHaveBeenCalledTimes(1);
+    const [url, method, projectId, , payload] = vi.mocked(core.gapiRequest).mock.calls[0];
+    expect(url).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${agentResourceName}:transferAgentOwner`,
+    );
+    expect(method).toBe('POST');
+    expect(projectId).toBe('test-project');
+    expect(payload).toEqual({
+      currentUser: {},
+      previousOwnerDisposition: 'KEEP_AS_AGENT_USER',
+    });
+  });
+
+  it('transferAgentOwner sends targetPrincipal with normalized user: email and regional endpoint', async () => {
+    vi.mocked(core.gapiRequest).mockResolvedValue({});
+
+    await transferAgentOwner(
+      'short-agent-id',
+      {
+        toSelf: false,
+        targetPrincipal: 'newowner@example.com',
+        previousOwnerDisposition: 'REMOVE',
+      },
+      { ...mockConfig, appLocation: 'us' },
+    );
+
+    expect(core.gapiRequest).toHaveBeenCalledTimes(1);
+    const [url, method, , , payload] = vi.mocked(core.gapiRequest).mock.calls[0];
+    expect(url).toBe(
+      'https://us-discoveryengine.googleapis.com/v1alpha/projects/test-project/locations/us/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/short-agent-id:transferAgentOwner',
+    );
+    expect(method).toBe('POST');
+    expect(payload).toEqual({
+      targetPrincipal: {
+        principal: 'user:newowner@example.com',
+      },
+      previousOwnerDisposition: 'REMOVE',
+    });
+  });
+
+  it('transferAgentOwner propagates 403 Permission Denied errors without swallowing', async () => {
+    vi.mocked(core.gapiRequest).mockRejectedValueOnce(
+      new Error('403 PERMISSION_DENIED: Caller lacks discoveryengine.agents.transferOwner'),
+    );
+
+    await expect(
+      transferAgentOwner(
+        agentResourceName,
+        { toSelf: false, targetPrincipal: 'alice@example.com' },
+        mockConfig,
+      ),
+    ).rejects.toThrow('403 PERMISSION_DENIED');
+
+    expect( buildTransferAgentOwnerPayload({ toSelf: true }) ).toEqual({
+      currentUser: {},
+      previousOwnerDisposition: 'KEEP_AS_AGENT_USER',
+    });
+  });
+});
+

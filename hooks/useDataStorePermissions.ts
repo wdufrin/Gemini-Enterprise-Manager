@@ -20,6 +20,7 @@ import * as api from '../services/apiService';
 import {
   AGENTSPACE_USER_ROLE,
   BROAD_PROJECT_ROLES,
+  CUSTOM_ADMIN_ROLE_ID,
   CUSTOM_ROLE_ID,
   ConnectorInconsistency,
   ConnectorResource,
@@ -29,8 +30,12 @@ import {
   PrincipalAccess,
   REQUIRED_ADMIN_PERMISSIONS,
   REQUIRED_CUSTOM_ROLE_PERMISSIONS,
+  RESOURCE_LEVEL_ROLES,
   UserAccessDetails,
 } from '../components/assistants/datastore-permissions/types';
+
+const isResourceLevelRole = (role?: string): boolean =>
+  !!role && (RESOURCE_LEVEL_ROLES as readonly string[]).includes(role);
 
 export const formatMember = (m: string): string => {
   const trimmed = m.trim();
@@ -634,13 +639,19 @@ export function useDataStorePermissions(
 
     // 1. Process Project Policy
     const customRoleFullName = `projects/${projectId}/roles/${CUSTOM_ROLE_ID}`;
+    const customAdminRoleFullName = `projects/${projectId}/roles/${CUSTOM_ADMIN_ROLE_ID}`;
     projectPolicy?.bindings?.forEach(b => {
       b.members?.forEach(m => {
         const u = getOrCreate(m);
         if (!u.projectRoles.includes(b.role)) {
           u.projectRoles.push(b.role);
         }
-        if (b.role === customRoleFullName || b.role?.endsWith(`/${CUSTOM_ROLE_ID}`)) {
+        if (
+          b.role === customRoleFullName ||
+          b.role === customAdminRoleFullName ||
+          b.role?.endsWith(`/${CUSTOM_ROLE_ID}`) ||
+          b.role?.endsWith(`/${CUSTOM_ADMIN_ROLE_ID}`)
+        ) {
           u.hasCustomRole = true;
         }
         if (BROAD_PROJECT_ROLES.includes(b.role)) {
@@ -654,7 +665,7 @@ export function useDataStorePermissions(
 
     // 2. Process App Engine Policy
     enginePolicy?.bindings?.forEach(b => {
-      if (b.role === AGENTSPACE_USER_ROLE || b.role?.includes('agentspace')) {
+      if (isResourceLevelRole(b.role) || b.role?.includes('agentspace')) {
         b.members?.forEach(m => {
           const u = getOrCreate(m);
           u.hasEngineAccess = true;
@@ -675,32 +686,41 @@ export function useDataStorePermissions(
 
     // 4. Process Connectors & DataStores
     connectors.forEach(conn => {
-      const connMembers = conn.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE)?.members || [];
       const isRelevant = !hasAttachedResources || conn.isAttached;
-      connMembers.forEach(m => {
-        const u = getOrCreate(m);
-        const label = conn.displayName || conn.id;
-        if (isRelevant && !u.accessibleDataStores.includes(label)) {
-          u.accessibleDataStores.push(label);
+      conn.policy?.bindings?.forEach(b => {
+        if (isResourceLevelRole(b.role)) {
+          b.members?.forEach(m => {
+            const u = getOrCreate(m);
+            const label = conn.displayName || conn.id;
+            if (isRelevant && !u.accessibleDataStores.includes(label)) {
+              u.accessibleDataStores.push(label);
+            }
+          });
         }
       });
 
       conn.entities.forEach(ent => {
-        const entMembers = ent.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE)?.members || [];
-        entMembers.forEach(m => {
-          getOrCreate(m);
+        ent.policy?.bindings?.forEach(b => {
+          if (isResourceLevelRole(b.role)) {
+            b.members?.forEach(m => {
+              getOrCreate(m);
+            });
+          }
         });
       });
     });
 
     legacyDataStores.forEach(ds => {
-      const dsMembers = ds.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE)?.members || [];
       const isRelevant = !hasAttachedResources || ds.isAttached;
-      dsMembers.forEach(m => {
-        const u = getOrCreate(m);
-        const label = ds.displayName || ds.id;
-        if (isRelevant && !u.accessibleDataStores.includes(label)) {
-          u.accessibleDataStores.push(label);
+      ds.policy?.bindings?.forEach(b => {
+        if (isResourceLevelRole(b.role)) {
+          b.members?.forEach(m => {
+            const u = getOrCreate(m);
+            const label = ds.displayName || ds.id;
+            if (isRelevant && !u.accessibleDataStores.includes(label)) {
+              u.accessibleDataStores.push(label);
+            }
+          });
         }
       });
     });
@@ -738,8 +758,9 @@ export function useDataStorePermissions(
 
     // 1. Check Project Policy
     const targetProjectRole = `projects/${projectId}/roles/${CUSTOM_ROLE_ID}`;
+    const targetAdminProjectRole = `projects/${projectId}/roles/${CUSTOM_ADMIN_ROLE_ID}`;
     projectPolicy?.bindings?.forEach(b => {
-      if (b.role === targetProjectRole) {
+      if (b.role === targetProjectRole || b.role === targetAdminProjectRole) {
         b.members?.forEach(m => {
           getOrCreate(m).hasProjectRole = true;
         });
@@ -748,7 +769,7 @@ export function useDataStorePermissions(
 
     // 2. Check Engine Policy
     enginePolicy?.bindings?.forEach(b => {
-      if (b.role === AGENTSPACE_USER_ROLE || b.role?.includes('agentspace')) {
+      if (isResourceLevelRole(b.role) || b.role?.includes('agentspace')) {
         b.members?.forEach(m => {
           getOrCreate(m).hasEngineAccess = true;
         });
@@ -758,7 +779,7 @@ export function useDataStorePermissions(
     // 3. Check Connectors & Entities
     connectors.forEach(conn => {
       conn.policy?.bindings?.forEach(b => {
-        if (b.role === AGENTSPACE_USER_ROLE) {
+        if (isResourceLevelRole(b.role)) {
           b.members?.forEach(m => {
             getOrCreate(m).resourceAccess[`connector:${conn.id}`] = true;
           });
@@ -766,7 +787,7 @@ export function useDataStorePermissions(
       });
       conn.entities.forEach(ent => {
         ent.policy?.bindings?.forEach(b => {
-          if (b.role === AGENTSPACE_USER_ROLE) {
+          if (isResourceLevelRole(b.role)) {
             b.members?.forEach(m => {
               getOrCreate(m).resourceAccess[`entity:${ent.id}`] = true;
             });
@@ -778,7 +799,7 @@ export function useDataStorePermissions(
     // 4. Check Legacy DataStores
     legacyDataStores.forEach(ds => {
       ds.policy?.bindings?.forEach(b => {
-        if (b.role === AGENTSPACE_USER_ROLE) {
+        if (isResourceLevelRole(b.role)) {
           b.members?.forEach(m => {
             getOrCreate(m).resourceAccess[`datastore:${ds.id}`] = true;
           });

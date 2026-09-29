@@ -136,6 +136,7 @@ export interface Agent {
   };
   a2aAgentDefinition?: { jsonAgentCard: string };
   lowCodeAgentDefinition?: LowCodeAgentDefinition;
+  noCodeAgentDefinition?: Record<string, unknown>;
   managedAgentDefinition?: Record<string, unknown>;
   workflowAgentDefinition?: WorkflowAgentDefinition;
   skillAgentDefinition?: SkillAgentDefinition;
@@ -153,6 +154,22 @@ export interface Agent {
   updateTime?: string;
   agentType?: string;
   agentOrigin?: string;
+}
+
+export type PreviousOwnerDisposition = 'KEEP_AS_AGENT_USER' | 'REMOVE';
+
+export interface TransferAgentOwnerRequest {
+  currentUser?: Record<string, never>;
+  targetPrincipal?: {
+    principal: string;
+  };
+  previousOwnerDisposition?: PreviousOwnerDisposition;
+}
+
+export interface TransferAgentOwnerOptions {
+  toSelf: boolean;
+  targetPrincipal?: string;
+  previousOwnerDisposition?: PreviousOwnerDisposition;
 }
 
 export interface AgentViewResponse {

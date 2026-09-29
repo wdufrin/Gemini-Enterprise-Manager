@@ -26,6 +26,7 @@ export interface AssistantIamSectionProps {
   setNewMember: (member: string) => void;
   handleAddIamMember: () => Promise<void>;
   handleRemoveIamMember: (member: string) => void;
+  dataStoreAccessControlEnabled?: boolean;
 }
 
 export const AssistantIamSection: React.FC<AssistantIamSectionProps> = ({
@@ -38,7 +39,20 @@ export const AssistantIamSection: React.FC<AssistantIamSectionProps> = ({
   setNewMember,
   handleAddIamMember,
   handleRemoveIamMember,
+  dataStoreAccessControlEnabled = false,
 }) => {
+  const appLevelMembers: string[] = Array.from(
+    new Set(
+      (iamPolicy?.bindings || [])
+        .filter(
+          (b: any) =>
+            b.role === 'roles/discoveryengine.agentspaceUser' ||
+            b.role === 'roles/discoveryengine.user'
+        )
+        .flatMap((b: any) => b.members || [])
+    )
+  );
+
   return (
     <div className="space-y-3 p-4 bg-gray-900/30 rounded-md">
       <div className="bg-amber-900/30 border border-amber-800 rounded-md p-3 mb-3 text-xs text-amber-200 flex gap-2">
@@ -46,7 +60,7 @@ export const AssistantIamSection: React.FC<AssistantIamSectionProps> = ({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
         </svg>
         <div>
-          <strong>Precedence Warning:</strong> Project-level IAM permissions take precedence over app-level policies. If a user is granted a role (like <code>roles/discoveryengine.user</code>) at the project level, they can access all apps in that project, regardless of any app-level permissions. To restrict a user to specific apps, ensure they do not have broad Discovery Engine roles at the project level. Use this panel to grant app-specific access once project-level access is removed.
+          <strong>Precedence Warning:</strong> Project-level IAM permissions take precedence over app-level policies. If a user is granted a broad role (like <code>roles/discoveryengine.user</code> or <code>roles/discoveryengine.agentspaceUser</code>) at the project level, they can access all apps in that project, regardless of any app-level permissions. Use this panel to grant app-specific <code>roles/discoveryengine.agentspaceUser</code> access once broad project-level access is removed.
         </div>
       </div>
       <div className="bg-blue-900/30 border border-blue-800 rounded-md p-3 mb-3 text-xs text-blue-200 flex gap-2">
@@ -54,7 +68,16 @@ export const AssistantIamSection: React.FC<AssistantIamSectionProps> = ({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <div>
-          <strong>Mandatory User Access:</strong> To ensure these users can use connectors, agents, and notebooks, they are also automatically granted the mandatory <code>roles/discoveryengine.agentspaceRestrictedUser</code> role at the project level upon addition.
+          <strong>Mandatory User Access:</strong>{' '}
+          {dataStoreAccessControlEnabled ? (
+            <>
+              Because <strong>DataStore Access Control</strong> is enabled on this project, added users are granted <code>roles/discoveryengine.agentspaceUser</code> on this App and <code>roles/customRestrictedEndUser</code> at the project level so DataStore isolation is preserved.
+            </>
+          ) : (
+            <>
+              To ensure these users can use connectors, agents, and notebooks in an App-only restriction model, they are granted <code>roles/discoveryengine.agentspaceUser</code> on this App and <code>roles/discoveryengine.agentspaceRestrictedUser</code> at the project level upon addition.
+            </>
+          )}
         </div>
       </div>
 
@@ -66,8 +89,8 @@ export const AssistantIamSection: React.FC<AssistantIamSectionProps> = ({
         <p className="text-xs text-red-400">{iamError}</p>
       ) : (
         <div className="space-y-2">
-          {iamPolicy?.bindings?.find((b: any) => b.role === 'roles/discoveryengine.user')?.members?.length > 0 ? (
-            iamPolicy.bindings.find((b: any) => b.role === 'roles/discoveryengine.user').members.map((member: string) => (
+          {appLevelMembers.length > 0 ? (
+            appLevelMembers.map((member: string) => (
               <div key={member} className="flex justify-between items-center bg-gray-700/50 p-2 rounded-md">
                 <span className="text-xs text-gray-300 font-mono">{member.replace('user:', '').replace('group:', '')}</span>
                 <button

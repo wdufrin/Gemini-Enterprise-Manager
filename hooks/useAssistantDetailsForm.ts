@@ -63,6 +63,7 @@ export function useAssistantDetailsForm(
   const [isLoadingIam, setIsLoadingIam] = useState(false);
   const [iamError, setIamError] = useState<string | null>(null);
   const [isIamDirty, setIsIamDirty] = useState(false);
+  const [dataStoreAccessControlEnabled, setDataStoreAccessControlEnabled] = useState(false);
 
   // Model Armor state variables
   const [templates, setTemplates] = useState<ModelArmorTemplate[]>([]);
@@ -213,6 +214,17 @@ export function useAssistantDetailsForm(
       try {
         const policy = await api.getEngineIamPolicy(config.appId, config);
         setIamPolicyLocal(policy);
+        if (config.projectId && typeof api.getDiscoveryProjectConfig === 'function') {
+          try {
+            const projConfig = await api.getDiscoveryProjectConfig(
+              config.projectId,
+              config.appLocation || 'global'
+            );
+            setDataStoreAccessControlEnabled(Boolean(projConfig?.dataStoreAccessControlEnabled));
+          } catch {
+            // Keep default false if project config cannot be fetched
+          }
+        }
       } catch (e: unknown) {
         setIamError(toErrorMessage(e) || 'Failed to fetch IAM policy.');
       } finally {
@@ -250,9 +262,9 @@ export function useAssistantDetailsForm(
     const updatedPolicy: IamPolicy = { ...iamPolicy };
     if (!updatedPolicy.bindings) updatedPolicy.bindings = [];
 
-    let binding = updatedPolicy.bindings.find((b: IamBinding) => b.role === 'roles/discoveryengine.user');
+    let binding = updatedPolicy.bindings.find((b: IamBinding) => b.role === 'roles/discoveryengine.agentspaceUser');
     if (!binding) {
-      binding = { role: 'roles/discoveryengine.user', members: [] };
+      binding = { role: 'roles/discoveryengine.agentspaceUser', members: [] };
       updatedPolicy.bindings.push(binding);
     }
 
@@ -266,25 +278,33 @@ export function useAssistantDetailsForm(
     setIsIamDirty(true);
     setNewMember('');
 
+    const targetProjectRole = dataStoreAccessControlEnabled
+      ? `projects/${config.projectId}/roles/customRestrictedEndUser`
+      : 'roles/discoveryengine.agentspaceRestrictedUser';
+
     try {
       setIamError(null);
       setIsLoadingIam(true);
       const projectPolicy = await api.getProjectIamPolicy(config.projectId);
-      let notebookBinding = projectPolicy.bindings?.find((b: IamBinding) => b.role === 'roles/discoveryengine.agentspaceRestrictedUser');
-      if (!notebookBinding) {
-        notebookBinding = { role: 'roles/discoveryengine.agentspaceRestrictedUser', members: [] };
+      let projectBinding = projectPolicy.bindings?.find((b: IamBinding) => b.role === targetProjectRole);
+      if (!projectBinding) {
+        projectBinding = { role: targetProjectRole, members: [] };
         projectPolicy.bindings = projectPolicy.bindings || [];
-        projectPolicy.bindings.push(notebookBinding);
+        projectPolicy.bindings.push(projectBinding);
       }
-      if (!notebookBinding.members) notebookBinding.members = [];
-      if (!notebookBinding.members.includes(memberString)) {
-        notebookBinding.members.push(memberString);
+      if (!projectBinding.members) projectBinding.members = [];
+      if (!projectBinding.members.includes(memberString)) {
+        projectBinding.members.push(memberString);
       }
       await api.setProjectIamPolicy(config.projectId, projectPolicy);
-      setSuccess('Granted local permissions and mandatory project-level Agentspace Restricted User access.');
+      setSuccess(
+        dataStoreAccessControlEnabled
+          ? `Granted app-level agentspaceUser and project-level customRestrictedEndUser access (DataStore Access Control active).`
+          : `Granted app-level agentspaceUser and mandatory project-level Agentspace Restricted User access.`
+      );
       setTimeout(() => setSuccess(null), 3000);
     } catch (e: unknown) {
-      setIamError(`Failed to grant mandatory Agentspace Restricted User access: ${toErrorMessage(e)}`);
+      setIamError(`Failed to grant mandatory project-level access (${targetProjectRole}): ${toErrorMessage(e)}`);
     } finally {
       setIsLoadingIam(false);
     }
@@ -295,10 +315,14 @@ export function useAssistantDetailsForm(
     const updatedPolicy: IamPolicy = { ...iamPolicy };
     if (!updatedPolicy.bindings) return;
 
-    const binding = updatedPolicy.bindings.find((b: IamBinding) => b.role === 'roles/discoveryengine.user');
-    if (binding && binding.members) {
-      binding.members = binding.members.filter((m: string) => m !== member);
-    }
+    updatedPolicy.bindings.forEach((b: IamBinding) => {
+      if (
+        (b.role === 'roles/discoveryengine.agentspaceUser' || b.role === 'roles/discoveryengine.user') &&
+        b.members
+      ) {
+        b.members = b.members.filter((m: string) => m !== member);
+      }
+    });
 
     setIamPolicyLocal({ ...updatedPolicy });
     setIsIamDirty(true);
@@ -587,6 +611,7 @@ export function useAssistantDetailsForm(
     setMemberType,
     isLoadingIam,
     iamError,
+    dataStoreAccessControlEnabled,
     handleAddIamMember,
     handleRemoveIamMember,
     handleSubmit,

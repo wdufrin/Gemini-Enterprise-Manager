@@ -197,15 +197,20 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
           </header>
 
           <main className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
-              <div className="bg-blue-900/20 border border-blue-800 p-3 rounded-md text-xs text-blue-300 mb-4">
-                  <p className="font-bold mb-1 uppercase tracking-wider">Supported Principal Formats:</p>
-                  <ul className="list-disc list-inside space-y-1">
-                      <li><strong>Users:</strong> <code>user:someone@example.com</code></li>
-                      <li><strong>Groups:</strong> <code>group:admins@example.com</code></li>
-                      <li><strong>Service Accounts:</strong> <code>serviceAccount:my-sa@project.iam.gserviceaccount.com</code></li>
-                      <li><strong>WIF Principals:</strong> <code>principal://iam.googleapis.com/projects/NUM/locations/global/workloadIdentityPools/POOL/subject/SUB</code></li>
-                      <li><strong>WIF Groups/Sets:</strong> <code>principalSet://iam.googleapis.com/projects/NUM/locations/global/workloadIdentityPools/POOL/group/GRP</code></li>
-                  </ul>
+              <div className="bg-blue-900/20 border border-blue-800 p-3 rounded-md text-xs text-blue-300 mb-4 space-y-2">
+                  <div>
+                      <p className="font-bold mb-1 uppercase tracking-wider">Supported Principal Formats:</p>
+                      <ul className="list-disc list-inside space-y-1">
+                          <li><strong>Users:</strong> <code>user:someone@example.com</code></li>
+                          <li><strong>Groups:</strong> <code>group:admins@example.com</code></li>
+                          <li><strong>Service Accounts:</strong> <code>serviceAccount:my-sa@project.iam.gserviceaccount.com</code></li>
+                          <li><strong>WIF Principals (3P IdP):</strong> <code>principal://iam.googleapis.com/locations/global/workforcePools/POOL_ID/subject/SUBJECT_ID</code></li>
+                          <li><strong>WIF Groups (3P IdP):</strong> <code>principalSet://iam.googleapis.com/locations/global/workforcePools/POOL_ID/group/GROUP_ID</code></li>
+                      </ul>
+                  </div>
+                  <p className="text-amber-300 border-t border-blue-800/60 pt-2">
+                      <strong>Tip:</strong> Each custom no-code agent has a single owner (<code>roles/discoveryengine.agentOwner</code>). To reassign ownership of a shared no-code agent, use the <strong>Transfer Ownership</strong> action on the Agent Details page.
+                  </p>
               </div>
 
               {(editablePolicy.bindings || []).map((binding: IamBinding, index: number) => (

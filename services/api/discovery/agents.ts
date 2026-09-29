@@ -14,7 +14,14 @@
  * limitations under the License.
  */
 
-import { Agent, Config, CannedQuery, AgentViewResponse } from "../../../types";
+import {
+  Agent,
+  Config,
+  CannedQuery,
+  AgentViewResponse,
+  TransferAgentOwnerRequest,
+  TransferAgentOwnerOptions,
+} from "../../../types";
 import {
   gapiRequest,
   getDiscoveryEngineUrl,
@@ -291,6 +298,140 @@ export const shareAgent = async (name: string, config: Config) => {
     config.projectId,
   );
   return getAgent(name, config);
+};
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const WIF_SUBJECT_REGEX = /^(principal:)?\/\/iam\.googleapis\.com\/.+\/subject\/.+$/;
+
+/**
+ * Returns true if the agent is a custom no-code / low-code / workflow
+ * employee-made agent that supports ownership transfer.
+ */
+export const isCustomNoCodeAgent = (agent: Partial<Agent> | null | undefined): boolean => {
+  if (!agent) return false;
+  if (
+    agent.lowCodeAgentDefinition ||
+    agent.workflowAgentDefinition ||
+    agent.noCodeAgentDefinition
+  ) {
+    return true;
+  }
+  const normalizedType = (agent.agentType || "").toUpperCase();
+  if (
+    normalizedType === "LOW_CODE" ||
+    normalizedType === "NO_CODE" ||
+    normalizedType === "WORKFLOW" ||
+    normalizedType === "LOW-CODE" ||
+    normalizedType === "NO-CODE"
+  ) {
+    return true;
+  }
+  const normalizedOrigin = (agent.agentOrigin || "").toUpperCase();
+  if (normalizedOrigin === "AGENT_DESIGNER" || normalizedOrigin === "EMPLOYEE_MADE") {
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Validates and normalizes the target principal for TransferAgentOwner.
+ * Accepts:
+ * - Google/Cloud Identity email: `alice@example.com` or `user:alice@example.com` -> `user:alice@example.com`
+ * - Workforce Identity Federation subject principal:
+ *   `principal://iam.googleapis.com/locations/global/workforcePools/POOL_ID/subject/SUBJECT_ID`
+ *   or `//iam.googleapis.com/locations/global/workforcePools/POOL_ID/subject/SUBJECT_ID`
+ */
+export const formatTransferTargetPrincipal = (rawPrincipal: string): string => {
+  const trimmed = (rawPrincipal || "").trim();
+  if (!trimmed) {
+    throw new Error("A new owner email or Workforce Identity principal is required.");
+  }
+
+  const lower = trimmed.toLowerCase();
+  if (
+    lower === "allusers" ||
+    lower === "allauthenticatedusers" ||
+    lower.startsWith("group:") ||
+    lower.startsWith("domain:") ||
+    lower.startsWith("principalset://") ||
+    lower.startsWith("//iam.googleapis.com/locations/global/workforcepools/") && lower.includes("/group/") ||
+    lower.startsWith("serviceaccount:")
+  ) {
+    throw new Error(
+      "Agent ownership can only be transferred to a single user identity (user:<email> or principal://iam.googleapis.com/.../subject/<subject_id>). Groups, domains, service accounts, and public principals are not supported.",
+    );
+  }
+
+  if (trimmed.startsWith("principal://") || trimmed.startsWith("//iam.googleapis.com/")) {
+    if (!WIF_SUBJECT_REGEX.test(trimmed)) {
+      throw new Error(
+        "Workforce Identity principal must match '//iam.googleapis.com/locations/global/workforcePools/<POOL_ID>/subject/<SUBJECT_ID>'.",
+      );
+    }
+    return trimmed.startsWith("principal:") ? trimmed : `principal:${trimmed}`;
+  }
+
+  const emailCandidate = trimmed.startsWith("user:")
+    ? trimmed.slice("user:".length).trim()
+    : trimmed;
+
+  if (!EMAIL_REGEX.test(emailCandidate)) {
+    throw new Error(
+      "Must be a valid email address (e.g. user@example.com) or a Workforce Identity principal ('principal://iam.googleapis.com/.../subject/<value>').",
+    );
+  }
+
+  return `user:${emailCandidate}`;
+};
+
+export const buildTransferAgentOwnerPayload = (
+  options: TransferAgentOwnerOptions,
+): TransferAgentOwnerRequest => {
+  const previousOwnerDisposition =
+    options.previousOwnerDisposition || "KEEP_AS_AGENT_USER";
+
+  if (options.toSelf) {
+    return {
+      currentUser: {},
+      previousOwnerDisposition,
+    };
+  }
+
+  const principal = formatTransferTargetPrincipal(options.targetPrincipal || "");
+  return {
+    targetPrincipal: {
+      principal,
+    },
+    previousOwnerDisposition,
+  };
+};
+
+/**
+ * Transfers ownership of a shared custom no-code / low-code / workflow agent
+ * via `POST /v1alpha/{name}:transferAgentOwner`.
+ *
+ * Requires `roles/discoveryengine.agentspaceAdmin` or `roles/discoveryengine.admin`.
+ */
+export const transferAgentOwner = async (
+  name: string,
+  options: TransferAgentOwnerOptions,
+  config: Config,
+): Promise<Record<string, unknown>> => {
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const agentName =
+    name && name.startsWith("projects/")
+      ? name
+      : `projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId || "default_collection"}/engines/${config.appId}/assistants/${config.assistantId || "default_assistant"}/agents/${name.split("/").pop() || name}`;
+
+  const payload = buildTransferAgentOwnerPayload(options);
+
+  return gapiRequest<Record<string, unknown>>(
+    `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}:transferAgentOwner`,
+    "POST",
+    config.projectId,
+    undefined,
+    payload,
+  );
 };
 
 export const deleteResource = async (name: string, config: Config) => {

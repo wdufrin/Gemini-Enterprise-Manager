@@ -28,6 +28,7 @@ vi.mock('../../services/apiService', () => ({
   setEngineIamPolicy: vi.fn(),
   getProjectIamPolicy: vi.fn(),
   setProjectIamPolicy: vi.fn(),
+  getDiscoveryProjectConfig: vi.fn(),
   updateAssistant: vi.fn(),
   updateEngine: vi.fn(),
 }));
@@ -152,3 +153,75 @@ describe('AssistantDetailsForm - Model Armor failure mode', () => {
     expect(screen.queryByText(/disables your protection whenever Model Armor is unavailable/)).not.toBeInTheDocument();
   });
 });
+
+describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedApi.fetchModelArmorTemplates.mockResolvedValue({ templates: [] });
+    mockedApi.getEngine.mockResolvedValue({
+      name: 'projects/test-project-123/locations/global/collections/default_collection/engines/test-engine-id',
+      displayName: 'Test Engine',
+      solutionType: 'SOLUTION_TYPE_CHAT',
+    });
+    mockedApi.getEngineIamPolicy.mockResolvedValue({ bindings: [] });
+    mockedApi.getProjectIamPolicy.mockResolvedValue({ bindings: [] });
+    mockedApi.setProjectIamPolicy.mockImplementation(async (_projId: string, policy: any) => policy);
+  });
+
+  it('grants roles/discoveryengine.agentspaceUser on the Engine and customRestrictedEndUser on the Project when dataStoreAccessControlEnabled is true', async () => {
+    mockedApi.getDiscoveryProjectConfig.mockResolvedValue({
+      name: 'projects/test-project-123',
+      dataStoreAccessControlEnabled: true,
+    } as any);
+
+    renderForm();
+
+    // Open App-level IAM Permissions collapsible section
+    const iamSectionToggle = await screen.findByText('App-level IAM Permissions');
+    fireEvent.click(iamSectionToggle);
+
+    await waitFor(() => {
+      expect(screen.getByText(/DataStore Access Control/)).toBeInTheDocument();
+    });
+
+    const emailInput = screen.getByPlaceholderText('email or ID');
+    fireEvent.change(emailInput, { target: { value: 'alice@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => {
+      expect(mockedApi.setProjectIamPolicy).toHaveBeenCalledWith(
+        'test-project-123',
+        expect.objectContaining({
+          bindings: [
+            {
+              role: 'projects/test-project-123/roles/customRestrictedEndUser',
+              members: ['user:alice@example.com'],
+            },
+          ],
+        })
+      );
+      expect(screen.getByText('alice@example.com')).toBeInTheDocument();
+    });
+  });
+
+  it('surfaces project IAM error when setProjectIamPolicy rejects', async () => {
+    mockedApi.getDiscoveryProjectConfig.mockResolvedValue({
+      name: 'projects/test-project-123',
+      dataStoreAccessControlEnabled: false,
+    } as any);
+    mockedApi.setProjectIamPolicy.mockRejectedValueOnce(new Error('403 Permission Denied on cloudresourcemanager'));
+
+    renderForm();
+
+    fireEvent.click(await screen.findByText('App-level IAM Permissions'));
+    fireEvent.change(screen.getByPlaceholderText('email or ID'), { target: { value: 'bob@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Failed to grant mandatory project-level access \(roles\/discoveryengine\.agentspaceRestrictedUser\): 403 Permission Denied/i)
+      ).toBeInTheDocument();
+    });
+  });
+});
+

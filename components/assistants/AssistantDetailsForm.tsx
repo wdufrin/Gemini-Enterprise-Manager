@@ -148,6 +148,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
             setNewMember={form.setNewMember}
             handleAddIamMember={form.handleAddIamMember}
             handleRemoveIamMember={form.handleRemoveIamMember}
+            dataStoreAccessControlEnabled={form.dataStoreAccessControlEnabled}
           />
         </CollapsibleSection>
 

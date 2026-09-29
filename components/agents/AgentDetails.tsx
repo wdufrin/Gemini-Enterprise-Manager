@@ -20,6 +20,7 @@ import { Agent, Config, DataStore, IamPolicy } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import SetIamPolicyModal from './SetIamPolicyModal';
+import TransferAgentOwnershipModal from './TransferAgentOwnershipModal';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
 
@@ -52,6 +53,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
     const [isFetchingPolicy, setIsFetchingPolicy] = useState(false);
     const [policyError, setPolicyError] = useState<string | null>(null);
     const [isSetPolicyModalOpen, setIsSetPolicyModalOpen] = useState(false);
+    const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [policySuccess, setPolicySuccess] = useState<string | null>(null);
     
     // Sharing state
@@ -195,6 +197,22 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         setTimeout(() => setPolicySuccess(null), 5000);
     };
 
+    const handleTransferOwnershipSuccess = async (updatedPolicy?: IamPolicy | null) => {
+        setIsTransferModalOpen(false);
+        if (updatedPolicy) {
+            setIamPolicy(updatedPolicy);
+        }
+        setPolicySuccess("Agent ownership transferred successfully.");
+        toast.success("Agent ownership transferred successfully!");
+        setTimeout(() => setPolicySuccess(null), 5000);
+        try {
+            const refreshedAgent = await api.getAgent(agent.name, config);
+            setFullAgent(refreshedAgent);
+        } catch {
+            // Non-fatal if re-fetching agent metadata fails
+        }
+    };
+
     const handleFetchDataStores = async () => {
         setIsFetchingDataStores(true);
         setDataStoresError(null);
@@ -292,6 +310,8 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         );
     }
 
+    const isNoCodeAgent = api.isCustomNoCodeAgent(fullAgent || agent) || isPrivate;
+
     return (
         <div className="bg-gray-800 shadow-xl rounded-lg p-6">
             <div className="flex justify-between items-start">
@@ -370,6 +390,23 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                                         Share Agent
                                     </button>
                                 )}
+                                {isNoCodeAgent && (
+                                    <button
+                                        onClick={() => setIsTransferModalOpen(true)}
+                                        disabled={isPrivate}
+                                        className="px-5 py-2.5 bg-amber-600 text-white font-semibold rounded-md hover:bg-amber-500 disabled:bg-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+                                        title={
+                                            isPrivate
+                                                ? "Ownership can only be transferred for shared agents. Click 'Share Agent' first."
+                                                : "Transfer ownership (roles/discoveryengine.agentOwner) of this shared custom no-code agent"
+                                        }
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                        </svg>
+                                        Transfer Ownership
+                                    </button>
+                                )}
                                 {agent.a2aAgentDefinition?.jsonAgentCard && (
                                     <button 
                                         onClick={handleCopyAgentCard}
@@ -418,16 +455,27 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
 
             {(iamPolicy || policyError || isFetchingPolicy || policySuccess) && (
                 <div className="mt-6 border-t border-gray-700 pt-6">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                         <h3 className="text-lg font-semibold text-white">IAM Policy</h3>
-                        <button 
-                            onClick={() => setIsSetPolicyModalOpen(true)} 
-                            disabled={!iamPolicy || isFetchingPolicy} 
-                            className="px-3 py-1.5 text-xs bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-indigo-800 disabled:cursor-not-allowed"
-                            title={!iamPolicy ? "Fetch the policy first to get the required ETag" : "Edit IAM Policy"}
-                        >
-                            Edit Policy
-                        </button>
+                        <div className="flex items-center gap-2">
+                            {isNoCodeAgent && !isPrivate && (
+                                <button
+                                    onClick={() => setIsTransferModalOpen(true)}
+                                    className="px-3 py-1.5 text-xs bg-amber-600 text-white font-semibold rounded-md hover:bg-amber-500"
+                                    title="Transfer ownership of this shared no-code agent"
+                                >
+                                    Transfer Ownership
+                                </button>
+                            )}
+                            <button 
+                                onClick={() => setIsSetPolicyModalOpen(true)} 
+                                disabled={!iamPolicy || isFetchingPolicy} 
+                                className="px-3 py-1.5 text-xs bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-indigo-800 disabled:cursor-not-allowed"
+                                title={!iamPolicy ? "Fetch the policy first to get the required ETag" : "Edit IAM Policy"}
+                            >
+                                Edit Policy
+                            </button>
+                        </div>
                     </div>
                     {isFetchingPolicy && <Spinner />}
                     {policyError && <p className="text-red-400 mt-2">{policyError}</p>}
@@ -514,6 +562,14 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                     currentPolicy={iamPolicy}
                 />
             )}
+            <TransferAgentOwnershipModal
+                isOpen={isTransferModalOpen}
+                onClose={() => setIsTransferModalOpen(false)}
+                onSuccess={handleTransferOwnershipSuccess}
+                agent={fullAgent || agent}
+                config={config}
+                currentPolicy={iamPolicy}
+            />
         </div>
     );
 };

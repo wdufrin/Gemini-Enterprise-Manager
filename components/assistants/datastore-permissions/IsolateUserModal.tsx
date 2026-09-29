@@ -14,8 +14,14 @@
  * limitations under the License.
  */
 
-import React, { useRef } from 'react';
-import { CUSTOM_ROLE_ID, IsolateTarget } from './types';
+import React, { useRef, useState } from 'react';
+import {
+  BROAD_PROJECT_ROLES,
+  CUSTOM_ROLE_ID,
+  IsolateTarget,
+  NOTEBOOK_LM_USER_ROLE,
+  REQUIRED_CUSTOM_ROLE_PERMISSIONS,
+} from './types';
 import { useModalA11y } from '../../../hooks/useModalA11y';
 
 interface IsolateUserModalProps {
@@ -23,7 +29,7 @@ interface IsolateUserModalProps {
   projectId: string;
   isIsolating: boolean;
   onClose: () => void;
-  onConfirm: (members: string[]) => Promise<void>;
+  onConfirm: (members: string[], grantNotebookLm?: boolean) => Promise<void>;
 }
 
 export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
@@ -34,6 +40,7 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
   onConfirm,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [grantNotebookLm, setGrantNotebookLm] = useState(false);
 
   useModalA11y({
     isOpen: !!isolateModalTarget,
@@ -43,6 +50,11 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
   });
 
   if (!isolateModalTarget) return null;
+
+  const rolesToDisplay =
+    isolateModalTarget.broadRoles && isolateModalTarget.broadRoles.length > 0
+      ? isolateModalTarget.broadRoles
+      : BROAD_PROJECT_ROLES;
 
   return (
     <div
@@ -89,7 +101,7 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
             <div className="text-gray-400 pl-4 space-y-1">
               <p>Broad roles that bypass DataStore-level ACLs:</p>
               <p className="font-mono text-[11px] text-red-400">
-                roles/viewer, roles/editor, roles/owner, roles/discoveryengine.admin, roles/discoveryengine.user, roles/discoveryengine.agentspaceUser
+                {rolesToDisplay.join(', ')}
               </p>
             </div>
           </div>
@@ -102,8 +114,21 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
               projects/{projectId}/roles/{CUSTOM_ROLE_ID}
             </p>
             <p className="text-[11px] text-gray-400 pl-4">
-              Permission: <code>discoveryengine.locations.buildAuthorizationUrl</code>
+              Permissions: <code>{REQUIRED_CUSTOM_ROLE_PERMISSIONS.join(', ')}</code>
             </p>
+            <div className="pl-4 pt-1">
+              <label className="flex items-start gap-2 cursor-pointer text-[11px] text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={grantNotebookLm}
+                  onChange={(e) => setGrantNotebookLm(e.target.checked)}
+                  className="mt-0.5 rounded bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500"
+                />
+                <span>
+                  Also grant <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> at project level (preserves Gemini Notebook Enterprise access)
+                </span>
+              </label>
+            </div>
           </div>
 
           <div className="pt-2 border-t border-gray-800 text-[11px] text-blue-300 bg-blue-950/30 p-2.5 rounded border border-blue-900/50">
@@ -122,7 +147,7 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => onConfirm(isolateModalTarget.members)}
+            onClick={() => onConfirm(isolateModalTarget.members, grantNotebookLm)}
             disabled={isIsolating}
             className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 disabled:opacity-50"
           >
