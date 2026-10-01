@@ -7,6 +7,11 @@ import {
   formatTransferTargetPrincipal,
   buildTransferAgentOwnerPayload,
   isCustomNoCodeAgent,
+  shareAgent,
+  buildCloneAgentPayloadForCreate,
+  formatSharedIamPrincipal,
+  extractAgentOwnerHint,
+  adminPublishAndShareForUser,
 } from './agents';
 import { Agent, Config } from '../../../types';
 
@@ -294,4 +299,322 @@ describe('agents API - Ownership Transfer (transferAgentOwner)', () => {
     });
   });
 });
+
+describe('agents API - shareAgent and Admin Publish & Share for User', () => {
+  const mockConfig: Config = {
+    projectId: 'test-project',
+    appLocation: 'global',
+    collectionId: 'default_collection',
+    appId: 'test-engine',
+    assistantId: 'default_assistant',
+  };
+
+  const privateAgentName =
+    'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/private-agent-1';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shareAgent executes :deployLowCode -> :initIamPolicy -> :requestAgentReview -> :enableAgent for an undeployed low-code private agent', async () => {
+    const mockPrivateAgent: Agent = {
+      name: privateAgentName,
+      displayName: 'User Draft Agent',
+      state: 'PRIVATE',
+      lowCodeAgentDefinition: {
+        nodes: [{ id: 'root', llmAgentNode: { instruction: 'Help' } }],
+        rootAgentId: 'root',
+      },
+    };
+
+    vi.mocked(core.gapiRequest)
+      // 1. getAgent (initial)
+      .mockResolvedValueOnce(mockPrivateAgent)
+      // 2. deployLowCodeAgent
+      .mockResolvedValueOnce({
+        ...mockPrivateAgent,
+        lowCodeAgentDefinition: {
+          ...mockPrivateAgent.lowCodeAgentDefinition,
+          deployedRootAgentId: 'root',
+        },
+      })
+      // 3. initIamPolicy
+      .mockResolvedValueOnce({ bindings: [] })
+      // 4. requestAgentReview
+      .mockResolvedValueOnce({ ...mockPrivateAgent, state: 'DISABLED' })
+      // 5. getAgent (afterReview check)
+      .mockResolvedValueOnce({ ...mockPrivateAgent, state: 'DISABLED' })
+      // 6. enableAgent (:enableAgent POST)
+      .mockResolvedValueOnce({})
+      // 7. enableAgent internal getAgent
+      .mockResolvedValueOnce({ ...mockPrivateAgent, state: 'ENABLED' });
+
+    const res = await shareAgent(privateAgentName, mockConfig);
+
+    expect(res.state).toBe('ENABLED');
+    expect(core.gapiRequest).toHaveBeenCalledTimes(7);
+    const urls = vi.mocked(core.gapiRequest).mock.calls.map((c) => c[0]);
+    expect(urls[0]).toBe(`https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}`);
+    expect(urls[1]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}:deployLowCode`,
+    );
+    expect(urls[2]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}:initIamPolicy`,
+    );
+    expect(urls[3]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}:requestAgentReview`,
+    );
+    expect(urls[4]).toBe(`https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}`);
+    expect(urls[5]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}:enableAgent`,
+    );
+  });
+
+  it('shareAgent surfaces a clear explanation when a non-owner Admin hits 403 on a PRIVATE agent', async () => {
+    const mockPrivateAgent: Agent = {
+      name: privateAgentName,
+      displayName: 'User Private Agent',
+      state: 'PRIVATE',
+      lowCodeAgentDefinition: {
+        nodes: [{ id: 'root' }],
+      },
+    };
+
+    vi.mocked(core.gapiRequest)
+      .mockResolvedValueOnce(mockPrivateAgent)
+      .mockRejectedValueOnce(
+        new Error('403 PERMISSION_DENIED: User does not have permission to deploy the agent.'),
+      );
+
+    await expect(shareAgent(privateAgentName, mockConfig)).rejects.toThrow(
+      /Only the agent owner can directly share a PRIVATE agent in-place.*Admin Publish & Share for User/i,
+    );
+  });
+
+  it('buildCloneAgentPayloadForCreate promotes deployedNodes to nodes, strips server-rejected output-only fields, and migrates legacy authorizations', () => {
+    const sourceAgent: Agent = {
+      name: privateAgentName,
+      displayName: 'Original User Agent',
+      description: 'Analyzes tickets',
+      state: 'PRIVATE',
+      authorizations: ['projects/123/locations/global/authorizations/jira-auth'],
+      lowCodeAgentDefinition: {
+        deployedNodes: [{ id: 'root_1', llmAgentNode: { instruction: 'Run' } }],
+        deployedRootAgentId: 'root_1',
+        session: 'projects/test-project/locations/global/.../sessions/user-session-999',
+        schedules: [
+          {
+            name: 'daily',
+            cron: '0 9 * * *',
+            timeZone: 'America/New_York',
+            prompt: 'Summarize',
+            disabled: false,
+          } as unknown as Record<string, unknown>,
+        ],
+        deployedSchedules: [{ name: 'daily' }],
+      } as Agent['lowCodeAgentDefinition'],
+    };
+
+    const payload = buildCloneAgentPayloadForCreate(sourceAgent, {
+      displayName: 'Published Ticket Agent',
+      sharingScope: 'ALL_USERS',
+    });
+
+    expect(payload.displayName).toBe('Published Ticket Agent');
+    expect(payload.sharingConfig).toEqual({ scope: 'ALL_USERS' });
+    expect(payload.authorizations).toBeUndefined();
+    expect(payload.authorizationConfig).toEqual({
+      toolAuthorizations: ['projects/123/locations/global/authorizations/jira-auth'],
+    });
+    expect(payload.lowCodeAgentDefinition?.nodes).toEqual([
+      { id: 'root_1', llmAgentNode: { instruction: 'Run' } },
+    ]);
+    expect(payload.lowCodeAgentDefinition?.rootAgentId).toBe('root_1');
+    expect(payload.lowCodeAgentDefinition?.deployedNodes).toBeUndefined();
+    expect(payload.lowCodeAgentDefinition?.deployedRootAgentId).toBeUndefined();
+    expect(payload.lowCodeAgentDefinition?.session).toBeUndefined();
+    expect(
+      (payload.lowCodeAgentDefinition as Record<string, unknown>)?.deployedSchedules,
+    ).toBeUndefined();
+    expect(
+      (
+        (payload.lowCodeAgentDefinition as Record<string, unknown>)
+          ?.schedules as Array<Record<string, unknown>>
+      )?.[0]?.disabled,
+    ).toBeUndefined();
+  });
+
+  it('formatSharedIamPrincipal normalizes valid IAM members and rejects malformed or unsupported inputs', () => {
+    expect(formatSharedIamPrincipal('alice@company.com')).toBe('user:alice@company.com');
+    expect(formatSharedIamPrincipal('group:eng@company.com')).toBe('group:eng@company.com');
+    expect(formatSharedIamPrincipal('domain:company.com')).toBe('domain:company.com');
+    expect(formatSharedIamPrincipal('allUsers')).toBe('allUsers');
+    expect(
+      formatSharedIamPrincipal(
+        '//iam.googleapis.com/locations/global/workforcePools/pool-1/group/team-a',
+      ),
+    ).toBe('principalSet://iam.googleapis.com/locations/global/workforcePools/pool-1/group/team-a');
+
+    expect(() => formatSharedIamPrincipal('')).toThrow(/cannot be empty/i);
+    expect(() => formatSharedIamPrincipal('invalid-member-without-at')).toThrow(
+      /Invalid IAM principal/i,
+    );
+    expect(() => formatSharedIamPrincipal('role:admin@company.com')).toThrow(
+      /Invalid IAM principal/i,
+    );
+  });
+
+  it('extractAgentOwnerHint extracts creator/owner email from agent metadata when present', () => {
+    expect(
+      extractAgentOwnerHint({
+        name: privateAgentName,
+        displayName: 'Test',
+        creatorEmail: 'creator@company.com',
+      } as unknown as Agent),
+    ).toBe('creator@company.com');
+    expect(extractAgentOwnerHint(null)).toBeNull();
+  });
+
+  it('adminPublishAndShareForUser clones a user PRIVATE agent, deploys, activates sharing, grants IAM access, transfers ownership to user, and deletes the original draft', async () => {
+    const sourceAgent: Agent = {
+      name: privateAgentName,
+      displayName: 'Alice Private Research Bot',
+      description: 'Private bot built by Alice',
+      state: 'PRIVATE',
+      starterPrompts: [{ text: 'Summarize Q3' }],
+      lowCodeAgentDefinition: {
+        nodes: [{ id: 'root', llmAgentNode: { instruction: 'Research' } }],
+        rootAgentId: 'root',
+      },
+    };
+
+    const clonedAgentName =
+      'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/cloned-agent-99';
+
+    const clonedAgent: Agent = {
+      ...sourceAgent,
+      name: clonedAgentName,
+      state: 'PRIVATE',
+    };
+
+    vi.mocked(core.gapiRequest)
+      // 1. getAgent (source)
+      .mockResolvedValueOnce(sourceAgent)
+      // 2. createAgent (POST .../agents)
+      .mockResolvedValueOnce(clonedAgent)
+      // 3. deployLowCodeAgent (:deployLowCode)
+      .mockResolvedValueOnce({
+        ...clonedAgent,
+        lowCodeAgentDefinition: {
+          ...clonedAgent.lowCodeAgentDefinition,
+          deployedRootAgentId: 'root',
+        },
+      })
+      // 4. initIamPolicy (:initIamPolicy)
+      .mockResolvedValueOnce({ bindings: [] })
+      // 5. requestAgentReview (:requestAgentReview)
+      .mockResolvedValueOnce({ ...clonedAgent, state: 'DISABLED' })
+      // 6. getAgent (afterReview)
+      .mockResolvedValueOnce({ ...clonedAgent, state: 'DISABLED' })
+      // 7. enableAgent (:enableAgent POST)
+      .mockResolvedValueOnce({})
+      // 8. enableAgent internal getAgent
+      .mockResolvedValueOnce({ ...clonedAgent, state: 'ENABLED' })
+      // 9. getAgentIamPolicy (:getIamPolicy)
+      .mockResolvedValueOnce({
+        etag: 'etag-1',
+        bindings: [
+          {
+            role: 'roles/discoveryengine.agentOwner',
+            members: ['user:admin@company.com'],
+          },
+        ],
+      })
+      // 10. setAgentIamPolicy (:setIamPolicy)
+      .mockResolvedValueOnce({
+        etag: 'etag-2',
+        bindings: [
+          {
+            role: 'roles/discoveryengine.agentOwner',
+            members: ['user:admin@company.com'],
+          },
+          {
+            role: 'roles/discoveryengine.agentUser',
+            members: ['group:sales@company.com'],
+          },
+        ],
+      })
+      // 11. transferAgentOwner (:transferAgentOwner)
+      .mockResolvedValueOnce({})
+      // 12. deleteResource (DELETE source private agent)
+      .mockResolvedValueOnce({})
+      // 13. final getAgent
+      .mockResolvedValueOnce({
+        ...clonedAgent,
+        state: 'ENABLED',
+        sharingConfig: { scope: 'RESTRICTED' },
+      });
+
+    const progressSteps: string[] = [];
+    const result = await adminPublishAndShareForUser(
+      sourceAgent,
+      {
+        displayName: 'Alice Shared Research Bot',
+        targetOwnerPrincipal: 'alice@company.com',
+        previousOwnerDisposition: 'KEEP_AS_AGENT_USER',
+        sharingScope: 'RESTRICTED',
+        sharedPrincipals: ['group:sales@company.com'],
+        deleteOriginalPrivateAgent: true,
+        onProgress: (msg) => progressSteps.push(msg),
+      },
+      mockConfig,
+    );
+
+    expect(result.agent.name).toBe(clonedAgentName);
+    expect(result.agent.state).toBe('ENABLED');
+    expect(result.transferredTo).toBe('user:alice@company.com');
+    expect(result.deletedOriginal).toBe(true);
+    expect(result.wasCloned).toBe(true);
+    expect(progressSteps.length).toBeGreaterThanOrEqual(5);
+
+    // Verify transferAgentOwner call payload
+    const transferCall = vi
+      .mocked(core.gapiRequest)
+      .mock.calls.find((c) => String(c[0]).endsWith(':transferAgentOwner'));
+    expect(transferCall).toBeDefined();
+    expect(transferCall?.[4]).toEqual({
+      targetPrincipal: { principal: 'user:alice@company.com' },
+      previousOwnerDisposition: 'KEEP_AS_AGENT_USER',
+    });
+
+    // Verify delete original private agent call
+    const deleteCall = vi
+      .mocked(core.gapiRequest)
+      .mock.calls.find((c) => c[1] === 'DELETE');
+    expect(deleteCall?.[0]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}`,
+    );
+  });
+
+  it('adminPublishAndShareForUser rejects invalid targetOwnerPrincipal before making mutating API calls', async () => {
+    const sourceAgent: Agent = {
+      name: privateAgentName,
+      displayName: 'Draft Agent',
+      state: 'PRIVATE',
+      lowCodeAgentDefinition: { nodes: [{ id: 'root' }] },
+    };
+
+    await expect(
+      adminPublishAndShareForUser(
+        sourceAgent,
+        {
+          targetOwnerPrincipal: 'group:not-a-single-user@company.com',
+        },
+        mockConfig,
+      ),
+    ).rejects.toThrow(/single user identity/i);
+    expect(core.gapiRequest).not.toHaveBeenCalled();
+  });
+});
+
 

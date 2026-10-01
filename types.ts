@@ -240,6 +240,7 @@ export interface Agent {
   noCodeAgentDefinition?: Record<string, unknown>;
   managedAgentDefinition?: Record<string, unknown>;
   workflowAgentDefinition?: WorkflowAgentDefinition;
+  agentDesignerAgentDefinition?: Record<string, unknown>;
   skillAgentDefinition?: SkillAgentDefinition;
   dataStoreSpecs?: AgentDataStoreSpecs;
   dataConnectors?: AgentDataConnectorRef[];
@@ -274,6 +275,26 @@ export interface TransferAgentOwnerOptions {
   toSelf: boolean;
   targetPrincipal?: string;
   previousOwnerDisposition?: PreviousOwnerDisposition;
+}
+
+export interface AdminPublishAndShareOptions {
+  targetOwnerPrincipal?: string;
+  keepAdminAsOwner?: boolean;
+  previousOwnerDisposition?: PreviousOwnerDisposition;
+  sharingScope?: 'RESTRICTED' | 'ALL_USERS';
+  sharedPrincipals?: string[];
+  deleteOriginalPrivateAgent?: boolean;
+  displayName?: string;
+  onProgress?: (step: string) => void;
+}
+
+export interface AdminPublishAndShareResult {
+  agent: Agent;
+  clonedFrom?: string;
+  wasCloned: boolean;
+  deletedOriginal: boolean;
+  transferredTo?: string;
+  stepsCompleted: string[];
 }
 
 export interface AgentViewResponse {

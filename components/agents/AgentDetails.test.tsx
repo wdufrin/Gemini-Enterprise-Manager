@@ -37,16 +37,21 @@ vi.mock('./AgentDatasourceEditor', () => ({
     default: () => <div data-testid="mock-datasource-editor" />,
 }));
 
-vi.mock('../../services/apiService', () => ({
-    getAgent: vi.fn(),
-    getEngine: vi.fn(),
-    getWidgetConfig: vi.fn(),
-    updateAndPublishNoCodeAgent: vi.fn(),
-    deleteResource: vi.fn(),
-    shareAgent: vi.fn(),
-    isCustomNoCodeAgent: vi.fn(() => true),
-    extractAgentDatasources: vi.fn(() => ({ connectors: [], dataStores: [] })),
-}));
+vi.mock('../../services/apiService', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../services/apiService')>();
+    return {
+        ...actual,
+        getAgent: vi.fn(),
+        getEngine: vi.fn(),
+        getWidgetConfig: vi.fn(),
+        updateAndPublishNoCodeAgent: vi.fn(),
+        deleteResource: vi.fn(),
+        shareAgent: vi.fn(),
+        adminPublishAndShareForUser: vi.fn(),
+        isCustomNoCodeAgent: vi.fn(() => true),
+        extractAgentDatasources: vi.fn(() => ({ connectors: [], dataStores: [] })),
+    };
+});
 
 const mockConfig: Config = {
     projectId: 'test-proj',
@@ -274,4 +279,88 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
         expect(optionTexts.some(t => t.includes('gemini-1.5-pro') && t.includes('Current on Agent'))).toBe(true);
         expect(optionTexts.some(t => t.includes('Gemini 3.8 Flash (gemini-3.8-flash)'))).toBe(true);
     });
+
+    it('renders Publish & Share for User on a PRIVATE agent, rejects invalid principals in modal, and executes adminPublishAndShareForUser on valid submission', async () => {
+        const privateAgent: Agent = {
+            ...baseAgent,
+            displayName: 'User Private Agent',
+            state: 'PRIVATE',
+        };
+
+        vi.mocked(api.getAgent).mockResolvedValue(privateAgent);
+        vi.mocked(api.getEngine).mockResolvedValue(null as unknown as AppEngine);
+        vi.mocked(api.getWidgetConfig).mockResolvedValue(null as unknown as WidgetConfig);
+        vi.mocked(api.adminPublishAndShareForUser).mockResolvedValue({
+            agent: {
+                ...privateAgent,
+                name: `${privateAgent.name}-published`,
+                displayName: 'User Published Agent',
+                state: 'ENABLED',
+            },
+            clonedFrom: privateAgent.name,
+            wasCloned: true,
+            deletedOriginal: true,
+            transferredTo: 'user:alice@company.com',
+            stepsCompleted: ['Done'],
+        });
+
+        const onBack = vi.fn();
+
+        render(
+            <AgentDetails
+                agent={privateAgent}
+                config={mockConfig}
+                onBack={onBack}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        const publishBtn = await screen.findByRole('button', { name: /Publish & Share for User/i });
+        fireEvent.click(publishBtn);
+
+        expect(screen.getByRole('dialog')).toBeTruthy();
+
+        // Negative test: submit with invalid target owner email
+        const ownerInput = screen.getByLabelText(/Target Owner Email or Workforce Principal/i);
+        fireEvent.change(ownerInput, { target: { value: 'not-an-email' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Publish & Share Agent' }));
+
+        expect(await screen.findByRole('alert')).toBeTruthy();
+        expect(screen.getByRole('alert').textContent).toMatch(/Must be a valid email/i);
+        expect(api.adminPublishAndShareForUser).not.toHaveBeenCalled();
+
+        // Valid submission with owner email, additional shared group, and delete original checked
+        fireEvent.change(ownerInput, { target: { value: 'alice@company.com' } });
+        const sharedPrincipalsInput = screen.getByLabelText(/Additional Users or Groups/i);
+        fireEvent.change(sharedPrincipalsInput, { target: { value: 'group:sales@company.com' } });
+        const deleteCheckbox = screen.getByRole('checkbox', {
+            name: /Delete original unshared Private agent/i,
+        });
+        fireEvent.click(deleteCheckbox);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Publish & Share Agent' }));
+
+        await waitFor(() => {
+            expect(api.adminPublishAndShareForUser).toHaveBeenCalledWith(
+                expect.objectContaining({ name: privateAgent.name }),
+                expect.objectContaining({
+                    displayName: 'User Private Agent',
+                    keepAdminAsOwner: false,
+                    targetOwnerPrincipal: 'user:alice@company.com',
+                    previousOwnerDisposition: 'KEEP_AS_AGENT_USER',
+                    sharingScope: 'RESTRICTED',
+                    sharedPrincipals: ['group:sales@company.com'],
+                    deleteOriginalPrivateAgent: true,
+                    onProgress: expect.any(Function),
+                }),
+                mockConfig
+            );
+            expect(onBack).toHaveBeenCalledTimes(1);
+        });
+    });
 });
+

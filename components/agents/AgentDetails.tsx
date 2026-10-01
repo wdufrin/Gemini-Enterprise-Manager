@@ -16,11 +16,12 @@
 
 
 import React, { useState, useRef, useMemo } from 'react';
-import { Agent, AppEngine, Config, DataStore, IamPolicy, WidgetConfig } from '../../types';
+import { AdminPublishAndShareResult, Agent, AppEngine, Config, DataStore, IamPolicy, WidgetConfig } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import SetIamPolicyModal from './SetIamPolicyModal';
 import TransferAgentOwnershipModal from './TransferAgentOwnershipModal';
+import AdminPublishAndShareModal from './AdminPublishAndShareModal';
 import AgentDatasourceEditor from './AgentDatasourceEditor';
 import {
     extractEngineNameFromAgentName,
@@ -62,6 +63,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
     const [policyError, setPolicyError] = useState<string | null>(null);
     const [isSetPolicyModalOpen, setIsSetPolicyModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+    const [isPublishAndShareModalOpen, setIsPublishAndShareModalOpen] = useState(false);
     const [policySuccess, setPolicySuccess] = useState<string | null>(null);
     
     // Sharing state
@@ -274,6 +276,18 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         }
     };
 
+    const handlePublishAndShareSuccess = (result: AdminPublishAndShareResult) => {
+        setIsPublishAndShareModalOpen(false);
+        setShareError(null);
+        const ownerNote = result.transferredTo
+            ? ` and ownership transferred to ${result.transferredTo}`
+            : '';
+        toast.success(
+            `Agent "${result.agent.displayName}" published, shared${ownerNote}!`
+        );
+        onBack();
+    };
+
     const handleFetchDataStores = async () => {
         setIsFetchingDataStores(true);
         setDataStoresError(null);
@@ -414,7 +428,18 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
 
             {pageError && <p className="text-red-400 mt-4">{pageError}</p>}
             {deleteError && <p className="text-red-400 mt-4">{deleteError}</p>}
-            {shareError && <p className="text-red-400 mt-4">{shareError}</p>}
+            {shareError && (
+                <div className="mt-4 p-3.5 bg-red-900/30 border border-red-700/70 rounded-lg text-sm text-red-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <span>{shareError}</span>
+                    <button
+                        type="button"
+                        onClick={() => setIsPublishAndShareModalOpen(true)}
+                        className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-md hover:bg-emerald-500 shrink-0"
+                    >
+                        Publish &amp; Share for User
+                    </button>
+                </div>
+            )}
 
 
             <div className="mt-8 border-t border-gray-700 pt-6">
@@ -435,21 +460,33 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                                     </button>
                                 )}
                                 {isPrivate && (
-                                    <button 
-                                        onClick={handleShare}
-                                        disabled={isSharing}
-                                        className="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-indigo-800 flex items-center gap-2"
-                                        title="Enable sharing for this private (no-code) agent"
-                                    >
-                                        {isSharing ? (
-                                             <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
-                                        ) : (
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                <path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" />
+                                    <>
+                                        <button 
+                                            onClick={handleShare}
+                                            disabled={isSharing}
+                                            className="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-indigo-800 flex items-center gap-2"
+                                            title="Deploy and enable sharing in-place (requires caller to be the creator of this private agent)"
+                                        >
+                                            {isSharing ? (
+                                                 <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                                            ) : (
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" />
+                                                </svg>
+                                            )}
+                                            Share Agent
+                                        </button>
+                                        <button
+                                            onClick={() => setIsPublishAndShareModalOpen(true)}
+                                            className="px-5 py-2.5 bg-emerald-600 text-white font-semibold rounded-md hover:bg-emerald-500 flex items-center gap-2"
+                                            title="Admin workflow: clone, deploy/publish, activate sharing, configure IAM access, and transfer ownership back to the user"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                                             </svg>
-                                        )}
-                                        Share Agent
-                                    </button>
+                                            Publish &amp; Share for User
+                                        </button>
+                                    </>
                                 )}
                                 {isNoCodeAgent && (
                                     <>
@@ -667,6 +704,13 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                 agent={fullAgent || agent}
                 config={config}
                 currentPolicy={iamPolicy}
+            />
+            <AdminPublishAndShareModal
+                isOpen={isPublishAndShareModalOpen}
+                onClose={() => setIsPublishAndShareModalOpen(false)}
+                onSuccess={handlePublishAndShareSuccess}
+                agent={fullAgent || agent}
+                config={config}
             />
         </div>
     );
