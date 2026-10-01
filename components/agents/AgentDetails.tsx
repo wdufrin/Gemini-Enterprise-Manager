@@ -15,13 +15,18 @@
  */
 
 
-import React, { useState, useRef } from 'react';
-import { Agent, Config, DataStore, IamPolicy } from '../../types';
+import React, { useState, useRef, useMemo } from 'react';
+import { Agent, AppEngine, Config, DataStore, IamPolicy, WidgetConfig } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import SetIamPolicyModal from './SetIamPolicyModal';
 import TransferAgentOwnershipModal from './TransferAgentOwnershipModal';
 import AgentDatasourceEditor from './AgentDatasourceEditor';
+import {
+    extractEngineNameFromAgentName,
+    formatModelDisplayName,
+    resolveAvailableAppModels,
+} from '../assistants/engine-details/modelsCatalog';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
 
@@ -73,32 +78,70 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
 
     // State for low-code model editing
     const [fullAgent, setFullAgent] = useState<Agent | null>(null);
+    const [appEngine, setAppEngine] = useState<AppEngine | null>(null);
+    const [appWidgetConfig, setAppWidgetConfig] = useState<WidgetConfig | null>(null);
     const [selectedModel, setSelectedModel] = useState<string>('');
     const [isSavingModel, setIsSavingModel] = useState(false);
     const [saveModelError, setSaveModelError] = useState<string | null>(null);
 
+    const availableAppModels = useMemo(
+        () => resolveAvailableAppModels(appEngine, appWidgetConfig),
+        [appEngine, appWidgetConfig]
+    );
+    const hasAppModelSource = Boolean(
+        appWidgetConfig?.uiSettings?.modelConfigInfo?.resolvedModels?.length ||
+            (appEngine?.modelConfigs && Object.keys(appEngine.modelConfigs).length > 0) ||
+            (appWidgetConfig?.uiSettings?.modelConfigs &&
+                Object.keys(appWidgetConfig.uiSettings.modelConfigs).length > 0)
+    );
+
     const agentId = agent.name.split('/').pop() || '';
 
     React.useEffect(() => {
-        const fetchFullAgent = async () => {
-            try {
-                const data = await api.getAgent(agent.name, config);
+        const fetchFullAgentAndAppModels = async () => {
+            const engineName = extractEngineNameFromAgentName(agent.name, config);
+            const [agentRes, engineRes, widgetRes] = await Promise.allSettled([
+                api.getAgent(agent.name, config),
+                engineName && typeof api.getEngine === 'function'
+                    ? api.getEngine(engineName, config)
+                    : Promise.resolve(null),
+                engineName && typeof api.getWidgetConfig === 'function'
+                    ? api.getWidgetConfig(engineName, config)
+                    : Promise.resolve(null),
+            ]);
+
+            if (engineRes.status === 'fulfilled' && engineRes.value) {
+                setAppEngine(engineRes.value);
+            }
+            if (widgetRes.status === 'fulfilled' && widgetRes.value) {
+                setAppWidgetConfig(widgetRes.value);
+            }
+
+            if (agentRes.status === 'fulfilled' && agentRes.value) {
+                const data = agentRes.value;
                 setFullAgent(data);
-                
-                // Extract model
-                if (data.lowCodeAgentDefinition?.nodes?.[0]?.llmAgentNode?.model) {
-                    setSelectedModel(data.lowCodeAgentDefinition.nodes[0].llmAgentNode.model);
+
+                // Extract model from lowCodeAgentDefinition (draft nodes or deployedNodes) or workflowAgentDefinition
+                const lowCodeNodes =
+                    data.lowCodeAgentDefinition?.nodes && data.lowCodeAgentDefinition.nodes.length > 0
+                        ? data.lowCodeAgentDefinition.nodes
+                        : data.lowCodeAgentDefinition?.deployedNodes || [];
+                const llmNodeWithModel = lowCodeNodes.find(n => Boolean(n.llmAgentNode?.model));
+                if (llmNodeWithModel?.llmAgentNode?.model) {
+                    setSelectedModel(llmNodeWithModel.llmAgentNode.model);
                 } else if (data.workflowAgentDefinition?.agentFlow?.nodes) {
-                     const agentNode = data.workflowAgentDefinition.agentFlow.nodes.find((n: { agentNode?: { model?: string } }) => n.agentNode?.model);
-                     if (agentNode?.agentNode?.model) {
-                         setSelectedModel(agentNode.agentNode.model);
-                     }
+                    const agentNode = data.workflowAgentDefinition.agentFlow.nodes.find(
+                        (n: { agentNode?: { model?: string } }) => Boolean(n.agentNode?.model)
+                    );
+                    if (agentNode?.agentNode?.model) {
+                        setSelectedModel(agentNode.agentNode.model);
+                    }
                 }
-            } catch (err) {
-                console.error("Failed to fetch full agent details", err);
+            } else if (agentRes.status === 'rejected') {
+                console.error("Failed to fetch full agent details", agentRes.reason);
             }
         };
-        fetchFullAgent();
+        fetchFullAgentAndAppModels();
     }, [agent.name, config]);
 
     const handleSaveModel = async () => {
@@ -108,18 +151,29 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         try {
             const updatedAgent: Agent = JSON.parse(JSON.stringify(fullAgent));
             const payload: Partial<Agent> = {};
-            
-            if (updatedAgent.lowCodeAgentDefinition?.nodes?.[0]?.llmAgentNode) {
-                updatedAgent.lowCodeAgentDefinition.nodes[0].llmAgentNode.model = selectedModel;
-                payload.lowCodeAgentDefinition = updatedAgent.lowCodeAgentDefinition;
-            } else if (updatedAgent.workflowAgentDefinition?.agentFlow?.nodes) {
-                const agentNodeIndex = updatedAgent.workflowAgentDefinition.agentFlow.nodes.findIndex((n: { agentNode?: { model?: string } }) => n.agentNode?.model);
-                if (agentNodeIndex !== -1 && updatedAgent.workflowAgentDefinition.agentFlow.nodes[agentNodeIndex]?.agentNode) {
-                    updatedAgent.workflowAgentDefinition.agentFlow.nodes[agentNodeIndex].agentNode!.model = selectedModel;
+
+            if (updatedAgent.lowCodeAgentDefinition) {
+                const def = updatedAgent.lowCodeAgentDefinition;
+                if ((!def.nodes || def.nodes.length === 0) && Array.isArray(def.deployedNodes)) {
+                    def.nodes = JSON.parse(JSON.stringify(def.deployedNodes));
                 }
+                if (Array.isArray(def.nodes)) {
+                    def.nodes.forEach(node => {
+                        if (node.llmAgentNode) {
+                            node.llmAgentNode.model = selectedModel;
+                        }
+                    });
+                }
+                payload.lowCodeAgentDefinition = def;
+            } else if (updatedAgent.workflowAgentDefinition?.agentFlow?.nodes) {
+                updatedAgent.workflowAgentDefinition.agentFlow.nodes.forEach(node => {
+                    if (node.agentNode) {
+                        node.agentNode.model = selectedModel;
+                    }
+                });
                 payload.workflowAgentDefinition = updatedAgent.workflowAgentDefinition;
             }
-            
+
             const res = await api.updateAndPublishNoCodeAgent(updatedAgent, payload, config, {
                 autoDeployOrPublish: true,
                 autoClaimOwnershipOn403: false,
@@ -514,7 +568,14 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
 
             {(fullAgent?.lowCodeAgentDefinition || fullAgent?.workflowAgentDefinition) && (
                 <div className="mt-6 border-t border-gray-700 pt-6">
-                    <h3 className="text-lg font-semibold text-white">Low-Code Agent Configuration</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-lg font-semibold text-white">Low-Code Agent Configuration</h3>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-900/50 text-purple-300 border border-purple-700/60">
+                            {hasAppModelSource
+                                ? `Synced with App / Assistant (${availableAppModels.length} models available)`
+                                : `${availableAppModels.length} Enterprise Models Available`}
+                        </span>
+                    </div>
                     <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
                         <div>
                             <label htmlFor="agentModel" className="block text-sm font-medium text-gray-400 mb-1">Model</label>
@@ -525,13 +586,16 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                                 className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]"
                             >
                                 <option value="">-- Select Model --</option>
-                                <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (Thinking / Reasoning)</option>
-                                <option value="gemini-3.6-flash">gemini-3.6-flash</option>
-                                <option value="gemini-3.5-flash">gemini-3.5-flash</option>
-                                <option value="gemini-2.5-pro">gemini-2.5-pro</option>
-                                <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-                                <option value="gemini-1.5-pro">gemini-1.5-pro</option>
-                                <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                                {selectedModel && !availableAppModels.some(m => m.id === selectedModel) && (
+                                    <option value={selectedModel}>
+                                        {formatModelDisplayName(selectedModel)} ({selectedModel}) — Current on Agent
+                                    </option>
+                                )}
+                                {availableAppModels.map(m => (
+                                    <option key={m.id} value={m.id}>
+                                        {m.displayName} ({m.id})
+                                    </option>
+                                ))}
                             </select>
                         </div>
                         <div>

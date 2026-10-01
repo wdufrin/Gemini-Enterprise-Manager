@@ -353,6 +353,14 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         STANDARD_ENTERPRISE_MODELS.forEach(m => {
             currentModels[m.id] = false;
         });
+        const resolvedList = widgetConfig?.uiSettings?.modelConfigInfo?.resolvedModels;
+        if (Array.isArray(resolvedList)) {
+            resolvedList.forEach(m => {
+                if (m.modelId && m.adminView?.enabledByDefault !== undefined) {
+                    currentModels[m.modelId] = Boolean(m.adminView.enabledByDefault);
+                }
+            });
+        }
         if (engine.modelConfigs) {
             Object.keys(engine.modelConfigs).forEach(key => {
                 currentModels[key] = engine.modelConfigs![key] === 'MODEL_ENABLED';
