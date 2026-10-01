@@ -18,18 +18,17 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppEngine, Config, DataStore } from '../types';
 import * as api from '../services/apiService';
 import {
+  AGENTSPACE_RESTRICTED_USER_ROLE,
   AGENTSPACE_USER_ROLE,
   BROAD_PROJECT_ROLES,
-  CUSTOM_ADMIN_ROLE_ID,
-  CUSTOM_ROLE_ID,
   ConnectorInconsistency,
   ConnectorResource,
   EnvironmentReadinessState,
   IamPolicy,
   LegacyDataStoreResource,
+  NOTEBOOK_LM_USER_ROLE,
   PrincipalAccess,
   REQUIRED_ADMIN_PERMISSIONS,
-  REQUIRED_CUSTOM_ROLE_PERMISSIONS,
   RESOURCE_LEVEL_ROLES,
   UserAccessDetails,
 } from '../components/assistants/datastore-permissions/types';
@@ -64,8 +63,6 @@ export function useDataStorePermissions(
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const [customRoleExists, setCustomRoleExists] = useState<boolean | null>(null);
-  const [isCreatingRole, setIsCreatingRole] = useState(false);
   const [isTogglingProjectOptIn, setIsTogglingProjectOptIn] = useState(false);
   const [isAutoEnablingEnvironment, setIsAutoEnablingEnvironment] = useState(false);
   const [isRepairingConnectors, setIsRepairingConnectors] = useState(false);
@@ -77,9 +74,6 @@ export function useDataStorePermissions(
     projectConfigError: null,
     v1IamApiSupported: null,
     v1IamApiError: null,
-    customRoleStatus: 'checking',
-    customRoleIncludedPermissions: [],
-    customRoleMissingPermissions: [...REQUIRED_CUSTOM_ROLE_PERMISSIONS],
     adminPermissionsTested: false,
     grantedAdminPermissions: [],
     missingAdminPermissions: [],
@@ -101,14 +95,20 @@ export function useDataStorePermissions(
     setReadiness(prev => ({ ...prev, isEvaluating: true }));
 
     try {
-      // 1.0 Check Discovery Engine Project Opt-In (CustomerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled)
+      // 1.0 Check Gemini Enterprise Settings -> Resource Access Control (customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled)
       let optInEnabled: boolean | null = null;
       let projCfgErr: string | null = null;
       if (typeof api.getDiscoveryProjectConfig === 'function') {
         try {
-          const projCfg = await api.getDiscoveryProjectConfig(projectId, config.appLocation || 'global');
-          optInEnabled =
-            projCfg?.customerProvidedConfig?.resourceAccessControlConfig?.dataStoreAccessControlEnabled === true;
+          const projCfg = (await api.getDiscoveryProjectConfig(
+            projectId,
+            config.appLocation || 'global'
+          )) as Record<string, any> | undefined;
+          const camelFlag =
+            projCfg?.customerProvidedConfig?.resourceAccessControlConfig?.dataStoreAccessControlEnabled;
+          const snakeFlag =
+            projCfg?.customer_provided_config?.resource_access_control_config?.data_store_access_control_enabled;
+          optInEnabled = (camelFlag ?? snakeFlag) === true;
         } catch (e: unknown) {
           projCfgErr = e instanceof Error ? e.message : String(e);
         }
@@ -129,32 +129,7 @@ export function useDataStorePermissions(
         }
       }
 
-      // 1.1 Check Custom Role & Required Permissions (buildAuthorizationUrl + devToolsConfigs.get)
-      let roleExists = false;
-      let roleStatus: EnvironmentReadinessState['customRoleStatus'] = 'missing';
-      let roleIncludedPerms: string[] = [];
-      let roleMissingPerms: string[] = [...REQUIRED_CUSTOM_ROLE_PERMISSIONS];
-      try {
-        const role = await api.getCustomRole(projectId, CUSTOM_ROLE_ID);
-        if (role && role.name) {
-          if (role.deleted) {
-            roleExists = false;
-            roleStatus = 'deleted';
-          } else {
-            roleExists = true;
-            roleIncludedPerms = role.includedPermissions || [];
-            const permSet = new Set(roleIncludedPerms);
-            roleMissingPerms = REQUIRED_CUSTOM_ROLE_PERMISSIONS.filter(p => !permSet.has(p));
-            roleStatus = roleMissingPerms.length === 0 ? 'ready' : 'needs_upgrade';
-          }
-        }
-      } catch {
-        roleExists = false;
-        roleStatus = 'missing';
-      }
-      setCustomRoleExists(roleExists);
-
-      // 1.2 Get Project IAM Policy
+      // 1.1 Get Project IAM Policy
       let pPolicy: IamPolicy | null = null;
       try {
         pPolicy = await api.getProjectIamPolicy(projectId);
@@ -163,7 +138,7 @@ export function useDataStorePermissions(
         console.warn('Could not fetch project IAM policy', e);
       }
 
-      // 1.3 Get Engine IAM Policy (also probes v1 IAM API reachability)
+      // 1.2 Get Engine IAM Policy (also probes v1 IAM API reachability)
       let engPolicy: IamPolicy | null = null;
       let v1IamSupported: boolean | null = null;
       let v1IamError: string | null = null;
@@ -176,7 +151,20 @@ export function useDataStorePermissions(
         v1IamError = e instanceof Error ? e.message : String(e);
       }
 
-      // 1.4 List Collections & DataStores
+      // Update Card 1 (Resource Access Control), Card 3 (v1 IAM probe), and Card 4 (Admin Perms) immediately
+      // so the UI doesn't stay on 'Unverified' while fetching 20+ connector/datastore policies.
+      setReadiness(prev => ({
+        ...prev,
+        dataStoreAccessControlEnabled: optInEnabled,
+        projectConfigError: projCfgErr,
+        v1IamApiSupported: v1IamSupported ?? prev.v1IamApiSupported,
+        v1IamApiError: v1IamSupported ? null : v1IamError,
+        adminPermissionsTested: adminPermsTested,
+        grantedAdminPermissions: grantedAdminPerms,
+        missingAdminPermissions: missingAdminPerms,
+      }));
+
+      // 1.3 List Collections & DataStores
       const attachedDataStoreIds = new Set(engine.dataStoreIds || []);
 
       let rawCollections: { name: string; displayName?: string }[] = [];
@@ -195,7 +183,7 @@ export function useDataStorePermissions(
         console.warn('Could not list datastores', e);
       }
 
-      // 1.5 Classify Connectors and Entities vs Legacy DataStores
+      // 1.4 Classify Connectors and Entities vs Legacy DataStores
       const connectorMap: Record<string, ConnectorResource> = {};
 
       rawCollections.forEach(c => {
@@ -251,7 +239,7 @@ export function useDataStorePermissions(
         }
       });
 
-      // 1.6 Fetch Policies for Connectors, Entities, and DataStores
+      // 1.5 Fetch Policies for Connectors, Entities, and DataStores
       const connList = Object.values(connectorMap);
 
       await Promise.all(
@@ -305,9 +293,6 @@ export function useDataStorePermissions(
         projectConfigError: projCfgErr,
         v1IamApiSupported: v1IamSupported ?? false,
         v1IamApiError: v1IamSupported ? null : v1IamError,
-        customRoleStatus: roleStatus,
-        customRoleIncludedPermissions: roleIncludedPerms,
-        customRoleMissingPermissions: roleMissingPerms,
         adminPermissionsTested: adminPermsTested,
         grantedAdminPermissions: grantedAdminPerms,
         missingAdminPermissions: missingAdminPerms,
@@ -353,65 +338,7 @@ export function useDataStorePermissions(
     refreshAll();
   }, [refreshAll]);
 
-  // Handle 1-Click Custom Role Creation or Upgrade
-  const handleCreateCustomRole = async () => {
-    setIsCreatingRole(true);
-    setError(null);
-    setSuccessMessage(null);
-    try {
-      if (readiness.customRoleStatus === 'deleted' && typeof api.undeleteCustomRole === 'function') {
-        await api.undeleteCustomRole(projectId, CUSTOM_ROLE_ID);
-      }
-
-      const mergedPermissions = Array.from(
-        new Set([...readiness.customRoleIncludedPermissions, ...REQUIRED_CUSTOM_ROLE_PERMISSIONS])
-      );
-
-      if (
-        (readiness.customRoleStatus === 'needs_upgrade' || readiness.customRoleStatus === 'deleted') &&
-        typeof api.updateCustomRole === 'function'
-      ) {
-        await api.updateCustomRole(projectId, CUSTOM_ROLE_ID, {
-          title: 'Custom Gemini Enterprise Restricted End User',
-          description: 'Base project-level permissions to use Gemini Enterprise end-user UI.',
-          stage: 'GA',
-          includedPermissions: mergedPermissions,
-        });
-        setCustomRoleExists(true);
-        setReadiness(prev => ({
-          ...prev,
-          customRoleStatus: 'ready',
-          customRoleIncludedPermissions: mergedPermissions,
-          customRoleMissingPermissions: [],
-        }));
-        setSuccessMessage(
-          `Custom role 'projects/${projectId}/roles/${CUSTOM_ROLE_ID}' upgraded with permissions: ${mergedPermissions.join(', ')}`
-        );
-      } else {
-        await api.createCustomRole(projectId, CUSTOM_ROLE_ID, {
-          title: 'Custom Gemini Enterprise Restricted End User',
-          description: 'Base project-level permissions to use Gemini Enterprise end-user UI.',
-          stage: 'GA',
-          includedPermissions: REQUIRED_CUSTOM_ROLE_PERMISSIONS,
-        });
-        setCustomRoleExists(true);
-        setReadiness(prev => ({
-          ...prev,
-          customRoleStatus: 'ready',
-          customRoleIncludedPermissions: [...REQUIRED_CUSTOM_ROLE_PERMISSIONS],
-          customRoleMissingPermissions: [],
-        }));
-        setSuccessMessage(`Custom role 'projects/${projectId}/roles/${CUSTOM_ROLE_ID}' created successfully!`);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(`Failed to configure custom role: ${msg}`);
-    } finally {
-      setIsCreatingRole(false);
-    }
-  };
-
-  // Handle 1-Click Project DataStore Access Control Opt-In Toggle
+  // Handle 1-Click Resource Access Control Toggle in Gemini Enterprise Settings
   const handleToggleProjectAccessControl = async (enabled: boolean) => {
     if (typeof api.updateDataStoreAccessControlConfig !== 'function') return;
     setIsTogglingProjectOptIn(true);
@@ -426,18 +353,18 @@ export function useDataStorePermissions(
       }));
       setSuccessMessage(
         enabled
-          ? `Enabled DataStore-level access control opt-in (dataStoreAccessControlEnabled=true) on project '${projectId}'. Note: Backend serving caches may take ~5 minutes to propagate.`
-          : `Disabled DataStore-level access control opt-in (dataStoreAccessControlEnabled=false) on project '${projectId}'.`
+          ? `Enabled Resource Access Control (dataStoreAccessControlEnabled=true) in Gemini Enterprise Settings on project '${projectId}'. Note: Backend serving caches may take ~5 minutes to propagate.`
+          : `Disabled Resource Access Control (dataStoreAccessControlEnabled=false) in Gemini Enterprise Settings on project '${projectId}'.`
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(`Failed to update project resource access control setting: ${msg}`);
+      setError(`Failed to update Resource Access Control setting: ${msg}`);
     } finally {
       setIsTogglingProjectOptIn(false);
     }
   };
 
-  // Handle 1-Click Automated Environment Setup (Opt-In + Custom Role + Re-Verify)
+  // Handle 1-Click Automated Environment Setup (Enable Resource Access Control + Re-Verify)
   const handleAutoEnableEnvironment = async (onLog?: (msg: string) => void) => {
     setIsAutoEnablingEnvironment(true);
     setError(null);
@@ -447,58 +374,27 @@ export function useDataStorePermissions(
     try {
       log(`Starting Automated Environment Enablement for project '${projectId}'...`);
 
-      // Step 1: Ensure Custom Role exists and has both required permissions
-      if (readiness.customRoleStatus !== 'ready') {
-        log(
-          `[Step 1/2] Configuring custom role 'projects/${projectId}/roles/${CUSTOM_ROLE_ID}' with [${REQUIRED_CUSTOM_ROLE_PERMISSIONS.join(', ')}]...`
-        );
-        if (readiness.customRoleStatus === 'deleted' && typeof api.undeleteCustomRole === 'function') {
-          await api.undeleteCustomRole(projectId, CUSTOM_ROLE_ID);
-          log(`[ACTION] Undeleted soft-deleted custom role '${CUSTOM_ROLE_ID}'.`);
-        }
-        const mergedPermissions = Array.from(
-          new Set([...readiness.customRoleIncludedPermissions, ...REQUIRED_CUSTOM_ROLE_PERMISSIONS])
-        );
-        if (
-          (readiness.customRoleStatus === 'needs_upgrade' || readiness.customRoleStatus === 'deleted') &&
-          typeof api.updateCustomRole === 'function'
-        ) {
-          await api.updateCustomRole(projectId, CUSTOM_ROLE_ID, {
-            title: 'Custom Gemini Enterprise Restricted End User',
-            description: 'Base project-level permissions to use Gemini Enterprise end-user UI.',
-            stage: 'GA',
-            includedPermissions: mergedPermissions,
-          });
-          log(`[VERIFIED ✓] Upgraded custom role '${CUSTOM_ROLE_ID}' permissions.`);
-        } else {
-          await api.createCustomRole(projectId, CUSTOM_ROLE_ID, {
-            title: 'Custom Gemini Enterprise Restricted End User',
-            description: 'Base project-level permissions to use Gemini Enterprise end-user UI.',
-            stage: 'GA',
-            includedPermissions: REQUIRED_CUSTOM_ROLE_PERMISSIONS,
-          });
-          log(`[VERIFIED ✓] Created custom role '${CUSTOM_ROLE_ID}'.`);
-        }
-      } else {
-        log(`[Step 1/2] [VERIFIED ✓] Custom role '${CUSTOM_ROLE_ID}' is already active with all required permissions.`);
-      }
+      // Step 1: Predefined Project Roles Check
+      log(
+        `[Step 1/2] [VERIFIED ✓] Predefined project roles ('${AGENTSPACE_RESTRICTED_USER_ROLE}' and '${NOTEBOOK_LM_USER_ROLE}') are standard Google Cloud IAM roles.`
+      );
 
-      // Step 2: Enable Project-Level DataStore Access Control Opt-In
+      // Step 2: Enable Resource Access Control in Gemini Enterprise Settings
       if (readiness.dataStoreAccessControlEnabled !== true && typeof api.updateDataStoreAccessControlConfig === 'function') {
         log(
-          `[Step 2/2] Enabling customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled on project '${projectId}'...`
+          `[Step 2/2] Enabling Resource Access Control (customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled) on project '${projectId}'...`
         );
         await api.updateDataStoreAccessControlConfig(projectId, true, config.appLocation || 'global');
-        log(`[VERIFIED ✓] Project resource access control opt-in enabled.`);
+        log(`[VERIFIED ✓] Resource Access Control enabled in Gemini Enterprise Settings.`);
       } else {
-        log(`[Step 2/2] [VERIFIED ✓] Project resource access control opt-in is already enabled.`);
+        log(`[Step 2/2] [VERIFIED ✓] Resource Access Control is already enabled in Gemini Enterprise Settings.`);
       }
 
       log(`Re-evaluating environment readiness checks...`);
       await refreshAll();
       log(`[COMPLETE ✓] Environment is ready for DataStore & Connector direct IAM entitlements! (Allow ~5 min for serving cache propagation).`);
       setSuccessMessage(
-        `Environment automatically configured! Project opt-in (dataStoreAccessControlEnabled) is active and custom role '${CUSTOM_ROLE_ID}' is verified.`
+        `Resource Access Control (dataStoreAccessControlEnabled) is active in Gemini Enterprise Settings and predefined roles ('${AGENTSPACE_RESTRICTED_USER_ROLE}' + '${NOTEBOOK_LM_USER_ROLE}') are ready to assign.`
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -627,7 +523,8 @@ export function useDataStorePermissions(
           projectRoles: [],
           broadRoles: [],
           hasBroadRoles: false,
-          hasCustomRole: false,
+          hasRestrictedUserRole: false,
+          hasNotebookLmRole: false,
           hasEngineAccess: false,
           accessibleDataStoreCount: 0,
           totalDataStoreCount: 0,
@@ -638,21 +535,17 @@ export function useDataStorePermissions(
     };
 
     // 1. Process Project Policy
-    const customRoleFullName = `projects/${projectId}/roles/${CUSTOM_ROLE_ID}`;
-    const customAdminRoleFullName = `projects/${projectId}/roles/${CUSTOM_ADMIN_ROLE_ID}`;
     projectPolicy?.bindings?.forEach(b => {
       b.members?.forEach(m => {
         const u = getOrCreate(m);
         if (!u.projectRoles.includes(b.role)) {
           u.projectRoles.push(b.role);
         }
-        if (
-          b.role === customRoleFullName ||
-          b.role === customAdminRoleFullName ||
-          b.role?.endsWith(`/${CUSTOM_ROLE_ID}`) ||
-          b.role?.endsWith(`/${CUSTOM_ADMIN_ROLE_ID}`)
-        ) {
-          u.hasCustomRole = true;
+        if (b.role === AGENTSPACE_RESTRICTED_USER_ROLE) {
+          u.hasRestrictedUserRole = true;
+        }
+        if (b.role === NOTEBOOK_LM_USER_ROLE) {
+          u.hasNotebookLmRole = true;
         }
         if (BROAD_PROJECT_ROLES.includes(b.role)) {
           if (!u.broadRoles.includes(b.role)) {
@@ -738,7 +631,7 @@ export function useDataStorePermissions(
       if (!a.hasEngineAccess && b.hasEngineAccess) return 1;
       return a.member.localeCompare(b.member);
     });
-  }, [projectId, projectPolicy, enginePolicy, connectors, legacyDataStores]);
+  }, [projectPolicy, enginePolicy, connectors, legacyDataStores]);
 
   // Compile Principal Access Matrix
   const principalMatrix: PrincipalAccess[] = useMemo(() => {
@@ -749,6 +642,7 @@ export function useDataStorePermissions(
         principalMap[mem] = {
           member: mem,
           hasProjectRole: false,
+          hasNotebookLmRole: false,
           hasEngineAccess: false,
           resourceAccess: {},
         };
@@ -757,12 +651,15 @@ export function useDataStorePermissions(
     };
 
     // 1. Check Project Policy
-    const targetProjectRole = `projects/${projectId}/roles/${CUSTOM_ROLE_ID}`;
-    const targetAdminProjectRole = `projects/${projectId}/roles/${CUSTOM_ADMIN_ROLE_ID}`;
     projectPolicy?.bindings?.forEach(b => {
-      if (b.role === targetProjectRole || b.role === targetAdminProjectRole) {
+      if (b.role === AGENTSPACE_RESTRICTED_USER_ROLE) {
         b.members?.forEach(m => {
           getOrCreate(m).hasProjectRole = true;
+        });
+      }
+      if (b.role === NOTEBOOK_LM_USER_ROLE) {
+        b.members?.forEach(m => {
+          getOrCreate(m).hasNotebookLmRole = true;
         });
       }
     });
@@ -808,7 +705,7 @@ export function useDataStorePermissions(
     });
 
     return Object.values(principalMap);
-  }, [projectId, projectPolicy, enginePolicy, connectors, legacyDataStores]);
+  }, [projectPolicy, enginePolicy, connectors, legacyDataStores]);
 
   // Detect Connector vs. Child Entity DataStore Access Inconsistencies
   const inconsistentConnectorGrants: ConnectorInconsistency[] = useMemo(() => {
@@ -914,9 +811,6 @@ export function useDataStorePermissions(
     setError,
     successMessage,
     setSuccessMessage,
-    customRoleExists,
-    setCustomRoleExists,
-    isCreatingRole,
     isTogglingProjectOptIn,
     isAutoEnablingEnvironment,
     isRepairingConnectors,
@@ -929,7 +823,6 @@ export function useDataStorePermissions(
     selectedResourcesForGrant,
     setSelectedResourcesForGrant,
     refreshAll,
-    handleCreateCustomRole,
     handleToggleProjectAccessControl,
     handleAutoEnableEnvironment,
     handleRepairConnectorInconsistencies,

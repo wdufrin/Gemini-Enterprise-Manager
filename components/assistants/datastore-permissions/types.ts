@@ -66,6 +66,7 @@ export interface LegacyDataStoreResource {
 export interface PrincipalAccess {
   member: string;
   hasProjectRole: boolean;
+  hasNotebookLmRole?: boolean;
   hasEngineAccess: boolean;
   resourceAccess: Record<string, boolean>; // resourceId -> boolean
 }
@@ -76,7 +77,8 @@ export interface UserAccessDetails {
   projectRoles: string[];
   broadRoles: string[];
   hasBroadRoles: boolean;
-  hasCustomRole: boolean;
+  hasRestrictedUserRole: boolean;
+  hasNotebookLmRole: boolean;
   hasEngineAccess: boolean;
   accessibleDataStoreCount: number;
   totalDataStoreCount: number;
@@ -121,19 +123,14 @@ export interface EnvironmentReadinessState {
   /** v1 IAM Meta API (:getIamPolicy) reachability */
   v1IamApiSupported: boolean | null;
   v1IamApiError: string | null;
-  /** Custom role status (end user) */
-  customRoleStatus: 'ready' | 'needs_upgrade' | 'deleted' | 'missing' | 'checking';
-  customRoleIncludedPermissions: string[];
-  customRoleMissingPermissions: string[];
-  /** Custom role status (delegated admin) */
-  customAdminRoleStatus?: 'ready' | 'needs_upgrade' | 'deleted' | 'missing' | 'checking';
-  customAdminRoleIncludedPermissions?: string[];
-  customAdminRoleMissingPermissions?: string[];
   /** Admin operator permissions */
   adminPermissionsTested: boolean;
   grantedAdminPermissions: string[];
   missingAdminPermissions: string[];
 }
+
+export const AGENTSPACE_RESTRICTED_USER_ROLE = 'roles/discoveryengine.agentspaceRestrictedUser';
+export const NOTEBOOK_LM_USER_ROLE = 'roles/discoveryengine.notebookLmUser';
 
 export const AGENTSPACE_USER_ROLE = 'roles/discoveryengine.agentspaceUser';
 export const AGENTSPACE_ADMIN_ROLE = 'roles/discoveryengine.agentspaceAdmin';
@@ -147,53 +144,18 @@ export const RESOURCE_LEVEL_ROLES = [
 
 export type ResourceLevelRole = (typeof RESOURCE_LEVEL_ROLES)[number];
 
-export const CUSTOM_ROLE_ID = 'customRestrictedEndUser';
-export const CUSTOM_ADMIN_ROLE_ID = 'customRestrictedAdmin';
-
-export const NOTEBOOK_LM_USER_ROLE = 'roles/discoveryengine.notebookLmUser';
 export const CLOUD_AI_COMPANION_USER_ROLE = 'roles/cloudaicompanion.user';
 export const BUSINESS_AI_CODE_USER_ROLE = 'roles/businessaicode.user';
 
 /**
- * Required permissions for the project-level customRestrictedEndUser role
- * per GA documentation (https://docs.cloud.google.com/gemini/enterprise/docs/iam-policy-for-apps-and-data-stores).
- */
-export const REQUIRED_CUSTOM_ROLE_PERMISSIONS = [
-  'discoveryengine.locations.buildAuthorizationUrl',
-  'discoveryengine.devToolsConfigs.get',
-];
-
-/**
- * Required permissions for the project-level customRestrictedAdmin role
- * per GA documentation for delegated resource-level administrators.
- */
-export const REQUIRED_CUSTOM_ADMIN_ROLE_PERMISSIONS = [
-  'discoveryengine.aclConfigs.get',
-  'discoveryengine.collections.list',
-  'discoveryengine.dataStores.list',
-  'discoveryengine.devToolsConfigs.get',
-  'discoveryengine.engines.list',
-  'discoveryengine.licenseConfigs.list',
-  'discoveryengine.locations.buildAuthorizationUrl',
-  'discoveryengine.locations.getConnectorSource',
-  'discoveryengine.locations.listConnectorSources',
-  'discoveryengine.projects.get',
-  'discoveryengine.userStores.listUserLicenses',
-  'resourcemanager.projects.get',
-];
-
-/**
  * Permissions checked via projects.testIamPermissions to verify if the current
- * operator can configure project opt-in, custom roles, and resource IAM policies.
+ * operator can configure project opt-in, project IAM bindings, and resource IAM policies.
  */
 export const REQUIRED_ADMIN_PERMISSIONS = [
   'discoveryengine.projects.get',
   'discoveryengine.projects.update',
   'resourcemanager.projects.getIamPolicy',
   'resourcemanager.projects.setIamPolicy',
-  'iam.roles.get',
-  'iam.roles.create',
-  'iam.roles.update',
   'discoveryengine.engines.getIamPolicy',
   'discoveryengine.engines.setIamPolicy',
   'discoveryengine.dataStores.getIamPolicy',
@@ -203,10 +165,10 @@ export const REQUIRED_ADMIN_PERMISSIONS = [
 ];
 
 /**
- * Project-level roles that grant discoveryengine.dataStores.get or discoveryengine.collections.get
- * across the entire project and therefore bypass DataStore-level IAM restrictions.
- * Note: roles/discoveryengine.agentspaceRestrictedUser had dataStores.get and collections.get
- * added on Aug 20, 2026 (cl/967961387), so it only restricts at the App level, NOT DataStore level.
+ * Project-level roles that grant unrestricted search/query/admin access across
+ * all apps and data stores in the project and therefore bypass resource-level IAM restrictions.
+ * Note: roles/discoveryengine.agentspaceRestrictedUser and roles/discoveryengine.notebookLmUser
+ * are the intended predefined project-level baseline roles for restricted users.
  */
 export const BROAD_PROJECT_ROLES = [
   'roles/viewer',
@@ -217,7 +179,6 @@ export const BROAD_PROJECT_ROLES = [
   'roles/discoveryengine.editor',
   'roles/discoveryengine.user',
   'roles/discoveryengine.agentspaceUser',
-  'roles/discoveryengine.agentspaceRestrictedUser',
   'roles/discoveryengine.viewer',
   'roles/discoveryengine.agentspaceViewer',
 ];

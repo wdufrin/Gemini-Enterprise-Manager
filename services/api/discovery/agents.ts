@@ -68,6 +68,13 @@ export const createAgent = async (
 
 export const createDiscoveryAgent = createAgent;
 
+const resolveFullAgentResourceName = (name: string, config: Config): string => {
+  if (name && name.startsWith("projects/")) {
+    return name;
+  }
+  return `projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId || "default_collection"}/engines/${config.appId}/assistants/${config.assistantId || "default_assistant"}/agents/${name.split("/").pop() || name}`;
+};
+
 export const updateAgent = async (
   agent: Partial<Agent> & { name: string },
   payload: Partial<Agent> | Record<string, unknown>,
@@ -87,17 +94,89 @@ export const updateAgent = async (
     updateMask.push("workflow_agent_definition");
   if (payload.skillAgentDefinition)
     updateMask.push("skill_agent_definition");
+  if (payload.dataStoreSpecs) updateMask.push("data_store_specs");
+  if (payload.dataConnectors) updateMask.push("data_connectors");
   if (payload.sharingConfig) updateMask.push("sharing_config");
   if (payload.authorizations) updateMask.push("authorizations");
   if (payload.authorizationConfig) updateMask.push("authorization_config");
   if (payload.observabilityConfig) updateMask.push("observabilityConfig");
 
-  const agentName = agent.name && agent.name.startsWith("projects/")
-    ? agent.name
-    : `projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId || "default_collection"}/engines/${config.appId}/assistants/${config.assistantId || "default_assistant"}/agents/${agent.name.split("/").pop() || agent.name}`;
+  const sanitizedPayload: Record<string, unknown> = { ...payload };
+  if (
+    sanitizedPayload.lowCodeAgentDefinition &&
+    typeof sanitizedPayload.lowCodeAgentDefinition === "object"
+  ) {
+    // Strip immutable/output-only subfields enforced by kLowCodeAgentImmutableSubFields in Discovery Engine
+    const lowCodeClone = {
+      ...(sanitizedPayload.lowCodeAgentDefinition as Record<string, unknown>),
+    };
+    delete lowCodeClone.deployedNodes;
+    delete lowCodeClone.deployed_nodes;
+    delete lowCodeClone.deploymentInfo;
+    delete lowCodeClone.deployment_info;
+    delete lowCodeClone.deployedRootAgentId;
+    delete lowCodeClone.deployed_root_agent_id;
+    delete lowCodeClone.validationErrors;
+    delete lowCodeClone.validation_errors;
+    delete lowCodeClone.ownerName;
+    delete lowCodeClone.owner_name;
+    sanitizedPayload.lowCodeAgentDefinition = lowCodeClone;
+  }
+
+  const agentName = resolveFullAgentResourceName(agent.name, config);
 
   const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}?updateMask=${updateMask.join(",")}`;
-  return gapiRequest<Agent>(url, "PATCH", config.projectId, undefined, payload);
+  return gapiRequest<Agent>(url, "PATCH", config.projectId, undefined, sanitizedPayload);
+};
+
+/**
+ * Deploys the draft nodes of a Low-Code agent (`low_code_agent_definition.nodes` -> `deployed_nodes`)
+ * via `POST /v1alpha/{name}:deployLowCode`.
+ */
+export const deployLowCodeAgent = async (
+  name: string,
+  config: Config,
+  deployMode: "DEPLOY" | "REFRESH_CREDENTIALS_ONLY" = "DEPLOY",
+): Promise<Record<string, unknown>> => {
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const agentName = resolveFullAgentResourceName(name, config);
+  return gapiRequest<Record<string, unknown>>(
+    `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}:deployLowCode`,
+    "POST",
+    config.projectId,
+    undefined,
+    { deployMode },
+  );
+};
+
+/**
+ * Publishes a Workflow / Agent Designer agent (`workflow_agent_definition`) to a new active revision
+ * via `POST /v1alpha/{name}:publish`.
+ */
+export const publishAgent = async (
+  name: string,
+  config: Config,
+  options?: {
+    label?: string;
+    revisionId?: string;
+    publishMode?: "PUBLISH" | "REFRESH_CREDENTIALS_ONLY";
+  },
+): Promise<{ agent?: Agent; [key: string]: unknown }> => {
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const agentName = resolveFullAgentResourceName(name, config);
+  const body: Record<string, unknown> = {
+    publishMode: options?.publishMode || "PUBLISH",
+  };
+  if (options?.label) body.label = options.label;
+  if (options?.revisionId) body.revisionId = options.revisionId;
+
+  return gapiRequest<{ agent?: Agent; [key: string]: unknown }>(
+    `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}:publish`,
+    "POST",
+    config.projectId,
+    undefined,
+    body,
+  );
 };
 
 export interface BulkObservabilityResult {

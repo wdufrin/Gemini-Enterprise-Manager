@@ -24,7 +24,7 @@ interface UserAccessInspectorProps {
   onToggleSelectUser: (member: string) => void;
   onSetSelectedUsers: (newSet: Set<string>) => void;
   onIsolateTarget: (target: IsolateTarget) => void;
-  onConfigureDataStores: (member: string, hasCustomRole: boolean) => void;
+  onConfigureDataStores: (member: string, hasRestrictedUserRole: boolean) => void;
 }
 
 export const UserAccessInspector: React.FC<UserAccessInspectorProps> = ({
@@ -44,7 +44,7 @@ export const UserAccessInspector: React.FC<UserAccessInspectorProps> = ({
   const filteredUsersList = useMemo(() => {
     return allUsersList.filter(u => {
       if (userFilterType === 'needs_isolation' && !u.hasBroadRoles) return false;
-      if (userFilterType === 'isolated' && (!u.hasCustomRole || u.hasBroadRoles)) return false;
+      if (userFilterType === 'isolated' && (!u.hasRestrictedUserRole || u.hasBroadRoles)) return false;
       if (userFilterType === 'engine_access' && !u.hasEngineAccess) return false;
 
       if (userSearchQuery.trim()) {
@@ -115,7 +115,7 @@ export const UserAccessInspector: React.FC<UserAccessInspectorProps> = ({
             {
               key: 'isolated',
               label: `🟢 Isolated & Ready (${
-                allUsersList.filter(u => u.hasCustomRole && !u.hasBroadRoles).length
+                allUsersList.filter(u => u.hasRestrictedUserRole && !u.hasBroadRoles).length
               })`,
             },
             {
@@ -256,12 +256,19 @@ export const UserAccessInspector: React.FC<UserAccessInspectorProps> = ({
                               ))}
                             </div>
                           </div>
-                        ) : u.hasCustomRole ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-green-900/50 text-green-400 border border-green-700">
-                            🟢 customRestrictedEndUser
-                          </span>
+                        ) : u.hasRestrictedUserRole ? (
+                          <div className="flex flex-wrap gap-1">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-green-900/50 text-green-400 border border-green-700">
+                              🟢 agentspaceRestrictedUser
+                            </span>
+                            {u.hasNotebookLmRole && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-900/50 text-purple-300 border border-purple-700">
+                                + notebookLmUser
+                              </span>
+                            )}
+                          </div>
                         ) : (
-                          <span className="text-[11px] text-gray-500 italic">No Project Custom Role</span>
+                          <span className="text-[11px] text-gray-500 italic">No Restricted User Role</span>
                         )}
                       </div>
                     </td>
@@ -297,7 +304,7 @@ export const UserAccessInspector: React.FC<UserAccessInspectorProps> = ({
 
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        {u.hasBroadRoles || !u.hasCustomRole ? (
+                        {u.hasBroadRoles || !u.hasRestrictedUserRole ? (
                           <button
                             type="button"
                             onClick={() =>
@@ -316,7 +323,7 @@ export const UserAccessInspector: React.FC<UserAccessInspectorProps> = ({
                           type="button"
                           onClick={() => {
                             const cleaned = u.member.replace(/^(user|group|serviceAccount):/, '');
-                            onConfigureDataStores(cleaned, u.hasCustomRole);
+                            onConfigureDataStores(cleaned, u.hasRestrictedUserRole);
                           }}
                           className="px-2.5 py-1 bg-blue-600/80 hover:bg-blue-600 text-white text-[11px] font-semibold rounded shadow-sm transition-colors whitespace-nowrap"
                         >

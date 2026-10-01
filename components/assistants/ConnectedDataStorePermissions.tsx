@@ -20,13 +20,10 @@ import SetDataStoreIamPolicyModal from './SetDataStoreIamPolicyModal';
 import DataStorePermissionsScriptModal from './DataStorePermissionsScriptModal';
 import DestructiveConfirmModal from '../DestructiveConfirmModal';
 import {
+  AGENTSPACE_RESTRICTED_USER_ROLE,
   AGENTSPACE_USER_ROLE,
   BROAD_PROJECT_ROLES,
-  CUSTOM_ADMIN_ROLE_ID,
-  CUSTOM_ROLE_ID,
   NOTEBOOK_LM_USER_ROLE,
-  REQUIRED_CUSTOM_ADMIN_ROLE_PERMISSIONS,
-  REQUIRED_CUSTOM_ROLE_PERMISSIONS,
   ConnectedDataStorePermissionsProps,
   ConnectorResource,
   EditingResource,
@@ -67,21 +64,17 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     setError,
     successMessage,
     setSuccessMessage,
-    customRoleExists,
-    setCustomRoleExists,
-    isCreatingRole,
     isTogglingProjectOptIn,
     isAutoEnablingEnvironment,
     isRepairingConnectors,
     readiness,
     inconsistentConnectorGrants,
-     enginePolicy,
+    enginePolicy,
     connectors,
     legacyDataStores,
     selectedResourcesForGrant,
     setSelectedResourcesForGrant,
     refreshAll,
-    handleCreateCustomRole,
     handleToggleProjectAccessControl,
     handleAutoEnableEnvironment,
     handleRepairConnectorInconsistencies,
@@ -98,12 +91,10 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
   // Wizard State
   const [isWizardOpen, setIsWizardOpen] = useState(true);
   const [targetMembersInput, setTargetMembersInput] = useState('');
-  const [wizardCheckCustomRole, setWizardCheckCustomRole] = useState(true);
   const [wizardGrantProjectRole, setWizardGrantProjectRole] = useState(true);
+  const [wizardGrantNotebookLmRole, setWizardGrantNotebookLmRole] = useState(true);
   const [wizardGrantEngineRole, setWizardGrantEngineRole] = useState(true);
-  const [wizardProjectCustomRoleId, setWizardProjectCustomRoleId] = useState<string>(CUSTOM_ROLE_ID);
   const [wizardResourceRole, setWizardResourceRole] = useState<ResourceLevelRole>(AGENTSPACE_USER_ROLE);
-  const [wizardGrantNotebookLmRole, setWizardGrantNotebookLmRole] = useState(false);
   const [includeUnattachedInSync, setIncludeUnattachedInSync] = useState(false);
   const [isDryRun, setIsDryRun] = useState(false);
   const [isExecutingWizard, setIsExecutingWizard] = useState(false);
@@ -140,12 +131,13 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
       const connList = options?.connectorsOverride ?? connectors;
       const dsList = options?.legacyDataStoresOverride ?? legacyDataStores;
 
-      // 1. Steps A1 & A2: Default to true when provisioning/updating a user in Two-Way Sync
-      // so we never inadvertently revoke their project custom role or App Engine access.
+      // 1. Steps 1 & 2: Default to true when provisioning/updating a user in Two-Way Sync
+      // so we never inadvertently revoke their project baseline roles or App Engine access.
       setWizardGrantProjectRole(true);
+      setWizardGrantNotebookLmRole(true);
       setWizardGrantEngineRole(true);
 
-      // 2. Steps A3 & A4: Check DataConnectors, Entities, and Legacy DataStores
+      // 2. Steps 3 & 4: Check DataConnectors, Entities, and Legacy DataStores
       const newSelected: Record<string, boolean> = {};
       let hasAnyExplicitAttachedGrant = false;
 
@@ -238,78 +230,17 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     setSuccessMessage(null);
     setExecutionLogs([]);
 
-    const activeCustomRoleId = wizardProjectCustomRoleId || CUSTOM_ROLE_ID;
-    const isDelegatedAdminRole = activeCustomRoleId === CUSTOM_ADMIN_ROLE_ID;
-    const requiredCustomRolePerms = isDelegatedAdminRole
-      ? REQUIRED_CUSTOM_ADMIN_ROLE_PERMISSIONS
-      : REQUIRED_CUSTOM_ROLE_PERMISSIONS;
-    const customRoleTitle = isDelegatedAdminRole
-      ? 'Custom Gemini Enterprise Restricted Admin'
-      : 'Custom Gemini Enterprise Restricted End User';
-    const customRoleDesc = isDelegatedAdminRole
-      ? 'Base project-level permissions for delegated resource-level Gemini Enterprise administrators.'
-      : 'Base project-level permissions to view Gemini Enterprise config page and authorize end-user connectors.';
-
     addLog(`Starting DataStore ACL Two-Way Synchronization (${isDryRun ? 'DRY-RUN PREVIEW' : 'LIVE EXECUTION'})`);
     addLog(`Target Principals: ${members.join(', ')}`);
     addLog(`App Engine: ${appId} (Location: ${config.appLocation || 'global'})`);
-    addLog(`Project Custom Role: ${activeCustomRoleId} | Resource Role: ${wizardResourceRole}`);
+    addLog(
+      `Project Roles: ${AGENTSPACE_RESTRICTED_USER_ROLE}${
+        wizardGrantNotebookLmRole ? ` + ${NOTEBOOK_LM_USER_ROLE}` : ''
+      } | Resource Role: ${wizardResourceRole}`
+    );
     addLog(`Rule: Checked items will be GRANTED; unchecked items will be REVOKED.`);
 
     try {
-      // Step Appendix A: Custom Role
-      if (wizardCheckCustomRole && wizardGrantProjectRole) {
-        addLog(`--- Appendix A: Checking project custom role '${activeCustomRoleId}' ---`);
-        let roleFound: boolean | null = activeCustomRoleId === CUSTOM_ROLE_ID ? customRoleExists : null;
-        let rolePerms: string[] = [];
-        if (roleFound === null) {
-          try {
-            const r = await api.getCustomRole(projectId, activeCustomRoleId);
-            roleFound = !!(r && r.name && !r.deleted);
-            rolePerms = r?.includedPermissions || [];
-          } catch {
-            roleFound = false;
-          }
-        } else {
-          rolePerms = readiness.customRoleIncludedPermissions;
-        }
-
-        const missingPerms = requiredCustomRolePerms.filter(p => !rolePerms.includes(p));
-
-        if (roleFound && missingPerms.length === 0) {
-          addLog(`[VERIFIED ✓] Custom role 'projects/${projectId}/roles/${activeCustomRoleId}' exists with all required permissions.`);
-        } else if (roleFound && missingPerms.length > 0) {
-          if (isDryRun) {
-            addLog(`[DRY-RUN] Custom role exists but is missing [${missingPerms.join(', ')}]. Would upgrade custom role '${activeCustomRoleId}'.`);
-          } else {
-            addLog(`[ACTION] Upgrading custom role '${activeCustomRoleId}' with missing permissions: ${missingPerms.join(', ')}...`);
-            const mergedPerms = Array.from(new Set([...rolePerms, ...requiredCustomRolePerms]));
-            await api.updateCustomRole(projectId, activeCustomRoleId, {
-              title: customRoleTitle,
-              description: customRoleDesc,
-              stage: 'GA',
-              includedPermissions: mergedPerms,
-            });
-            if (activeCustomRoleId === CUSTOM_ROLE_ID) setCustomRoleExists(true);
-            addLog(`[VERIFIED ✓] Custom role '${activeCustomRoleId}' upgraded successfully.`);
-          }
-        } else {
-          if (isDryRun) {
-            addLog(`[DRY-RUN] Custom role not found. Would create custom role '${activeCustomRoleId}'.`);
-          } else {
-            addLog(`[ACTION] Creating custom role '${activeCustomRoleId}'...`);
-            await api.createCustomRole(projectId, activeCustomRoleId, {
-              title: customRoleTitle,
-              description: customRoleDesc,
-              stage: 'GA',
-              includedPermissions: [...requiredCustomRolePerms],
-            });
-            if (activeCustomRoleId === CUSTOM_ROLE_ID) setCustomRoleExists(true);
-            addLog(`[VERIFIED ✓] Custom role '${activeCustomRoleId}' created successfully.`);
-          }
-        }
-      }
-
       const hasAnyAttached =
         connectors.some(c => c.isAttached) || legacyDataStores.some(ds => ds.isAttached);
 
@@ -336,23 +267,26 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         addLog(`Syncing Permissions for Member: ${member}`);
         addLog(`======================================================`);
 
-        // Step A1: Project-level role binding
-        addLog(`--- Step A1: ${wizardGrantProjectRole ? 'Granting' : 'Revoking'} project-level custom role '${activeCustomRoleId}' ---`);
-        const fullRole = `projects/${projectId}/roles/${activeCustomRoleId}`;
+        // Step 1a: Project-level Gemini Enterprise Restricted User role binding
+        addLog(
+          `--- Step 1a: ${
+            wizardGrantProjectRole ? 'Granting' : 'Revoking'
+          } project-level predefined role '${AGENTSPACE_RESTRICTED_USER_ROLE}' ---`
+        );
         await syncPolicyRMW(
           `Project '${projectId}'`,
           () => api.getProjectIamPolicy(projectId),
           (p) => api.setProjectIamPolicy(projectId, p),
           member,
-          fullRole,
+          AGENTSPACE_RESTRICTED_USER_ROLE,
           wizardGrantProjectRole,
           isDryRun,
           addLog
         );
 
-        // Optional Step A1b: Gemini Notebook Enterprise (notebookLmUser)
+        // Step 1b: Project-level Gemini Enterprise NotebookLM User role binding
         if (wizardGrantNotebookLmRole) {
-          addLog(`--- Step A1b: Granting optional '${NOTEBOOK_LM_USER_ROLE}' on Project '${projectId}' ---`);
+          addLog(`--- Step 1b: Granting '${NOTEBOOK_LM_USER_ROLE}' on Project '${projectId}' ---`);
           await syncPolicyRMW(
             `Project '${projectId}' (NotebookLM)`,
             () => api.getProjectIamPolicy(projectId),
@@ -365,8 +299,8 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
           );
         }
 
-        // Step A2: App Engine role binding
-        addLog(`--- Step A2: ${wizardGrantEngineRole ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on App Engine '${appId}' ---`);
+        // Step 2: App Engine role binding
+        addLog(`--- Step 2: ${wizardGrantEngineRole ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on App Engine '${appId}' ---`);
         await syncPolicyRMW(
           `App Engine '${appId}'`,
           () => api.getEngineIamPolicy(engine.name, config),
@@ -378,10 +312,10 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
           addLog
         );
 
-        // Step A3: DataConnectors and Entities
+        // Step 3: DataConnectors and Entities
         for (const conn of connectorsToSync) {
           const shouldGrantConn = !!selectedResourcesForGrant[`connector:${conn.id}`];
-          addLog(`--- Step A3: ${shouldGrantConn ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on DataConnector Collection '${conn.id}' ---`);
+          addLog(`--- Step 3: ${shouldGrantConn ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on DataConnector Collection '${conn.id}' ---`);
           await syncPolicyRMW(
             `DataConnector Collection '${conn.id}'`,
             () => api.getCollectionIamPolicy(conn.id, config),
@@ -409,10 +343,10 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
           }
         }
 
-        // Step A4: Legacy DataStores
+        // Step 4: Legacy DataStores
         for (const ds of legacyDataStoresToSync) {
           const shouldGrantDs = !!selectedResourcesForGrant[`datastore:${ds.id}`];
-          addLog(`--- Step A4: ${shouldGrantDs ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on Legacy DataStore '${ds.id}' ---`);
+          addLog(`--- Step 4: ${shouldGrantDs ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on Legacy DataStore '${ds.id}' ---`);
           await syncPolicyRMW(
             `Legacy DataStore '${ds.id}'`,
             () => api.getDataStoreIamPolicy(ds.id, config),
@@ -446,7 +380,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
   };
 
   // Execute Isolation Action
-  const handleExecuteIsolation = async (membersToIsolate: string[], grantNotebookLm?: boolean) => {
+  const handleExecuteIsolation = async (membersToIsolate: string[], grantNotebookLm: boolean = true) => {
     setIsIsolating(true);
     setError(null);
     setSuccessMessage(null);
@@ -454,22 +388,6 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     try {
       const currentProjPolicy = await api.getProjectIamPolicy(projectId);
       const etag = currentProjPolicy.etag || '';
-      const customRoleName = `projects/${projectId}/roles/${CUSTOM_ROLE_ID}`;
-
-      // Ensure custom role exists
-      if (!customRoleExists) {
-        try {
-          await api.createCustomRole(projectId, CUSTOM_ROLE_ID, {
-            title: 'Custom Gemini Enterprise Restricted End User',
-            description: 'Base project-level permissions to view Gemini Enterprise config page and authorize end-user connectors.',
-            stage: 'GA',
-            includedPermissions: [...REQUIRED_CUSTOM_ROLE_PERMISSIONS],
-          });
-          setCustomRoleExists(true);
-        } catch (e) {
-          console.warn('Custom role may already exist', e);
-        }
-      }
 
       // Filter out broad roles for these members
       const updatedBindings = (currentProjPolicy.bindings || []).map(b => {
@@ -482,19 +400,19 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         return b;
       }).filter(b => b.members && b.members.length > 0);
 
-      // Add custom role binding for these members
-      let customRoleBinding = updatedBindings.find(b => b.role === customRoleName);
-      if (!customRoleBinding) {
-        customRoleBinding = { role: customRoleName, members: [] };
-        updatedBindings.push(customRoleBinding);
+      // Add predefined roles/discoveryengine.agentspaceRestrictedUser binding for these members
+      let restrictedRoleBinding = updatedBindings.find(b => b.role === AGENTSPACE_RESTRICTED_USER_ROLE);
+      if (!restrictedRoleBinding) {
+        restrictedRoleBinding = { role: AGENTSPACE_RESTRICTED_USER_ROLE, members: [] };
+        updatedBindings.push(restrictedRoleBinding);
       }
       membersToIsolate.forEach(m => {
-        if (!customRoleBinding!.members!.includes(m)) {
-          customRoleBinding!.members!.push(m);
+        if (!restrictedRoleBinding!.members!.includes(m)) {
+          restrictedRoleBinding!.members!.push(m);
         }
       });
 
-      // Optionally also grant roles/discoveryengine.notebookLmUser at project level
+      // Also grant roles/discoveryengine.notebookLmUser at project level when selected (default true)
       if (grantNotebookLm) {
         let notebookBinding = updatedBindings.find(b => b.role === NOTEBOOK_LM_USER_ROLE);
         if (!notebookBinding) {
@@ -510,7 +428,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
 
       await api.setProjectIamPolicy(projectId, { etag, bindings: updatedBindings });
       setSuccessMessage(
-        `Successfully isolated ${membersToIsolate.length} user(s)! Broad project-wide roles removed, and '${CUSTOM_ROLE_ID}'${
+        `Successfully isolated ${membersToIsolate.length} user(s)! Broad project-wide roles removed, and '${AGENTSPACE_RESTRICTED_USER_ROLE}'${
           grantNotebookLm ? ` + '${NOTEBOOK_LM_USER_ROLE}'` : ''
         } granted. Pre-filled into Provisioner below to assign App Engine and DataStore permissions.`
       );
@@ -520,12 +438,12 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
       setSelectedUsersForIsolation(new Set());
       const refreshed = await refreshAll();
 
-      // Pre-fill wizard with these members and keep Step A1 (customRole) checked (true) so Two-Way Sync preserves it
+      // Pre-fill wizard with these members and keep Step 1 checked (true) so Two-Way Sync preserves it
       const cleanedMembers = membersToIsolate.map(m => m.replace(/^(user|group|serviceAccount):/, '')).join(', ');
       setTargetMembersInput(cleanedMembers);
       setWizardGrantProjectRole(true);
+      setWizardGrantNotebookLmRole(grantNotebookLm);
       setWizardGrantEngineRole(true);
-      if (grantNotebookLm) setWizardGrantNotebookLmRole(true);
       setIsWizardOpen(true);
       populateWizardForMember(cleanedMembers, {
         connectorsOverride: refreshed?.connectors,
@@ -637,7 +555,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
                 GA
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-700 text-gray-300 border border-gray-600">
-                v1 API • Self-Service Opt-In
+                v1 API • Resource Access Control
               </span>
             </div>
             <p className="text-xs text-gray-400 mt-1.5 max-w-3xl leading-relaxed">
@@ -681,7 +599,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
           </div>
         </div>
 
-        {/* Custom Role Status Sub-Card */}
+        {/* Predefined Project Roles Sub-Card */}
         <div className="mt-4 pt-4 border-t border-gray-700/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-gray-900/50 p-3 rounded-lg">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-blue-900/40 border border-blue-700/50 flex items-center justify-center shrink-0">
@@ -692,48 +610,22 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-semibold text-gray-200">
-                  Project Custom Role (Appendix A): <code className="text-blue-300">{CUSTOM_ROLE_ID}</code>
+                  Project Baseline Roles:{' '}
+                  <code className="text-blue-300">{AGENTSPACE_RESTRICTED_USER_ROLE}</code> +{' '}
+                  <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code>
                 </span>
-                {customRoleExists === true && readiness.customRoleStatus !== 'needs_upgrade' ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-green-900/50 text-green-400 border border-green-700">
-                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                    Active in Project
-                  </span>
-                ) : customRoleExists === true && readiness.customRoleStatus === 'needs_upgrade' ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-yellow-900/50 text-yellow-300 border border-yellow-700">
-                    Needs Permission Upgrade
-                  </span>
-                ) : customRoleExists === false ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-yellow-900/50 text-yellow-300 border border-yellow-700">
-                    Not Detected
-                  </span>
-                ) : (
-                  <span className="text-xs text-gray-500">Checking...</span>
-                )}
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-green-900/50 text-green-400 border border-green-700">
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                  Predefined Google Cloud IAM Roles
+                </span>
               </div>
               <p className="text-[11px] text-gray-400 mt-0.5">
-                Contains permissions:{' '}
-                <code className="text-purple-300">discoveryengine.locations.buildAuthorizationUrl</code>,{' '}
-                <code className="text-purple-300">discoveryengine.devToolsConfigs.get</code>
+                Grants baseline Gemini Enterprise UI, OAuth connector authorization, and NotebookLM access without granting broad project-wide search access.
               </p>
             </div>
           </div>
-
-          {(customRoleExists === false || readiness.customRoleStatus === 'needs_upgrade') && (
-            <button
-              onClick={handleCreateCustomRole}
-              disabled={isCreatingRole}
-              className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs font-semibold rounded-md shadow transition-colors disabled:opacity-50 flex items-center gap-1 whitespace-nowrap"
-            >
-              {isCreatingRole
-                ? 'Updating...'
-                : customRoleExists === true
-                ? '↑ Upgrade Role Permissions'
-                : '+ Create Custom Role in Project'}
-            </button>
-          )}
         </div>
       </div>
 
@@ -772,12 +664,10 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         readiness={readiness}
         allUsersList={allUsersList}
         inconsistentConnectorGrants={inconsistentConnectorGrants}
-        isCreatingRole={isCreatingRole}
         isTogglingProjectOptIn={isTogglingProjectOptIn}
         isAutoEnablingEnvironment={isAutoEnablingEnvironment}
         isRepairingConnectors={isRepairingConnectors}
         onReEvaluate={refreshAll}
-        onCreateOrUpgradeRole={handleCreateCustomRole}
         onToggleProjectOptIn={handleToggleProjectAccessControl}
         onAutoEnableEnvironment={handleAutoEnableEnvironment}
         onRepairConnectorInconsistencies={handleRepairConnectorInconsistencies}
@@ -802,6 +692,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         onConfigureDataStores={(member) => {
           setTargetMembersInput(member);
           setWizardGrantProjectRole(true);
+          setWizardGrantNotebookLmRole(true);
           setWizardGrantEngineRole(true);
           setIsWizardOpen(true);
           populateWizardForMember(member);
@@ -816,14 +707,10 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         targetMembersInput={targetMembersInput}
         onChangeTargetMembers={setTargetMembersInput}
         onReloadCurrentConfig={() => populateWizardForMember(targetMembersInput)}
-        wizardCheckCustomRole={wizardCheckCustomRole}
-        onChangeCheckCustomRole={setWizardCheckCustomRole}
         wizardGrantProjectRole={wizardGrantProjectRole}
         onChangeGrantProjectRole={setWizardGrantProjectRole}
         wizardGrantEngineRole={wizardGrantEngineRole}
         onChangeGrantEngineRole={setWizardGrantEngineRole}
-        wizardProjectCustomRoleId={wizardProjectCustomRoleId}
-        onChangeProjectCustomRoleId={setWizardProjectCustomRoleId}
         wizardResourceRole={wizardResourceRole}
         onChangeResourceRole={setWizardResourceRole}
         wizardGrantNotebookLmRole={wizardGrantNotebookLmRole}

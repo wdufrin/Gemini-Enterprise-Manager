@@ -70,7 +70,7 @@ const DataStorePermissionsScriptModal: React.FC<DataStorePermissionsScriptModalP
   const pythonScript = `#!/usr/bin/env python3
 """
 Gemini Enterprise (GE) End-User DataStore/DataConnector Permission Control Setup Script
-Automates Project Opt-In, Appendix A Custom Role Creation/Upgrade, and Step A1 - A4 IAM Bindings (v1 GA).
+Automates Resource Access Control Enablement, Predefined Project Baseline Role Bindings, and Resource-Level IAM Bindings (v1 GA).
 """
 
 import subprocess
@@ -84,10 +84,9 @@ LOCATION = "${location}"
 ENDPOINT_HOST = "discoveryengine.googleapis.com" if LOCATION == "global" else f"{LOCATION}-discoveryengine.googleapis.com"
 APP_ID = "${appId}"
 MEMBER = "${member}"
-CUSTOM_ROLE_ID = "customRestrictedEndUser"
-REQUIRED_PERMISSIONS = [
-    "discoveryengine.locations.buildAuthorizationUrl",
-    "discoveryengine.devToolsConfigs.get",
+PROJECT_BASELINE_ROLES = [
+    "roles/discoveryengine.agentspaceRestrictedUser",
+    "roles/discoveryengine.notebookLmUser",
 ]
 ROLE_RESOURCE = "roles/discoveryengine.agentspaceUser"
 
@@ -113,7 +112,7 @@ def http_request(method, url, data=None):
         return json.loads(res_text) if res_text else {}
 
 def enable_project_datastore_access_control():
-    print(f"\\n[Step 0] Enabling project-level DataStore access control on '{PROJECT_ID}'...")
+    print(f"\\n[Step 0] Enabling Resource Access Control in Gemini Enterprise Settings on '{PROJECT_ID}'...")
     url = f"https://{ENDPOINT_HOST}/v1alpha/projects/{PROJECT_ID}?updateMask=customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled"
     payload = {
         "customerProvidedConfig": {
@@ -123,45 +122,10 @@ def enable_project_datastore_access_control():
         }
     }
     http_request("PATCH", url, data=payload)
-    print(f"[VERIFIED ✓] Project opt-in 'dataStoreAccessControlEnabled=true' is active.")
+    print(f"[VERIFIED ✓] Resource Access Control ('dataStoreAccessControlEnabled=true') is active.")
 
-def check_or_create_custom_role():
-    print(f"\\n[Appendix A] Checking custom role 'projects/{PROJECT_ID}/roles/{CUSTOM_ROLE_ID}'...")
-    check_cmd = ["gcloud", "iam", "roles", "describe", CUSTOM_ROLE_ID, f"--project={PROJECT_ID}", "--format=json"]
-    res = subprocess.run(check_cmd, capture_output=True, text=True)
-    perms_csv = ",".join(REQUIRED_PERMISSIONS)
-    if res.returncode == 0:
-        role_data = json.loads(res.stdout or "{}")
-        existing_perms = role_data.get("includedPermissions", [])
-        missing = [p for p in REQUIRED_PERMISSIONS if p not in existing_perms]
-        if not missing:
-            print(f"[VERIFIED ✓] Custom role '{CUSTOM_ROLE_ID}' already exists with all required permissions.")
-            return
-        print(f"[ACTION] Upgrading custom role '{CUSTOM_ROLE_ID}' with missing permissions: {missing}...")
-        update_cmd = [
-            "gcloud", "iam", "roles", "update", CUSTOM_ROLE_ID,
-            f"--project={PROJECT_ID}",
-            f"--add-permissions={','.join(missing)}"
-        ]
-        subprocess.run(update_cmd, check=True)
-        print(f"[VERIFIED ✓] Custom role '{CUSTOM_ROLE_ID}' upgraded successfully.")
-        return
-
-    print(f"[ACTION] Creating custom role '{CUSTOM_ROLE_ID}'...")
-    create_cmd = [
-        "gcloud", "iam", "roles", "create", CUSTOM_ROLE_ID,
-        f"--project={PROJECT_ID}",
-        "--title=Custom Gemini Enterprise Restricted End User",
-        "--description=Base project-level permissions to view Gemini Enterprise config page and authorize end-user connectors.",
-        "--stage=GA",
-        f"--permissions={perms_csv}"
-    ]
-    subprocess.run(create_cmd, check=True)
-    print(f"[VERIFIED ✓] Custom role '{CUSTOM_ROLE_ID}' created successfully.")
-
-def grant_project_custom_role(member_str):
-    print(f"\\n[Step A1] Granting project custom role to '{member_str}'...")
-    full_role = f"projects/{PROJECT_ID}/roles/{CUSTOM_ROLE_ID}"
+def grant_project_baseline_roles(member_str):
+    print(f"\\n[Step A1] Granting predefined project baseline roles to '{member_str}'...")
     get_url = f"https://cloudresourcemanager.googleapis.com/v1/projects/{PROJECT_ID}:getIamPolicy"
     set_url = f"https://cloudresourcemanager.googleapis.com/v1/projects/{PROJECT_ID}:setIamPolicy"
     
@@ -169,15 +133,16 @@ def grant_project_custom_role(member_str):
     bindings = policy.get("bindings", [])
     etag = policy.get("etag", "")
     
-    target_b = next((b for b in bindings if b.get("role") == full_role), None)
-    if target_b:
-        if member_str not in target_b.setdefault("members", []):
-            target_b["members"].append(member_str)
-    else:
-        bindings.append({"role": full_role, "members": [member_str]})
-        
+    for role in PROJECT_BASELINE_ROLES:
+        target_b = next((b for b in bindings if b.get("role") == role), None)
+        if target_b:
+            if member_str not in target_b.setdefault("members", []):
+                target_b["members"].append(member_str)
+        else:
+            bindings.append({"role": role, "members": [member_str]})
+            
     http_request("POST", set_url, data={"policy": {"etag": etag, "bindings": bindings}})
-    print(f"[VERIFIED ✓] Granted project role '{full_role}' to '{member_str}'.")
+    print(f"[VERIFIED ✓] Granted project roles {PROJECT_BASELINE_ROLES} to '{member_str}'.")
 
 def update_iam_policy_rmw(resource_name, base_url, member_str, role=ROLE_RESOURCE):
     print(f"[RMW] Updating policy for {resource_name}...")
@@ -205,14 +170,11 @@ def main():
     print(f"Project: {PROJECT_ID} | Location: {LOCATION} | App: {APP_ID}")
     print(f"Target Member: {MEMBER}\\n")
     
-    # Step 0: Self-service project opt-in
+    # Step 0: Enable Resource Access Control in GE Settings
     enable_project_datastore_access_control()
 
-    # Appendix A: Custom Role
-    check_or_create_custom_role()
-    
-    # Step A1: Project-level binding
-    grant_project_custom_role(MEMBER)
+    # Step A1: Project-level baseline bindings
+    grant_project_baseline_roles(MEMBER)
     
     # Step A2: App (Engine) binding
     app_url = f"https://{ENDPOINT_HOST}/v1/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/engines/{APP_ID}"
@@ -253,23 +215,13 @@ if __name__ == "__main__":
   }' \\
   "https://${endpointPrefix}discoveryengine.googleapis.com/v1alpha/projects/${projectId}?updateMask=customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled"`;
 
-  const curlAppendixA = `gcloud iam roles create customRestrictedEndUser \\
-  --project=${projectId} \\
-  --title="Custom Gemini Enterprise Restricted End User" \\
-  --description="Base project-level permissions to view Gemini Enterprise config page and authorize end-user connectors." \\
-  --stage=GA \\
-  --permissions=discoveryengine.locations.buildAuthorizationUrl,discoveryengine.devToolsConfigs.get`;
-
-  const curlAppendixAdmin = `gcloud iam roles create customRestrictedAdmin \\
-  --project=${projectId} \\
-  --title="Custom Gemini Enterprise Restricted Admin" \\
-  --description="Base project-level permissions for delegated resource-level Gemini Enterprise administrators." \\
-  --stage=GA \\
-  --permissions=discoveryengine.aclConfigs.get,discoveryengine.collections.list,discoveryengine.dataStores.list,discoveryengine.devToolsConfigs.get,discoveryengine.engines.list,discoveryengine.licenseConfigs.list,discoveryengine.locations.buildAuthorizationUrl,discoveryengine.locations.getConnectorSource,discoveryengine.locations.listConnectorSources,discoveryengine.projects.get,discoveryengine.userStores.listUserLicenses,resourcemanager.projects.get`;
-
   const curlStepA1 = `gcloud projects add-iam-policy-binding ${projectId} \\
   --member="${member}" \\
-  --role="projects/${projectId}/roles/customRestrictedEndUser"`;
+  --role="roles/discoveryengine.agentspaceRestrictedUser"
+
+gcloud projects add-iam-policy-binding ${projectId} \\
+  --member="${member}" \\
+  --role="roles/discoveryengine.notebookLmUser"`;
 
   const curlStepA2Get = `curl -X GET \\
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
@@ -385,7 +337,7 @@ if __name__ == "__main__":
                 </h3>
                 <p className="text-xs text-gray-300 leading-relaxed">
                   By default, Gemini Enterprise users require project-level IAM roles which grant access to all datastores. 
-                  Datastore-Level Access Control (GA) replaces this with a <strong>least-privilege 2-tier model</strong>: a minimal project-level authentication role combined with explicit resource-level bindings on only the specific App Engine and DataStores they are allowed to query.
+                  Datastore-Level Access Control (GA) replaces this with a <strong>least-privilege 2-tier model</strong>: predefined project-level baseline roles (<code className="text-blue-300">roles/discoveryengine.agentspaceRestrictedUser</code> &amp; <code className="text-blue-300">roles/discoveryengine.notebookLmUser</code>) combined with explicit resource-level bindings on only the specific App Engine and DataStores they are allowed to query.
                 </p>
               </div>
 
@@ -395,14 +347,14 @@ if __name__ == "__main__":
                 <div className="bg-gray-800/90 border border-gray-700 rounded-lg p-4">
                   <div className="flex items-center gap-2.5 mb-2">
                     <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">0</span>
-                    <h4 className="text-sm font-semibold text-white">Prerequisites: Self-Service Project Opt-In & User Isolation</h4>
+                    <h4 className="text-sm font-semibold text-white">Prerequisites: Enable Resource Access Control &amp; User Isolation</h4>
                   </div>
                   <ul className="list-disc pl-9 space-y-1.5 text-xs text-gray-300">
                     <li>
-                      <strong>Self-Service Project Opt-In</strong>: Enable <code className="text-purple-300">customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled = true</code> via the <strong>Environment Readiness Evaluator</strong> or <code className="text-blue-300">PATCH /v1alpha/projects/{projectId}</code>.
+                      <strong>Resource Access Control</strong>: Enable <code className="text-purple-300">customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled = true</code> in <strong>Gemini Enterprise → Settings → Resource access control</strong> (or via <code className="text-blue-300">PATCH /v1alpha/projects/{projectId}</code>).
                     </li>
                     <li>
-                      <strong>Remove Broad IAM Roles</strong>: Ensure target end users or groups do <em>not</em> possess broad project-wide roles like <code className="text-red-300">roles/viewer</code>, <code className="text-red-300">roles/editor</code>, <code className="text-red-300">roles/discoveryengine.admin</code>, or <code className="text-red-300">roles/discoveryengine.agentspaceRestrictedUser</code> (which includes project-level <code className="text-red-300">dataStores.get</code> and bypasses datastore restrictions).
+                      <strong>Remove Broad IAM Roles</strong>: Ensure target end users or groups do <em>not</em> possess broad project-wide search roles like <code className="text-red-300">roles/viewer</code>, <code className="text-red-300">roles/editor</code>, <code className="text-red-300">roles/discoveryengine.admin</code>, <code className="text-red-300">roles/discoveryengine.user</code>, or <code className="text-red-300">roles/discoveryengine.agentspaceUser</code> at the project level.
                     </li>
                   </ul>
                 </div>
@@ -411,20 +363,13 @@ if __name__ == "__main__":
                 <div className="bg-gray-800/90 border border-gray-700 rounded-lg p-4">
                   <div className="flex items-center gap-2.5 mb-2">
                     <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">1</span>
-                    <h4 className="text-sm font-semibold text-white">Create Project Custom Role (<code className="text-blue-300">customRestrictedEndUser</code>)</h4>
+                    <h4 className="text-sm font-semibold text-white">Grant Predefined Baseline Roles at Project Level (Step A1)</h4>
                   </div>
                   <p className="text-xs text-gray-300 pl-8 mb-2">
-                    Create a custom IAM role at the project level containing only the 2 minimal authentication &amp; UI config permissions:
+                    Bind <code className="text-blue-300">roles/discoveryengine.agentspaceRestrictedUser</code> and <code className="text-blue-300">roles/discoveryengine.notebookLmUser</code> at the project level to the target user or group (<code className="text-yellow-300">user:alice@example.com</code> or <code className="text-yellow-300">group:finance-team@example.com</code>).
                   </p>
-                  <div className="pl-8">
-                    <div className="p-2.5 bg-gray-950 rounded text-xs font-mono text-green-400 border border-gray-800 space-y-1">
-                      <div>Permissions:</div>
-                      <div>- discoveryengine.locations.buildAuthorizationUrl</div>
-                      <div>- discoveryengine.devToolsConfigs.get</div>
-                    </div>
-                    <p className="text-[11px] text-gray-400 mt-1.5">
-                      💡 <em>You can create or upgrade this in 1 click using the &quot;⚡ Auto-Enable &amp; Configure Environment&quot; or &quot;+ Create Custom Role in Project&quot; button.</em>
-                    </p>
+                  <div className="pl-8 text-xs text-gray-400">
+                    This allows the user to open the Gemini Enterprise web application interface, authorize OAuth connectors, and use NotebookLM without granting project-wide search/serving permissions.
                   </div>
                 </div>
 
@@ -432,20 +377,6 @@ if __name__ == "__main__":
                 <div className="bg-gray-800/90 border border-gray-700 rounded-lg p-4">
                   <div className="flex items-center gap-2.5 mb-2">
                     <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">2</span>
-                    <h4 className="text-sm font-semibold text-white">Grant Custom Role at Project Level (Step A1)</h4>
-                  </div>
-                  <p className="text-xs text-gray-300 pl-8 mb-2">
-                    Bind <code className="text-blue-300">projects/{projectId}/roles/customRestrictedEndUser</code> to the target user or group (<code className="text-yellow-300">user:alice@example.com</code> or <code className="text-yellow-300">group:finance-team@example.com</code>).
-                  </p>
-                  <div className="pl-8 text-xs text-gray-400">
-                    This allows the user to open the Gemini Enterprise web application interface without seeing any underlying data.
-                  </div>
-                </div>
-
-                {/* Step 3 */}
-                <div className="bg-gray-800/90 border border-gray-700 rounded-lg p-4">
-                  <div className="flex items-center gap-2.5 mb-2">
-                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">3</span>
                     <h4 className="text-sm font-semibold text-white">Grant App Engine Access (Step A2)</h4>
                   </div>
                   <p className="text-xs text-gray-300 pl-8 mb-2">
@@ -456,11 +387,11 @@ if __name__ == "__main__":
                   </div>
                 </div>
 
-                {/* Step 4 */}
+                {/* Step 3 */}
                 <div className="bg-gray-800/90 border border-gray-700 rounded-lg p-4">
                   <div className="flex items-center gap-2.5 mb-2">
-                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">4</span>
-                    <h4 className="text-sm font-semibold text-white">Grant Access ONLY to the Allowed DataStores (Steps A3 & A4 — GA v1 API)</h4>
+                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">3</span>
+                    <h4 className="text-sm font-semibold text-white">Grant Access ONLY to the Allowed DataStores (Steps A3 &amp; A4 — GA v1 API)</h4>
                   </div>
                   <div className="pl-8 space-y-2 text-xs text-gray-300">
                     <p>
@@ -480,14 +411,14 @@ if __name__ == "__main__":
                   </div>
                 </div>
 
-                {/* Step 5 */}
+                {/* Step 4 */}
                 <div className="bg-gray-800/90 border border-gray-700 rounded-lg p-4">
                   <div className="flex items-center gap-2.5 mb-2">
-                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">5</span>
-                    <h4 className="text-sm font-semibold text-white">Audit & Verification</h4>
+                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">4</span>
+                    <h4 className="text-sm font-semibold text-white">Audit &amp; Verification</h4>
                   </div>
                   <p className="text-xs text-gray-300 pl-8 mb-2">
-                    Confirm bindings in the <strong>Permissions Matrix & Audit Table</strong> in the Manager UI, or test by logging in as the restricted user to verify that only authorized data sources return grounded responses.
+                    Confirm bindings in the <strong>Permissions Matrix &amp; Audit Table</strong> in the Manager UI, or test by logging in as the restricted user to verify that only authorized data sources return grounded responses.
                   </p>
                 </div>
               </div>
@@ -529,10 +460,10 @@ if __name__ == "__main__":
 
           {activeTab === 'curl' && (
             <div className="space-y-6">
-              {/* Step 0: Project Opt-In */}
+              {/* Step 0: Enable Resource Access Control */}
               <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700">
                 <div className="flex justify-between items-center mb-2">
-                  <h4 className="text-sm font-semibold text-white">Step 0 — Enable Self-Service Project Opt-In</h4>
+                  <h4 className="text-sm font-semibold text-white">Step 0 — Enable Resource Access Control in Gemini Enterprise Settings</h4>
                   <button
                     onClick={() => copyToClipboard(curlProjectOptIn, 'optIn')}
                     className="text-xs text-blue-400 hover:text-blue-300 font-medium"
@@ -545,42 +476,10 @@ if __name__ == "__main__":
                 </pre>
               </div>
 
-              {/* Appendix A */}
-              <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700">
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="text-sm font-semibold text-white">Appendix A — Create Project Custom Role for End Users (2 Required Permissions)</h4>
-                  <button
-                    onClick={() => copyToClipboard(curlAppendixA, 'appA')}
-                    className="text-xs text-blue-400 hover:text-blue-300 font-medium"
-                  >
-                    {copiedKey === 'appA' ? 'Copied ✓' : 'Copy'}
-                  </button>
-                </div>
-                <pre className="p-3 bg-gray-950 rounded text-xs font-mono text-gray-200 overflow-x-auto select-all">
-                  {curlAppendixA}
-                </pre>
-              </div>
-
-              {/* Appendix B: Delegated Admin Custom Role */}
-              <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700">
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="text-sm font-semibold text-white">Appendix B — Create Project Custom Role for Delegated Admins (12 Required Permissions)</h4>
-                  <button
-                    onClick={() => copyToClipboard(curlAppendixAdmin, 'appAdmin')}
-                    className="text-xs text-blue-400 hover:text-blue-300 font-medium"
-                  >
-                    {copiedKey === 'appAdmin' ? 'Copied ✓' : 'Copy'}
-                  </button>
-                </div>
-                <pre className="p-3 bg-gray-950 rounded text-xs font-mono text-gray-200 overflow-x-auto select-all">
-                  {curlAppendixAdmin}
-                </pre>
-              </div>
-
               {/* Step A1 */}
               <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700">
                 <div className="flex justify-between items-center mb-2">
-                  <h4 className="text-sm font-semibold text-white">Step A1 — Grant Custom Role at Project Level</h4>
+                  <h4 className="text-sm font-semibold text-white">Step A1 — Grant Predefined Baseline Roles at Project Level</h4>
                   <button
                     onClick={() => copyToClipboard(curlStepA1, 'stepA1')}
                     className="text-xs text-blue-400 hover:text-blue-300 font-medium"
@@ -624,7 +523,7 @@ if __name__ == "__main__":
 
               {/* Step A3 & A4 Info */}
               <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700 space-y-2">
-                <h4 className="text-sm font-semibold text-white">Step A3 & A4 — DataConnectors & DataStores (GA v1 API)</h4>
+                <h4 className="text-sm font-semibold text-white">Step A3 &amp; A4 — DataConnectors &amp; DataStores (GA v1 API)</h4>
                 <p className="text-xs text-gray-300">
                   DataConnectors use endpoint:
                   <code className="block mt-1 p-2 bg-gray-950 rounded text-purple-300 font-mono">
@@ -653,12 +552,11 @@ if __name__ == "__main__":
   --project ${projectId} \\
   --location ${location} \\
   --member ${targetMember} \\
-  --create-custom-role \\
   --apps ${appId}${connectorArgs ? ` \\\n  --dataconnectors ${connectorArgs}` : ''}${datastoreArgs ? ` \\\n  --datastores ${datastoreArgs}` : ''}`}
                 </pre>
                 <div className="mt-3 flex justify-end">
                   <button
-                    onClick={() => copyToClipboard(`python3 setup_ge_permissions.py --project ${projectId} --location ${location} --member ${targetMember} --create-custom-role --apps ${appId}${connectorArgs ? ` --dataconnectors ${connectorArgs}` : ''}${datastoreArgs ? ` --datastores ${datastoreArgs}` : ''}`, 'cli-one')}
+                    onClick={() => copyToClipboard(`python3 setup_ge_permissions.py --project ${projectId} --location ${location} --member ${targetMember} --apps ${appId}${connectorArgs ? ` --dataconnectors ${connectorArgs}` : ''}${datastoreArgs ? ` --datastores ${datastoreArgs}` : ''}`, 'cli-one')}
                     className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-200 rounded border border-gray-600 transition-colors"
                   >
                     {copiedKey === 'cli-one' ? 'Copied ✓' : 'Copy CLI Command'}

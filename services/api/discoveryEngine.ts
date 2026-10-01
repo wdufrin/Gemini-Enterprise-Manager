@@ -23,3 +23,5 @@ export * from "./discovery/operations";
 export * from "./discovery/engines";
 export * from "./discovery/assistants";
 export * from "./discovery/agents";
+export * from "./discovery/agentDatasources";
+

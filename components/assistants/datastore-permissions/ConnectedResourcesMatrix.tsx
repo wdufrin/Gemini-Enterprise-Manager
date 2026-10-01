@@ -63,7 +63,8 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
 
     const headers = [
       'Member',
-      'Project Custom Role',
+      'Project Restricted User Role',
+      'Project NotebookLM Role',
       'App Engine Access',
       ...connectors.map(c => `Connector: ${c.id}`),
       ...connectors.flatMap(c => c.entities.map(e => `Entity: ${e.id}`)),
@@ -76,6 +77,7 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
       const row = [
         `"${p.member}"`,
         p.hasProjectRole ? 'Granted' : 'Missing',
+        p.hasNotebookLmRole ? 'Granted' : 'Missing',
         p.hasEngineAccess ? 'Granted' : 'Missing',
         ...connectors.map(c => (p.resourceAccess[`connector:${c.id}`] ? 'Granted' : 'None')),
         ...connectors.flatMap(c =>
@@ -334,7 +336,7 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
             <thead className="bg-gray-900/60 text-xs uppercase tracking-wider text-gray-400 font-semibold">
               <tr>
                 <th className="px-6 py-3.5">Principal / Member</th>
-                <th className="px-6 py-3.5">Project Custom Role</th>
+                <th className="px-6 py-3.5">Project Baseline Roles</th>
                 <th className="px-6 py-3.5">App Engine ({appId})</th>
                 <th className="px-6 py-3.5">Connected DataStores & Connectors</th>
                 <th className="px-6 py-3.5 text-right">Actions</th>
@@ -376,17 +378,24 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
                         </div>
                       </td>
 
-                      {/* Project Custom Role */}
+                      {/* Project Baseline Roles */}
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {p.hasProjectRole ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-green-900/40 text-green-300 border border-green-700">
-                            ✓ customRestrictedEndUser
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] text-gray-500 bg-gray-900 border border-gray-700">
-                            Missing
-                          </span>
-                        )}
+                        <div className="flex flex-wrap gap-1">
+                          {p.hasProjectRole ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-green-900/40 text-green-300 border border-green-700">
+                              ✓ agentspaceRestrictedUser
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] text-gray-500 bg-gray-900 border border-gray-700">
+                              Missing
+                            </span>
+                          )}
+                          {p.hasNotebookLmRole && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-900/40 text-purple-300 border border-purple-700">
+                              + notebookLmUser
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* App Engine Access */}

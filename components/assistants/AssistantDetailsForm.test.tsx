@@ -168,7 +168,7 @@ describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () =
     mockedApi.setProjectIamPolicy.mockImplementation(async (_projId: string, policy: any) => policy);
   });
 
-  it('grants roles/discoveryengine.agentspaceUser on the Engine and customRestrictedEndUser on the Project when dataStoreAccessControlEnabled is true', async () => {
+  it('grants roles/discoveryengine.agentspaceUser on the Engine and predefined agentspaceRestrictedUser + notebookLmUser on the Project when dataStoreAccessControlEnabled is true', async () => {
     mockedApi.getDiscoveryProjectConfig.mockResolvedValue({
       name: 'projects/test-project-123',
       dataStoreAccessControlEnabled: true,
@@ -194,7 +194,11 @@ describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () =
         expect.objectContaining({
           bindings: [
             {
-              role: 'projects/test-project-123/roles/customRestrictedEndUser',
+              role: 'roles/discoveryengine.agentspaceRestrictedUser',
+              members: ['user:alice@example.com'],
+            },
+            {
+              role: 'roles/discoveryengine.notebookLmUser',
               members: ['user:alice@example.com'],
             },
           ],
@@ -219,7 +223,7 @@ describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () =
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Failed to grant mandatory project-level access \(roles\/discoveryengine\.agentspaceRestrictedUser\): 403 Permission Denied/i)
+        screen.getByText(/Failed to grant mandatory project-level access \(roles\/discoveryengine\.agentspaceRestrictedUser, roles\/discoveryengine\.notebookLmUser\): 403 Permission Denied/i)
       ).toBeInTheDocument();
     });
   });

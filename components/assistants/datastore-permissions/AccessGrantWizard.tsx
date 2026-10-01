@@ -17,10 +17,9 @@
 import React, { useState } from 'react';
 import {
   AGENTSPACE_ADMIN_ROLE,
+  AGENTSPACE_RESTRICTED_USER_ROLE,
   AGENTSPACE_USER_ROLE,
   AGENTSPACE_VIEWER_ROLE,
-  CUSTOM_ADMIN_ROLE_ID,
-  CUSTOM_ROLE_ID,
   ConnectorResource,
   LegacyDataStoreResource,
   NOTEBOOK_LM_USER_ROLE,
@@ -33,14 +32,10 @@ interface AccessGrantWizardProps {
   targetMembersInput: string;
   onChangeTargetMembers: (val: string) => void;
   onReloadCurrentConfig: () => void;
-  wizardCheckCustomRole: boolean;
-  onChangeCheckCustomRole: (val: boolean) => void;
   wizardGrantProjectRole: boolean;
   onChangeGrantProjectRole: (val: boolean) => void;
   wizardGrantEngineRole: boolean;
   onChangeGrantEngineRole: (val: boolean) => void;
-  wizardProjectCustomRoleId?: string;
-  onChangeProjectCustomRoleId?: (roleId: string) => void;
   wizardResourceRole?: ResourceLevelRole;
   onChangeResourceRole?: (role: ResourceLevelRole) => void;
   wizardGrantNotebookLmRole?: boolean;
@@ -66,17 +61,13 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
   targetMembersInput,
   onChangeTargetMembers,
   onReloadCurrentConfig,
-  wizardCheckCustomRole,
-  onChangeCheckCustomRole,
   wizardGrantProjectRole,
   onChangeGrantProjectRole,
   wizardGrantEngineRole,
   onChangeGrantEngineRole,
-  wizardProjectCustomRoleId = CUSTOM_ROLE_ID,
-  onChangeProjectCustomRoleId,
   wizardResourceRole = AGENTSPACE_USER_ROLE,
   onChangeResourceRole,
-  wizardGrantNotebookLmRole = false,
+  wizardGrantNotebookLmRole = true,
   onChangeGrantNotebookLmRole,
   selectedResourcesForGrant,
   onChangeSelectedResources,
@@ -217,7 +208,7 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
           </div>
           <div>
             <h3 className="text-base font-bold text-white">Interactive End-User Permission Provisioner</h3>
-            <p className="text-xs text-gray-400">Automates Steps A1 - A4 in 1-Click with live post-audit verification</p>
+            <p className="text-xs text-gray-400">Automates Steps 1 - 4 in 1-Click with live post-audit verification</p>
           </div>
         </div>
         <svg
@@ -268,47 +259,7 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
 
           {/* Workflow Step Options */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Step 1 Checkbox */}
-            <div className="bg-gray-900/60 p-3.5 rounded-lg border border-gray-700/80 space-y-2">
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={wizardCheckCustomRole}
-                  onChange={(e) => onChangeCheckCustomRole(e.target.checked)}
-                  className="mt-1 rounded bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <span className="text-xs font-bold text-white block">Appendix A: Check Custom Role</span>
-                  <span className="text-[11px] text-gray-400 block mt-0.5">
-                    Verify or create <code>{wizardProjectCustomRoleId}</code> role.
-                  </span>
-                </div>
-              </label>
-              {onChangeProjectCustomRoleId && (
-                <div className="pl-6">
-                  <label className="block text-[10px] text-gray-400 mb-1">Project Custom Role Persona:</label>
-                  <select
-                    aria-label="Project Custom Role Persona"
-                    value={wizardProjectCustomRoleId}
-                    onChange={(e) => {
-                      const nextId = e.target.value;
-                      onChangeProjectCustomRoleId(nextId);
-                      if (nextId === CUSTOM_ADMIN_ROLE_ID && onChangeResourceRole && wizardResourceRole === AGENTSPACE_USER_ROLE) {
-                        onChangeResourceRole(AGENTSPACE_ADMIN_ROLE);
-                      } else if (nextId === CUSTOM_ROLE_ID && onChangeResourceRole && wizardResourceRole === AGENTSPACE_ADMIN_ROLE) {
-                        onChangeResourceRole(AGENTSPACE_USER_ROLE);
-                      }
-                    }}
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-[11px] text-gray-200 font-mono"
-                  >
-                    <option value={CUSTOM_ROLE_ID}>customRestrictedEndUser (End User — 2 perms)</option>
-                    <option value={CUSTOM_ADMIN_ROLE_ID}>customRestrictedAdmin (Delegated Admin — 12 perms)</option>
-                  </select>
-                </div>
-              )}
-            </div>
-
-            {/* Step 2 Checkbox */}
+            {/* Step 1a Checkbox */}
             <div className="bg-gray-900/60 p-3.5 rounded-lg border border-gray-700/80 space-y-2">
               <label className="flex items-start gap-2.5 cursor-pointer">
                 <input
@@ -318,28 +269,33 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
                   className="mt-1 rounded bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500"
                 />
                 <div>
-                  <span className="text-xs font-bold text-white block">Step A1: Grant Project Custom Role</span>
+                  <span className="text-xs font-bold text-white block">Step 1a: Grant Restricted User Role</span>
                   <span className="text-[11px] text-gray-400 block mt-0.5">
-                    {wizardGrantProjectRole ? 'Grant' : 'Revoke'} <code>{wizardProjectCustomRoleId}</code> at project level.
+                    {wizardGrantProjectRole ? 'Grant' : 'Revoke'} <code className="text-blue-300">{AGENTSPACE_RESTRICTED_USER_ROLE}</code> at project level.
                   </span>
                 </div>
               </label>
-              {onChangeGrantNotebookLmRole && (
-                <label className="flex items-start gap-2 pl-6 cursor-pointer text-[11px] text-gray-300">
-                  <input
-                    type="checkbox"
-                    checked={wizardGrantNotebookLmRole}
-                    onChange={(e) => onChangeGrantNotebookLmRole(e.target.checked)}
-                    className="mt-0.5 rounded bg-gray-800 border-gray-600 text-purple-600 focus:ring-purple-500"
-                  />
-                  <span>
-                    Also grant <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> (NotebookLM)
-                  </span>
-                </label>
-              )}
             </div>
 
-            {/* Step 3 Checkbox */}
+            {/* Step 1b Checkbox */}
+            <div className="bg-gray-900/60 p-3.5 rounded-lg border border-gray-700/80 space-y-2">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={wizardGrantNotebookLmRole}
+                  onChange={(e) => onChangeGrantNotebookLmRole?.(e.target.checked)}
+                  className="mt-1 rounded bg-gray-800 border-gray-600 text-purple-600 focus:ring-purple-500"
+                />
+                <div>
+                  <span className="text-xs font-bold text-white block">Step 1b: Grant NotebookLM Role</span>
+                  <span className="text-[11px] text-gray-400 block mt-0.5">
+                    Also grant <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> at project level for NotebookLM Enterprise.
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            {/* Step 2 Checkbox */}
             <div className="bg-gray-900/60 p-3.5 rounded-lg border border-gray-700/80 space-y-2">
               <label className="flex items-start gap-2.5 cursor-pointer">
                 <input
@@ -349,7 +305,7 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
                   className="mt-1 rounded bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500"
                 />
                 <div>
-                  <span className="text-xs font-bold text-white block">Step A2: Grant on App Engine</span>
+                  <span className="text-xs font-bold text-white block">Step 2: Grant on App Engine</span>
                   <span className="text-[11px] text-gray-400 block mt-0.5">
                     {wizardGrantEngineRole ? 'Grant' : 'Revoke'} <code>{wizardResourceRole}</code> on {appId}.
                   </span>
@@ -373,11 +329,11 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
             </div>
           </div>
 
-          {/* Step A3 & A4: Target DataStores Selection */}
+          {/* Steps 3 & 4: Target DataStores Selection */}
           <div>
             <div className="flex justify-between items-center mb-2">
               <label className="block text-sm font-semibold text-gray-200">
-                Steps A3 & A4: Select Connected DataStores & Connectors to Grant Access
+                Steps 3 & 4: Select Connected DataStores & Connectors to Grant Access
               </label>
               <div className="flex gap-2">
                 <button

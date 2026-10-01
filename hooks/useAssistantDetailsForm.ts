@@ -278,33 +278,38 @@ export function useAssistantDetailsForm(
     setIsIamDirty(true);
     setNewMember('');
 
-    const targetProjectRole = dataStoreAccessControlEnabled
-      ? `projects/${config.projectId}/roles/customRestrictedEndUser`
-      : 'roles/discoveryengine.agentspaceRestrictedUser';
+    const targetProjectRoles = [
+      'roles/discoveryengine.agentspaceRestrictedUser',
+      'roles/discoveryengine.notebookLmUser',
+    ];
 
     try {
       setIamError(null);
       setIsLoadingIam(true);
       const projectPolicy = await api.getProjectIamPolicy(config.projectId);
-      let projectBinding = projectPolicy.bindings?.find((b: IamBinding) => b.role === targetProjectRole);
-      if (!projectBinding) {
-        projectBinding = { role: targetProjectRole, members: [] };
-        projectPolicy.bindings = projectPolicy.bindings || [];
-        projectPolicy.bindings.push(projectBinding);
+      projectPolicy.bindings = projectPolicy.bindings || [];
+
+      for (const role of targetProjectRoles) {
+        let projectBinding = projectPolicy.bindings.find((b: IamBinding) => b.role === role);
+        if (!projectBinding) {
+          projectBinding = { role, members: [] };
+          projectPolicy.bindings.push(projectBinding);
+        }
+        if (!projectBinding.members) projectBinding.members = [];
+        if (!projectBinding.members.includes(memberString)) {
+          projectBinding.members.push(memberString);
+        }
       }
-      if (!projectBinding.members) projectBinding.members = [];
-      if (!projectBinding.members.includes(memberString)) {
-        projectBinding.members.push(memberString);
-      }
+
       await api.setProjectIamPolicy(config.projectId, projectPolicy);
       setSuccess(
         dataStoreAccessControlEnabled
-          ? `Granted app-level agentspaceUser and project-level customRestrictedEndUser access (DataStore Access Control active).`
-          : `Granted app-level agentspaceUser and mandatory project-level Agentspace Restricted User access.`
+          ? `Granted app-level agentspaceUser and project-level agentspaceRestrictedUser + notebookLmUser access (DataStore Access Control active).`
+          : `Granted app-level agentspaceUser and mandatory project-level agentspaceRestrictedUser + notebookLmUser access.`
       );
       setTimeout(() => setSuccess(null), 3000);
     } catch (e: unknown) {
-      setIamError(`Failed to grant mandatory project-level access (${targetProjectRole}): ${toErrorMessage(e)}`);
+      setIamError(`Failed to grant mandatory project-level access (${targetProjectRoles.join(', ')}): ${toErrorMessage(e)}`);
     } finally {
       setIsLoadingIam(false);
     }

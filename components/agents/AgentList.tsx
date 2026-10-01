@@ -23,6 +23,7 @@ interface AgentListProps {
   onEditAgent: (agent: Agent) => void;
   onDeleteAgent: (agent: Agent) => void;
   onRegisterNew: () => void;
+  onOpenBulkDatasources?: () => void;
   onToggleAgentStatus: (agent: Agent) => void;
   togglingAgentId?: string | null;
   deletingAgentIds: Set<string>;
@@ -52,6 +53,7 @@ const AgentList: React.FC<AgentListProps> = ({
   onEditAgent, 
   onDeleteAgent, 
   onRegisterNew, 
+  onOpenBulkDatasources,
   onToggleAgentStatus, 
   togglingAgentId, 
   deletingAgentIds, 
@@ -125,9 +127,9 @@ const AgentList: React.FC<AgentListProps> = ({
 
   return (
     <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
-      <div className="p-4 flex justify-between items-center border-b border-gray-700">
+      <div className="p-4 flex flex-wrap justify-between items-center gap-3 border-b border-gray-700">
         <h2 className="text-xl font-bold text-white">Registered Agents</h2>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
           {selectedAgents.size > 0 && (
             <>
               <span className="text-sm text-gray-300">{selectedAgents.size} selected</span>
@@ -138,6 +140,19 @@ const AgentList: React.FC<AgentListProps> = ({
                 Delete Selected
               </button>
             </>
+          )}
+          {onOpenBulkDatasources && (
+            <button
+              type="button"
+              onClick={onOpenBulkDatasources}
+              className="px-3.5 py-2 bg-cyan-900/60 text-cyan-200 border border-cyan-600/60 text-sm font-semibold rounded-md hover:bg-cyan-800/70 flex items-center gap-2 transition-colors"
+              title="Bulk update or migrate Data Connectors and Data Stores across custom no-code agents (e.g., for VPC-SC connector rebuilds)"
+            >
+              <span>Bulk Update Datasources</span>
+              <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                Experimental
+              </span>
+            </button>
           )}
           <button
             onClick={onRegisterNew}

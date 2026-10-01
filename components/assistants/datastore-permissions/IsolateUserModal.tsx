@@ -16,11 +16,10 @@
 
 import React, { useRef, useState } from 'react';
 import {
+  AGENTSPACE_RESTRICTED_USER_ROLE,
   BROAD_PROJECT_ROLES,
-  CUSTOM_ROLE_ID,
   IsolateTarget,
   NOTEBOOK_LM_USER_ROLE,
-  REQUIRED_CUSTOM_ROLE_PERMISSIONS,
 } from './types';
 import { useModalA11y } from '../../../hooks/useModalA11y';
 
@@ -34,13 +33,12 @@ interface IsolateUserModalProps {
 
 export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
   isolateModalTarget,
-  projectId,
   isIsolating,
   onClose,
   onConfirm,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [grantNotebookLm, setGrantNotebookLm] = useState(false);
+  const [grantNotebookLm, setGrantNotebookLm] = useState(true);
 
   useModalA11y({
     isOpen: !!isolateModalTarget,
@@ -108,13 +106,13 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
 
           <div className="pt-2 border-t border-gray-800 space-y-1.5">
             <div className="text-green-300 flex items-center gap-1.5 font-medium">
-              <span>🟢 Role to be GRANTED at Project Level:</span>
+              <span>🟢 Predefined Roles to be GRANTED at Project Level:</span>
             </div>
             <p className="text-green-400 font-mono pl-4 text-[11px] break-all">
-              projects/{projectId}/roles/{CUSTOM_ROLE_ID}
+              {AGENTSPACE_RESTRICTED_USER_ROLE}
             </p>
             <p className="text-[11px] text-gray-400 pl-4">
-              Permissions: <code>{REQUIRED_CUSTOM_ROLE_PERMISSIONS.join(', ')}</code>
+              Predefined Gemini Enterprise Restricted User role for least-privilege access.
             </p>
             <div className="pl-4 pt-1">
               <label className="flex items-start gap-2 cursor-pointer text-[11px] text-gray-300">
@@ -132,7 +130,7 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
           </div>
 
           <div className="pt-2 border-t border-gray-800 text-[11px] text-blue-300 bg-blue-950/30 p-2.5 rounded border border-blue-900/50">
-            👉 <strong>Next Step:</strong> After clearing broad roles and applying the custom role, the provisioner wizard below will open automatically so you can grant access to the App Engine and pick specific DataStores!
+            👉 <strong>Next Step:</strong> After clearing broad roles and applying the predefined baseline roles, the provisioner wizard below will open automatically so you can grant access to the App Engine and pick specific DataStores!
           </div>
         </div>
 

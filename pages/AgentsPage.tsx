@@ -21,12 +21,13 @@ import Spinner from '../components/Spinner';
 import AgentList from '../components/agents/AgentList';
 import AgentForm from '../components/agents/AgentForm';
 import AgentDetails from '../components/agents/AgentDetails';
+import BulkAgentDatasourcesPanel from '../components/agents/BulkAgentDatasourcesPanel';
 import ProjectInput from '../components/ProjectInput';
 import ConfirmationModal from '../components/ConfirmationModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 import { usePersistedConfig } from '../hooks/usePersistedConfig';
 
-type ViewMode = 'list' | 'form' | 'details';
+type ViewMode = 'list' | 'form' | 'details' | 'bulk-datasources';
 
 interface AgentsPageProps {
   projectNumber: string;
@@ -427,6 +428,17 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             togglingAgentId={togglingAgentId}
             error={error}
         /> : null;
+      case 'bulk-datasources':
+        return (
+          <BulkAgentDatasourcesPanel
+            agents={sortedAgents}
+            config={apiConfig}
+            initialSelectedAgentNames={selectedAgents}
+            onBackToList={() => setViewMode('list')}
+            onRefreshAgents={fetchAgents}
+            onSelectAgent={handleSelectAgent}
+          />
+        );
       case 'list':
       default:
         return (
@@ -438,6 +450,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
               onEditAgent={handleEditAgent}
               onDeleteAgent={handleRequestDelete}
               onRegisterNew={() => { setSelectedAgent(null); setViewMode('form'); }}
+              onOpenBulkDatasources={() => setViewMode('bulk-datasources')}
               onToggleAgentStatus={handleToggleStatus}
               togglingAgentId={togglingAgentId}
               deletingAgentIds={deletingAgentIds}
@@ -489,7 +502,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
               })}
             </select>
           </div>
-          {viewMode === 'list' && (
+          {(viewMode === 'list' || viewMode === 'bulk-datasources') && (
              <div className="flex items-end">
                 <button 
                     onClick={fetchAgents} 
@@ -502,6 +515,37 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
           )}
         </div>
       </div>
+
+      {(viewMode === 'list' || viewMode === 'bulk-datasources') && (
+        <div className="flex items-center gap-2 border-b border-gray-700">
+          <button
+            type="button"
+            onClick={() => setViewMode('list')}
+            className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
+              viewMode === 'list'
+                ? 'border-blue-500 text-white'
+                : 'border-transparent text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            Registered Agents ({agents.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('bulk-datasources')}
+            className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
+              viewMode === 'bulk-datasources'
+                ? 'border-cyan-400 text-cyan-300'
+                : 'border-transparent text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <span>Bulk Update No-Code Datasources</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              Experimental
+            </span>
+          </button>
+        </div>
+      )}
+
       {renderContent()}
 
       {agentsToDelete.length > 0 && (

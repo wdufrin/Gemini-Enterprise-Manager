@@ -71,7 +71,11 @@ describe('ConnectedDataStorePermissions Component', () => {
       etag: 'proj-etag-1',
       bindings: [
         {
-          role: 'projects/test-project/roles/customRestrictedEndUser',
+          role: 'roles/discoveryengine.agentspaceRestrictedUser',
+          members: ['user:userA@example.com'],
+        },
+        {
+          role: 'roles/discoveryengine.notebookLmUser',
           members: ['user:userA@example.com'],
         },
       ],
@@ -133,7 +137,7 @@ describe('ConnectedDataStorePermissions Component', () => {
     });
   });
 
-  it('renders ConnectedDataStorePermissions header, custom role status, and Environment Ready state', async () => {
+  it('renders ConnectedDataStorePermissions header, predefined baseline roles, and Environment Ready state', async () => {
     render(
       <ConnectedDataStorePermissions
         engine={mockEngine}
@@ -144,14 +148,19 @@ describe('ConnectedDataStorePermissions Component', () => {
 
     expect(screen.getByText('Connected DataStore Permissions')).toBeDefined();
     expect(screen.getByText('Environment Readiness & Capability Enablement')).toBeDefined();
+    expect(screen.getByText('Predefined Google Cloud IAM Roles')).toBeDefined();
 
     await waitFor(() => {
-      expect(screen.getByText('Active in Project')).toBeDefined();
+      expect(screen.getByText('Predefined Project Roles')).toBeDefined();
+      expect(screen.getAllByText('Resource Access Control').length).toBeGreaterThan(0);
       expect(screen.getByText(/Environment Ready for Direct DataStore IAM/)).toBeDefined();
     });
+
+    expect(screen.queryByText(/custom role/i)).toBeNull();
+    expect(screen.queryByText(/opt-in/i)).toBeNull();
   });
 
-  it('detects disabled project opt-in and outdated custom role missing devToolsConfigs.get, and auto-enables both via 1-click wizard', async () => {
+  it('detects disabled Resource Access Control setting and enables it via 1-click wizard', async () => {
     vi.mocked(api.getDiscoveryProjectConfig).mockResolvedValueOnce({
       name: 'projects/test-project',
       customerProvidedConfig: {
@@ -159,22 +168,6 @@ describe('ConnectedDataStorePermissions Component', () => {
           dataStoreAccessControlEnabled: false,
         },
       },
-    });
-
-    // Outdated custom role created prior to Sep 18, 2026 only has buildAuthorizationUrl
-    vi.mocked(api.getCustomRole).mockResolvedValue({
-      name: 'projects/test-project/roles/customRestrictedEndUser',
-      title: 'Custom Gemini Enterprise Restricted End User',
-      includedPermissions: ['discoveryengine.locations.buildAuthorizationUrl'],
-    });
-
-    vi.mocked(api.updateCustomRole).mockResolvedValueOnce({
-      name: 'projects/test-project/roles/customRestrictedEndUser',
-      title: 'Custom Gemini Enterprise Restricted End User',
-      includedPermissions: [
-        'discoveryengine.locations.buildAuthorizationUrl',
-        'discoveryengine.devToolsConfigs.get',
-      ],
     });
 
     vi.mocked(api.updateDataStoreAccessControlConfig).mockResolvedValueOnce({
@@ -197,40 +190,30 @@ describe('ConnectedDataStorePermissions Component', () => {
     await waitFor(() => {
       expect(screen.getByText(/Action Required to Enforce DataStore Restrictions/)).toBeDefined();
       expect(screen.getByText('Disabled')).toBeDefined();
-      expect(screen.getByText('Needs Permission Upgrade')).toBeDefined();
-      expect(screen.getByText('Needs Upgrade')).toBeDefined();
     });
 
-    const autoEnableBtn = screen.getByRole('button', {
-      name: /Auto-Enable & Configure Environment/i,
+    const autoEnableBtns = screen.getAllByRole('button', {
+      name: /Enable Resource Access Control/i,
     });
-    fireEvent.click(autoEnableBtn);
+    fireEvent.click(autoEnableBtns[0]);
 
     await waitFor(() => {
-      expect(api.updateCustomRole).toHaveBeenCalledWith(
-        'test-project',
-        'customRestrictedEndUser',
-        expect.objectContaining({
-          includedPermissions: expect.arrayContaining([
-            'discoveryengine.locations.buildAuthorizationUrl',
-            'discoveryengine.devToolsConfigs.get',
-          ]),
-        })
-      );
       expect(api.updateDataStoreAccessControlConfig).toHaveBeenCalledWith(
         'test-project',
         true,
         'global'
       );
+      expect(api.createCustomRole).not.toHaveBeenCalled();
+      expect(api.updateCustomRole).not.toHaveBeenCalled();
     });
   });
 
-  it('flags broad project roles (including agentspaceRestrictedUser) and inconsistent DataConnector entity bindings, and repairs entity sync', async () => {
+  it('flags broad project roles (like roles/discoveryengine.user) and inconsistent DataConnector entity bindings, and repairs entity sync', async () => {
     vi.mocked(api.getProjectIamPolicy).mockResolvedValue({
       etag: 'proj-etag-broad',
       bindings: [
         {
-          role: 'roles/discoveryengine.agentspaceRestrictedUser',
+          role: 'roles/discoveryengine.user',
           members: ['user:bypassUser@example.com'],
         },
       ],
@@ -296,7 +279,7 @@ describe('ConnectedDataStorePermissions Component', () => {
     });
   });
 
-  it('surfaces 403 permission error when auto-enable fails on project config update without swallowing', async () => {
+  it('surfaces 403 permission error when enabling Resource Access Control fails on project config update without swallowing', async () => {
     vi.mocked(api.getDiscoveryProjectConfig).mockResolvedValueOnce({
       name: 'projects/test-project',
       customerProvidedConfig: {
@@ -322,10 +305,11 @@ describe('ConnectedDataStorePermissions Component', () => {
       expect(screen.getByText('Disabled')).toBeDefined();
     });
 
-    const enableOptInBtn = screen.getByRole('button', {
-      name: /Enable Project Opt-In/i,
+    const enableBtns = screen.getAllByRole('button', {
+      name: /Enable Resource Access Control/i,
     });
-    fireEvent.click(enableOptInBtn);
+    // Click the card-level toggle button (second button)
+    fireEvent.click(enableBtns[enableBtns.length - 1]);
 
     await waitFor(() => {
       expect(
@@ -461,7 +445,11 @@ describe('ConnectedDataStorePermissions Component', () => {
       etag: 'proj-etag-1',
       bindings: [
         {
-          role: 'projects/test-project/roles/customRestrictedEndUser',
+          role: 'roles/discoveryengine.agentspaceRestrictedUser',
+          members: ['user:wdufrin@google.com'],
+        },
+        {
+          role: 'roles/discoveryengine.notebookLmUser',
           members: ['user:wdufrin@google.com'],
         },
       ],
@@ -550,7 +538,7 @@ describe('ConnectedDataStorePermissions Component', () => {
       expect.anything()
     );
 
-    // Verify project custom role was NOT revoked
+    // Verify project baseline roles were NOT revoked
     expect(api.setProjectIamPolicy).not.toHaveBeenCalled();
 
     // Crucial regression check: after post-sync refreshAll() completes, 'camp-operations-tools' must remain unchecked (NOT reset to all attached connectors!)
@@ -630,7 +618,7 @@ describe('SetDataStoreIamPolicyModal', () => {
 });
 
 describe('DataStorePermissionsScriptModal', () => {
-  it('renders Python script and cURL tabs with self-service opt-in and v1 endpoints', () => {
+  it('renders Python script and cURL tabs with Resource Access Control enablement, predefined baseline roles, and v1 endpoints', () => {
     render(
       <DataStorePermissionsScriptModal
         isOpen={true}
@@ -648,13 +636,15 @@ describe('DataStorePermissionsScriptModal', () => {
     expect(screen.getByText('REST / cURL Steps')).toBeDefined();
 
     fireEvent.click(screen.getByText('REST / cURL Steps'));
-    expect(screen.getByText(/Step 0 — Enable Self-Service Project Opt-In/)).toBeDefined();
+    expect(screen.getByText(/Step 0 — Enable Resource Access Control in Gemini Enterprise Settings/)).toBeDefined();
     expect(screen.getByText(/dataStoreAccessControlEnabled/)).toBeDefined();
-    expect(screen.getByText(/Appendix B — Create Project Custom Role for Delegated Admins/)).toBeDefined();
+    expect(screen.getByText(/Step A1 — Grant Predefined Baseline Roles at Project Level/)).toBeDefined();
+    expect(screen.getByText(/roles\/discoveryengine\.agentspaceRestrictedUser/)).toBeDefined();
+    expect(screen.getByText(/roles\/discoveryengine\.notebookLmUser/)).toBeDefined();
   });
 });
 
-describe('GA Capabilities — Delegated Admin (customRestrictedAdmin), Resource Roles (agentspaceAdmin/Viewer), & NotebookLM', () => {
+describe('GA Capabilities — Predefined Baseline Roles (agentspaceRestrictedUser + notebookLmUser) & Resource Roles (agentspaceAdmin/Viewer)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -670,31 +660,11 @@ describe('GA Capabilities — Delegated Admin (customRestrictedAdmin), Resource 
 
     vi.mocked(api.testProjectIamPermissions).mockResolvedValue([...REQUIRED_ADMIN_PERMISSIONS]);
 
-    vi.mocked(api.getCustomRole).mockImplementation(async (_projId: string, roleId?: string) => {
-      if (roleId === 'customRestrictedAdmin') {
-        // Simulate missing customRestrictedAdmin initially so wizard auto-creates it
-        return null as any;
-      }
-      return {
-        name: 'projects/test-project/roles/customRestrictedEndUser',
-        title: 'Custom Gemini Enterprise Restricted End User',
-        includedPermissions: [
-          'discoveryengine.locations.buildAuthorizationUrl',
-          'discoveryengine.devToolsConfigs.get',
-        ],
-      };
-    });
-
-    vi.mocked(api.createCustomRole).mockResolvedValue({
-      name: 'projects/test-project/roles/customRestrictedAdmin',
-      title: 'Custom Gemini Enterprise Restricted Admin',
-    } as any);
-
     vi.mocked(api.getProjectIamPolicy).mockResolvedValue({
       etag: 'proj-etag-1',
       bindings: [
         {
-          role: 'roles/discoveryengine.agentspaceRestrictedUser',
+          role: 'roles/discoveryengine.user',
           members: ['user:broadUser@example.com'],
         },
       ],
@@ -719,7 +689,7 @@ describe('GA Capabilities — Delegated Admin (customRestrictedAdmin), Resource 
     vi.mocked(api.setDataStoreIamPolicy).mockImplementation(async (_dsId: string, policy: any) => policy);
   });
 
-  it('provisions customRestrictedAdmin (12 permissions), binds roles/discoveryengine.notebookLmUser, and grants roles/discoveryengine.agentspaceAdmin on Engine & DataStore', async () => {
+  it('binds predefined roles/discoveryengine.agentspaceRestrictedUser + roles/discoveryengine.notebookLmUser on Project and grants roles/discoveryengine.agentspaceAdmin on Engine & DataStore without creating custom roles', async () => {
     const singleDsEngine: AppEngine = {
       ...mockEngine,
       dataStoreIds: ['DataStore1'],
@@ -747,23 +717,16 @@ describe('GA Capabilities — Delegated Admin (customRestrictedAdmin), Resource 
     );
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Project Custom Role Persona')).toBeDefined();
+      expect(screen.getByLabelText('Resource Role (App & DataStores)')).toBeDefined();
     });
 
     // Enter principal in wizard
     const memberInput = screen.getByPlaceholderText(/userA@example\.com/i);
     fireEvent.change(memberInput, { target: { value: 'delegatedAdmin@example.com' } });
 
-    // Select customRestrictedAdmin persona (which also auto-selects roles/discoveryengine.agentspaceAdmin)
-    const customRoleSelect = screen.getByLabelText('Project Custom Role Persona') as HTMLSelectElement;
-    fireEvent.change(customRoleSelect, { target: { value: 'customRestrictedAdmin' } });
-
     const resourceRoleSelect = screen.getByLabelText('Resource Role (App & DataStores)') as HTMLSelectElement;
+    fireEvent.change(resourceRoleSelect, { target: { value: 'roles/discoveryengine.agentspaceAdmin' } });
     expect(resourceRoleSelect.value).toBe('roles/discoveryengine.agentspaceAdmin');
-
-    // Check NotebookLM role toggle
-    const notebookLabel = screen.getByText(/Also grant/i).closest('label')!;
-    fireEvent.click(notebookLabel.querySelector('input[type="checkbox"]')!);
 
     // Ensure DataStore1 is checked in the wizard
     const wizardSection = document.getElementById('wizard-section')!;
@@ -785,35 +748,14 @@ describe('GA Capabilities — Delegated Admin (customRestrictedAdmin), Resource 
       ).toBeDefined();
     });
 
-    // Verify customRestrictedAdmin was created with all 12 GA permissions
-    expect(api.createCustomRole).toHaveBeenCalledWith(
-      'test-project',
-      'customRestrictedAdmin',
-      expect.objectContaining({
-        title: 'Custom Gemini Enterprise Restricted Admin',
-        stage: 'GA',
-        includedPermissions: expect.arrayContaining([
-          'discoveryengine.aclConfigs.get',
-          'discoveryengine.collections.list',
-          'discoveryengine.dataStores.list',
-          'discoveryengine.devToolsConfigs.get',
-          'discoveryengine.engines.list',
-          'discoveryengine.licenseConfigs.list',
-          'discoveryengine.locations.buildAuthorizationUrl',
-          'discoveryengine.locations.getConnectorSource',
-          'discoveryengine.locations.listConnectorSources',
-          'discoveryengine.projects.get',
-          'discoveryengine.userStores.listUserLicenses',
-          'resourcemanager.projects.get',
-        ]),
-      })
-    );
+    // Verify no custom roles were created
+    expect(api.createCustomRole).not.toHaveBeenCalled();
 
-    // Verify project policy accumulated both customRestrictedAdmin and roles/discoveryengine.notebookLmUser
+    // Verify project policy accumulated both predefined roles/discoveryengine.agentspaceRestrictedUser and roles/discoveryengine.notebookLmUser
     expect(currentProjPolicy.bindings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          role: 'projects/test-project/roles/customRestrictedAdmin',
+          role: 'roles/discoveryengine.agentspaceRestrictedUser',
           members: ['user:delegatedAdmin@example.com'],
         }),
         expect.objectContaining({
@@ -850,7 +792,7 @@ describe('GA Capabilities — Delegated Admin (customRestrictedAdmin), Resource 
     );
   });
 
-  it('revokes broad roles (including agentspaceRestrictedUser) and optionally grants notebookLmUser via IsolateUserModal', async () => {
+  it('revokes broad roles (roles/discoveryengine.user) and grants agentspaceRestrictedUser + notebookLmUser via IsolateUserModal', async () => {
     const singleDsEngine: AppEngine = {
       ...mockEngine,
       dataStoreIds: ['DataStore1'],
@@ -870,12 +812,8 @@ describe('GA Capabilities — Delegated Admin (customRestrictedAdmin), Resource 
 
     fireEvent.click(screen.getByText('⚡ Isolate'));
 
-    // Toggle NotebookLM checkbox in IsolateUserModal
-    const notebookModalLabel = await screen.findByText(/preserves Gemini Notebook Enterprise access/i);
-    fireEvent.click(notebookModalLabel.closest('label')!.querySelector('input[type="checkbox"]')!);
-
-    // Confirm isolation
-    const confirmBtn = screen.getByRole('button', { name: /Confirm & Isolate User\(s\)/i });
+    // Confirm isolation (both Step 1a agentspaceRestrictedUser and Step 1b notebookLmUser are enabled by default)
+    const confirmBtn = await screen.findByRole('button', { name: /Confirm & Isolate User\(s\)/i });
     fireEvent.click(confirmBtn);
 
     await waitFor(() => {
@@ -884,7 +822,7 @@ describe('GA Capabilities — Delegated Admin (customRestrictedAdmin), Resource 
         expect.objectContaining({
           bindings: expect.arrayContaining([
             expect.objectContaining({
-              role: 'projects/test-project/roles/customRestrictedEndUser',
+              role: 'roles/discoveryengine.agentspaceRestrictedUser',
               members: ['user:broadUser@example.com'],
             }),
             expect.objectContaining({

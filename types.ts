@@ -109,15 +109,116 @@ export interface AuthorizationConfig {
   toolAuthorizations?: string[];
 }
 
+export interface AgentDataStoreSpec {
+  dataStore: string;
+  [key: string]: unknown;
+}
+
+export interface AgentDataStoreSpecs {
+  specs?: AgentDataStoreSpec[];
+  [key: string]: unknown;
+}
+
+export interface AgentDataConnectorRef {
+  name: string;
+  dataSource?: string;
+  tag?: string;
+  [key: string]: unknown;
+}
+
+export interface LowCodeLlmAgentNode {
+  model?: string;
+  instruction?: string;
+  dataStoreSpecs?: AgentDataStoreSpecs;
+  dataConnectors?: AgentDataConnectorRef[];
+  selectedTools?: {
+    tool?: Array<{ name?: string; [key: string]: unknown }>;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface LowCodeAgentNode {
+  id?: string;
+  displayName?: string;
+  llmAgentNode?: LowCodeLlmAgentNode;
+  [key: string]: unknown;
+}
+
 export interface LowCodeAgentDefinition {
-  nodes?: { llmAgentNode?: { model?: string; [key: string]: unknown }; [key: string]: unknown }[];
-  deployedNodes?: { llmAgentNode?: { model?: string; [key: string]: unknown }; [key: string]: unknown }[];
+  nodes?: LowCodeAgentNode[];
+  deployedNodes?: LowCodeAgentNode[];
+  rootAgentId?: string;
+  deployedRootAgentId?: string;
+  ownerName?: string;
+  [key: string]: unknown;
+}
+
+export interface WorkflowConnectorToolSelection {
+  dataConnector?: AgentDataConnectorRef;
+  enabled?: boolean;
+  mutateEnabled?: boolean;
+  searchToolEnabled?: boolean;
+  tools?: Array<{ name?: string; [key: string]: unknown }>;
+  [key: string]: unknown;
+}
+
+export interface WorkflowKnowledgeSource {
+  dataStoreKnowledgeSource?: {
+    dataStoreSpecs?: AgentDataStoreSpecs;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface WorkflowAgentNode {
+  model?: string;
+  instruction?: string;
+  dataStoreSpecs?: AgentDataStoreSpecs;
+  connectorToolSelections?: WorkflowConnectorToolSelection[];
+  knowledgeSources?: WorkflowKnowledgeSource[];
+  [key: string]: unknown;
+}
+
+export interface WorkflowConnectorNode {
+  dataConnector?: AgentDataConnectorRef;
+  dataStoreSpecs?: AgentDataStoreSpecs;
+  action?: string;
+  [key: string]: unknown;
+}
+
+export interface WorkflowConnectorEventTrigger {
+  dataConnector?: AgentDataConnectorRef;
+  eventSubscription?: string;
+  [key: string]: unknown;
+}
+
+export interface WorkflowMcpNode {
+  dataConnector?: AgentDataConnectorRef;
+  [key: string]: unknown;
+}
+
+export interface WorkflowAgentFlowNode {
+  id?: string;
+  title?: string;
+  displayName?: string;
+  agentNode?: WorkflowAgentNode;
+  connectorNode?: WorkflowConnectorNode;
+  connectorEventTrigger?: WorkflowConnectorEventTrigger;
+  mcpNode?: WorkflowMcpNode;
+  forLoopNode?: {
+    subAgentFlow?: {
+      nodes?: WorkflowAgentFlowNode[];
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 
 export interface WorkflowAgentDefinition {
   agentFlow?: {
-    nodes?: { agentNode?: { model?: string; [key: string]: unknown }; [key: string]: unknown }[];
+    nodes?: WorkflowAgentFlowNode[];
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -140,6 +241,8 @@ export interface Agent {
   managedAgentDefinition?: Record<string, unknown>;
   workflowAgentDefinition?: WorkflowAgentDefinition;
   skillAgentDefinition?: SkillAgentDefinition;
+  dataStoreSpecs?: AgentDataStoreSpecs;
+  dataConnectors?: AgentDataConnectorRef[];
   authorizations?: string[]; // Deprecated
   authorizationConfig?: AuthorizationConfig;
   observabilityConfig?: {
@@ -150,6 +253,7 @@ export interface Agent {
   iamPolicy?: IamPolicy;
   state?: 'ENABLED' | 'DISABLED' | 'PRIVATE' | 'CONFIGURED' | 'DEPLOYING' | 'DEPLOYMENT_FAILED' | 'SUSPENDED' | 'CREATING' | 'CREATION_FAILED' | string;
   sharingConfig?: { scope?: 'RESTRICTED' | 'ALL_USERS' | string };
+  activeRevision?: string;
   createTime?: string;
   updateTime?: string;
   agentType?: string;

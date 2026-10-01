@@ -15,6 +15,7 @@
  */
 
 import React from 'react';
+import { AGENTSPACE_RESTRICTED_USER_ROLE, NOTEBOOK_LM_USER_ROLE } from './types';
 
 interface StepByStepGuideProps {
   projectId: string;
@@ -40,7 +41,7 @@ export const StepByStepGuide: React.FC<StepByStepGuideProps> = ({
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-900/60 text-green-300 border border-green-600">GA</span>
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
-              Follow these 5 steps to grant an end user, delegated admin, or group access to this Assistant while restricting them to only authorized DataStores.
+              Follow these steps to grant an end user, delegated admin, or group access to this Assistant while restricting them to only authorized DataStores.
             </p>
           </div>
         </div>
@@ -57,14 +58,14 @@ export const StepByStepGuide: React.FC<StepByStepGuideProps> = ({
         <div className="bg-gray-900/80 border border-gray-700/80 rounded-lg p-4 space-y-1.5">
           <div className="flex items-center gap-2 text-white font-semibold">
             <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">0</span>
-            <span>Prerequisites: Project Opt-In & User Isolation</span>
+            <span>Prerequisites: Enable Resource Access Control &amp; User Isolation</span>
           </div>
           <ul className="list-disc pl-7 text-gray-300 space-y-1">
             <li>
-              Enable project-level DataStore access control (<code className="text-purple-300">dataStoreAccessControlEnabled = true</code>) using the <strong>Environment Readiness Evaluator</strong> below or via <code className="text-blue-300">PATCH /v1alpha/projects/{projectId}</code>.
+              Enable <strong>Resource Access Control</strong> in <strong>Gemini Enterprise → Settings → Resource access control</strong> (<code className="text-purple-300">dataStoreAccessControlEnabled = true</code>) using the toggle below or via <code className="text-blue-300">PATCH /v1alpha/projects/{projectId}</code>.
             </li>
             <li>
-              <strong>Critical:</strong> Ensure target end users do <em>not</em> possess broad project-wide roles (<code className="text-red-300">roles/viewer</code>, <code className="text-red-300">roles/editor</code>, <code className="text-red-300">roles/discoveryengine.admin</code>, or <code className="text-red-300">roles/discoveryengine.agentspaceRestrictedUser</code>) as project-level <code className="text-red-300">dataStores.get</code> bypasses datastore-level ACLs.
+              <strong>Critical:</strong> Ensure target end users do <em>not</em> possess broad project-wide roles (<code className="text-red-300">roles/viewer</code>, <code className="text-red-300">roles/editor</code>, <code className="text-red-300">roles/discoveryengine.admin</code>, or <code className="text-red-300">roles/discoveryengine.agentspaceUser</code>) at the project level, as broad project roles bypass DataStore-level ACLs.
             </li>
           </ul>
         </div>
@@ -73,13 +74,13 @@ export const StepByStepGuide: React.FC<StepByStepGuideProps> = ({
         <div className="bg-gray-900/80 border border-gray-700/80 rounded-lg p-4 space-y-1.5">
           <div className="flex items-center gap-2 text-white font-semibold">
             <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">1</span>
-            <span>Create Project Custom Role(s)</span>
+            <span>Grant Predefined Baseline Roles at Project Level (Steps 1a &amp; 1b)</span>
           </div>
           <p className="pl-7 text-gray-300">
-            Ensure custom role <code className="text-blue-300">customRestrictedEndUser</code> exists with both required permissions: <code className="text-green-300">discoveryengine.locations.buildAuthorizationUrl</code> and <code className="text-green-300">discoveryengine.devToolsConfigs.get</code> (or <code className="text-purple-300">customRestrictedAdmin</code> with 12 permissions for delegated admins).
+            Grant predefined <code className="text-blue-300">{AGENTSPACE_RESTRICTED_USER_ROLE}</code> and <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> on project <code className="text-gray-200">{projectId}</code> to the target principal (<code className="text-yellow-300">user:alice@example.com</code> or <code className="text-yellow-300">group:finance-team@example.com</code>).
           </p>
           <p className="pl-7 text-gray-400 italic">
-            👉 Click &quot;⚡ Auto-Enable &amp; Configure Environment&quot; or &quot;+ Create Custom Role in Project&quot; above if missing or outdated.
+            ✓ Standard Google Cloud IAM roles — provides baseline UI, OAuth connector authorization, and NotebookLM access without broad search access.
           </p>
         </div>
 
@@ -87,13 +88,13 @@ export const StepByStepGuide: React.FC<StepByStepGuideProps> = ({
         <div className="bg-gray-900/80 border border-gray-700/80 rounded-lg p-4 space-y-1.5">
           <div className="flex items-center gap-2 text-white font-semibold">
             <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">2</span>
-            <span>Grant Custom Role at Project Level (Step A1)</span>
+            <span>Grant App Engine Access (Step 2)</span>
           </div>
           <p className="pl-7 text-gray-300">
-            Grant <code className="text-blue-300">projects/{projectId}/roles/customRestrictedEndUser</code> (or <code className="text-purple-300">customRestrictedAdmin</code>) to the target email (<code className="text-yellow-300">user:alice@example.com</code> or <code className="text-yellow-300">group:finance-team@example.com</code>).
+            Grant <code className="text-blue-300">roles/discoveryengine.agentspaceUser</code> (or <code className="text-purple-300">agentspaceAdmin</code> / <code className="text-purple-300">agentspaceViewer</code>) on App Engine <code className="text-purple-300">{appId}</code>.
           </p>
           <p className="pl-7 text-gray-400">
-            Optionally also grant <code className="text-purple-300">roles/discoveryengine.notebookLmUser</code> for Gemini Notebook Enterprise access.
+            Authorizes the user or group to access and query this specific Assistant.
           </p>
         </div>
 
@@ -101,33 +102,16 @@ export const StepByStepGuide: React.FC<StepByStepGuideProps> = ({
         <div className="bg-gray-900/80 border border-gray-700/80 rounded-lg p-4 space-y-1.5">
           <div className="flex items-center gap-2 text-white font-semibold">
             <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">3</span>
-            <span>Grant App Engine Access (Step A2)</span>
-          </div>
-          <p className="pl-7 text-gray-300">
-            Grant <code className="text-blue-300">roles/discoveryengine.agentspaceUser</code> (or <code className="text-purple-300">agentspaceAdmin</code> / <code className="text-purple-300">agentspaceViewer</code>) on App Engine <code className="text-purple-300">{appId}</code>.
-          </p>
-          <p className="pl-7 text-gray-400">
-            Authorizes the user or delegated admin to interact with this specific Assistant.
-          </p>
-        </div>
-
-        {/* Step 4 */}
-        <div className="bg-gray-900/80 border border-gray-700/80 rounded-lg p-4 space-y-1.5 md:col-span-2">
-          <div className="flex items-center gap-2 text-white font-semibold">
-            <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">4</span>
-            <span>Grant Access ONLY to Authorized DataStores (Steps A3 & A4 — GA v1 API)</span>
+            <span>Grant Access ONLY to Authorized DataStores (Steps 3 & 4 — GA v1 API)</span>
           </div>
           <div className="pl-7 space-y-1.5 text-gray-300">
             <p>
               Grant <code className="text-blue-300">roles/discoveryengine.agentspaceUser</code> (or <code className="text-purple-300">agentspaceAdmin</code> / <code className="text-purple-300">agentspaceViewer</code>) strictly on the DataStores/Connectors this principal is allowed to access:
             </p>
             <ul className="list-disc pl-5 space-y-1 text-gray-300">
-              <li><strong>DataConnectors (with entities):</strong> Grant the same role on <em>both</em> the collection resource (<code className="text-purple-300">/v1/.../collections/{'{CONNECTOR_ID}'}:setIamPolicy</code>) and each child entity datastore (<code className="text-purple-300">/v1/.../collections/default_collection/dataStores/{'{ENTITY_ID}'}:setIamPolicy</code>).</li>
+              <li><strong>DataConnectors (with entities):</strong> Grant on <em>both</em> the collection resource (<code className="text-purple-300">/v1/.../collections/{'{CONNECTOR_ID}'}:setIamPolicy</code>) and each child entity datastore (<code className="text-purple-300">/v1/.../collections/default_collection/dataStores/{'{ENTITY_ID}'}:setIamPolicy</code>).</li>
               <li><strong>Standalone / Legacy DataStores:</strong> Grant on the datastore resource (<code className="text-purple-300">/v1/.../collections/default_collection/dataStores/{'{DATASTORE_ID}'}:setIamPolicy</code>).</li>
             </ul>
-            <div className="p-2.5 bg-yellow-950/40 border border-yellow-800/60 rounded text-yellow-300 mt-2">
-              🔒 <strong>How restriction works:</strong> Any connected DataStore where the user is <em>not</em> explicitly granted a resource-level role remains completely hidden from the Data Sources UI and blocked from search/grounding.
-            </div>
           </div>
         </div>
       </div>

@@ -71,11 +71,11 @@ export const AssistantIamSection: React.FC<AssistantIamSectionProps> = ({
           <strong>Mandatory User Access:</strong>{' '}
           {dataStoreAccessControlEnabled ? (
             <>
-              Because <strong>DataStore Access Control</strong> is enabled on this project, added users are granted <code>roles/discoveryengine.agentspaceUser</code> on this App and <code>roles/customRestrictedEndUser</code> at the project level so DataStore isolation is preserved.
+              Because <strong>DataStore Access Control</strong> is enabled on this project, added users are granted <code>roles/discoveryengine.agentspaceUser</code> on this App and predefined <code>roles/discoveryengine.agentspaceRestrictedUser</code> + <code>roles/discoveryengine.notebookLmUser</code> at the project level so DataStore isolation is preserved.
             </>
           ) : (
             <>
-              To ensure these users can use connectors, agents, and notebooks in an App-only restriction model, they are granted <code>roles/discoveryengine.agentspaceUser</code> on this App and <code>roles/discoveryengine.agentspaceRestrictedUser</code> at the project level upon addition.
+              To ensure these users can use connectors, agents, and notebooks in an App-only restriction model, they are granted <code>roles/discoveryengine.agentspaceUser</code> on this App and predefined <code>roles/discoveryengine.agentspaceRestrictedUser</code> + <code>roles/discoveryengine.notebookLmUser</code> at the project level upon addition.
             </>
           )}
         </div>

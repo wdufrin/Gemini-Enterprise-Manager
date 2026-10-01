@@ -15,12 +15,13 @@
  */
 
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Agent, Config, DataStore, IamPolicy } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import SetIamPolicyModal from './SetIamPolicyModal';
 import TransferAgentOwnershipModal from './TransferAgentOwnershipModal';
+import AgentDatasourceEditor from './AgentDatasourceEditor';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
 
@@ -44,6 +45,8 @@ const DetailItem: React.FC<{ label: string; value: string | undefined | null }> 
 
 const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEdit, onDeleteSuccess, onToggleStatus, togglingAgentId, error: pageError }) => {
     const { toast } = useToast();
+    const datasourceEditorRef = useRef<HTMLDivElement>(null);
+    const [showDatasourceEditor, setShowDatasourceEditor] = useState(true);
     const [isDeleting, setIsDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const [agentViewData, setAgentViewData] = useState<Record<string, unknown> | null>(null);
@@ -103,14 +106,11 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         setIsSavingModel(true);
         setSaveModelError(null);
         try {
-            const updatedAgent = { ...fullAgent };
+            const updatedAgent: Agent = JSON.parse(JSON.stringify(fullAgent));
             const payload: Partial<Agent> = {};
             
             if (updatedAgent.lowCodeAgentDefinition?.nodes?.[0]?.llmAgentNode) {
                 updatedAgent.lowCodeAgentDefinition.nodes[0].llmAgentNode.model = selectedModel;
-                if (updatedAgent.lowCodeAgentDefinition.deployedNodes?.[0]?.llmAgentNode) {
-                    updatedAgent.lowCodeAgentDefinition.deployedNodes[0].llmAgentNode.model = selectedModel;
-                }
                 payload.lowCodeAgentDefinition = updatedAgent.lowCodeAgentDefinition;
             } else if (updatedAgent.workflowAgentDefinition?.agentFlow?.nodes) {
                 const agentNodeIndex = updatedAgent.workflowAgentDefinition.agentFlow.nodes.findIndex((n: { agentNode?: { model?: string } }) => n.agentNode?.model);
@@ -120,9 +120,16 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                 payload.workflowAgentDefinition = updatedAgent.workflowAgentDefinition;
             }
             
-            await api.updateAgent(agent, payload, config);
-            setFullAgent(updatedAgent);
-            toast.success("Model updated successfully!");
+            const res = await api.updateAndPublishNoCodeAgent(updatedAgent, payload, config, {
+                autoDeployOrPublish: true,
+                autoClaimOwnershipOn403: false,
+            });
+            setFullAgent(res.updatedAgent);
+            if (res.deployWarning) {
+                toast.info(`Model saved to draft (${res.deployWarning})`);
+            } else {
+                toast.success("Model updated and published to live agent!");
+            }
         } catch (err: unknown) {
             setSaveModelError(toErrorMessage(err) || 'Failed to save model.');
         } finally {
@@ -391,21 +398,38 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                                     </button>
                                 )}
                                 {isNoCodeAgent && (
-                                    <button
-                                        onClick={() => setIsTransferModalOpen(true)}
-                                        disabled={isPrivate}
-                                        className="px-5 py-2.5 bg-amber-600 text-white font-semibold rounded-md hover:bg-amber-500 disabled:bg-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
-                                        title={
-                                            isPrivate
-                                                ? "Ownership can only be transferred for shared agents. Click 'Share Agent' first."
-                                                : "Transfer ownership (roles/discoveryengine.agentOwner) of this shared custom no-code agent"
-                                        }
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                                        </svg>
-                                        Transfer Ownership
-                                    </button>
+                                    <>
+                                        <button
+                                            onClick={() => {
+                                                setShowDatasourceEditor(true);
+                                                setTimeout(() => {
+                                                    datasourceEditorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                }, 50);
+                                            }}
+                                            className="px-5 py-2.5 bg-cyan-600 text-white font-semibold rounded-md hover:bg-cyan-500 flex items-center gap-2"
+                                            title="Add, remove, or swap Data Connectors and Data Stores bound to this no-code agent"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                                            </svg>
+                                            Update Connectors
+                                        </button>
+                                        <button
+                                            onClick={() => setIsTransferModalOpen(true)}
+                                            disabled={isPrivate}
+                                            className="px-5 py-2.5 bg-amber-600 text-white font-semibold rounded-md hover:bg-amber-500 disabled:bg-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+                                            title={
+                                                isPrivate
+                                                    ? "Ownership can only be transferred for shared agents. Click 'Share Agent' first."
+                                                    : "Transfer ownership (roles/discoveryengine.agentOwner) of this shared custom no-code agent"
+                                            }
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                            </svg>
+                                            Transfer Ownership
+                                        </button>
+                                    </>
                                 )}
                                 {agent.a2aAgentDefinition?.jsonAgentCard && (
                                     <button 
@@ -521,6 +545,16 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                         </div>
                     </div>
                     {saveModelError && <p className="text-red-400 mt-2 text-sm">{saveModelError}</p>}
+                </div>
+            )}
+
+            {isNoCodeAgent && showDatasourceEditor && (
+                <div ref={datasourceEditorRef}>
+                    <AgentDatasourceEditor
+                        agent={fullAgent || agent}
+                        config={config}
+                        onAgentUpdated={(updated) => setFullAgent(updated)}
+                    />
                 </div>
             )}
 
