@@ -63,11 +63,16 @@ export const createLoggingSink = async (
   filter: string,
 ): Promise<LoggingSink> => {
   const url = `https://logging.googleapis.com/v2/projects/${projectId}/sinks`;
-  const body = {
+  const body: Record<string, unknown> = {
     name: sinkName,
     destination: destination,
     filter: filter,
   };
+  if (destination.startsWith("bigquery.googleapis.com/")) {
+    body.bigqueryOptions = {
+      usePartitionedTables: true,
+    };
+  }
   const params = { uniqueWriterIdentity: true };
   return gapiRequest<LoggingSink>(url, "POST", projectId, params, body);
 };

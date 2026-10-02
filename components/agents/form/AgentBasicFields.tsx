@@ -16,11 +16,12 @@
 
 import React from 'react';
 import { Authorization } from '../../../types';
-import { AgentFormData } from './types';
+import { AgentFormData, AgentType } from './types';
 
 export interface AgentBasicFieldsProps {
   formData: AgentFormData;
   handleChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
+  agentType?: AgentType;
   agentToEdit: boolean;
   isEditingDisabled: boolean;
   iconPreviewError: boolean;
@@ -45,6 +46,7 @@ export interface AgentBasicFieldsProps {
 export const AgentBasicFields: React.FC<AgentBasicFieldsProps> = ({
   formData,
   handleChange,
+  agentType,
   agentToEdit,
   isEditingDisabled,
   iconPreviewError,
@@ -196,97 +198,85 @@ export const AgentBasicFields: React.FC<AgentBasicFieldsProps> = ({
         </button>
       </div>
 
-      {/* Authorization IDs */}
-      <div>
-        <label className="block text-sm font-medium text-gray-300">
-          Authorization IDs {agentToEdit ? '(Immutable)' : '(Optional)'}
-        </label>
-        {agentToEdit ? (
-          <>
-            <div className="space-y-2 mt-1">
-              {authIds.map((authId, index) => (
-                <input
-                  key={index}
-                  type="text"
-                  value={authId}
-                  className="block w-full bg-gray-800 border-gray-600 rounded-md shadow-sm text-gray-400 disabled:opacity-75 px-3 py-1.5"
-                  disabled
-                />
-              ))}
-            </div>
-            <p className="mt-1 text-xs text-gray-400">Authorization cannot be changed after an agent is created.</p>
-          </>
-        ) : (
-          <>
-            <div className="space-y-2 mt-1">
-              {authIds.map((authId, index) => (
-                <div key={index} className="flex items-center space-x-2">
-                  {authInputMode === 'select' && authorizations.length > 0 ? (
-                    <select
-                      value={authId}
-                      onChange={(e) => handleAuthIdChange(index, e.target.value)}
-                      className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white px-3 py-1.5"
-                    >
-                      <option value="">-- Select an Authorization --</option>
-                      {authorizations.map(auth => {
-                        const aId = auth.name.split('/').pop() || '';
-                        return <option key={auth.name} value={aId}>{auth.displayName || aId}</option>;
-                      })}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      value={authId}
-                      onChange={(e) => handleAuthIdChange(index, e.target.value)}
-                      className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white px-3 py-1.5"
-                      placeholder="Type an ID"
-                    />
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removeAuthId(index)}
-                    className="p-2 text-gray-400 hover:text-white bg-gray-600 hover:bg-red-500 rounded-md transition-colors"
-                    title="Remove Authorization"
+      {/* Authorization IDs (ADK / A2A only) */}
+      {agentType === 'no_code' ? (
+        <div className="p-3 bg-gray-900/50 border border-gray-700 rounded-md text-xs text-gray-400">
+          <strong className="text-gray-300">Tool &amp; Connector Authentication:</strong>{' '}
+          <code>authorizationConfig</code> only applies to ADK (Agent Engine) and A2A agents. Low-Code and Workflow agents authenticate using the OAuth credentials configured directly on their bound Data Connectors (manageable under <strong>View &rarr; Connectors &amp; Data Stores</strong>).
+        </div>
+      ) : (
+        <div>
+          <label className="block text-sm font-medium text-gray-300">
+            Authorization IDs (Optional)
+          </label>
+          <div className="space-y-2 mt-1">
+            {authIds.map((authId, index) => (
+              <div key={index} className="flex items-center space-x-2">
+                {authInputMode === 'select' && authorizations.length > 0 ? (
+                  <select
+                    value={authId}
+                    onChange={(e) => handleAuthIdChange(index, e.target.value)}
+                    className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white px-3 py-1.5"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex justify-between items-center mt-2">
-              <button
-                type="button"
-                onClick={addAuthId}
-                className="text-sm font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500 disabled:cursor-not-allowed"
-              >
-                + Add Authorization
-              </button>
-
-              <div className="flex gap-2">
-                {authInputMode === 'select' && (
-                  <button type="button" onClick={() => setAuthInputMode('manual')} className="text-sm text-blue-400 hover:text-blue-300">
-                    Switch to Manual
-                  </button>
+                    <option value="">-- Select an Authorization --</option>
+                    {authorizations.map(auth => {
+                      const aId = auth.name.split('/').pop() || '';
+                      return <option key={auth.name} value={aId}>{auth.displayName || aId}</option>;
+                    })}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={authId}
+                    onChange={(e) => handleAuthIdChange(index, e.target.value)}
+                    className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white px-3 py-1.5"
+                    placeholder="Type an Authorization ID"
+                  />
                 )}
                 <button
                   type="button"
-                  onClick={handleLoadAuthorizations}
-                  disabled={isLoadingAuths}
-                  className="px-3 py-1 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500"
-                  title="Load available authorizations"
+                  onClick={() => removeAuthId(index)}
+                  className="p-2 text-gray-400 hover:text-white bg-gray-600 hover:bg-red-500 rounded-md transition-colors"
+                  title="Remove Authorization"
                 >
-                  {isLoadingAuths ? '...' : 'Load'}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
                 </button>
               </div>
-            </div>
+            ))}
+          </div>
 
-            {authLoadError && <p className="mt-1 text-sm text-red-400">{authLoadError}</p>}
-          </>
-        )}
-      </div>
+          <div className="flex justify-between items-center mt-2">
+            <button
+              type="button"
+              onClick={addAuthId}
+              className="text-sm font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+            >
+              + Add Authorization
+            </button>
+
+            <div className="flex gap-2">
+              {authInputMode === 'select' && (
+                <button type="button" onClick={() => setAuthInputMode('manual')} className="text-sm text-blue-400 hover:text-blue-300">
+                  Switch to Manual
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleLoadAuthorizations}
+                disabled={isLoadingAuths}
+                className="px-3 py-1 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500"
+                title="Load available authorizations"
+              >
+                {isLoadingAuths ? '...' : 'Load'}
+              </button>
+            </div>
+          </div>
+
+          {authLoadError && <p className="mt-1 text-sm text-red-400">{authLoadError}</p>}
+        </div>
+      )}
     </>
   );
 };

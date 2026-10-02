@@ -183,12 +183,23 @@ export const streamChat = async (
   const baseUrl = getDiscoveryEngineUrl(appLocation);
   const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}:streamAssist`;
 
-  const body: { query: { text: string }; toolsSpec?: unknown; session?: string } = {
+  const body: {
+    query: { text: string };
+    toolsSpec?: unknown;
+    session?: string;
+    agentsSpec?: { agentSpecs: Array<{ agentId: string }> };
+  } = {
     query: { text: query },
     toolsSpec: toolsSpec,
   };
   if (sessionId) {
     body.session = sessionId;
+  }
+  if (agentName) {
+    const agentId = agentName.split("/").pop() || agentName;
+    body.agentsSpec = {
+      agentSpecs: [{ agentId }],
+    };
   }
 
   const response = await fetch(url, {

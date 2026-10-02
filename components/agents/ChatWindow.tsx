@@ -24,13 +24,14 @@ import UserMemoriesModal from '../assistants/UserMemoriesModal';
 
 interface ChatWindowProps {
     targetDisplayName: string;
+    agentName?: string | null;
     config: Config;
     accessToken: string;
     onClose: () => void;
     userProfile: UserProfile | null;
 }
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, accessToken, onClose, userProfile }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = null, config, accessToken, onClose, userProfile }) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -114,14 +115,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
             });
 
             setLinkedDataStores(matched);
-            // Default to ALL selected
-            setSelectedDsNames(new Set(matched.map(m => m.name)));
+            // When testing a specific agent (agentName is set), let the agent use its own configured
+            // tools/connectors by default rather than overriding toolsSpec with all engine data stores.
+            setSelectedDsNames(agentName ? new Set() : new Set(matched.map(m => m.name)));
         } catch (e) {
             console.warn("Failed to auto-fetch tools for engine", e);
         } finally {
             setIsFetchingTools(false);
         }
-    }, [config]);
+    }, [config, agentName]);
 
     useEffect(() => {
         setMessages([]);
@@ -130,7 +132,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
         setInput('');
         setThinkingProcess(null);
         fetchLinkedTools();
-    }, [targetDisplayName, fetchLinkedTools]);
+    }, [targetDisplayName, agentName, fetchLinkedTools]);
 
     useEffect(() => {
         const discoverPool = async () => {
@@ -299,7 +301,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
             } // Close if (!currentSessionId && sessionUserEmail)
 
             await api.streamChat(
-                null, 
+                agentName, 
                 currentQuery,
                 currentSessionId,
                 config,
@@ -358,7 +360,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
             );
         } catch (err: any) {
             console.error("Chat Error Details:", err);
-            const errorMessage = `Error: ${err.message || "Failed to get response from agent."}`;
+            const rawErr = err.message || "Failed to get response from agent.";
+            let errorMessage = `Error: ${rawErr}`;
+            if (rawErr.includes('MODEL_NOT_ENABLED')) {
+                const modelMatch = rawErr.match(/The model '([^']+)' is not enabled/i);
+                const disabledModel = modelMatch ? modelMatch[1] : 'the pinned model';
+                errorMessage = `Model Not Enabled on Engine: This agent is pinned to "${disabledModel}", which is currently disabled on this Gemini Enterprise app.\n\nTo fix this:\n1. Open this agent's View → Overview & Configuration tab and change Model to "Auto (Engine Default — Recommended)" or an enabled model, then click Save Model; OR\n2. Enable "${disabledModel}" on the parent Engine under Engines → Model Configuration.\n\nRaw API response:\n${rawErr}`;
+            }
             setError(errorMessage);
             setMessages(prev => {
                 const newMessages = [...prev];
@@ -423,6 +431,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                 sessionId={sessionId} 
                 messages={messages} 
                 selectedDataStores={Array.from(selectedDsNames)}
+                agentName={agentName}
                 authMode={authMode}
                 wifPoolId={wifPoolId}
                 wifProviderId={wifProviderId}
@@ -440,6 +449,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
             <div className="p-4 flex justify-between items-center border-b border-gray-700 bg-gray-900/20">
                 <div className="flex items-center overflow-hidden gap-3">
                     <h2 className="text-lg font-bold text-white truncate" title={`Test Agent: ${targetDisplayName}`}>{targetDisplayName}</h2>
+                    {agentName && (
+                        <span className="px-2 py-0.5 text-[10px] font-mono bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 rounded shrink-0">
+                            Scoped: {agentName.split('/').pop()}
+                        </span>
+                    )}
                     {isFetchingTools && <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-blue-400"></div>}
                 </div>
                 <div className="flex items-center gap-2">

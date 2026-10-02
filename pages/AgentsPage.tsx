@@ -36,7 +36,7 @@ interface AgentsPageProps {
   context?: any;
 }
 
-const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber, accessToken, context }) => {
+const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber, accessToken: _accessToken, context }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -211,44 +211,49 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             }
         });
         
-        const baseAgents = allAgents;
+        const inferLocalAgentType = (agent: Agent): string | undefined => {
+          if (agent.agentType) return agent.agentType;
+          if (agent.adkAgentDefinition) return 'ADK';
+          if (agent.a2aAgentDefinition) return 'A2A';
+          if (agent.lowCodeAgentDefinition || agent.workflowAgentDefinition) return 'LOW_CODE';
+          if (!agent.state || (agent.state !== 'ENABLED' && agent.state !== 'DISABLED')) return 'LOW_CODE';
+          return undefined;
+        };
+
+        const baseAgents = allAgents.map(agent => ({
+          ...agent,
+          agentType: inferLocalAgentType(agent),
+        }));
+
+        // Render agents immediately without blocking on N getAgentView calls
+        setAgents(baseAgents);
+        setIsLoading(false);
+
         if (baseAgents.length > 0) {
-          const agentViewPromises = baseAgents.map(agent => 
-            api.getAgentView(agent.name, apiConfig).catch(err => {
-              // 403 Forbidden is expected for agents that the user cannot view.
-              // We silently ignore these and return null so the agent is just missing
-              // the enriched type/origin data.
-              return null;
-            })
-          );
-          const agentViewResults = await Promise.all(agentViewPromises);
-
-          const enrichedAgents = baseAgents.map((agent, index) => {
-            const viewResult = agentViewResults[index];
-            let agentType = viewResult && viewResult.agentView ? viewResult.agentView.agentType : undefined;
-            const agentOrigin = viewResult && viewResult.agentView ? viewResult.agentView.agentOrigin : undefined;
-
-            if (!agentType) {
-              if (agent.adkAgentDefinition) {
-                agentType = 'ADK';
-              } else if (agent.a2aAgentDefinition) {
-                agentType = 'A2A';
-              } else if (agent.lowCodeAgentDefinition || agent.workflowAgentDefinition) {
-                agentType = 'LOW_CODE';
-              } else if (!agent.state || (agent.state !== 'ENABLED' && agent.state !== 'DISABLED')) {
-                agentType = 'LOW_CODE';
-              }
-            }
-
-            return {
-              ...agent,
-              agentType,
-              agentOrigin,
-            };
+          void Promise.all(
+            baseAgents.map(agent =>
+              api.getAgentView(agent.name, apiConfig).catch(() => null)
+            )
+          ).then(agentViewResults => {
+            setAgents(prev =>
+              prev.map(agent => {
+                const idx = baseAgents.findIndex(b => b.name === agent.name);
+                const viewResult = idx >= 0 ? agentViewResults[idx] : null;
+                const agentType =
+                  (viewResult && viewResult.agentView ? viewResult.agentView.agentType : undefined) ||
+                  agent.agentType ||
+                  inferLocalAgentType(agent);
+                const agentOrigin =
+                  (viewResult && viewResult.agentView ? viewResult.agentView.agentOrigin : undefined) ||
+                  agent.agentOrigin;
+                return {
+                  ...agent,
+                  agentType,
+                  agentOrigin,
+                };
+              })
+            );
           });
-          setAgents(enrichedAgents);
-        } else {
-          setAgents(baseAgents);
         }
         
         if (failedAssistants.length > 0) {
@@ -281,9 +286,9 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         ? await api.disableAgent(agent.name, apiConfig)
         : await api.enableAgent(agent.name, apiConfig);
 
-      setAgents(prev => prev.map(a => a.name === updatedAgent.name ? updatedAgent : a));
+      setAgents(prev => prev.map(a => a.name === updatedAgent.name ? { ...a, ...updatedAgent } : a));
       if (selectedAgent?.name === updatedAgent.name) {
-          setSelectedAgent(updatedAgent);
+          setSelectedAgent(prev => prev ? { ...prev, ...updatedAgent } : updatedAgent);
       }
     } catch (err: any) {
       setError(err.message || `Failed to toggle status for agent ${agentId}.`);
@@ -388,13 +393,32 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
 
   const handleUpdateAgentName = async (agent: Agent, newName: string) => {
     try {
-      await api.updateAgent(agent, { displayName: newName }, apiConfig);
+      const payload: Partial<Agent> = { displayName: newName };
+      if (agent.lowCodeAgentDefinition) {
+        payload.lowCodeAgentDefinition = {
+          ...agent.lowCodeAgentDefinition,
+          draftDisplayName: newName,
+        };
+      }
+      await api.updateAgent(agent, payload, apiConfig);
       fetchAgents();
     } catch (e) {
       console.error("Failed to update agent name", e);
       throw e;
     }
   };
+
+  const handleAgentUpdatedInPlace = useCallback((updatedAgent: Agent) => {
+    setSelectedAgent(updatedAgent);
+    setAgents(prev => {
+      const exists = prev.some(a => a.name === updatedAgent.name);
+      if (exists) {
+        return prev.map(a => (a.name === updatedAgent.name ? { ...a, ...updatedAgent } : a));
+      }
+      return [updatedAgent, ...prev];
+    });
+    fetchAgents();
+  }, [fetchAgents]);
 
   const sortedAgents = useMemo(() => {
     if (!agents) return [];
@@ -427,6 +451,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             onToggleStatus={handleToggleStatus}
             togglingAgentId={togglingAgentId}
             error={error}
+            onAgentUpdated={handleAgentUpdatedInPlace}
         /> : null;
       case 'bulk-datasources':
         return (

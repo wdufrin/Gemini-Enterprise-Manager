@@ -228,8 +228,13 @@ export const resolveAvailableAppModels = (
                 isPreview,
                 category: categorizeModel(id),
             });
-            if (m.adminView?.enabledByDefault !== undefined) {
+            if (m.adminView !== undefined && m.adminView !== null) {
+                // Note: In proto3 JSON (?model_info_view=ADMIN), enabled_by_default == false is omitted (undefined),
+                // so Boolean(m.adminView.enabledByDefault) accurately resolves omitted fields to false.
                 resolvedEnabledDefault.set(id, Boolean(m.adminView.enabledByDefault));
+            } else {
+                // Non-admin view only returns models that are enabled on the widget.
+                resolvedEnabledDefault.set(id, true);
             }
         });
     }

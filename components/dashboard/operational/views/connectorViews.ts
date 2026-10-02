@@ -1,7 +1,14 @@
-import { ViewDefinition, hasTable, hasMatchingTable, getLogsSource } from "./helpers";
+import {
+    ViewDefinition,
+    hasTable,
+    getLogsSource,
+    resolveSinkTable,
+    USER_ACTIVITY_TABLE,
+    INFERENCE_DETAILS_TABLE
+} from "./helpers";
 
 export const connectorViews: Record<string, ViewDefinition> = {
-v_user_connector_usage: {
+    v_user_connector_usage: {
         id: 'v_user_connector_usage',
         viewName: 'v_user_connector_usage',
         title: 'Connector Usage (All-Time)',
@@ -17,8 +24,9 @@ v_user_connector_usage: {
             { key: 'last_used_at', header: 'Last Used', type: 'timestamp' }
         ],
         getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
-            const logsSource = getLogsSource(projectId, dataset, tables);
-            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_user_connector_usage\` AS
+            if (hasTable(tables, '_AllLogs')) {
+                const logsSource = getLogsSource(projectId, dataset, tables);
+                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_user_connector_usage\` AS
 WITH unified_calls AS (
   SELECT
     t.trace,
@@ -83,6 +91,96 @@ FROM unified_calls c
 LEFT JOIN user_map u ON c.trace = u.trace
 WHERE NOT REGEXP_CONTAINS(c.tool_name, r"^(selfawareness|generate_memories|transfer_to|tool_code_executor|invalid_tool_call|google:python)")
 GROUP BY user_email, connector_name, connector_type;`;
+            }
+
+            const sinkInference = resolveSinkTable(projectId, dataset, INFERENCE_DETAILS_TABLE, tables);
+            const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
+            const includeInference = sinkInference.hasAnyTable || !sinkActivity.hasAnyTable;
+            const includeActivity = sinkActivity.hasAnyTable || !sinkInference.hasAnyTable;
+
+            const inferenceSql = `SELECT
+    t.trace,
+    t.timestamp,
+    COALESCE(
+      JSON_VALUE(p, "$.id"),
+      t.spanId,
+      t.insertId,
+      TO_HEX(SHA256(CONCAT(COALESCE(t.trace, ''), CAST(t.timestamp AS STRING), JSON_VALUE(p, "$.name"))))
+    ) AS call_id,
+    JSON_VALUE(p, "$.name") AS tool_name,
+    "Agent Tool" AS connector_type
+  FROM ${sinkInference.tableRef} t,
+  UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.output.messages"')) m,
+  UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
+  WHERE JSON_VALUE(p, "$.name") IS NOT NULL`;
+
+            const activitySql = `SELECT
+    t.trace,
+    t.timestamp,
+    t.insertId AS call_id,
+    COALESCE(
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logMetadata.name"), JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logmetadata.name")), r"/engines/([a-zA-Z0-9_-]+?)(?:[-_][0-9]{10,})"),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logMetadata.name"), JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logmetadata.name")), r"/engines/([^/]+)")
+    ) AS tool_name,
+    "Search Data Source" AS connector_type
+  FROM ${sinkActivity.tableRef} t
+  WHERE COALESCE(
+    JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logMetadata.methodName"),
+    JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logmetadata.methodname")
+  ) = "Search"`;
+
+            const unifiedCallsBody =
+                includeInference && includeActivity
+                    ? `${inferenceSql}\n\n  UNION DISTINCT\n\n  ${activitySql}`
+                    : includeInference
+                        ? inferenceSql
+                        : activitySql;
+
+            const userMapBody = includeActivity
+                ? `SELECT
+    trace,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+    ) AS user_email
+  FROM ${sinkActivity.tableRef}
+  WHERE COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+  ) IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER(PARTITION BY trace ORDER BY timestamp DESC) = 1`
+                : `SELECT CAST(NULL AS STRING) AS trace, CAST(NULL AS STRING) AS user_email FROM (SELECT 1) WHERE FALSE`;
+
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_user_connector_usage\` AS
+WITH unified_calls AS (
+  ${unifiedCallsBody}
+),
+user_map AS (
+  ${userMapBody}
+)
+SELECT
+  COALESCE(u.user_email, "Unattributed Service / Job") AS user_email,
+  c.connector_type,
+  INITCAP(REPLACE(
+    REGEXP_REPLACE(
+      COALESCE(
+        REGEXP_EXTRACT(c.tool_name, r"^([a-zA-Z0-9_]+?)(?:_agent)?__"),
+        REGEXP_EXTRACT(c.tool_name, r"^([a-zA-Z0-9_]+?)_tool$"),
+        c.tool_name
+      ),
+      r"_agent$", ""
+    ),
+    "_", " "
+  )) AS connector_name,
+  COUNT(DISTINCT c.call_id) AS usage_count,
+  MIN(c.timestamp) AS first_used_at,
+  MAX(c.timestamp) AS last_used_at,
+  STRING_AGG(DISTINCT c.tool_name, ", ") AS tools_used
+FROM unified_calls c
+LEFT JOIN user_map u ON c.trace = u.trace
+WHERE c.tool_name IS NOT NULL
+  AND NOT REGEXP_CONTAINS(c.tool_name, r"^(selfawareness|generate_memories|transfer_to|tool_code_executor|invalid_tool_call|google:python)")
+GROUP BY user_email, connector_name, connector_type;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   connector_name,
@@ -105,8 +203,7 @@ ORDER BY CAST(usage_count AS INT64) DESC
 LIMIT 100;`
     },
 
-    // 4. User Connector Usage (30 Days),
-v_user_connector_usage_30d: {
+    v_user_connector_usage_30d: {
         id: 'v_user_connector_usage_30d',
         viewName: 'v_user_connector_usage_30d',
         title: 'Connector Usage (Past 30 Days)',
@@ -145,6 +242,5 @@ ORDER BY total_usage DESC;`,
 FROM \`${projectId}.${dataset}.v_user_connector_usage_30d\`
 ORDER BY CAST(usage_count AS INT64) DESC
 LIMIT 100;`
-  },
+    },
 };
-

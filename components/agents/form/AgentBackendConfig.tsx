@@ -104,10 +104,27 @@ export const AgentBackendConfig: React.FC<AgentBackendConfigProps> = ({
           >
             HTTP Service (A2A)
           </button>
+          {agentType === 'no_code' && (
+            <span className="px-3 py-1 text-xs font-medium rounded-sm bg-purple-700 text-white shadow">
+              No-Code / Workflow
+            </span>
+          )}
         </div>
       </div>
 
-      {agentType === 'reasoning_engine' ? (
+      {agentType === 'no_code' ? (
+        <div className="p-4 bg-purple-950/30 border border-purple-700/60 rounded-lg text-sm text-purple-200 space-y-2">
+          <p className="font-semibold text-purple-300">
+            Custom No-Code / Low-Code / Workflow Agent
+          </p>
+          <p className="text-xs text-gray-300 leading-relaxed">
+            This agent uses an embedded Discovery Engine definition (<code className="font-mono">lowCodeAgentDefinition</code>, <code className="font-mono">workflowAgentDefinition</code>, or <code className="font-mono">skillAgentDefinition</code>) rather than an external Vertex AI Reasoning Engine or A2A endpoint.
+          </p>
+          <p className="text-xs text-gray-400">
+            Saving this form safely updates the agent&apos;s <strong>Display Name</strong>, <strong>Description</strong>, <strong>Icon</strong>, <strong>Starter Prompts</strong>, and <strong>Authorizations</strong> without altering its internal nodes. To modify its <strong>Model</strong>, <strong>System Instructions</strong>, or <strong>Data Connectors / Data Stores</strong>, use the <strong>View</strong> details page.
+          </p>
+        </div>
+      ) : agentType === 'reasoning_engine' ? (
         <>
           <div className="space-y-3">
             <div>

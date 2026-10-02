@@ -15,7 +15,12 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { OPERATIONAL_VIEWS, FALLBACK_SNAPSHOT } from '../components/dashboard/operational/analyticsData';
+import {
+    OPERATIONAL_VIEWS,
+    FALLBACK_SNAPSHOT,
+    toggleWildcardInDdl,
+    getEmptyViewDdl
+} from '../components/dashboard/operational/analyticsData';
 import { runBigQueryQuery } from '../services/apiService';
 
 interface BigQueryTableRow {
@@ -531,6 +536,72 @@ export function useOperationalDashboardState({
         fetchLiveData();
     }, [fetchLiveData]);
 
+    const isMissingSourceTableError = (msg: string) => {
+        const lower = msg.toLowerCase();
+        return (
+            lower.includes('does not match any table') ||
+            lower.includes('not found: table') ||
+            lower.includes('was not found in location')
+        );
+    };
+
+    const executeCreateViewWithFallback = async (
+        targetViewId: string
+    ): Promise<{ usedEmptyFallback: boolean }> => {
+        const viewDef = OPERATIONAL_VIEWS[targetViewId];
+        if (!viewDef || !projectId || !datasetId) {
+            return { usedEmptyFallback: false };
+        }
+
+        // Ensure upstream view exists when creating v_user_connector_usage_30d
+        if (
+            targetViewId === 'v_user_connector_usage_30d' &&
+            !installedViews.has('v_user_connector_usage') &&
+            !tableNames.has('v_user_connector_usage')
+        ) {
+            await executeCreateViewWithFallback('v_user_connector_usage');
+        }
+
+        const primaryDdl = viewDef.getDdl(projectId, datasetId, tableNames);
+        try {
+            await runBigQueryQuery(projectId, primaryDdl);
+            return { usedEmptyFallback: false };
+        } catch (primaryErr: unknown) {
+            const primaryMsg =
+                primaryErr instanceof Error ? primaryErr.message : String(primaryErr || '');
+            if (!isMissingSourceTableError(primaryMsg)) {
+                throw primaryErr;
+            }
+
+            // 1. Retry by toggling between un-suffixed partitioned table and `_*` date-sharded wildcard
+            // in case local `tableNames` state was stale relative to BigQuery.
+            const alternateDdl = toggleWildcardInDdl(primaryDdl);
+            if (alternateDdl && alternateDdl !== primaryDdl) {
+                try {
+                    await runBigQueryQuery(projectId, alternateDdl);
+                    return { usedEmptyFallback: false };
+                } catch (altErr: unknown) {
+                    const altMsg =
+                        altErr instanceof Error ? altErr.message : String(altErr || '');
+                    if (!isMissingSourceTableError(altMsg)) {
+                        throw altErr;
+                    }
+                }
+            }
+
+            // 2. Neither the un-suffixed table nor any `_YYYYMMDD` fragment exists yet
+            // (e.g., a newly created log sink before Cloud Logging flushes the first log entry).
+            // Provision an empty schema-compatible view so the view and downstream queries succeed.
+            const emptyDdl = getEmptyViewDdl(projectId, datasetId, targetViewId);
+            if (emptyDdl) {
+                await runBigQueryQuery(projectId, emptyDdl);
+                return { usedEmptyFallback: true };
+            }
+
+            throw primaryErr;
+        }
+    };
+
     const handleCreateView = async (viewId: string) => {
         if (!projectId || !datasetId) return;
         const viewDef = OPERATIONAL_VIEWS[viewId];
@@ -539,8 +610,7 @@ export function useOperationalDashboardState({
         setOperatingViewId(viewId);
         setActionMessage(null);
         try {
-            const ddl = viewDef.getDdl(projectId, datasetId, tableNames);
-            await runBigQueryQuery(projectId, ddl);
+            const { usedEmptyFallback } = await executeCreateViewWithFallback(viewId);
             droppedViewsRef.current.delete(viewId);
             setDroppedViews((prev) => {
                 const next = new Set(prev);
@@ -556,7 +626,9 @@ export function useOperationalDashboardState({
             });
             setActionMessage({
                 type: 'success',
-                text: `Successfully created view \`${datasetId}.${viewDef.viewName}\` in BigQuery!`
+                text: usedEmptyFallback
+                    ? `Successfully created view \`${datasetId}.${viewDef.viewName}\` in BigQuery (initialized with empty schema while waiting for first log sync entries)!`
+                    : `Successfully created view \`${datasetId}.${viewDef.viewName}\` in BigQuery!`
             });
             if (onRefreshTables) {
                 await onRefreshTables();
@@ -582,8 +654,7 @@ export function useOperationalDashboardState({
             for (const vId of viewIds) {
                 const viewDef = OPERATIONAL_VIEWS[vId];
                 if (viewDef) {
-                    const ddl = viewDef.getDdl(projectId, datasetId, tableNames);
-                    await runBigQueryQuery(projectId, ddl);
+                    await executeCreateViewWithFallback(vId);
                     brokenViewsRef.current.delete(vId);
                     droppedViewsRef.current.delete(vId);
                 }

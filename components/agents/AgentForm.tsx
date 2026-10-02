@@ -49,6 +49,7 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
             <AgentBasicFields
               formData={form.formData}
               handleChange={form.handleChange}
+              agentType={form.agentType}
               agentToEdit={Boolean(agentToEdit)}
               isEditingDisabled={form.isEditingDisabled}
               iconPreviewError={form.iconPreviewError}

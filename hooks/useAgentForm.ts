@@ -72,8 +72,11 @@ export function useAgentForm(
 
   const [isCrossProject, setIsCrossProject] = useState(false);
   const [sourceProjectId, setSourceProjectId] = useState('');
+  const [fullEditingAgent, setFullEditingAgent] = useState<Agent | null>(agentToEdit || null);
 
-  const isEditingDisabled = Boolean(agentToEdit && !agentToEdit.state);
+  const isEditingDisabled = Boolean(
+    agentToEdit && (agentToEdit.state === 'PRIVATE' || !agentToEdit.state)
+  );
 
   useEffect(() => {
     const compatibleLocation = getCompatibleReasoningEngineLocation(config.appLocation);
@@ -82,6 +85,7 @@ export function useAgentForm(
 
   useEffect(() => {
     if (agentToEdit) {
+      setFullEditingAgent(agentToEdit);
       let type: AgentType = 'reasoning_engine';
       let a2aUrl = '';
       let a2aOrg = '';
@@ -102,7 +106,12 @@ export function useAgentForm(
         } catch (e) {
           console.warn('Failed to parse A2A agent card JSON', e);
         }
+      } else if (agentToEdit.adkAgentDefinition) {
+        type = 'reasoning_engine';
+        setA2aStreaming(true);
+        setA2aExtensions([]);
       } else {
+        type = 'no_code';
         setA2aStreaming(true);
         setA2aExtensions([]);
       }
@@ -147,8 +156,29 @@ export function useAgentForm(
         a2aUrl,
         a2aOrg,
       });
+
+      if (type === 'no_code' && typeof api.getAgent === 'function') {
+        api.getAgent(agentToEdit.name, config)
+          .then((fetched) => {
+            if (!fetched) return;
+            setFullEditingAgent(fetched);
+            if (
+              (!agentToEdit.starterPrompts || agentToEdit.starterPrompts.length === 0) &&
+              fetched.starterPrompts &&
+              fetched.starterPrompts.length > 0
+            ) {
+              setFormData(prev => ({
+                ...prev,
+                starterPrompts: fetched.starterPrompts!.map(p => p.text),
+              }));
+            }
+          })
+          .catch((err) => {
+            console.warn('Could not fetch full no-code agent definition in useAgentForm:', err);
+          });
+      }
     }
-  }, [agentToEdit, config.appLocation, config.projectId]);
+  }, [agentToEdit, config]);
 
   useEffect(() => {
     if (!agentToEdit) {
@@ -169,6 +199,15 @@ export function useAgentForm(
       .filter(text => text)
       .map(text => ({ text }));
 
+    const validAuthIds = (formData.authIds || [])
+      .map(id => id.split('/').pop()?.trim() || '')
+      .filter(id => id.length > 0);
+
+    const resolvedToolAuthorizations = validAuthIds.map(id => {
+      const matched = authorizations.find(a => a.name === id || a.name.endsWith(`/${id}`));
+      return matched ? matched.name : `projects/${projectId}/locations/global/authorizations/${id}`;
+    });
+
     let agentDefinitionPayload: Partial<Agent> = {};
 
     if (agentType === 'reasoning_engine') {
@@ -184,7 +223,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
           provisionedReasoningEngine: { reasoningEngine: reasoningEnginePath },
         },
       };
-    } else {
+    } else if (agentType === 'a2a') {
       const a2aUrl = formData.a2aUrl || '';
       const cardObject = {
         protocolVersion: '0.3.0',
@@ -225,7 +264,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
         payload.description = formData.description;
       }
 
-      if (agentToEdit.icon?.uri !== formData.iconUri) {
+      if ((agentToEdit.icon?.uri || '') !== formData.iconUri) {
         updateMask.push('icon');
         payload.icon = { uri: formData.iconUri };
       }
@@ -236,12 +275,38 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
         payload.starterPrompts = finalStarterPrompts;
       }
 
+      if (agentType !== 'no_code') {
+        const originalAuthIds = (agentToEdit.authorizationConfig?.toolAuthorizations || agentToEdit.authorizations || [])
+          .map(a => a.split('/').pop() || '')
+          .filter(Boolean);
+        if (JSON.stringify(originalAuthIds) !== JSON.stringify(validAuthIds)) {
+          updateMask.push('authorization_config');
+          payload.authorizationConfig = {
+            toolAuthorizations: resolvedToolAuthorizations,
+          };
+        }
+      }
+
       if (agentType === 'reasoning_engine') {
         updateMask.push('adk_agent_definition');
         payload.adkAgentDefinition = agentDefinitionPayload.adkAgentDefinition;
-      } else {
+      } else if (agentType === 'a2a') {
         updateMask.push('a2a_agent_definition');
         payload.a2aAgentDefinition = agentDefinitionPayload.a2aAgentDefinition;
+      } else if (
+        agentType === 'no_code' &&
+        (fullEditingAgent?.lowCodeAgentDefinition || agentToEdit.lowCodeAgentDefinition) &&
+        (agentToEdit.displayName !== formData.displayName ||
+          agentToEdit.description !== formData.description ||
+          (agentToEdit.icon?.uri || '') !== formData.iconUri)
+      ) {
+        updateMask.push('low_code_agent_definition');
+        payload.lowCodeAgentDefinition = {
+          ...(fullEditingAgent?.lowCodeAgentDefinition || agentToEdit.lowCodeAgentDefinition),
+          draftDisplayName: formData.displayName,
+          draftDescription: formData.description,
+          ...(formData.iconUri ? { draftIcon: { uri: formData.iconUri } } : {}),
+        };
       }
 
       if (updateMask.length === 0) {
@@ -274,15 +339,9 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
         ...agentDefinitionPayload,
       };
 
-      const finalAuthId = (formData.authIds && formData.authIds.length > 0) ? formData.authIds[0].split('/').pop()?.trim() : undefined;
-      if (finalAuthId) {
-        const selectedAuth = authorizations.find(a => a.name.endsWith(`/${finalAuthId}`));
-        const authResourceName = selectedAuth ? selectedAuth.name : `projects/${projectId}/locations/global/authorizations/${finalAuthId}`;
-
+      if (resolvedToolAuthorizations.length > 0) {
         createPayload.authorizationConfig = {
-          toolAuthorizations: [
-            authResourceName,
-          ],
+          toolAuthorizations: resolvedToolAuthorizations,
         };
       }
 
@@ -436,7 +495,9 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
     if (field === 'description') {
       const toolDesc = agentType === 'reasoning_engine'
         ? `Agent Engine: ${formData.reasoningEngineId}, Created By: ${formData.createdBy}, Info: ${formData.additionalInfo}`
-        : `A2A Service URL: ${formData.a2aUrl}, Organization: ${formData.a2aOrg}`;
+        : agentType === 'a2a'
+          ? `A2A Service URL: ${formData.a2aUrl}, Organization: ${formData.a2aOrg}`
+          : `No-Code / Low-Code / Workflow Agent: ${formData.displayName}`;
 
       prompt = `An agent has the following backend metadata: "${toolDesc}". 
 Based on this capability, rewrite the agent's main description to clearly explain what the agent does for an end-user. The new description should be a single paragraph. Do not offer multiple options.
@@ -487,7 +548,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
           },
         },
       };
-    } else {
+    } else if (agentType === 'a2a') {
       if (!formData.a2aUrl) {
         setError('Agent URL is required for A2A agents.');
         setIsSubmitting(false);
@@ -520,8 +581,18 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
       };
     }
 
+    const validAuthIds = formData.authIds
+      .map(id => id.trim())
+      .filter(id => id.length > 0);
+
+    const resolvedToolAuthorizations = validAuthIds.map(id => {
+      const matched = authorizations.find(a => a.name === id || a.name.endsWith(`/${id}`));
+      return matched ? matched.name : (id.startsWith('projects/') ? id : `projects/${config.projectId}/locations/global/authorizations/${id}`);
+    });
+
     try {
       if (agentToEdit) {
+        const sourceAgent = fullEditingAgent || agentToEdit;
         const agentPayload: Partial<Agent> = {
           displayName: formData.displayName,
           description: formData.description,
@@ -529,7 +600,24 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
           starterPrompts: finalStarterPrompts,
           ...agentDefinitionPayload,
         };
-        await api.updateAgent(agentToEdit, agentPayload, config);
+        if (agentType === 'no_code') {
+          if (sourceAgent.lowCodeAgentDefinition) {
+            agentPayload.lowCodeAgentDefinition = {
+              ...sourceAgent.lowCodeAgentDefinition,
+              draftDisplayName: formData.displayName,
+              draftDescription: formData.description,
+              ...(formData.iconUri ? { draftIcon: { uri: formData.iconUri } } : {}),
+            };
+          }
+        } else {
+          const hadExistingAuth = (agentToEdit.authorizationConfig?.toolAuthorizations?.length ?? 0) > 0;
+          if (resolvedToolAuthorizations.length > 0 || hadExistingAuth) {
+            agentPayload.authorizationConfig = {
+              toolAuthorizations: resolvedToolAuthorizations,
+            };
+          }
+        }
+        await api.updateAgent(sourceAgent, agentPayload, config);
       } else {
         const createPayload: Partial<Agent> = {
           displayName: formData.displayName,
@@ -539,18 +627,9 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
           ...agentDefinitionPayload,
         };
 
-        const validAuthIds = formData.authIds
-          .map(id => id.trim())
-          .filter(id => id.length > 0);
-
-        if (validAuthIds.length > 0) {
-          const toolAuthorizations = validAuthIds.map(id => {
-            const matched = authorizations.find(a => a.name === id || a.name.endsWith(`/${id}`));
-            return matched ? matched.name : `projects/${config.projectId}/locations/global/authorizations/${id}`;
-          });
-
+        if (resolvedToolAuthorizations.length > 0) {
           createPayload.authorizationConfig = {
-            toolAuthorizations,
+            toolAuthorizations: resolvedToolAuthorizations,
           };
         }
 

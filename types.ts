@@ -150,6 +150,9 @@ export interface LowCodeAgentDefinition {
   deployedNodes?: LowCodeAgentNode[];
   rootAgentId?: string;
   deployedRootAgentId?: string;
+  draftDisplayName?: string;
+  draftDescription?: string;
+  draftIcon?: { uri: string };
   ownerName?: string;
   [key: string]: unknown;
 }

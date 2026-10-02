@@ -88,7 +88,7 @@ export const updateAgent = async (
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
   const updateMask: string[] = [];
   if (payload.displayName) updateMask.push("display_name");
-  if (payload.description) updateMask.push("description");
+  if (payload.description !== undefined) updateMask.push("description");
   if (payload.icon) updateMask.push("icon");
   if (payload.starterPrompts) updateMask.push("starter_prompts");
   if (payload.adkAgentDefinition) updateMask.push("adk_agent_definition");
@@ -117,16 +117,32 @@ export const updateAgent = async (
     const lowCodeClone = {
       ...(sanitizedPayload.lowCodeAgentDefinition as Record<string, unknown>),
     };
+    const draftNodes = Array.isArray(lowCodeClone.nodes) ? lowCodeClone.nodes : [];
+    const deployedNodes = Array.isArray(lowCodeClone.deployedNodes)
+      ? lowCodeClone.deployedNodes
+      : Array.isArray(lowCodeClone.deployed_nodes)
+        ? lowCodeClone.deployed_nodes
+        : [];
+    if (draftNodes.length === 0 && deployedNodes.length > 0) {
+      lowCodeClone.nodes = deployedNodes;
+    }
+    if (!lowCodeClone.rootAgentId && lowCodeClone.deployedRootAgentId) {
+      lowCodeClone.rootAgentId = lowCodeClone.deployedRootAgentId;
+    }
     delete lowCodeClone.deployedNodes;
     delete lowCodeClone.deployed_nodes;
     delete lowCodeClone.deploymentInfo;
     delete lowCodeClone.deployment_info;
     delete lowCodeClone.deployedRootAgentId;
     delete lowCodeClone.deployed_root_agent_id;
+    delete lowCodeClone.deployedSchedules;
+    delete lowCodeClone.deployed_schedules;
     delete lowCodeClone.validationErrors;
     delete lowCodeClone.validation_errors;
+    delete lowCodeClone.owner;
     delete lowCodeClone.ownerName;
     delete lowCodeClone.owner_name;
+    delete lowCodeClone.session;
     sanitizedPayload.lowCodeAgentDefinition = lowCodeClone;
   }
 

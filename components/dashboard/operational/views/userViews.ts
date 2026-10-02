@@ -1,7 +1,14 @@
-import { ViewDefinition, hasTable, hasMatchingTable, getLogsSource } from "./helpers";
+import {
+    ViewDefinition,
+    hasTable,
+    getLogsSource,
+    resolveSinkTable,
+    USER_ACTIVITY_TABLE,
+    USER_MESSAGE_TABLE
+} from "./helpers";
 
 export const userViews: Record<string, ViewDefinition> = {
-v_consolidated_user_activity: {
+    v_consolidated_user_activity: {
         id: 'v_consolidated_user_activity',
         viewName: 'v_consolidated_user_activity',
         title: 'User Activity & Sessions',
@@ -27,21 +34,76 @@ SELECT
   CONCAT(trace, '-', CAST(timestamp AS STRING)) AS insertId 
 FROM \`${projectId}.${dataset}.gemini_assist_activity\`;`;
             }
+
+            const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
+            if (!sinkActivity.hasAnyTable && hasTable(tables, '_AllLogs')) {
+                const logsSource = getLogsSource(projectId, dataset, tables);
+                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_user_activity\` AS
+SELECT 
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.useriamprincipal'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.userIamPrincipal')
+  ) AS user_email, 
+  timestamp AS event_time, 
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.agentinfo.displayname'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.agentInfo.displayName'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.agent.displayname'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.agent.displayName'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userevent.agentspaceinfo.agentinfo.name'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userEvent.agentspaceInfo.agentInfo.name'),
+    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userevent.engine'), r'/engines/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userEvent.engine'), r'/engines/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.logmetadata.name'), r'/engines/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.logMetadata.name'), r'/engines/([^/]+)')
+  ) AS agent_name, 
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.agentsspec.agentspecs[0].agentid'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.agentsSpec.agentSpecs[0].agentId'),
+    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.agentinfo.agent'), r'/agents/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.agentInfo.agent'), r'/agents/([^/]+)'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userevent.agentspaceinfo.agentinfo.agentid'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userEvent.agentspaceInfo.agentInfo.agentId')
+  ) AS agent_id, 
+  COALESCE(
+    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.answer.name'), r'sessions/([^/]+)'), 
+    trace
+  ) AS session_id, 
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logmetadata.methodname'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logMetadata.methodName')
+  ) AS method_name, 
+  insert_id AS insertId 
+FROM ${logsSource}
+WHERE log_name LIKE '%gemini_enterprise_user_activity%';`;
+            }
+
             return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_user_activity\` AS
 SELECT 
-  JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal') AS user_email, 
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal')
+  ) AS user_email, 
   timestamp AS event_time, 
   COALESCE(
     JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.displayname'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.displayName'),
     JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayname'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayName'),
     JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.agentspaceinfo.agentinfo.name'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.agentspaceInfo.agentInfo.name'),
     REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.engine'), r'/engines/([^/]+)'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.name'), r'/engines/([^/]+)')
+    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.engine'), r'/engines/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.name'), r'/engines/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.name'), r'/engines/([^/]+)')
   ) AS agent_name, 
   COALESCE(
     JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agentsspec.agentspecs[0].agentid'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agentsSpec.agentSpecs[0].agentId'),
     REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.agent'), r'/agents/([^/]+)'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.agentspaceinfo.agentinfo.agentid')
+    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.agent'), r'/agents/([^/]+)'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.agentspaceinfo.agentinfo.agentid'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.agentspaceInfo.agentInfo.agentId')
   ) AS agent_id, 
   COALESCE(
     REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.name'), r'sessions/([^/]+)'), 
@@ -49,10 +111,10 @@ SELECT
   ) AS session_id, 
   COALESCE(
     JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodname'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodName')
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.methodName')
   ) AS method_name, 
   insertId 
-FROM \`${projectId}.${dataset}.discoveryengine_googleapis_com_gemini_enterprise_user_activity_*\`;`;
+FROM ${sinkActivity.tableRef};`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   DATE(event_time) AS event_date,
@@ -75,8 +137,7 @@ ORDER BY event_time DESC
 LIMIT 100;`
     },
 
-    // 2. GenAI Telemetry & Tools,
-v_consolidated_user_messages: {
+    v_consolidated_user_messages: {
         id: 'v_consolidated_user_messages',
         viewName: 'v_consolidated_user_messages',
         title: 'Consolidated User Messages',
@@ -90,31 +151,40 @@ v_consolidated_user_messages: {
             { key: 'table_date', header: 'Date Shard' },
             { key: 'trace', header: 'Trace ID', type: 'mono' }
         ],
-        getDdl: (projectId: string, dataset: string) => `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_user_messages\` AS
+        getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
+            const sinkMessages = resolveSinkTable(projectId, dataset, USER_MESSAGE_TABLE, tables);
+            if (!sinkMessages.hasAnyTable && hasTable(tables, '_AllLogs')) {
+                const logsSource = getLogsSource(projectId, dataset, tables);
+                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_user_messages\` AS
+SELECT 
+  timestamp,
+  severity,
+  trace,
+  span_id AS spanId,
+  COALESCE(JSON_VALUE(TO_JSON_STRING(json_payload), '$.content.role'), 'user') AS role,
+  COALESCE(ARRAY_LENGTH(JSON_QUERY_ARRAY(TO_JSON_STRING(json_payload), '$.content.parts')), 0) AS parts_count,
+  FORMAT_TIMESTAMP('%Y%m%d', timestamp) AS table_date
+FROM ${logsSource}
+WHERE log_name LIKE '%gen_ai.user_message%' OR log_name LIKE '%gen_ai_user_message%'
+QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id ORDER BY timestamp DESC) = 1;`;
+            }
+
+            const tableDateExpr = sinkMessages.isWildcard
+                ? '_TABLE_SUFFIX AS table_date'
+                : "FORMAT_TIMESTAMP('%Y%m%d', timestamp) AS table_date";
+
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_user_messages\` AS
 SELECT 
   timestamp,
   severity,
   trace,
   spanId,
-  JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.content.role') AS role,
-  ARRAY_LENGTH(JSON_QUERY_ARRAY(TO_JSON_STRING(jsonPayload), '$.content.parts')) AS parts_count,
-  _TABLE_SUFFIX AS table_date
-FROM \`${projectId}.${dataset}.discoveryengine_googleapis_com_gen_ai_user_message_*\`
-WHERE _TABLE_SUFFIX NOT IN ('20260423', '20260424')
-QUALIFY ROW_NUMBER() OVER(PARTITION BY insertId ORDER BY timestamp DESC) = 1
-
-UNION ALL
-
-SELECT 
-  timestamp,
-  severity,
-  trace,
-  spanId,
-  'user' AS role,
-  0 AS parts_count,
-  '20260423' AS table_date
-FROM \`${projectId}.${dataset}.discoveryengine_googleapis_com_gen_ai_user_message_20260423\`
-QUALIFY ROW_NUMBER() OVER(PARTITION BY insertId ORDER BY timestamp DESC) = 1;`,
+  COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.content.role'), 'user') AS role,
+  COALESCE(ARRAY_LENGTH(JSON_QUERY_ARRAY(TO_JSON_STRING(jsonPayload), '$.content.parts')), 0) AS parts_count,
+  ${tableDateExpr}
+FROM ${sinkMessages.tableRef}
+QUALIFY ROW_NUMBER() OVER(PARTITION BY insertId ORDER BY timestamp DESC) = 1;`;
+        },
         getQuery: (projectId: string, dataset: string) => `SELECT
   DATE(timestamp) AS message_date,
   COALESCE(severity, 'DEFAULT') AS severity,
@@ -135,8 +205,7 @@ ORDER BY timestamp DESC
 LIMIT 100;`
     },
 
-    // 10. Gemini Assist Activity,
-v_gemini_assist_activity: {
+    v_gemini_assist_activity: {
         id: 'v_gemini_assist_activity',
         viewName: 'v_gemini_assist_activity',
         title: 'Gemini Assist Activity',
@@ -151,8 +220,9 @@ v_gemini_assist_activity: {
             { key: 'assistant_response', header: 'Assistant Response' }
         ],
         getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
-            const logsSource = getLogsSource(projectId, dataset, tables);
-            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_assist_activity\` AS
+            if (hasTable(tables, '_AllLogs')) {
+                const logsSource = getLogsSource(projectId, dataset, tables);
+                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_assist_activity\` AS
 SELECT
   timestamp,
   trace,
@@ -169,6 +239,37 @@ FROM ${logsSource}
 WHERE log_name LIKE "%gemini_enterprise_user_activity%"
   AND JSON_VALUE(json_payload.logMetadata.methodName) IN ("StreamAssist", "Assist")
 QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id ORDER BY timestamp DESC) = 1;`;
+            }
+
+            const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_assist_activity\` AS
+SELECT
+  timestamp,
+  trace,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+  ) AS user_email,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.methodName'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodname')
+  ) AS method_name,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query.text'),
+    (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(jsonPayload), '$.request.query.parts')) p)
+  ) AS user_query,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.serviceTextReply'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.servicetextreply')
+  ) AS assistant_response,
+  JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.name') AS answer_name,
+  JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.state') AS answer_state
+FROM ${sinkActivity.tableRef}
+WHERE COALESCE(
+  JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.methodName'),
+  JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodname')
+) IN ("StreamAssist", "Assist")
+QUALIFY ROW_NUMBER() OVER(PARTITION BY insertId ORDER BY timestamp DESC) = 1;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   DATE(timestamp) AS assist_date,
@@ -191,8 +292,7 @@ ORDER BY timestamp DESC
 LIMIT 100;`
     },
 
-    // 11. Gemini Search Activity,
-v_gemini_search_activity: {
+    v_gemini_search_activity: {
         id: 'v_gemini_search_activity',
         viewName: 'v_gemini_search_activity',
         title: 'Gemini Search Operations',
@@ -206,8 +306,9 @@ v_gemini_search_activity: {
             { key: 'attribution_token', header: 'Attribution Token', type: 'mono' }
         ],
         getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
-            const logsSource = getLogsSource(projectId, dataset, tables);
-            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_search_activity\` AS
+            if (hasTable(tables, '_AllLogs')) {
+                const logsSource = getLogsSource(projectId, dataset, tables);
+                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_search_activity\` AS
 SELECT
   timestamp,
   COALESCE(trace, insert_id) AS trace,
@@ -223,6 +324,39 @@ FROM ${logsSource}
 WHERE log_name LIKE "%gemini_enterprise_user_activity%"
   AND JSON_VALUE(json_payload.logMetadata.methodName) = "Search"
 QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id ORDER BY timestamp DESC) = 1;`;
+            }
+
+            const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_search_activity\` AS
+SELECT
+  timestamp,
+  COALESCE(trace, insertId) AS trace,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+  ) AS user_email,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.methodName'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodname')
+  ) AS method_name,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.searchQuery')
+  ) AS search_query,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.attributionToken'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.attributiontoken')
+  ) AS attribution_token,
+  ARRAY(
+    SELECT JSON_VALUE(r, '$.id')
+    FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(jsonPayload), '$.response.results')) r
+  ) AS result_ids
+FROM ${sinkActivity.tableRef}
+WHERE COALESCE(
+  JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.methodName'),
+  JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodname')
+) = "Search"
+QUALIFY ROW_NUMBER() OVER(PARTITION BY insertId ORDER BY timestamp DESC) = 1;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   DATE(timestamp) AS search_date,
@@ -243,4 +377,3 @@ ORDER BY timestamp DESC
 LIMIT 100;`
     },
 };
-

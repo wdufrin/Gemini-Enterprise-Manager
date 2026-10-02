@@ -23,7 +23,7 @@ export interface AgentFormProps {
   agentToEdit?: Agent | null;
 }
 
-export type AgentType = 'reasoning_engine' | 'a2a';
+export type AgentType = 'reasoning_engine' | 'a2a' | 'no_code';
 
 export interface AgentFormData {
   displayName: string;

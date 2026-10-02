@@ -26,6 +26,7 @@ interface ChatCurlModalProps {
   sessionId: string | null;
   messages: ChatMessage[];
   selectedDataStores: string[];
+  agentName?: string | null;
   authMode?: 'default' | 'wif';
   wifPoolId?: string;
   wifProviderId?: string;
@@ -58,7 +59,7 @@ const CodeBlock: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-const ChatCurlModal: React.FC<ChatCurlModalProps> = ({ isOpen, onClose, config, sessionId, messages, selectedDataStores, authMode = 'default', wifPoolId, wifProviderId, wifSubjectTokenType }) => {
+const ChatCurlModal: React.FC<ChatCurlModalProps> = ({ isOpen, onClose, config, sessionId, messages, selectedDataStores, agentName, authMode = 'default', wifPoolId, wifProviderId, wifSubjectTokenType }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useModalA11y({
@@ -85,6 +86,13 @@ const ChatCurlModal: React.FC<ChatCurlModalProps> = ({ isOpen, onClose, config, 
     
     if (sessionId) {
       payload.session = sessionId;
+    }
+
+    if (agentName) {
+      const agentId = agentName.split('/').pop() || agentName;
+      payload.agentsSpec = {
+        agentSpecs: [{ agentId }]
+      };
     }
     
     if (selectedDataStores.length > 0) {

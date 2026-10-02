@@ -18,6 +18,8 @@ describe('OperationalAnalyticsDashboard', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        window.location.hash = '';
+        sessionStorage.clear();
         (apiService.runBigQueryQuery as any).mockResolvedValue({ rows: [] });
     });
 
@@ -216,7 +218,77 @@ describe('OperationalAnalyticsDashboard', () => {
         expect(window.location.hash).toBe('#/observability?view=v_admin_feedback_review');
         expect(sessionStorage.getItem('agentspace-observability-view')).toBe('v_admin_feedback_review');
     });
+
+    it('generates view DDLs without trailing _* when tables are time-partitioned or no _YYYYMMDD fragments exist, and uses _* only when date-sharded fragments exist', async () => {
+        const { OPERATIONAL_VIEWS, resolveSinkTable, USER_ACTIVITY_TABLE } = await import('./analyticsData');
+
+        // 1. Brand-new log sink (no fragments yet) or time-partitioned table -> NO trailing _*
+        const partitionedTables = new Set([USER_ACTIVITY_TABLE]);
+        const partitionedResolved = resolveSinkTable('g7372485-eap-dev-154850-a0', 'gesynclogs', USER_ACTIVITY_TABLE, partitionedTables);
+        expect(partitionedResolved.isWildcard).toBe(false);
+        expect(partitionedResolved.tableRef).toBe('`g7372485-eap-dev-154850-a0.gesynclogs.discoveryengine_googleapis_com_gemini_enterprise_user_activity`');
+
+        const emptyTables = new Set<string>();
+        const emptyResolved = resolveSinkTable('g7372485-eap-dev-154850-a0', 'gesynclogs', USER_ACTIVITY_TABLE, emptyTables);
+        expect(emptyResolved.isWildcard).toBe(false);
+        expect(emptyResolved.tableRef).not.toContain('_*');
+
+        // Verify all non-rollup views generate DDL without trailing _* when no fragments exist
+        for (const view of Object.values(OPERATIONAL_VIEWS)) {
+            const ddl = view.getDdl('g7372485-eap-dev-154850-a0', 'gesynclogs', partitionedTables);
+            expect(ddl).not.toContain('discoveryengine_googleapis_com_gemini_enterprise_user_activity_*');
+            expect(ddl).not.toContain('discoveryengine_googleapis_com_gen_ai_user_message_*');
+            expect(ddl).not.toContain('discoveryengine_googleapis_com_gen_ai_choice_*');
+            expect(ddl).not.toContain('discoveryengine_googleapis_com_gen_ai_client_inference_operation_details_*');
+            expect(ddl).not.toContain('_TABLE_SUFFIX');
+        }
+
+        // 2. Legacy date-sharded sink tables -> uses _* and _TABLE_SUFFIX
+        const shardedTables = new Set([`${USER_ACTIVITY_TABLE}_20260801`]);
+        const shardedResolved = resolveSinkTable('g7372485-eap-dev-154850-a0', 'gesynclogs', USER_ACTIVITY_TABLE, shardedTables);
+        expect(shardedResolved.isWildcard).toBe(true);
+        expect(shardedResolved.tableRef).toBe('`g7372485-eap-dev-154850-a0.gesynclogs.discoveryengine_googleapis_com_gemini_enterprise_user_activity_*`');
+
+        const activityView = OPERATIONAL_VIEWS['v_consolidated_user_activity'];
+        const shardedActivityDdl = activityView.getDdl('g7372485-eap-dev-154850-a0', 'gesynclogs', shardedTables);
+        expect(shardedActivityDdl).toContain('`g7372485-eap-dev-154850-a0.gesynclogs.discoveryengine_googleapis_com_gemini_enterprise_user_activity_*`');
+
+        const shardedMessageTables = new Set(['discoveryengine_googleapis_com_gen_ai_user_message_20260801']);
+        const messagesView = OPERATIONAL_VIEWS['v_consolidated_user_messages'];
+        const shardedMessagesDdl = messagesView.getDdl('g7372485-eap-dev-154850-a0', 'gesynclogs', shardedMessageTables);
+        expect(shardedMessagesDdl).toContain('`g7372485-eap-dev-154850-a0.gesynclogs.discoveryengine_googleapis_com_gen_ai_user_message_*`');
+        expect(shardedMessagesDdl).toContain('_TABLE_SUFFIX AS table_date');
+    });
+
+    it('falls back to toggling wildcard and empty schema-compatible view DDL when BigQuery reports "does not match any table" or "Not found: Table"', async () => {
+        const onRefreshTables = vi.fn().mockResolvedValue(undefined);
+        // Simulate first query failing with wildcard error, second query failing with table not found (brand-new sink with 0 logs), third query succeeding with empty view DDL
+        (apiService.runBigQueryQuery as any)
+            .mockRejectedValueOnce(new Error('g7372485-eap-dev-154850-a0:gesynclogs.discoveryengine_googleapis_com_gen_ai_user_message_* does not match any table.'))
+            .mockRejectedValueOnce(new Error('Not found: Table g7372485-eap-dev-154850-a0:gesynclogs.discoveryengine_googleapis_com_gen_ai_user_message was not found'))
+            .mockResolvedValue({ kind: 'bigquery#queryResponse', rows: [] });
+
+        render(
+            <OperationalAnalyticsDashboard
+                projectId="g7372485-eap-dev-154850-a0"
+                projectNumber="123456"
+                datasetId="gesynclogs"
+                tables={[]}
+                onRefreshTables={onRefreshTables}
+            />
+        );
+
+        const addButtons = screen.getAllByRole('button', { name: /Add View to BigQuery/i });
+        fireEvent.click(addButtons[0]);
+
+        await waitFor(() => {
+            const createViewCalls = (apiService.runBigQueryQuery as any).mock.calls.filter(
+                (call: [string, string]) => call[1].includes('CREATE OR REPLACE VIEW')
+            );
+            expect(createViewCalls.length).toBe(3);
+            expect(createViewCalls[2][1]).toContain('FROM (SELECT 1) WHERE FALSE');
+            expect(onRefreshTables).toHaveBeenCalled();
+            expect(screen.getByText(/Successfully created view/i)).toBeInTheDocument();
+        });
+    });
 });
-
-
-

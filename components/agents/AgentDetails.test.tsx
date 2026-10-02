@@ -33,6 +33,9 @@ vi.mock('../../context/ToastContext', () => ({
     }),
 }));
 
+import AgentList from './AgentList';
+import AgentForm from './AgentForm';
+
 vi.mock('./AgentDatasourceEditor', () => ({
     default: () => <div data-testid="mock-datasource-editor" />,
 }));
@@ -44,7 +47,9 @@ vi.mock('../../services/apiService', async (importOriginal) => {
         getAgent: vi.fn(),
         getEngine: vi.fn(),
         getWidgetConfig: vi.fn(),
+        updateAgent: vi.fn(),
         updateAndPublishNoCodeAgent: vi.fn(),
+        getAgentIamPolicy: vi.fn(),
         deleteResource: vi.fn(),
         shareAgent: vi.fn(),
         adminPublishAndShareForUser: vi.fn(),
@@ -103,13 +108,12 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
         expect(ids).not.toContain('gemini-1.5-flash');
     });
 
-    it('filters models to match the App/Assistant resolvedModels and excludes MODEL_DISABLED models', () => {
+    it('filters models to match the App/Assistant resolvedModels and excludes MODEL_DISABLED or proto3 omitted adminView.enabledByDefault=false models', () => {
         const engine: AppEngine = {
             name: 'projects/test-proj/locations/global/collections/default_collection/engines/engine-123',
             displayName: 'Enterprise App',
             solutionType: 'SOLUTION_TYPE_GENERATIVE_CHAT',
             modelConfigs: {
-                'gemini-3.8-flash': 'MODEL_ENABLED',
                 'gemini-3.1-pro-preview': 'MODEL_ENABLED',
                 'gemini-2.5-flash': 'MODEL_DISABLED',
             },
@@ -120,8 +124,10 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
                 modelConfigInfo: {
                     resolvedModels: [
                         { displayName: 'Auto' }, // Auto sentinel without modelId
-                        { modelId: 'gemini-3.8-flash', displayName: 'Gemini 3.8 Flash', adminView: { enabledByDefault: true } },
-                        { modelId: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro (Thinking)', isPreview: true, adminView: { enabledByDefault: true } },
+                        // In proto3 JSON (?model_info_view=ADMIN), enabled_by_default == false is omitted from adminView ({})
+                        { modelId: 'gemini-3.8-flash', displayName: 'Gemini 3.8 Flash', adminView: {} },
+                        { modelId: 'gemini-3.7-flash', displayName: 'Gemini 3.7 Flash', adminView: { enabledByDefault: true } },
+                        { modelId: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro (Thinking)', isPreview: true, adminView: {} },
                         { modelId: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', adminView: { enabledByDefault: true } },
                         { modelId: 'gemini-3-pro-image-preview', displayName: 'Gemini 3 Pro Image', isPreview: true },
                     ],
@@ -132,7 +138,9 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
         const models = resolveAvailableAppModels(engine, widgetConfig);
         const ids = models.map(m => m.id);
 
-        expect(ids).toEqual(['gemini-3.8-flash', 'gemini-3.1-pro-preview']);
+        // gemini-3.8-flash has adminView: {} (enabledByDefault omitted/false) and no MODEL_ENABLED override -> must be excluded!
+        expect(ids).toEqual(['gemini-3.7-flash', 'gemini-3.1-pro-preview']);
+        expect(ids).not.toContain('gemini-3.8-flash');
         expect(ids).not.toContain('gemini-2.5-flash');
         expect(ids).not.toContain('gemini-3-pro-image-preview');
     });
@@ -205,6 +213,7 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
         });
 
         const optionValues = Array.from(select.options).map(o => o.value);
+        expect(optionValues).toContain('');
         expect(optionValues).toContain('gemini-3.8-flash');
         expect(optionValues).toContain('claude-sonnet-5');
         expect(optionValues).not.toContain('gemini-2.5-pro');
@@ -238,7 +247,7 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
         });
     });
 
-    it('preserves a legacy/disabled model currently set on the agent as a selectable option and falls back gracefully when getEngine/getWidgetConfig reject', async () => {
+    it('preserves a legacy/disabled model currently set on the agent, shows a warning banner, and allows resetting back to Auto (Engine Default)', async () => {
         const legacyAgent: Agent = {
             ...baseAgent,
             lowCodeAgentDefinition: {
@@ -256,6 +265,16 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
         vi.mocked(api.getAgent).mockResolvedValue(legacyAgent);
         vi.mocked(api.getEngine).mockRejectedValue(new Error('403 Forbidden on Engine'));
         vi.mocked(api.getWidgetConfig).mockRejectedValue(new Error('403 Forbidden on WidgetConfig'));
+        vi.mocked(api.updateAndPublishNoCodeAgent).mockResolvedValue({
+            updatedAgent: {
+                ...legacyAgent,
+                lowCodeAgentDefinition: {
+                    nodes: [{ id: 'root', llmAgentNode: { model: '' } }],
+                },
+            },
+            deployedOrPublished: true,
+            ownershipClaimed: false,
+        });
 
         render(
             <AgentDetails
@@ -275,9 +294,36 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
             expect(select.value).toBe('gemini-1.5-pro');
         });
 
+        expect(screen.getByText(/Pinned Model Not Enabled on App/i)).toBeTruthy();
+
         const optionTexts = Array.from(select.options).map(o => o.textContent || '');
+        expect(optionTexts.some(t => t.includes('Auto (Engine Default — Recommended)'))).toBe(true);
         expect(optionTexts.some(t => t.includes('gemini-1.5-pro') && t.includes('Current on Agent'))).toBe(true);
         expect(optionTexts.some(t => t.includes('Gemini 3.8 Flash (gemini-3.8-flash)'))).toBe(true);
+
+        // Reset back to Auto ('') and save
+        fireEvent.change(select, { target: { value: '' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save Model' }));
+
+        await waitFor(() => {
+            expect(api.updateAndPublishNoCodeAgent).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    lowCodeAgentDefinition: {
+                        nodes: [
+                            expect.objectContaining({
+                                id: 'root',
+                                llmAgentNode: expect.objectContaining({
+                                    model: '',
+                                }),
+                            }),
+                        ],
+                    },
+                }),
+                expect.any(Object),
+                mockConfig,
+                expect.any(Object)
+            );
+        });
     });
 
     it('renders Publish & Share for User on a PRIVATE agent, rejects invalid principals in modal, and executes adminPublishAndShareForUser on valid submission', async () => {
@@ -362,5 +408,246 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
             expect(onBack).toHaveBeenCalledTimes(1);
         });
     });
+
+    it('edits and saves System Instructions on a Low-Code agent and surfaces API errors on failure', async () => {
+        vi.mocked(api.getAgent).mockResolvedValue(baseAgent);
+        vi.mocked(api.getEngine).mockResolvedValue(null as unknown as AppEngine);
+        vi.mocked(api.getWidgetConfig).mockResolvedValue(null as unknown as WidgetConfig);
+
+        render(
+            <AgentDetails
+                agent={baseAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        const instructionTextarea = (await screen.findByLabelText('System Instruction')) as HTMLTextAreaElement;
+        expect(instructionTextarea.value).toBe('Help users.');
+
+        fireEvent.change(instructionTextarea, {
+            target: { value: 'You are an enterprise IT support specialist. Always cite KB articles.' },
+        });
+
+        // Negative test: API rejects when saving instructions
+        vi.mocked(api.updateAndPublishNoCodeAgent).mockRejectedValueOnce(new Error('403 Permission denied on node instruction'));
+        fireEvent.click(screen.getByRole('button', { name: 'Save Instructions' }));
+
+        expect(await screen.findByText(/403 Permission denied on node instruction/i)).toBeTruthy();
+
+        // Positive test: API succeeds
+        vi.mocked(api.updateAndPublishNoCodeAgent).mockResolvedValueOnce({
+            updatedAgent: {
+                ...baseAgent,
+                lowCodeAgentDefinition: {
+                    nodes: [
+                        {
+                            id: 'root',
+                            displayName: 'Main Node',
+                            llmAgentNode: {
+                                model: 'gemini-3.6-flash',
+                                instruction: 'You are an enterprise IT support specialist. Always cite KB articles.',
+                            },
+                        },
+                    ],
+                },
+            },
+            deployedOrPublished: true,
+            ownershipClaimed: false,
+        });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Save Instructions' }));
+
+        await waitFor(() => {
+            expect(api.updateAndPublishNoCodeAgent).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    lowCodeAgentDefinition: {
+                        nodes: [
+                            expect.objectContaining({
+                                id: 'root',
+                                llmAgentNode: expect.objectContaining({
+                                    instruction: 'You are an enterprise IT support specialist. Always cite KB articles.',
+                                }),
+                            }),
+                        ],
+                    },
+                }),
+                expect.any(Object),
+                mockConfig,
+                expect.any(Object)
+            );
+        });
+    });
+
+    it('switches to Sharing & IAM sub-tab, toggles Sharing Scope, and renders the visual IAM policy bindings table', async () => {
+        vi.mocked(api.getAgent).mockResolvedValue(baseAgent);
+        vi.mocked(api.getEngine).mockResolvedValue(null as unknown as AppEngine);
+        vi.mocked(api.getWidgetConfig).mockResolvedValue(null as unknown as WidgetConfig);
+        vi.mocked(api.updateAgent).mockResolvedValue({
+            ...baseAgent,
+            sharingConfig: { scope: 'ALL_USERS' },
+        });
+        vi.mocked(api.getAgentIamPolicy).mockResolvedValue({
+            bindings: [
+                {
+                    role: 'roles/discoveryengine.agentOwner',
+                    members: ['user:owner@company.com'],
+                },
+                {
+                    role: 'roles/discoveryengine.agentUser',
+                    members: ['group:eng@company.com'],
+                },
+            ],
+            etag: 'BwW123',
+        });
+
+        render(
+            <AgentDetails
+                agent={baseAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: /Sharing & IAM/i }));
+
+        // Toggle scope to All Users in App
+        fireEvent.click(screen.getByRole('button', { name: 'All Users in App' }));
+        await waitFor(() => {
+            expect(api.updateAgent).toHaveBeenCalledWith(
+                expect.objectContaining({ name: baseAgent.name }),
+                { sharingConfig: { scope: 'ALL_USERS' } },
+                mockConfig
+            );
+        });
+
+        // Fetch IAM policy and verify visual bindings table
+        fireEvent.click(screen.getByRole('button', { name: 'Get IAM Policy' }));
+        expect(await screen.findByText('roles/discoveryengine.agentOwner')).toBeTruthy();
+        expect(screen.getByText('user:owner@company.com')).toBeTruthy();
+        expect(screen.getByText('group:eng@company.com')).toBeTruthy();
+    });
+
+    it('filters agents by search query, status pill, and sharing scope in AgentList and does not render per-agent Test buttons', () => {
+        const agents: Agent[] = [
+            {
+                ...baseAgent,
+                name: 'projects/p/locations/global/collections/default_collection/engines/e/assistants/default_assistant/agents/ag-1',
+                displayName: 'Alpha Support Agent',
+                state: 'ENABLED',
+                agentType: 'LOW_CODE',
+                sharingConfig: { scope: 'ALL_USERS' },
+            },
+            {
+                ...baseAgent,
+                name: 'projects/p/locations/global/collections/default_collection/engines/e/assistants/default_assistant/agents/ag-2',
+                displayName: 'Beta Finance Agent',
+                state: 'PRIVATE',
+                agentType: 'LOW_CODE',
+            },
+        ];
+
+        render(
+            <AgentList
+                agents={agents}
+                onSelectAgent={vi.fn()}
+                onEditAgent={vi.fn()}
+                onDeleteAgent={vi.fn()}
+                onRegisterNew={vi.fn()}
+                onToggleAgentStatus={vi.fn()}
+                deletingAgentIds={new Set()}
+                selectedAgents={new Set()}
+                onToggleSelect={vi.fn()}
+                onToggleSelectAll={vi.fn()}
+                onDeleteSelected={vi.fn()}
+                onSort={vi.fn()}
+                sortConfig={{ key: 'displayName', direction: 'asc' }}
+            />
+        );
+
+        expect(screen.getByText('Alpha Support Agent')).toBeTruthy();
+        expect(screen.getByText('Beta Finance Agent')).toBeTruthy();
+
+        // Filter by Private status pill
+        fireEvent.click(screen.getByRole('button', { name: /Private \(1\)/i }));
+        expect(screen.queryByText('Alpha Support Agent')).toBeNull();
+        expect(screen.getByText('Beta Finance Agent')).toBeTruthy();
+
+        // Reset to All and filter by search query
+        fireEvent.click(screen.getByRole('button', { name: /All \(2\)/i }));
+        fireEvent.change(screen.getByLabelText('Search agents'), { target: { value: 'Alpha' } });
+        expect(screen.getByText('Alpha Support Agent')).toBeTruthy();
+        expect(screen.queryByText('Beta Finance Agent')).toBeNull();
+
+        // Verify per-agent Test button is not rendered
+        expect(screen.queryByRole('button', { name: 'Test' })).toBeNull();
+    });
+
+    it('allows editing a shared Low-Code (no_code) agent in AgentForm, hides authorizationConfig (ADK/A2A only), and syncs lowCodeAgentDefinition.draftDisplayName & draftDescription', async () => {
+        vi.mocked(api.getAgent).mockResolvedValue({
+            ...baseAgent,
+            description: 'Initial description',
+        });
+        vi.mocked(api.updateAgent).mockResolvedValue(baseAgent);
+
+        const onSuccess = vi.fn();
+        render(
+            <AgentForm
+                config={mockConfig}
+                onSuccess={onSuccess}
+                onCancel={vi.fn()}
+                agentToEdit={{
+                    ...baseAgent,
+                    description: 'Initial description',
+                }}
+            />
+        );
+
+        // Should show the No-Code / Low-Code / Workflow info card rather than ADK Reasoning Engine required inputs
+        expect(screen.getByText(/No-Code \/ Low-Code \/ Workflow Agent/i)).toBeTruthy();
+        // Should explain that authorizationConfig only applies to ADK and A2A agents
+        expect(screen.getByText(/Tool & Connector Authentication:/i)).toBeTruthy();
+        expect(screen.queryByPlaceholderText('Type an Authorization ID')).toBeNull();
+
+        const displayNameInput = screen.getByLabelText('Display Name');
+        fireEvent.change(displayNameInput, { target: { value: 'Updated Low-Code Support Agent' } });
+
+        const descriptionInput = screen.getByLabelText('Description');
+        fireEvent.change(descriptionInput, { target: { value: 'Updated low-code description' } });
+
+        fireEvent.click(screen.getByRole('button', { name: /Save Agent/i }));
+
+        await waitFor(() => {
+            expect(api.updateAgent).toHaveBeenCalledWith(
+                expect.objectContaining({ name: baseAgent.name }),
+                expect.objectContaining({
+                    displayName: 'Updated Low-Code Support Agent',
+                    description: 'Updated low-code description',
+                    lowCodeAgentDefinition: expect.objectContaining({
+                        draftDisplayName: 'Updated Low-Code Support Agent',
+                        draftDescription: 'Updated low-code description',
+                    }),
+                }),
+                mockConfig
+            );
+            // Verify it did NOT inject adkAgentDefinition, a2aAgentDefinition, or authorizationConfig onto the no-code agent
+            const patchPayload = vi.mocked(api.updateAgent).mock.calls[0][1];
+            expect(patchPayload.adkAgentDefinition).toBeUndefined();
+            expect(patchPayload.a2aAgentDefinition).toBeUndefined();
+            expect(patchPayload.authorizationConfig).toBeUndefined();
+            expect(onSuccess).toHaveBeenCalledTimes(1);
+        });
+    });
 });
+
 

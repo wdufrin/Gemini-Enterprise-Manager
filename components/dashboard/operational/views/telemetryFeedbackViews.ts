@@ -1,7 +1,15 @@
-import { ViewDefinition, hasTable, hasMatchingTable, getLogsSource } from "./helpers";
+import {
+    ViewDefinition,
+    hasTable,
+    getLogsSource,
+    resolveSinkTable,
+    USER_ACTIVITY_TABLE,
+    AI_CHOICE_TABLE,
+    INFERENCE_DETAILS_TABLE
+} from "./helpers";
 
 export const telemetryFeedbackViews: Record<string, ViewDefinition> = {
-v_gemini_genai_telemetry: {
+    v_gemini_genai_telemetry: {
         id: 'v_gemini_genai_telemetry',
         viewName: 'v_gemini_genai_telemetry',
         title: 'GenAI Telemetry & Tool Invocations',
@@ -20,7 +28,6 @@ v_gemini_genai_telemetry: {
             { key: 'user_prompt', header: 'User Prompt' }
         ],
         getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
-            const logsSource = getLogsSource(projectId, dataset, tables);
             const hasAssist = hasTable(tables, 'gemini_assist_activity');
             const assistCte = hasAssist ? `
 assist_agents AS (
@@ -42,7 +49,9 @@ assist_agents AS (
 
             const assistJoin = hasAssist ? `LEFT JOIN assist_agents a ON COALESCE(r.conversation_id, r.trace) = a.session_id` : '';
 
-            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_genai_telemetry\` AS
+            if (hasTable(tables, '_AllLogs')) {
+                const logsSource = getLogsSource(projectId, dataset, tables);
+                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_genai_telemetry\` AS
 WITH raw_inferences AS (
   SELECT
     t.timestamp,
@@ -125,6 +134,103 @@ SELECT
   output_tokens,
   finish_reason
 FROM ranked_steps;`;
+            }
+
+            const sinkInference = resolveSinkTable(projectId, dataset, INFERENCE_DETAILS_TABLE, tables);
+            const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
+            const includeActivityMap = sinkActivity.hasAnyTable || !sinkInference.hasAnyTable;
+
+            const userMapCteBody = includeActivityMap
+                ? `SELECT
+    trace,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+    ) AS user_email
+  FROM ${sinkActivity.tableRef}
+  WHERE COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+  ) IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER(PARTITION BY trace ORDER BY timestamp DESC) = 1`
+                : `SELECT CAST(NULL AS STRING) AS trace, CAST(NULL AS STRING) AS user_email FROM (SELECT 1) WHERE FALSE`;
+
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_genai_telemetry\` AS
+WITH raw_inferences AS (
+  SELECT
+    t.timestamp,
+    t.trace,
+    t.spanId AS span_id,
+    t.insertId AS insert_id,
+    JSON_VALUE(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.conversation.id"') AS conversation_id,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.agent.name"'),
+      'root_agent'
+    ) AS raw_agent_name,
+    (
+      SELECT STRING_AGG(JSON_VALUE(p, '$.content'), '\\n')
+      FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.input.messages"')) m,
+      UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
+      WHERE JSON_VALUE(p, '$.content') IS NOT NULL
+    ) AS user_prompt,
+    (
+      SELECT STRING_AGG(JSON_VALUE(p, '$.content'), '\\n')
+      FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.output.messages"')) m,
+      UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
+      WHERE JSON_VALUE(p, '$.content') IS NOT NULL
+    ) AS model_response,
+    (
+      SELECT STRING_AGG(
+        CONCAT(
+          JSON_VALUE(p, '$.name'),
+          IF(JSON_QUERY(p, '$.arguments') IS NOT NULL, CONCAT('(', TO_JSON_STRING(JSON_QUERY(p, '$.arguments')), ')'), '')
+        ),
+        '; '
+      )
+      FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.output.messages"')) m,
+      UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
+      WHERE JSON_VALUE(p, '$.name') IS NOT NULL
+    ) AS tool_calls,
+    CAST(JSON_VALUE(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.usage.input_tokens"') AS INT64) AS input_tokens,
+    CAST(JSON_VALUE(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.usage.output_tokens"') AS INT64) AS output_tokens,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.response.finish_reasons"[0]'),
+      'stop'
+    ) AS finish_reason
+  FROM ${sinkInference.tableRef} t
+  QUALIFY ROW_NUMBER() OVER(PARTITION BY t.insertId ORDER BY t.timestamp DESC) = 1
+),
+user_map AS (
+  ${userMapCteBody}
+),${assistCte}
+ranked_steps AS (
+  SELECT
+    r.*,
+    u.user_email,
+    ${agentNameSelect}
+    ROW_NUMBER() OVER(PARTITION BY r.trace ORDER BY r.timestamp ASC) AS step_index,
+    COUNT(1) OVER(PARTITION BY r.trace) AS total_steps
+  FROM raw_inferences r
+  LEFT JOIN user_map u ON r.trace = u.trace
+  ${assistJoin}
+)
+SELECT
+  timestamp,
+  trace,
+  span_id,
+  COALESCE(user_email, 'Unattributed Service / Job') AS user_email,
+  conversation_id,
+  agent_name,
+  step_index,
+  total_steps,
+  (step_index = total_steps) AS is_final_step,
+  user_prompt,
+  model_response,
+  tool_calls,
+  input_tokens,
+  output_tokens,
+  finish_reason
+FROM ranked_steps;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   agent_name,
@@ -154,8 +260,7 @@ ORDER BY timestamp DESC
 LIMIT 100;`
     },
 
-    // 3. User Connector Usage (All-Time),
-v_consolidated_ai_choices: {
+    v_consolidated_ai_choices: {
         id: 'v_consolidated_ai_choices',
         viewName: 'v_consolidated_ai_choices',
         title: 'AI Generation Choices',
@@ -181,15 +286,54 @@ SELECT
 FROM \`${projectId}.${dataset}.gemini_genai_telemetry\`
 QUALIFY ROW_NUMBER() OVER(PARTITION BY trace, COALESCE(span_id, CAST(timestamp AS STRING)) ORDER BY timestamp DESC) = 1;`;
             }
+
+            const sinkChoices = resolveSinkTable(projectId, dataset, AI_CHOICE_TABLE, tables);
+            if (!sinkChoices.hasAnyTable && hasTable(tables, '_AllLogs')) {
+                const logsSource = getLogsSource(projectId, dataset, tables);
+                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_ai_choices\` AS
+SELECT 
+  timestamp,
+  insert_id AS insertId,
+  trace,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.finishReason'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.finish_reason'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.choice.finish_reason'),
+    'STOP'
+  ) AS finish_reason,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.content.role'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.choice.message.role'),
+    'model'
+  ) AS role,
+  FORMAT_TIMESTAMP('%Y%m%d', timestamp) AS table_date
+FROM ${logsSource}
+WHERE log_name LIKE '%gen_ai.choice%' OR log_name LIKE '%gen_ai_choice%'
+QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id ORDER BY timestamp DESC) = 1;`;
+            }
+
+            const tableDateExpr = sinkChoices.isWildcard
+                ? '_TABLE_SUFFIX AS table_date'
+                : "FORMAT_TIMESTAMP('%Y%m%d', timestamp) AS table_date";
+
             return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_ai_choices\` AS
 SELECT 
   timestamp,
   insertId,
   trace,
-  COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.finishReason'), 'STOP') AS finish_reason,
-  COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.content.role'), 'model') AS role,
-  _TABLE_SUFFIX AS table_date
-FROM \`${projectId}.${dataset}.discoveryengine_googleapis_com_gen_ai_choice_*\`
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.finishReason'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.finish_reason'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.choice.finish_reason'),
+    'STOP'
+  ) AS finish_reason,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.content.role'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.choice.message.role'),
+    'model'
+  ) AS role,
+  ${tableDateExpr}
+FROM ${sinkChoices.tableRef}
 QUALIFY ROW_NUMBER() OVER(PARTITION BY insertId ORDER BY timestamp DESC) = 1;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
@@ -209,8 +353,7 @@ ORDER BY timestamp DESC
 LIMIT 100;`
     },
 
-    // 6. Agent Feedback Summary,
-v_agent_feedback: {
+    v_agent_feedback: {
         id: 'v_agent_feedback',
         viewName: 'v_agent_feedback',
         title: 'Agent Feedback Summary',
@@ -225,8 +368,9 @@ v_agent_feedback: {
             { key: 'user_email', header: 'User Email' }
         ],
         getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
-            const logsSource = getLogsSource(projectId, dataset, tables);
-            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback\` AS
+            if (hasTable(tables, '_AllLogs')) {
+                const logsSource = getLogsSource(projectId, dataset, tables);
+                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback\` AS
 WITH feedback_events AS (
   SELECT
     timestamp AS event_time,
@@ -276,6 +420,92 @@ SELECT
   f.user_email
 FROM feedback_events f
 LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
+            }
+
+            const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback\` AS
+WITH feedback_events AS (
+  SELECT
+    timestamp AS event_time,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+    ) AS user_email,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
+    ) AS feedback,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.reasons[0]'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.reasons[0]'),
+      'REASON_UNSPECIFIED'
+    ) AS reason,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.comment'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.comment')
+    ) AS comment,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken')
+    ) AS assist_token,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.agentspaceInfo.agentInfo.name'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.agentspaceinfo.agentinfo.name'),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.engine'), JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.engine')), r'/engines/([^/]+)')
+    ) AS fallback_agent_name
+  FROM ${sinkActivity.tableRef}
+  WHERE COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.eventType'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.eventtype')
+  ) = 'add-feedback'
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY 
+      COALESCE(
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken'),
+        insertId
+      ),
+      COALESCE(
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
+      )
+    ORDER BY timestamp DESC
+  ) = 1
+),
+interaction_events AS (
+  SELECT
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+    ) AS assist_token,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.displayName'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.displayname'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayName'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayname')
+    ) AS agent_name
+  FROM ${sinkActivity.tableRef}
+  WHERE COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+  ) IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+    )
+    ORDER BY timestamp DESC
+  ) = 1
+)
+SELECT
+  COALESCE(i.agent_name, f.fallback_agent_name) AS agent_name,
+  f.feedback,
+  f.reason,
+  f.comment,
+  f.event_time,
+  f.user_email
+FROM feedback_events f
+LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   agent_name,
@@ -297,8 +527,7 @@ ORDER BY event_time DESC
 LIMIT 100;`
     },
 
-    // 7. Admin Feedback Review,
-v_admin_feedback_review: {
+    v_admin_feedback_review: {
         id: 'v_admin_feedback_review',
         viewName: 'v_admin_feedback_review',
         title: 'Admin Feedback Review',
@@ -313,8 +542,9 @@ v_admin_feedback_review: {
             { key: 'prompt', header: 'User Prompt' }
         ],
         getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
-            const logsSource = getLogsSource(projectId, dataset, tables);
-            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_admin_feedback_review\` AS
+            if (hasTable(tables, '_AllLogs')) {
+                const logsSource = getLogsSource(projectId, dataset, tables);
+                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_admin_feedback_review\` AS
 WITH feedback_events AS (
   SELECT
     timestamp AS feedback_time,
@@ -374,6 +604,106 @@ SELECT
   i.trace
 FROM feedback_events f
 LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
+            }
+
+            const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_admin_feedback_review\` AS
+WITH feedback_events AS (
+  SELECT
+    timestamp AS feedback_time,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+    ) AS user_email,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
+    ) AS feedback_type,
+    COALESCE(
+      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.reasons')),
+      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.reasons'))
+    ) AS feedback_reasons,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.comment'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.comment')
+    ) AS feedback_comment,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken')
+    ) AS assist_token,
+    insertId AS insert_id
+  FROM ${sinkActivity.tableRef}
+  WHERE COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.eventType'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.eventtype')
+  ) = 'add-feedback'
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY 
+      COALESCE(
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken'),
+        insertId
+      ),
+      COALESCE(
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
+      )
+    ORDER BY timestamp DESC
+  ) = 1
+),
+interaction_events AS (
+  SELECT
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+    ) AS assist_token,
+    trace,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.displayName'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.displayname'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayName'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayname'),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.name'), JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.name')), r'/engines/([^/]+)')
+    ) AS agent_name,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.serviceTextReply'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.servicetextreply'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.replies[0].content.text'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.replies[0].groundedContent.content.text'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.replies[0].groundedcontent.content.text')
+    ) AS response_text,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query.text'),
+      (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(jsonPayload), '$.request.query.parts')) p),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.searchInfo.searchQuery'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.searchinfo.searchquery')
+    ) AS prompt
+  FROM ${sinkActivity.tableRef}
+  WHERE COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+  ) IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+    )
+    ORDER BY timestamp DESC
+  ) = 1
+)
+SELECT
+  f.feedback_time,
+  f.user_email,
+  i.agent_name,
+  f.feedback_type,
+  f.feedback_reasons,
+  f.feedback_comment,
+  i.prompt,
+  i.response_text AS response,
+  f.assist_token,
+  i.trace
+FROM feedback_events f
+LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   COALESCE(agent_name, 'General Assistant') AS agent_name,
@@ -396,8 +726,7 @@ ORDER BY feedback_time DESC
 LIMIT 100;`
     },
 
-    // 8. Detailed Agent Feedback Turns,
-v_agent_feedback_detailed: {
+    v_agent_feedback_detailed: {
         id: 'v_agent_feedback_detailed',
         viewName: 'v_agent_feedback_detailed',
         title: 'Detailed Feedback Turns',
@@ -412,8 +741,9 @@ v_agent_feedback_detailed: {
             { key: 'result', header: 'Agent Answer' }
         ],
         getDdl: (projectId: string, dataset: string, tables?: Set<string> | string[]) => {
-            const logsSource = getLogsSource(projectId, dataset, tables);
-            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback_detailed\` AS
+            if (hasTable(tables, '_AllLogs')) {
+                const logsSource = getLogsSource(projectId, dataset, tables);
+                return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback_detailed\` AS
 WITH feedback_events AS (
   SELECT
     timestamp AS feedback_time,
@@ -475,6 +805,107 @@ SELECT
   f.assist_token
 FROM feedback_events f
 LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
+            }
+
+            const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
+            return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback_detailed\` AS
+WITH feedback_events AS (
+  SELECT
+    timestamp AS feedback_time,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+    ) AS user_email,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
+    ) AS feedback_type,
+    COALESCE(
+      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.reasons')),
+      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.reasons'))
+    ) AS feedback_reasons,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.comment'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.comment')
+    ) AS feedback_comment,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken')
+    ) AS assist_token
+  FROM ${sinkActivity.tableRef}
+  WHERE COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.eventType'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.eventtype')
+  ) = 'add-feedback'
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY 
+      COALESCE(
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken'),
+        insertId
+      ),
+      COALESCE(
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
+        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
+      )
+    ORDER BY timestamp DESC
+  ) = 1
+),
+interaction_events AS (
+  SELECT
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+    ) AS assist_token,
+    trace,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.serviceTextReply'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.servicetextreply'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.replies[0].content.text')
+    ) AS result,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.displayName'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.displayname'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayName'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayname')
+    ) AS underlying_agent_name,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agentsSpec.agentSpecs[0].agentId'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agentsspec.agentspecs[0].agentid'),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.agent'), JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.agent')), r'/agents/([^/]+)')
+    ) AS underlying_agent_id,
+    REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.name'), JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.name')), r'/engines/([^/]+)') AS gemini_enterprise_app_id,
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query.text'),
+      (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(jsonPayload), '$.request.query.parts')) p)
+    ) AS prompt
+  FROM ${sinkActivity.tableRef}
+  WHERE COALESCE(
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+  ) IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY COALESCE(
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
+      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+    )
+    ORDER BY timestamp DESC
+  ) = 1
+)
+SELECT
+  f.feedback_time,
+  f.user_email,
+  i.underlying_agent_name,
+  i.underlying_agent_id,
+  i.gemini_enterprise_app_id,
+  f.feedback_type,
+  f.feedback_reasons,
+  f.feedback_comment,
+  i.prompt,
+  i.result,
+  f.assist_token
+FROM feedback_events f
+LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   COALESCE(underlying_agent_name, 'General Assistant') AS agent_name,
@@ -495,6 +926,4 @@ FROM \`${projectId}.${dataset}.v_agent_feedback_detailed\`
 ORDER BY feedback_time DESC
 LIMIT 100;`
     },
-
-    // 9. Consolidated User Messages,
 };
