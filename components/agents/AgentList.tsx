@@ -30,11 +30,14 @@ interface AgentListProps {
   deletingAgentIds: Set<string>;
   selectedAgents: Set<string>;
   onToggleSelect: (name: string) => void;
-  onToggleSelectAll: () => void;
+  onToggleSelectAll: (selectableNames?: string[]) => void;
   onDeleteSelected: () => void;
   onSort: (key: SortableAgentKey) => void;
   sortConfig: SortConfig;
   onUpdateAgentName?: (agent: Agent, newName: string) => Promise<void>;
+  canRestoreDeepResearch?: boolean;
+  isRestoringDeepResearch?: boolean;
+  onRestoreDeepResearch?: () => void;
 }
 
 type StatusFilter = 'ALL' | 'ENABLED' | 'DISABLED' | 'PRIVATE';
@@ -73,7 +76,10 @@ const AgentList: React.FC<AgentListProps> = ({
   onDeleteSelected,
   onSort, 
   sortConfig, 
-  onUpdateAgentName 
+  onUpdateAgentName,
+  canRestoreDeepResearch,
+  isRestoringDeepResearch,
+  onRestoreDeepResearch,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -134,7 +140,14 @@ const AgentList: React.FC<AgentListProps> = ({
     });
   }, [agents, searchQuery, statusFilter, typeFilter, scopeFilter]);
 
-  const isAllSelected = filteredAgents.length > 0 && filteredAgents.every(a => selectedAgents.has(a.name));
+  const selectableFilteredAgents = useMemo(
+    () => filteredAgents.filter(a => !api.isGoogleManagedAgent(a)),
+    [filteredAgents]
+  );
+
+  const isAllSelected =
+    selectableFilteredAgents.length > 0 &&
+    selectableFilteredAgents.every(a => selectedAgents.has(a.name));
 
   const handleEditClick = (agent: Agent) => {
     setEditingId(agent.name);
@@ -231,6 +244,30 @@ const AgentList: React.FC<AgentListProps> = ({
           </button>
         </div>
       </div>
+
+      {canRestoreDeepResearch && onRestoreDeepResearch && (
+        <div className="px-4 py-3 bg-indigo-950/50 border-b border-indigo-700/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-indigo-900/80 text-indigo-200 border border-indigo-600/60 shrink-0">
+              Google Built-in
+            </span>
+            <p className="text-xs text-indigo-100">
+              <strong>Deep Research (`deep_research`)</strong> is not currently registered on this Gemini Enterprise assistant. You can re-provision the built-in Google Deep Research agent in one click.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onRestoreDeepResearch}
+            disabled={isRestoringDeepResearch}
+            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 text-white text-xs font-semibold rounded-md shrink-0 flex items-center gap-1.5 transition-colors"
+          >
+            {isRestoringDeepResearch && (
+              <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white"></div>
+            )}
+            <span>{isRestoringDeepResearch ? 'Restoring Deep Research...' : 'Restore Deep Research'}</span>
+          </button>
+        </div>
+      )}
 
       {/* Search & Filter Toolbar */}
       {agents.length > 0 && (
@@ -351,9 +388,10 @@ const AgentList: React.FC<AgentListProps> = ({
                           <input
                               type="checkbox"
                               checked={isAllSelected}
-                              onChange={onToggleSelectAll}
+                              disabled={selectableFilteredAgents.length === 0}
+                              onChange={() => onToggleSelectAll(selectableFilteredAgents.map(a => a.name))}
                               aria-label="Select all agents"
-                              className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
+                              className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600 disabled:opacity-40"
                           />
                         </th>
                         <SortableHeader sortKey="displayName">Display Name</SortableHeader>
@@ -375,6 +413,7 @@ const AgentList: React.FC<AgentListProps> = ({
                         const isToggling = togglingAgentId === agentId;
                         const isDeleting = deletingAgentIds.has(agent.name);
                         const isSelected = selectedAgents.has(agent.name);
+                        const isGoogleManaged = api.isGoogleManagedAgent(agent);
                         const statusColorClass = agent.state === 'ENABLED' ? 'bg-green-500' : agent.state === 'DISABLED' ? 'bg-red-500' : 'bg-yellow-500';
                         const sharingScope = getAgentSharingScope(agent);
                         const ownerHint = api.extractAgentOwnerHint(agent);
@@ -412,9 +451,11 @@ const AgentList: React.FC<AgentListProps> = ({
                                     <input
                                         type="checkbox"
                                         checked={isSelected}
+                                        disabled={isGoogleManaged}
                                         onChange={() => onToggleSelect(agent.name)}
+                                        title={isGoogleManaged ? 'Google built-in agents are protected from bulk deletion' : undefined}
                                         aria-label={`Select agent ${agent.displayName}`}
-                                        className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
+                                        className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600 disabled:opacity-30 disabled:cursor-not-allowed"
                                     />
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
@@ -448,6 +489,14 @@ const AgentList: React.FC<AgentListProps> = ({
                                                 >
                                                     {agent.displayName}
                                                 </button>
+                                                {isGoogleManaged && (
+                                                    <span
+                                                        className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70"
+                                                        title="First-party Google-managed built-in agent (protected from deletion)."
+                                                    >
+                                                        Google Built-in
+                                                    </span>
+                                                )}
                                                 {onUpdateAgentName && (
                                                     <button 
                                                         type="button"
@@ -511,9 +560,18 @@ const AgentList: React.FC<AgentListProps> = ({
                                                     Edit
                                                 </button>
                                             )}
-                                            <button onClick={() => onDeleteAgent(agent)} disabled={isToggling} className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500">
-                                                Delete
-                                            </button>
+                                            {isGoogleManaged ? (
+                                                <span
+                                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-gray-700/80 text-gray-400 border border-gray-600 cursor-not-allowed select-none"
+                                                    title="Google built-in agent cannot be deleted. Use the Enabled/Disabled status toggle to hide it from users."
+                                                >
+                                                    Protected
+                                                </span>
+                                            ) : (
+                                                <button onClick={() => onDeleteAgent(agent)} disabled={isToggling} className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500">
+                                                    Delete
+                                                </button>
+                                            )}
                                         </>
                                     )}
                                 </td>

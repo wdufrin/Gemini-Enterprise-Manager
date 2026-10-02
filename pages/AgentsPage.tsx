@@ -213,43 +213,62 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         
         const inferLocalAgentType = (agent: Agent): string | undefined => {
           if (agent.agentType) return agent.agentType;
+          if (api.isGoogleManagedAgent(agent)) return 'MANAGED';
           if (agent.adkAgentDefinition) return 'ADK';
           if (agent.a2aAgentDefinition) return 'A2A';
-          if (agent.lowCodeAgentDefinition || agent.workflowAgentDefinition) return 'LOW_CODE';
+          if (agent.skillAgentDefinition) return 'SKILL';
+          if (
+            agent.lowCodeAgentDefinition ||
+            agent.workflowAgentDefinition ||
+            agent.agentDesignerAgentDefinition ||
+            agent.noCodeAgentDefinition
+          ) {
+            return 'LOW_CODE';
+          }
           if (!agent.state || (agent.state !== 'ENABLED' && agent.state !== 'DISABLED')) return 'LOW_CODE';
+          return undefined;
+        };
+
+        const inferLocalAgentOrigin = (agent: Agent): string | undefined => {
+          if (agent.agentOrigin) return agent.agentOrigin;
+          if (api.isGoogleManagedAgent(agent)) return 'GOOGLE';
+          if (api.isCustomNoCodeAgent(agent)) return 'AGENT_DESIGNER';
           return undefined;
         };
 
         const baseAgents = allAgents.map(agent => ({
           ...agent,
           agentType: inferLocalAgentType(agent),
+          agentOrigin: inferLocalAgentOrigin(agent),
         }));
 
-        // Render agents immediately without blocking on N getAgentView calls
+        // Render agents immediately without blocking on getAgentView calls
         setAgents(baseAgents);
         setIsLoading(false);
 
-        if (baseAgents.length > 0) {
+        const agentsNeedingView = baseAgents.filter(a => !a.agentType || !a.agentOrigin);
+        if (agentsNeedingView.length > 0) {
           void Promise.all(
-            baseAgents.map(agent =>
+            agentsNeedingView.map(agent =>
               api.getAgentView(agent.name, apiConfig).catch(() => null)
             )
           ).then(agentViewResults => {
+            const viewByName = new Map<string, any>();
+            agentsNeedingView.forEach((a, idx) => {
+              if (agentViewResults[idx]?.agentView) {
+                viewByName.set(a.name, agentViewResults[idx]!.agentView);
+              }
+            });
+            if (viewByName.size === 0) return;
+
             setAgents(prev =>
               prev.map(agent => {
-                const idx = baseAgents.findIndex(b => b.name === agent.name);
-                const viewResult = idx >= 0 ? agentViewResults[idx] : null;
-                const agentType =
-                  (viewResult && viewResult.agentView ? viewResult.agentView.agentType : undefined) ||
-                  agent.agentType ||
-                  inferLocalAgentType(agent);
-                const agentOrigin =
-                  (viewResult && viewResult.agentView ? viewResult.agentView.agentOrigin : undefined) ||
-                  agent.agentOrigin;
+                const view = viewByName.get(agent.name);
+                if (!view) return agent;
                 return {
                   ...agent,
-                  agentType,
-                  agentOrigin,
+                  agentType: view.agentType || agent.agentType || inferLocalAgentType(agent),
+                  agentOrigin: view.agentOrigin || agent.agentOrigin || inferLocalAgentOrigin(agent),
                 };
               })
             );
@@ -297,7 +316,47 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     }
   };
 
+  const [isRestoringDeepResearch, setIsRestoringDeepResearch] = useState(false);
+
+  const hasDeepResearchAgent = useMemo(
+    () =>
+      agents.some(a => {
+        const id = (a.name.split('/').pop() || a.id || '').toLowerCase();
+        return (
+          id === 'deep_research' ||
+          id === 'deep_research_gem3' ||
+          id === 'default_deep_research' ||
+          Boolean(
+            (a.managedAgentDefinition as Record<string, unknown> | undefined)
+              ?.researchAssistantAgentConfig
+          )
+        );
+      }),
+    [agents]
+  );
+
+  const handleRestoreDeepResearch = async () => {
+    if (!apiConfig.projectId || !apiConfig.appId) return;
+    setIsRestoringDeepResearch(true);
+    setError(null);
+    try {
+      await api.restoreDeepResearchAgent(apiConfig);
+      await fetchAgents();
+    } catch (err: any) {
+      setError(
+        err.message ||
+          'Failed to restore Deep Research agent. Ensure the Discovery Engine Service Agent has roles/discoveryengine.serviceAgent and CMEK does not block 1P agent creation.'
+      );
+    } finally {
+      setIsRestoringDeepResearch(false);
+    }
+  };
+
   const handleToggleSelect = (agentName: string) => {
+    const target = agents.find(a => a.name === agentName);
+    if (target && api.isGoogleManagedAgent(target)) {
+      return;
+    }
     setSelectedAgents(prev => {
       const newSet = new Set(prev);
       if (newSet.has(agentName)) {
@@ -309,20 +368,45 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     });
   };
 
-  const handleToggleSelectAll = () => {
-    if (selectedAgents.size === agents.length) {
+  const handleToggleSelectAll = (selectableNames?: string[]) => {
+    const candidateNames =
+      selectableNames ||
+      agents.filter(a => !api.isGoogleManagedAgent(a)).map(a => a.name);
+    if (candidateNames.length === 0) {
       setSelectedAgents(new Set());
+      return;
+    }
+    const allCandidatesSelected = candidateNames.every(name => selectedAgents.has(name));
+    if (allCandidatesSelected) {
+      setSelectedAgents(prev => {
+        const next = new Set(prev);
+        candidateNames.forEach(name => next.delete(name));
+        return next;
+      });
     } else {
-      setSelectedAgents(new Set(agents.map(a => a.name)));
+      setSelectedAgents(prev => {
+        const next = new Set(prev);
+        candidateNames.forEach(name => next.add(name));
+        return next;
+      });
     }
   };
 
   const handleRequestDelete = (agent?: Agent) => {
+    if (agent && api.isGoogleManagedAgent(agent)) {
+      setError(
+        `"${agent.displayName || agent.name.split('/').pop()}" is a Google-managed built-in agent and is protected from deletion. Toggle its status to Disabled instead.`
+      );
+      return;
+    }
+
     let toDelete: Agent[] = [];
     if (agent) {
       toDelete = [agent];
     } else {
-      toDelete = agents.filter(a => selectedAgents.has(a.name));
+      toDelete = agents.filter(
+        a => selectedAgents.has(a.name) && !api.isGoogleManagedAgent(a)
+      );
     }
 
     if (toDelete.length > 0) {
@@ -486,6 +570,9 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
               onSort={handleSort}
               sortConfig={sortConfig}
               onUpdateAgentName={handleUpdateAgentName}
+              canRestoreDeepResearch={Boolean(config.appId) && !isLoading && !hasDeepResearchAgent}
+              isRestoringDeepResearch={isRestoringDeepResearch}
+              onRestoreDeepResearch={handleRestoreDeepResearch}
             />
           </>
         );

@@ -45,38 +45,76 @@ export const listResources = async <T = unknown>(
 ): Promise<ListResourcesResponse<T>> => {
   const { projectId, appLocation, collectionId, appId, assistantId } = config;
   const baseUrl = getDiscoveryEngineUrl(appLocation);
-  let url = "";
+  let endpointUrl = "";
 
   switch (resourceType) {
     case "collections":
-      url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections`;
+      endpointUrl = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections`;
       break;
     case "engines":
-      url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/collections/${collectionId || "default_collection"}/engines`;
+      endpointUrl = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/collections/${collectionId || "default_collection"}/engines`;
       break;
     case "assistants":
-      url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants`;
+      endpointUrl = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants`;
       break;
     case "agents":
-      url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}/agents`;
+      endpointUrl = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}/agents`;
       break;
     case "dataStores":
-      url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/collections/${collectionId || "default_collection"}/dataStores`;
+      endpointUrl = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/collections/${collectionId || "default_collection"}/dataStores`;
       break;
   }
 
-  url += `?pageSize=${pageSize}`;
-  if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+  const fetchSinglePage = async (
+    token?: string,
+  ): Promise<ListResourcesResponse<T>> => {
+    let url = `${endpointUrl}?pageSize=${pageSize}`;
+    if (token) url += `&pageToken=${encodeURIComponent(token)}`;
 
-  return gapiRequest<ListResourcesResponse<T>>(
-    url,
-    "GET",
-    projectId,
-    undefined,
-    undefined,
-    undefined,
-    suppressErrorLog,
-  );
+    return gapiRequest<ListResourcesResponse<T>>(
+      url,
+      "GET",
+      projectId,
+      undefined,
+      undefined,
+      undefined,
+      suppressErrorLog,
+    );
+  };
+
+  // If the caller explicitly supplied a pageToken, fetch that single page.
+  if (pageToken !== undefined) {
+    return fetchSinglePage(pageToken);
+  }
+
+  // Otherwise, automatically paginate through all pages so callers (such as Agent Manager,
+  // Assistant Details, Agent Permissions, and Config Audit) never truncate at 200 items.
+  const allItems: unknown[] = [];
+  const seenTokens = new Set<string>();
+  let currentToken: string | undefined = undefined;
+  let lastResponse: ListResourcesResponse<T> = {};
+
+  do {
+    const response = await fetchSinglePage(currentToken);
+    lastResponse = response || {};
+    const pageItems = lastResponse[resourceType];
+    if (Array.isArray(pageItems)) {
+      allItems.push(...(pageItems as unknown[]));
+    }
+    const nextToken = lastResponse.nextPageToken;
+    if (!nextToken || seenTokens.has(nextToken)) {
+      currentToken = undefined;
+    } else {
+      seenTokens.add(nextToken);
+      currentToken = nextToken;
+    }
+  } while (currentToken);
+
+  return {
+    ...lastResponse,
+    [resourceType]: allItems,
+    nextPageToken: undefined,
+  } as ListResourcesResponse<T>;
 };
 
 export const createCollection = async (

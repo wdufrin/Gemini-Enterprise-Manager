@@ -12,6 +12,10 @@ import {
   formatSharedIamPrincipal,
   extractAgentOwnerHint,
   adminPublishAndShareForUser,
+  isGoogleManagedAgent,
+  isProtectedGoogleAgentResourceName,
+  deleteResource,
+  restoreDeepResearchAgent,
 } from './agents';
 import { Agent, Config } from '../../../types';
 
@@ -614,6 +618,125 @@ describe('agents API - shareAgent and Admin Publish & Share for User', () => {
       ),
     ).rejects.toThrow(/single user identity/i);
     expect(core.gapiRequest).not.toHaveBeenCalled();
+  });
+
+  it('identifies Google-managed built-in agents via managedAgentDefinition, agentOrigin, agentType, or deterministic 1P agentId', () => {
+    expect(
+      isGoogleManagedAgent({
+        name: 'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/deep_research',
+        displayName: 'Deep Research',
+      }),
+    ).toBe(true);
+
+    expect(
+      isGoogleManagedAgent({
+        name: 'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/custom_id',
+        displayName: 'Managed Agent',
+        managedAgentDefinition: {
+          researchAssistantAgentConfig: { supportLroQueries: true },
+        },
+      }),
+    ).toBe(true);
+
+    expect(
+      isGoogleManagedAgent({
+        name: 'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/custom_id',
+        displayName: 'Google Origin Agent',
+        agentOrigin: 'GOOGLE',
+      }),
+    ).toBe(true);
+
+    expect(
+      isGoogleManagedAgent({
+        name: privateAgentName,
+        displayName: 'Custom User Agent',
+        lowCodeAgentDefinition: { nodes: [{ id: 'root' }] },
+      }),
+    ).toBe(false);
+
+    expect(
+      isProtectedGoogleAgentResourceName(
+        'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/deep_research',
+      ),
+    ).toBe(true);
+    expect(
+      isProtectedGoogleAgentResourceName(
+        'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/idea_generation',
+      ),
+    ).toBe(true);
+    expect(isProtectedGoogleAgentResourceName(privateAgentName)).toBe(false);
+  });
+
+  it('deleteResource blocks deletion of protected Google built-in agents (e.g. deep_research) and never issues a DELETE request', async () => {
+    const deepResearchResource =
+      'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/deep_research';
+
+    await expect(deleteResource(deepResearchResource, mockConfig)).rejects.toThrow(
+      /Deletion blocked: "deep_research" is a Google-managed built-in agent and cannot be deleted/i,
+    );
+    expect(core.gapiRequest).not.toHaveBeenCalled();
+  });
+
+  it('restoreDeepResearchAgent re-provisions deep_research with canonical managedAgentDefinition payload, deploys, and enables the agent', async () => {
+    const deepResearchName =
+      'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/deep_research';
+
+    vi.mocked(core.gapiRequest)
+      // 1. createAgent (?agentId=deep_research)
+      .mockResolvedValueOnce({
+        name: deepResearchName,
+        displayName: 'Deep Research',
+        state: 'CONFIGURED',
+      })
+      // 2. deployAgent (:deploy)
+      .mockResolvedValueOnce({})
+      // 3. getAgent (check state)
+      .mockResolvedValueOnce({
+        name: deepResearchName,
+        displayName: 'Deep Research',
+        state: 'DISABLED',
+      })
+      // 4. enableAgent (:enableAgent)
+      .mockResolvedValueOnce({})
+      // 5. enableAgent internal getAgent
+      .mockResolvedValueOnce({
+        name: deepResearchName,
+        displayName: 'Deep Research',
+        state: 'ENABLED',
+      });
+
+    const restored = await restoreDeepResearchAgent(mockConfig);
+
+    expect(restored.name).toBe(deepResearchName);
+    expect(restored.state).toBe('ENABLED');
+
+    const createCall = vi.mocked(core.gapiRequest).mock.calls[0];
+    expect(createCall[0]).toBe(
+      'https://discoveryengine.googleapis.com/v1alpha/projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents?agentId=deep_research',
+    );
+    expect(createCall[1]).toBe('POST');
+    expect(createCall[4]).toEqual({
+      displayName: 'Deep Research',
+      description: expect.stringContaining('gathers, analyzes, and understands information'),
+      managedAgentDefinition: {
+        toolSettings: {
+          toolDescription: expect.stringContaining('gathers, analyzes, and understands information'),
+        },
+        researchAssistantAgentConfig: {
+          supportLroQueries: true,
+        },
+      },
+      sharingConfig: {
+        scope: 'ALL_USERS',
+      },
+      longRunningOperationsEnabled: true,
+    });
+
+    const deployCall = vi.mocked(core.gapiRequest).mock.calls[1];
+    expect(deployCall[0]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${deepResearchName}:deploy`,
+    );
+    expect(deployCall[1]).toBe('POST');
   });
 });
 

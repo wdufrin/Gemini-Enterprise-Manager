@@ -25,15 +25,19 @@ import { assertRestoreComplete, RestoreIncompleteError } from './restoreOutcome'
 import * as api from '../apiService';
 import { Agent, Authorization, Config, DataStore } from '../../types';
 
-vi.mock('../apiService', () => ({
-  createDataStore: vi.fn(),
-  createAuthorization: vi.fn(),
-  createNotebook: vi.fn(),
-  batchCreateNotebookSources: vi.fn(),
-  createAgent: vi.fn(),
-  setAgentIamPolicy: vi.fn(),
-  getAuthorization: vi.fn(),
-}));
+vi.mock('../apiService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../apiService')>();
+  return {
+    ...actual,
+    createDataStore: vi.fn(),
+    createAuthorization: vi.fn(),
+    createNotebook: vi.fn(),
+    batchCreateNotebookSources: vi.fn(),
+    createAgent: vi.fn(),
+    setAgentIamPolicy: vi.fn(),
+    getAuthorization: vi.fn(),
+  };
+});
 
 const apiConfig: Omit<Config, 'accessToken'> = {
   projectId: 'test-project',
@@ -142,6 +146,43 @@ describe('restore failure accounting', () => {
     expect(outcome.created).toHaveLength(0);
     expect(outcome.failed).toHaveLength(1);
     expect(outcome.failed[0].resourceId).toBe('Support Bot');
+  });
+
+  it('preserves deterministic agentId (deep_research), sharingConfig, and longRunningOperationsEnabled when restoring a Google-managed agent', async () => {
+    const deepResearchAgent: Agent = {
+      name: 'projects/p/locations/global/collections/default_collection/engines/default_app/assistants/default_assistant/agents/deep_research',
+      displayName: 'Deep Research',
+      description: 'Google built-in research assistant',
+      managedAgentDefinition: {
+        researchAssistantAgentConfig: { supportLroQueries: true },
+      },
+      sharingConfig: { scope: 'ALL_USERS' },
+      longRunningOperationsEnabled: true,
+    };
+
+    vi.mocked(api.createAgent).mockResolvedValueOnce({
+      ...deepResearchAgent,
+      state: 'ENABLED',
+    });
+
+    const outcome = await runWithTimers(() =>
+      restoreAgentsIntoAssistant([deepResearchAgent], apiConfig, noopLog, promptSecret)
+    );
+
+    expect(outcome.created).toEqual(['Deep Research']);
+    expect(outcome.failed).toHaveLength(0);
+    expect(api.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayName: 'Deep Research',
+        managedAgentDefinition: {
+          researchAssistantAgentConfig: { supportLroQueries: true },
+        },
+        sharingConfig: { scope: 'ALL_USERS' },
+        longRunningOperationsEnabled: true,
+      }),
+      expect.objectContaining({ projectId: 'test-project' }),
+      'deep_research'
+    );
   });
 
   // A notebook restored without its sources is an empty shell. The old code

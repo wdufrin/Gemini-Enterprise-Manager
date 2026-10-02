@@ -257,6 +257,7 @@ export interface Agent {
   iamPolicy?: IamPolicy;
   state?: 'ENABLED' | 'DISABLED' | 'PRIVATE' | 'CONFIGURED' | 'DEPLOYING' | 'DEPLOYMENT_FAILED' | 'SUSPENDED' | 'CREATING' | 'CREATION_FAILED' | string;
   sharingConfig?: { scope?: 'RESTRICTED' | 'ALL_USERS' | string };
+  longRunningOperationsEnabled?: boolean;
   activeRevision?: string;
   createTime?: string;
   updateTime?: string;

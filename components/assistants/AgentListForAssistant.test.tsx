@@ -5,11 +5,15 @@ import * as api from '../../services/apiService';
 import { ToastProvider } from '../../context/ToastContext';
 import { Agent, AppEngine, Config } from '../../types';
 
-vi.mock('../../services/apiService', () => ({
-  updateAgent: vi.fn(),
-  getAgent: vi.fn(),
-  bulkEnforceAgentsObservability: vi.fn(),
-}));
+vi.mock('../../services/apiService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/apiService')>();
+  return {
+    ...actual,
+    updateAgent: vi.fn(),
+    getAgent: vi.fn(),
+    bulkEnforceAgentsObservability: vi.fn(),
+  };
+});
 
 describe('AgentListForAssistant - Telemetry Policy Controls', () => {
   const mockConfig: Config = {

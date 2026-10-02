@@ -120,6 +120,13 @@ export async function restoreAgentsIntoAssistant(
         payload.authorizations = payload.authorizations.map(rewriteAuth);
       }
 
+      if (currentAgent.sharingConfig) {
+        payload.sharingConfig = currentAgent.sharingConfig;
+      }
+      if (currentAgent.longRunningOperationsEnabled !== undefined) {
+        payload.longRunningOperationsEnabled = currentAgent.longRunningOperationsEnabled;
+      }
+
       const definitionKeys = Object.keys(currentAgent).filter((key) =>
         key.toLowerCase().includes('agentdefinition')
       );
@@ -151,11 +158,12 @@ export async function restoreAgentsIntoAssistant(
     };
 
     const createPayload = buildPayload(agent);
+    const preserveAgentId = api.isGoogleManagedAgent(agent) ? originalAgentId : undefined;
     try {
-      const newAgent = await api.createAgent(createPayload, restoreConfig);
+      const newAgent = await api.createAgent(createPayload, restoreConfig, preserveAgentId);
       const newAgentId = newAgent.name.split('/').pop()!;
       addLog(
-        `      - CREATED: Agent '${agent.displayName}' created successfully with new ID '${newAgentId}'.`
+        `      - CREATED: Agent '${agent.displayName}' created successfully with ID '${newAgentId}'.`
       );
       recordCreated(outcome, agent.displayName || newAgentId);
 

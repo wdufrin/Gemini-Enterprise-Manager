@@ -30,6 +30,7 @@ import {
 } from '../assistants/engine-details/modelsCatalog';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
+import ConfirmationModal from '../ConfirmationModal';
 
 type DetailsSubTab = 'overview' | 'datasources' | 'sharing' | 'raw';
 
@@ -327,11 +328,21 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     };
 
     const isToggling = togglingAgentId === agentId;
+    const isGoogleManaged = api.isGoogleManagedAgent(currentAgent);
+    const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
     const statusColorClass = currentAgent.state === 'ENABLED' ? 'bg-green-500' : currentAgent.state === 'DISABLED' ? 'bg-red-500' : 'bg-yellow-500';
 
     const handleDelete = async () => {
+        if (isGoogleManaged) {
+            setDeleteError(
+                `"${currentAgent.displayName || agentId}" is a Google-managed built-in agent and cannot be deleted. Toggle its status to Disabled instead.`
+            );
+            setIsDeleteConfirmOpen(false);
+            return;
+        }
         setIsDeleting(true);
         setDeleteError(null);
+        setIsDeleteConfirmOpen(false);
         try {
             await api.deleteResource(currentAgent.name, config);
             onDeleteSuccess();
@@ -572,6 +583,14 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                         <span className={`h-3 w-3 rounded-full shrink-0 ${statusColorClass}`}></span>
                         {currentAgent.icon?.uri && <img src={currentAgent.icon.uri} alt="icon" className="h-8 w-8 rounded-full" />}
                         <h2 className="text-2xl font-bold text-white">{currentAgent.displayName}</h2>
+                        {isGoogleManaged && (
+                            <span
+                                className="px-2.5 py-0.5 text-xs font-bold rounded bg-indigo-950/90 text-indigo-300 border border-indigo-700/70"
+                                title="First-party Google-managed built-in agent (protected from deletion)."
+                            >
+                                Google Built-in
+                            </span>
+                        )}
                         {currentAgent.agentType && (
                             <span className="px-2.5 py-0.5 text-xs font-mono rounded bg-gray-700 text-gray-300 border border-gray-600">
                                 {currentAgent.agentType}
@@ -629,13 +648,24 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                             </button>
                         </>
                     )}
-                    <button
-                        onClick={handleDelete}
-                        disabled={isDeleting}
-                        className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700 disabled:bg-red-800"
-                    >
-                        {isDeleting ? 'Deleting...' : 'Delete'}
-                    </button>
+                    {isGoogleManaged ? (
+                        <button
+                            type="button"
+                            disabled
+                            title="Google built-in agents are protected from deletion. Toggle Status to Disabled to hide this agent from users."
+                            className="px-4 py-2 bg-gray-700 text-gray-400 border border-gray-600 text-sm font-semibold rounded-md cursor-not-allowed select-none"
+                        >
+                            Protected Built-in
+                        </button>
+                    ) : (
+                        <button
+                            onClick={() => setIsDeleteConfirmOpen(true)}
+                            disabled={isDeleting}
+                            className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700 disabled:bg-red-800"
+                        >
+                            {isDeleting ? 'Deleting...' : 'Delete'}
+                        </button>
+                    )}
                     <button onClick={onBack} className="px-3 py-2 text-sm text-gray-300 hover:text-white">
                         &larr; Back to list
                     </button>
@@ -1156,6 +1186,17 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                 agent={currentAgent}
                 config={config}
             />
+            <ConfirmationModal
+                isOpen={isDeleteConfirmOpen}
+                onClose={() => setIsDeleteConfirmOpen(false)}
+                onConfirm={handleDelete}
+                title={`Confirm Deletion of "${currentAgent.displayName}"`}
+                confirmText="Delete Agent"
+                isConfirming={isDeleting}
+            >
+                <p>Are you sure you want to permanently delete the agent <strong>{currentAgent.displayName}</strong> (<code className="text-xs font-mono text-gray-300">{agentId}</code>)?</p>
+                <p className="mt-3 text-sm text-yellow-300">This action cannot be undone.</p>
+            </ConfirmationModal>
         </div>
     );
 };

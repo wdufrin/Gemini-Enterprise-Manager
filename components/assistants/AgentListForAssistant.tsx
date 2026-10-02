@@ -346,6 +346,14 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
                         ) : (
                             <div className="flex items-center gap-2 group">
                                 <span>{agent.displayName}</span>
+                                {api.isGoogleManagedAgent(agent) && (
+                                  <span
+                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70"
+                                    title="First-party Google-managed built-in agent (protected from deletion)."
+                                  >
+                                    Google Built-in
+                                  </span>
+                                )}
                                 {hasLegacyAuth && (
                                   <span
                                     className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 text-amber-300 border border-amber-700/70"

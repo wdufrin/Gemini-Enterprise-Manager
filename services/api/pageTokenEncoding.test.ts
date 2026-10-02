@@ -166,6 +166,40 @@ describe('pageToken query-string encoding', () => {
     await listReasoningEngines(CONFIG);
     expect(capturedUrl()).not.toContain('pageToken');
   });
+
+  it('listResources automatically follows nextPageToken across multiple pages (>200 agents) when pageToken is omitted, and terminates on repeated token cycles', async () => {
+    const page1Agents = Array.from({ length: 200 }, (_, i) => ({
+      name: `projects/proj/locations/global/collections/default_collection/engines/app/assistants/default_assistant/agents/agent-${i + 1}`,
+      displayName: `Agent ${i + 1}`,
+    }));
+    const page2Agents = Array.from({ length: 75 }, (_, i) => ({
+      name: `projects/proj/locations/global/collections/default_collection/engines/app/assistants/default_assistant/agents/agent-${i + 201}`,
+      displayName: `Agent ${i + 201}`,
+    }));
+
+    mockedGapi.mockReset();
+    mockedGapi
+      .mockResolvedValueOnce({ agents: page1Agents, nextPageToken: 'token-page-2' })
+      .mockResolvedValueOnce({ agents: page2Agents });
+
+    const res = await listResources('agents', CONFIG);
+    expect(res.agents).toHaveLength(275);
+    expect(res.nextPageToken).toBeUndefined();
+    expect(mockedGapi).toHaveBeenCalledTimes(2);
+    expect(new URL(mockedGapi.mock.calls[1][0] as string).searchParams.get('pageToken')).toBe(
+      'token-page-2',
+    );
+
+    // Adversarial cycle test: if server returns the same nextPageToken twice, loop terminates instead of hanging
+    mockedGapi.mockReset();
+    mockedGapi
+      .mockResolvedValueOnce({ agents: [{ name: 'a1' }], nextPageToken: 'stuck-token' })
+      .mockResolvedValueOnce({ agents: [{ name: 'a2' }], nextPageToken: 'stuck-token' });
+
+    const cycleRes = await listResources('agents', CONFIG);
+    expect(cycleRes.agents).toHaveLength(2);
+    expect(mockedGapi).toHaveBeenCalledTimes(2);
+  });
 });
 
 /**

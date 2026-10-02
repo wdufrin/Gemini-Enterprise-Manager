@@ -1034,7 +1034,213 @@ export const transferAgentOwner = async (
   );
 };
 
-export const deleteResource = async (name: string, config: Config) => {
+/**
+ * Canonical deterministic agent IDs provisioned by Discovery Engine (`Create1PAgent` in `agent_util.cc`)
+ * for first-party Google-managed agents (such as Deep Research, Idea Generation, Data Insights, etc.).
+ */
+export const DEEP_RESEARCH_AGENT_ID = "deep_research";
+
+export const KNOWN_GOOGLE_MANAGED_AGENT_IDS: ReadonlySet<string> = new Set([
+  "deep_research",
+  "deep_research_gem3",
+  "default_deep_research",
+  "idea_generation",
+  "idea_forge",
+  "data_insights_agent",
+  "finance_research",
+  "financial_research",
+  "coscientist",
+  "campus",
+  "notebook_lm",
+  "core_assistant",
+]);
+
+/**
+ * Returns true if a Discovery Engine resource name targets a known Google-managed 1P agent
+ * under `/assistants/{assistant}/agents/{agentId}` (or a bare 1P agent ID).
+ */
+export const isProtectedGoogleAgentResourceName = (
+  name: string | null | undefined,
+): boolean => {
+  if (!name) return false;
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+
+  // Check if it is an agent resource path (`.../assistants/.../agents/<agentId>`)
+  const agentMatch = trimmed.match(/\/assistants\/[^/]+\/agents\/([^/?#]+)$/i);
+  if (agentMatch) {
+    return KNOWN_GOOGLE_MANAGED_AGENT_IDS.has(agentMatch[1].toLowerCase());
+  }
+
+  // Also check if a bare agentId was passed
+  if (!trimmed.includes("/")) {
+    return KNOWN_GOOGLE_MANAGED_AGENT_IDS.has(trimmed.toLowerCase());
+  }
+
+  return false;
+};
+
+/**
+ * Returns true if the given `Agent` is a Google-managed / system built-in agent
+ * (e.g., Deep Research `deep_research`, Idea Generation `idea_generation`, Data Insights, etc.).
+ *
+ * Checks:
+ * 1. `agent.managedAgentDefinition` is present (and non-empty object).
+ * 2. `agent.agentOrigin` is `'GOOGLE'` or `'SYSTEM'`.
+ * 3. `agent.agentType` is `'MANAGED'`, `'MANAGED_AGENT'`, or `'RESEARCH_ASSISTANT_AGENT'`.
+ * 4. The trailing agent ID in `agent.name` (or `agent.id`) matches `KNOWN_GOOGLE_MANAGED_AGENT_IDS`.
+ */
+export const isGoogleManagedAgent = (
+  agent: Partial<Agent> | null | undefined,
+): boolean => {
+  if (!agent) return false;
+
+  if (
+    agent.managedAgentDefinition &&
+    typeof agent.managedAgentDefinition === "object" &&
+    Object.keys(agent.managedAgentDefinition).length > 0
+  ) {
+    return true;
+  }
+
+  const normalizedOrigin = (agent.agentOrigin || "").toUpperCase();
+  if (normalizedOrigin === "GOOGLE" || normalizedOrigin === "SYSTEM") {
+    return true;
+  }
+
+  const normalizedType = (agent.agentType || "").toUpperCase();
+  if (
+    normalizedType === "MANAGED" ||
+    normalizedType === "MANAGED_AGENT" ||
+    normalizedType === "RESEARCH_ASSISTANT_AGENT"
+  ) {
+    return true;
+  }
+
+  if (agent.name && isProtectedGoogleAgentResourceName(agent.name)) {
+    return true;
+  }
+
+  if (
+    agent.id &&
+    KNOWN_GOOGLE_MANAGED_AGENT_IDS.has(agent.id.trim().toLowerCase())
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Deploys a managed or custom agent via `POST /v1alpha/{name}:deploy`.
+ */
+export const deployAgent = async (
+  name: string,
+  config: Config,
+): Promise<Record<string, unknown>> => {
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const agentName = resolveFullAgentResourceName(name, config);
+  return gapiRequest<Record<string, unknown>>(
+    `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}:deploy`,
+    "POST",
+    config.projectId,
+    undefined,
+    {},
+  );
+};
+
+/**
+ * Re-provisions the built-in Google Deep Research (`deep_research`) agent on an existing
+ * Gemini Enterprise engine/assistant if it was accidentally deleted or failed initial provisioning.
+ *
+ * Uses the canonical `GetOrcasV1MainRaAgent` / `ConfigureManagedAgentDefinition` payload from
+ * Discovery Engine (`cloud/ml/discoveryengine/common/utils/agent_util.cc`):
+ * - `POST /v1alpha/{parent}/agents?agentId=deep_research`
+ * - `managedAgentDefinition.researchAssistantAgentConfig.supportLroQueries = true`
+ * - `sharingConfig.scope = "ALL_USERS"`
+ * - `longRunningOperationsEnabled = true`
+ * Followed by `:deploy` and `:enableAgent` if the returned state is not `ENABLED`.
+ */
+export const restoreDeepResearchAgent = async (
+  config: Config,
+): Promise<Agent> => {
+  const description =
+    "This agent is a specialized agent that gathers, analyzes, and understands information from internal and external sources. It generates a plan, an in-depth report, and a summary.";
+
+  const payload: Partial<Agent> & Record<string, unknown> = {
+    displayName: "Deep Research",
+    description,
+    managedAgentDefinition: {
+      toolSettings: {
+        toolDescription: description,
+      },
+      researchAssistantAgentConfig: {
+        supportLroQueries: true,
+      },
+    },
+    sharingConfig: {
+      scope: "ALL_USERS",
+    },
+    longRunningOperationsEnabled: true,
+  };
+
+  const created = await createAgent(
+    payload,
+    {
+      ...config,
+      collectionId: config.collectionId || "default_collection",
+      assistantId: config.assistantId || "default_assistant",
+    },
+    DEEP_RESEARCH_AGENT_ID,
+  );
+
+  const agentName = resolveFullAgentResourceName(
+    created.name || DEEP_RESEARCH_AGENT_ID,
+    config,
+  );
+
+  // Trigger `:deploy` if the newly created managed agent is in CONFIGURED / undeployed state
+  if (created.state !== "ENABLED") {
+    try {
+      await deployAgent(agentName, config);
+    } catch (deployErr) {
+      console.warn(
+        "[restoreDeepResearchAgent] :deploy returned non-fatal warning (may already be deployed inline):",
+        deployErr,
+      );
+    }
+  }
+
+  // Ensure the agent is transitioned to ENABLED state
+  try {
+    const latest = await getAgent(agentName, config);
+    if (latest.state && latest.state !== "ENABLED") {
+      return await enableAgent(agentName, config);
+    }
+    return latest;
+  } catch (getErr) {
+    console.warn(
+      "[restoreDeepResearchAgent] Could not re-fetch agent after creation, returning created resource:",
+      getErr,
+    );
+    return created;
+  }
+};
+
+export const deleteResource = async (
+  name: string,
+  config: Config,
+  options?: { allowProtectedGoogleAgent?: boolean },
+) => {
+  if (
+    !options?.allowProtectedGoogleAgent &&
+    isProtectedGoogleAgentResourceName(name)
+  ) {
+    const agentId = name.split("/").pop() || name;
+    throw new Error(
+      `Deletion blocked: "${agentId}" is a Google-managed built-in agent and cannot be deleted. To hide it from users without permanently destroying its Spanner resource, toggle its status to Disabled instead.`,
+    );
+  }
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
   return gapiRequest(
     `${baseUrl}/${DISCOVERY_API_VERSION}/${name}`,

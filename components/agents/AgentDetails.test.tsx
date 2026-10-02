@@ -648,6 +648,82 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
             expect(onSuccess).toHaveBeenCalledTimes(1);
         });
     });
+
+    it('protects Google-managed built-in agents (Deep Research) from deletion in AgentList & AgentDetails and renders the Restore Deep Research banner when missing', async () => {
+        const deepResearchAgent: Agent = {
+            name: 'projects/test-proj/locations/global/collections/default_collection/engines/engine-123/assistants/default_assistant/agents/deep_research',
+            displayName: 'Deep Research',
+            state: 'ENABLED',
+            agentType: 'MANAGED',
+            agentOrigin: 'GOOGLE',
+            managedAgentDefinition: {
+                researchAssistantAgentConfig: { supportLroQueries: true },
+            },
+            sharingConfig: { scope: 'ALL_USERS' },
+        };
+
+        const onDeleteAgent = vi.fn();
+        const onToggleSelectAll = vi.fn();
+        const onRestoreDeepResearch = vi.fn();
+
+        const { unmount } = render(
+            <AgentList
+                agents={[deepResearchAgent, baseAgent]}
+                onSelectAgent={vi.fn()}
+                onEditAgent={vi.fn()}
+                onDeleteAgent={onDeleteAgent}
+                onRegisterNew={vi.fn()}
+                onToggleAgentStatus={vi.fn()}
+                deletingAgentIds={new Set()}
+                selectedAgents={new Set()}
+                onToggleSelect={vi.fn()}
+                onToggleSelectAll={onToggleSelectAll}
+                onDeleteSelected={vi.fn()}
+                onSort={vi.fn()}
+                sortConfig={{ key: 'displayName', direction: 'asc' }}
+                canRestoreDeepResearch={true}
+                onRestoreDeepResearch={onRestoreDeepResearch}
+            />
+        );
+
+        // Deep Research row must show "Google Built-in" and "Protected" instead of a Delete button
+        expect(screen.getAllByText('Google Built-in').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText('Protected')).toBeTruthy();
+
+        // Deep Research checkbox must be disabled
+        const deepResearchCheckbox = screen.getByLabelText('Select agent Deep Research') as HTMLInputElement;
+        expect(deepResearchCheckbox.disabled).toBe(true);
+
+        // Select All should only pass selectable (non-Google) agent names
+        fireEvent.click(screen.getByLabelText('Select all agents'));
+        expect(onToggleSelectAll).toHaveBeenCalledWith([baseAgent.name]);
+
+        // Restore Deep Research button should trigger callback
+        fireEvent.click(screen.getByRole('button', { name: 'Restore Deep Research' }));
+        expect(onRestoreDeepResearch).toHaveBeenCalledTimes(1);
+
+        unmount();
+
+        // Now render AgentDetails for Deep Research and verify Delete is replaced by disabled "Protected Built-in"
+        vi.mocked(api.getAgent).mockResolvedValue(deepResearchAgent);
+        render(
+            <AgentDetails
+                agent={deepResearchAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        const protectedBtn = await screen.findByRole('button', { name: 'Protected Built-in' });
+        expect((protectedBtn as HTMLButtonElement).disabled).toBe(true);
+        expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+        expect(api.deleteResource).not.toHaveBeenCalled();
+    });
 });
 
 
