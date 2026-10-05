@@ -558,7 +558,7 @@ export function useBackupOperations({
       items: itemsWithTypes,
       originalData: backupData,
       processor: async (data: BackupRestorePayload) => {
-        await restoreAgentsIntoAssistant(data.agents || [], restoreConfig, addLog, promptForSecret);
+        return await restoreAgentsIntoAssistant(data.agents || [], restoreConfig, addLog, promptForSecret);
       },
     });
   };

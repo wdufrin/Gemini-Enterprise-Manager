@@ -21,11 +21,27 @@ import {
     toggleWildcardInDdl,
     getEmptyViewDdl
 } from '../components/dashboard/operational/analyticsData';
-import { runBigQueryQuery } from '../services/apiService';
+import { runBigQueryQuery, gapiRequest, BigQueryQueryResponse } from '../services/apiService';
 
 interface BigQueryTableRow {
     f?: Array<{ v?: unknown }>;
     [key: string]: unknown;
+}
+
+export interface SchemaValidationIssue {
+    target: string;
+    kind: 'table' | 'view';
+    severity: 'error' | 'warning';
+    message: string;
+    remediationViewId?: string;
+}
+
+export interface SchemaValidationReport {
+    checkedAt: string;
+    tablesChecked: number;
+    viewsChecked: number;
+    healthyCount: number;
+    issues: SchemaValidationIssue[];
 }
 
 export interface OperationalLiveData {
@@ -57,12 +73,13 @@ interface UseOperationalDashboardStateParams {
 }
 
 export function useOperationalDashboardState({
-    projectId,
+    projectId: rawProjectId,
     projectNumber: _projectNumber,
     datasetId,
     tables = [],
     onRefreshTables
 }: UseOperationalDashboardStateParams) {
+    const projectId = rawProjectId || _projectNumber;
     const getViewFromLocation = (): string => {
         if (typeof window === 'undefined') return 'overview';
         const hash = window.location.hash || '';
@@ -111,12 +128,67 @@ export function useOperationalDashboardState({
     const [rowsLoading, setRowsLoading] = useState<Record<string, boolean>>({});
 
     const [liveData, setLiveData] = useState<OperationalLiveData>({});
+    const [liveDataLoading, setLiveDataLoading] = useState<boolean>(false);
+    const [queryProgress, setQueryProgress] = useState<{
+        completed: number;
+        total: number;
+        currentLabel: string;
+    }>({ completed: 0, total: 0, currentLabel: '' });
+
+    const [isValidatingSchema, setIsValidatingSchema] = useState<boolean>(false);
+    const [schemaValidationReport, setSchemaValidationReport] = useState<SchemaValidationReport | null>(null);
 
     const [extraInstalledViews, setExtraInstalledViews] = useState<Set<string>>(new Set());
     const [droppedViews, setDroppedViews] = useState<Set<string>>(new Set());
     const droppedViewsRef = useRef<Set<string>>(new Set());
     const [brokenViews, setBrokenViews] = useState<Map<string, string>>(new Map());
     const brokenViewsRef = useRef<Map<string, string>>(new Map());
+
+    const executeBigQueryWithPolling = useCallback(
+        async (targetProject: string, query: string): Promise<BigQueryQueryResponse> => {
+            let result = await runBigQueryQuery(targetProject, query, true);
+            if (result?.error || (result?.errors && result.errors.length > 0)) {
+                throw new Error(
+                    result.error?.message || result.errors?.[0]?.message || 'BigQuery query failed'
+                );
+            }
+
+            let attempt = 0;
+            while (result?.jobComplete === false && attempt < 20 && typeof gapiRequest === 'function') {
+                await new Promise((r) => setTimeout(r, 1000));
+                const { jobId, location } = result.jobReference ?? {};
+                if (!jobId) {
+                    throw new Error(
+                        'BigQuery reported the query as incomplete but returned no job reference to poll.'
+                    );
+                }
+                const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${targetProject}/queries/${jobId}${
+                    location ? `?location=${encodeURIComponent(location)}` : ''
+                }`;
+                result = await gapiRequest<BigQueryQueryResponse>(
+                    url,
+                    'GET',
+                    targetProject,
+                    undefined,
+                    undefined,
+                    undefined,
+                    true
+                );
+                if (result?.error || (result?.errors && result.errors.length > 0)) {
+                    throw new Error(
+                        result.error?.message || result.errors?.[0]?.message || 'BigQuery polling failed'
+                    );
+                }
+                attempt++;
+            }
+
+            if (result?.jobComplete === false) {
+                throw new Error('BigQuery query timed out after multiple polling attempts.');
+            }
+            return result;
+        },
+        []
+    );
 
     const handleViewChange = (viewId: string) => {
         setActiveViewId(viewId);
@@ -179,6 +251,7 @@ export function useOperationalDashboardState({
         droppedViewsRef.current = new Set();
         setBrokenViews(new Map());
         brokenViewsRef.current = new Map();
+        setSchemaValidationReport(null);
     }, [datasetId]);
 
     const VIEW_ALIASES: Record<string, string[]> = useMemo(
@@ -252,7 +325,7 @@ export function useOperationalDashboardState({
                 const actualQuery = actualView !== viewId
                     ? query.replace(new RegExp(`\\.${viewId}\`?`, 'g'), `.${actualView}\``)
                     : query;
-                const res = await runBigQueryQuery(projectId, actualQuery, true);
+                const res = await executeBigQueryWithPolling(projectId, actualQuery);
                 const fields = res?.schema?.fields || [];
                 const rows = (res?.rows || []).map((r: BigQueryTableRow) => {
                     const obj: Record<string, unknown> = {};
@@ -272,7 +345,7 @@ export function useOperationalDashboardState({
                 setRowsLoading((prev) => ({ ...prev, [viewId]: false }));
             }
         },
-        [projectId, datasetId, currentDatasetTables.length, installedViews, installedViewsMap]
+        [projectId, datasetId, currentDatasetTables.length, installedViews, installedViewsMap, executeBigQueryWithPolling]
     );
 
     useEffect(() => {
@@ -284,6 +357,8 @@ export function useOperationalDashboardState({
     const fetchLiveData = useCallback(async () => {
         if (!projectId || !datasetId) return;
 
+        const tasks: Array<{ label: string; run: () => Promise<void> }> = [];
+
         // 1. User Activity View
         if (
             installedViews.has('v_consolidated_user_activity') &&
@@ -291,46 +366,51 @@ export function useOperationalDashboardState({
             !brokenViewsRef.current.has('v_consolidated_user_activity')
         ) {
             const actualView = installedViewsMap.get('v_consolidated_user_activity') || 'v_consolidated_user_activity';
-            try {
-                const queryDaily = `SELECT CAST(event_time AS DATE) as dt, COUNT(1) as cnt
-                    FROM \`${projectId}.${datasetId}.${actualView}\`
-                    GROUP BY dt ORDER BY dt ASC;`;
-                const res = await runBigQueryQuery(projectId, queryDaily, true);
-                const rows = (res?.rows || []) as BigQueryTableRow[];
-                const parsedDaily = rows.map((r: BigQueryTableRow) => ({
-                    date: String(r.f?.[0]?.v || ''),
-                    count: parseInt(String(r.f?.[1]?.v || '0'), 10)
-                }));
-                setLiveData((prev) => ({ ...prev, dailyActivity: parsedDaily }));
+            tasks.push({
+                label: 'User Activity & Agent Popularity',
+                run: async () => {
+                    try {
+                        const queryDaily = `SELECT CAST(event_time AS DATE) as dt, COUNT(1) as cnt
+                            FROM \`${projectId}.${datasetId}.${actualView}\`
+                            GROUP BY dt ORDER BY dt ASC;`;
+                        const res = await executeBigQueryWithPolling(projectId, queryDaily);
+                        const rows = (res?.rows || []) as BigQueryTableRow[];
+                        const parsedDaily = rows.map((r: BigQueryTableRow) => ({
+                            date: String(r.f?.[0]?.v || ''),
+                            count: parseInt(String(r.f?.[1]?.v || '0'), 10)
+                        }));
+                        setLiveData((prev) => ({ ...prev, dailyActivity: parsedDaily }));
 
-                const queryAgents = `SELECT
-                    COALESCE(agent_name, 'Default Assistant') as agent,
-                    COUNT(1) as cnt
-                    FROM \`${projectId}.${datasetId}.${actualView}\`
-                    GROUP BY agent ORDER BY cnt DESC LIMIT 6;`;
-                const resAgents = await runBigQueryQuery(projectId, queryAgents, true);
-                const parsedAgents = ((resAgents?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
-                    name: String(r.f?.[0]?.v || 'Default'),
-                    value: parseInt(String(r.f?.[1]?.v || '0'), 10)
-                }));
-                setLiveData((prev) => ({ ...prev, agentPopularity: parsedAgents }));
-                brokenViewsRef.current.delete('v_consolidated_user_activity');
-                setBrokenViews((prev) => {
-                    const next = new Map(prev);
-                    next.delete('v_consolidated_user_activity');
-                    return next;
-                });
-            } catch (err: unknown) {
-                const rawMsg = err instanceof Error ? err.message : String(err);
-                const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
-                if (isNotFoundError(shortMsg)) {
-                    droppedViewsRef.current.add('v_consolidated_user_activity');
-                    setDroppedViews((prev) => new Set(prev).add('v_consolidated_user_activity'));
-                } else {
-                    brokenViewsRef.current.set('v_consolidated_user_activity', shortMsg || 'Query error');
-                    setBrokenViews((prev) => new Map(prev).set('v_consolidated_user_activity', shortMsg || 'Query error'));
+                        const queryAgents = `SELECT
+                            COALESCE(agent_name, 'Default Assistant') as agent,
+                            COUNT(1) as cnt
+                            FROM \`${projectId}.${datasetId}.${actualView}\`
+                            GROUP BY agent ORDER BY cnt DESC LIMIT 6;`;
+                        const resAgents = await executeBigQueryWithPolling(projectId, queryAgents);
+                        const parsedAgents = ((resAgents?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
+                            name: String(r.f?.[0]?.v || 'Default'),
+                            value: parseInt(String(r.f?.[1]?.v || '0'), 10)
+                        }));
+                        setLiveData((prev) => ({ ...prev, agentPopularity: parsedAgents }));
+                        brokenViewsRef.current.delete('v_consolidated_user_activity');
+                        setBrokenViews((prev) => {
+                            const next = new Map(prev);
+                            next.delete('v_consolidated_user_activity');
+                            return next;
+                        });
+                    } catch (err: unknown) {
+                        const rawMsg = err instanceof Error ? err.message : String(err);
+                        const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
+                        if (isNotFoundError(shortMsg)) {
+                            droppedViewsRef.current.add('v_consolidated_user_activity');
+                            setDroppedViews((prev) => new Set(prev).add('v_consolidated_user_activity'));
+                        } else {
+                            brokenViewsRef.current.set('v_consolidated_user_activity', shortMsg || 'Query error');
+                            setBrokenViews((prev) => new Map(prev).set('v_consolidated_user_activity', shortMsg || 'Query error'));
+                        }
+                    }
                 }
-            }
+            });
         }
 
         // 2. GenAI Telemetry & Tokens View
@@ -340,54 +420,59 @@ export function useOperationalDashboardState({
             !brokenViewsRef.current.has('v_gemini_genai_telemetry')
         ) {
             const actualView = installedViewsMap.get('v_gemini_genai_telemetry') || 'v_gemini_genai_telemetry';
-            try {
-                const queryTokens = `SELECT
-                    agent_name,
-                    SUM(input_tokens) as total_input,
-                    SUM(output_tokens) as total_output,
-                    COUNT(1) as total_calls
-                    FROM \`${projectId}.${datasetId}.${actualView}\`
-                    WHERE agent_name IS NOT NULL
-                    GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 8;`;
-                const res = await runBigQueryQuery(projectId, queryTokens, true);
-                const rows = (res?.rows || []) as BigQueryTableRow[];
-                const parsedTokens = rows.map((r: BigQueryTableRow) => ({
-                    agent: String(r.f?.[0]?.v || 'Unknown'),
-                    inputTokens: parseInt(String(r.f?.[1]?.v || '0'), 10),
-                    outputTokens: parseInt(String(r.f?.[2]?.v || '0'), 10),
-                    calls: parseInt(String(r.f?.[3]?.v || '0'), 10)
-                }));
-                setLiveData((prev) => ({ ...prev, genaiTokens: parsedTokens }));
+            tasks.push({
+                label: 'GenAI Telemetry & Tool Invocations',
+                run: async () => {
+                    try {
+                        const queryTokens = `SELECT
+                            agent_name,
+                            SUM(input_tokens) as total_input,
+                            SUM(output_tokens) as total_output,
+                            COUNT(1) as total_calls
+                            FROM \`${projectId}.${datasetId}.${actualView}\`
+                            WHERE agent_name IS NOT NULL
+                            GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 8;`;
+                        const res = await executeBigQueryWithPolling(projectId, queryTokens);
+                        const rows = (res?.rows || []) as BigQueryTableRow[];
+                        const parsedTokens = rows.map((r: BigQueryTableRow) => ({
+                            agent: String(r.f?.[0]?.v || 'Unknown'),
+                            inputTokens: parseInt(String(r.f?.[1]?.v || '0'), 10),
+                            outputTokens: parseInt(String(r.f?.[2]?.v || '0'), 10),
+                            calls: parseInt(String(r.f?.[3]?.v || '0'), 10)
+                        }));
+                        setLiveData((prev) => ({ ...prev, genaiTokens: parsedTokens }));
 
-                const queryTools = `SELECT
-                    SPLIT(tool_calls, '(')[OFFSET(0)] as tool,
-                    COUNT(1) as cnt
-                    FROM \`${projectId}.${datasetId}.${actualView}\`
-                    WHERE tool_calls IS NOT NULL AND tool_calls != ''
-                    GROUP BY tool ORDER BY cnt DESC LIMIT 6;`;
-                const resTools = await runBigQueryQuery(projectId, queryTools, true);
-                const parsedTools = ((resTools?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
-                    tool: String(r.f?.[0]?.v || ''),
-                    count: parseInt(String(r.f?.[1]?.v || '0'), 10)
-                }));
-                setLiveData((prev) => ({ ...prev, toolInvocations: parsedTools }));
-                brokenViewsRef.current.delete('v_gemini_genai_telemetry');
-                setBrokenViews((prev) => {
-                    const next = new Map(prev);
-                    next.delete('v_gemini_genai_telemetry');
-                    return next;
-                });
-            } catch (err: unknown) {
-                const rawMsg = err instanceof Error ? err.message : String(err);
-                const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
-                if (isNotFoundError(shortMsg)) {
-                    droppedViewsRef.current.add('v_gemini_genai_telemetry');
-                    setDroppedViews((prev) => new Set(prev).add('v_gemini_genai_telemetry'));
-                } else {
-                    brokenViewsRef.current.set('v_gemini_genai_telemetry', shortMsg || 'Query error');
-                    setBrokenViews((prev) => new Map(prev).set('v_gemini_genai_telemetry', shortMsg || 'Query error'));
+                        const queryTools = `SELECT
+                            SPLIT(tool_calls, '(')[OFFSET(0)] as tool,
+                            COUNT(1) as cnt
+                            FROM \`${projectId}.${datasetId}.${actualView}\`
+                            WHERE tool_calls IS NOT NULL AND tool_calls != ''
+                            GROUP BY tool ORDER BY cnt DESC LIMIT 6;`;
+                        const resTools = await executeBigQueryWithPolling(projectId, queryTools);
+                        const parsedTools = ((resTools?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
+                            tool: String(r.f?.[0]?.v || ''),
+                            count: parseInt(String(r.f?.[1]?.v || '0'), 10)
+                        }));
+                        setLiveData((prev) => ({ ...prev, toolInvocations: parsedTools }));
+                        brokenViewsRef.current.delete('v_gemini_genai_telemetry');
+                        setBrokenViews((prev) => {
+                            const next = new Map(prev);
+                            next.delete('v_gemini_genai_telemetry');
+                            return next;
+                        });
+                    } catch (err: unknown) {
+                        const rawMsg = err instanceof Error ? err.message : String(err);
+                        const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
+                        if (isNotFoundError(shortMsg)) {
+                            droppedViewsRef.current.add('v_gemini_genai_telemetry');
+                            setDroppedViews((prev) => new Set(prev).add('v_gemini_genai_telemetry'));
+                        } else {
+                            brokenViewsRef.current.set('v_gemini_genai_telemetry', shortMsg || 'Query error');
+                            setBrokenViews((prev) => new Map(prev).set('v_gemini_genai_telemetry', shortMsg || 'Query error'));
+                        }
+                    }
                 }
-            }
+            });
         }
 
         // 3. Connector Usage View
@@ -403,49 +488,54 @@ export function useOperationalDashboardState({
             !brokenViewsRef.current.has(connectorViewKey)
         ) {
             const actualView = installedViewsMap.get(connectorViewKey) || connectorViewKey;
-            try {
-                const queryUsage = `SELECT
-                    connector_name,
-                    COUNT(1) as cnt
-                    FROM \`${projectId}.${datasetId}.${actualView}\`
-                    GROUP BY connector_name ORDER BY cnt DESC LIMIT 6;`;
-                const res = await runBigQueryQuery(projectId, queryUsage, true);
-                const rows = (res?.rows || []) as BigQueryTableRow[];
-                const parsedUsage = rows.map((r: BigQueryTableRow) => ({
-                    connector: String(r.f?.[0]?.v || ''),
-                    calls: parseInt(String(r.f?.[1]?.v || '0'), 10)
-                }));
-                setLiveData((prev) => ({ ...prev, connectorUsage: parsedUsage }));
+            tasks.push({
+                label: 'Connector Usage (30d)',
+                run: async () => {
+                    try {
+                        const queryUsage = `SELECT
+                            connector_name,
+                            COUNT(1) as cnt
+                            FROM \`${projectId}.${datasetId}.${actualView}\`
+                            GROUP BY connector_name ORDER BY cnt DESC LIMIT 6;`;
+                        const res = await executeBigQueryWithPolling(projectId, queryUsage);
+                        const rows = (res?.rows || []) as BigQueryTableRow[];
+                        const parsedUsage = rows.map((r: BigQueryTableRow) => ({
+                            connector: String(r.f?.[0]?.v || ''),
+                            calls: parseInt(String(r.f?.[1]?.v || '0'), 10)
+                        }));
+                        setLiveData((prev) => ({ ...prev, connectorUsage: parsedUsage }));
 
-                const queryTopUsers = `SELECT
-                    user_email,
-                    COUNT(1) as cnt
-                    FROM \`${projectId}.${datasetId}.${actualView}\`
-                    WHERE user_email IS NOT NULL AND user_email != ''
-                    GROUP BY user_email ORDER BY cnt DESC LIMIT 5;`;
-                const resUsers = await runBigQueryQuery(projectId, queryTopUsers, true);
-                const parsedTopUsers = ((resUsers?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
-                    user: String(r.f?.[0]?.v || ''),
-                    calls: parseInt(String(r.f?.[1]?.v || '0'), 10)
-                }));
-                setLiveData((prev) => ({ ...prev, topConnectorUsers: parsedTopUsers }));
-                brokenViewsRef.current.delete(connectorViewKey);
-                setBrokenViews((prev) => {
-                    const next = new Map(prev);
-                    next.delete(connectorViewKey);
-                    return next;
-                });
-            } catch (err: unknown) {
-                const rawMsg = err instanceof Error ? err.message : String(err);
-                const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
-                if (isNotFoundError(shortMsg)) {
-                    droppedViewsRef.current.add(connectorViewKey);
-                    setDroppedViews((prev) => new Set(prev).add(connectorViewKey));
-                } else {
-                    brokenViewsRef.current.set(connectorViewKey, shortMsg || 'Query error');
-                    setBrokenViews((prev) => new Map(prev).set(connectorViewKey, shortMsg || 'Query error'));
+                        const queryTopUsers = `SELECT
+                            user_email,
+                            COUNT(1) as cnt
+                            FROM \`${projectId}.${datasetId}.${actualView}\`
+                            WHERE user_email IS NOT NULL AND user_email != ''
+                            GROUP BY user_email ORDER BY cnt DESC LIMIT 5;`;
+                        const resUsers = await executeBigQueryWithPolling(projectId, queryTopUsers);
+                        const parsedTopUsers = ((resUsers?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
+                            user: String(r.f?.[0]?.v || ''),
+                            calls: parseInt(String(r.f?.[1]?.v || '0'), 10)
+                        }));
+                        setLiveData((prev) => ({ ...prev, topConnectorUsers: parsedTopUsers }));
+                        brokenViewsRef.current.delete(connectorViewKey);
+                        setBrokenViews((prev) => {
+                            const next = new Map(prev);
+                            next.delete(connectorViewKey);
+                            return next;
+                        });
+                    } catch (err: unknown) {
+                        const rawMsg = err instanceof Error ? err.message : String(err);
+                        const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
+                        if (isNotFoundError(shortMsg)) {
+                            droppedViewsRef.current.add(connectorViewKey);
+                            setDroppedViews((prev) => new Set(prev).add(connectorViewKey));
+                        } else {
+                            brokenViewsRef.current.set(connectorViewKey, shortMsg || 'Query error');
+                            setBrokenViews((prev) => new Map(prev).set(connectorViewKey, shortMsg || 'Query error'));
+                        }
+                    }
                 }
-            }
+            });
         }
 
         // 4. AI Choices View
@@ -455,36 +545,41 @@ export function useOperationalDashboardState({
             !brokenViewsRef.current.has('v_consolidated_ai_choices')
         ) {
             const actualView = installedViewsMap.get('v_consolidated_ai_choices') || 'v_consolidated_ai_choices';
-            try {
-                const queryChoices = `SELECT
-                    finish_reason,
-                    COUNT(1) as cnt
-                    FROM \`${projectId}.${datasetId}.${actualView}\`
-                    GROUP BY finish_reason ORDER BY cnt DESC;`;
-                const res = await runBigQueryQuery(projectId, queryChoices, true);
-                const rows = (res?.rows || []) as BigQueryTableRow[];
-                const parsedChoices = rows.map((r: BigQueryTableRow) => ({
-                    name: String(r.f?.[0]?.v || 'UNKNOWN'),
-                    value: parseInt(String(r.f?.[1]?.v || '0'), 10)
-                }));
-                setLiveData((prev) => ({ ...prev, aiChoices: parsedChoices }));
-                brokenViewsRef.current.delete('v_consolidated_ai_choices');
-                setBrokenViews((prev) => {
-                    const next = new Map(prev);
-                    next.delete('v_consolidated_ai_choices');
-                    return next;
-                });
-            } catch (err: unknown) {
-                const rawMsg = err instanceof Error ? err.message : String(err);
-                const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
-                if (isNotFoundError(shortMsg)) {
-                    droppedViewsRef.current.add('v_consolidated_ai_choices');
-                    setDroppedViews((prev) => new Set(prev).add('v_consolidated_ai_choices'));
-                } else {
-                    brokenViewsRef.current.set('v_consolidated_ai_choices', shortMsg || 'Query error');
-                    setBrokenViews((prev) => new Map(prev).set('v_consolidated_ai_choices', shortMsg || 'Query error'));
+            tasks.push({
+                label: 'AI Model Finish Reasons',
+                run: async () => {
+                    try {
+                        const queryChoices = `SELECT
+                            finish_reason,
+                            COUNT(1) as cnt
+                            FROM \`${projectId}.${datasetId}.${actualView}\`
+                            GROUP BY finish_reason ORDER BY cnt DESC;`;
+                        const res = await executeBigQueryWithPolling(projectId, queryChoices);
+                        const rows = (res?.rows || []) as BigQueryTableRow[];
+                        const parsedChoices = rows.map((r: BigQueryTableRow) => ({
+                            name: String(r.f?.[0]?.v || 'UNKNOWN'),
+                            value: parseInt(String(r.f?.[1]?.v || '0'), 10)
+                        }));
+                        setLiveData((prev) => ({ ...prev, aiChoices: parsedChoices }));
+                        brokenViewsRef.current.delete('v_consolidated_ai_choices');
+                        setBrokenViews((prev) => {
+                            const next = new Map(prev);
+                            next.delete('v_consolidated_ai_choices');
+                            return next;
+                        });
+                    } catch (err: unknown) {
+                        const rawMsg = err instanceof Error ? err.message : String(err);
+                        const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
+                        if (isNotFoundError(shortMsg)) {
+                            droppedViewsRef.current.add('v_consolidated_ai_choices');
+                            setDroppedViews((prev) => new Set(prev).add('v_consolidated_ai_choices'));
+                        } else {
+                            brokenViewsRef.current.set('v_consolidated_ai_choices', shortMsg || 'Query error');
+                            setBrokenViews((prev) => new Map(prev).set('v_consolidated_ai_choices', shortMsg || 'Query error'));
+                        }
+                    }
                 }
-            }
+            });
         }
 
         // 5. Agent Feedback View
@@ -494,47 +589,212 @@ export function useOperationalDashboardState({
             !brokenViewsRef.current.has('v_agent_feedback')
         ) {
             const actualView = installedViewsMap.get('v_agent_feedback') || 'v_agent_feedback';
-            try {
-                const query = `SELECT
-                  agent_name,
-                  COUNTIF(feedback IN ('LIKE', 'THUMBS_UP', 'POSITIVE')) AS thumbs_up,
-                  COUNTIF(feedback IN ('DISLIKE', 'THUMBS_DOWN', 'NEGATIVE')) AS thumbs_down,
-                  COUNT(1) AS total
-                FROM \`${projectId}.${datasetId}.${actualView}\`
-                GROUP BY agent_name
-                ORDER BY total DESC;`;
-                const res = await runBigQueryQuery(projectId, query, true);
-                const rows = (res?.rows || []) as BigQueryTableRow[];
-                const parsedFeedback = rows.map((r: BigQueryTableRow) => ({
-                    agent: String(r.f?.[0]?.v || 'General'),
-                    thumbsUp: parseInt(String(r.f?.[1]?.v || '0'), 10),
-                    thumbsDown: parseInt(String(r.f?.[2]?.v || '0'), 10),
-                    total: parseInt(String(r.f?.[3]?.v || '0'), 10)
-                }));
-                setLiveData((prev) => ({ ...prev, feedback: parsedFeedback }));
-                brokenViewsRef.current.delete('v_agent_feedback');
-                setBrokenViews((prev) => {
-                    const next = new Map(prev);
-                    next.delete('v_agent_feedback');
-                    return next;
-                });
-            } catch (err: unknown) {
-                const rawMsg = err instanceof Error ? err.message : String(err);
-                const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
-                if (isNotFoundError(shortMsg)) {
-                    droppedViewsRef.current.add('v_agent_feedback');
-                    setDroppedViews((prev) => new Set(prev).add('v_agent_feedback'));
-                } else {
-                    brokenViewsRef.current.set('v_agent_feedback', shortMsg || 'Query error');
-                    setBrokenViews((prev) => new Map(prev).set('v_agent_feedback', shortMsg || 'Query error'));
+            tasks.push({
+                label: 'Agent User Feedback',
+                run: async () => {
+                    try {
+                        const query = `SELECT
+                          agent_name,
+                          COUNTIF(feedback IN ('LIKE', 'THUMBS_UP', 'POSITIVE')) AS thumbs_up,
+                          COUNTIF(feedback IN ('DISLIKE', 'THUMBS_DOWN', 'NEGATIVE')) AS thumbs_down,
+                          COUNT(1) AS total
+                        FROM \`${projectId}.${datasetId}.${actualView}\`
+                        GROUP BY agent_name
+                        ORDER BY total DESC;`;
+                        const res = await executeBigQueryWithPolling(projectId, query);
+                        const rows = (res?.rows || []) as BigQueryTableRow[];
+                        const parsedFeedback = rows.map((r: BigQueryTableRow) => ({
+                            agent: String(r.f?.[0]?.v || 'General'),
+                            thumbsUp: parseInt(String(r.f?.[1]?.v || '0'), 10),
+                            thumbsDown: parseInt(String(r.f?.[2]?.v || '0'), 10),
+                            total: parseInt(String(r.f?.[3]?.v || '0'), 10)
+                        }));
+                        setLiveData((prev) => ({ ...prev, feedback: parsedFeedback }));
+                        brokenViewsRef.current.delete('v_agent_feedback');
+                        setBrokenViews((prev) => {
+                            const next = new Map(prev);
+                            next.delete('v_agent_feedback');
+                            return next;
+                        });
+                    } catch (err: unknown) {
+                        const rawMsg = err instanceof Error ? err.message : String(err);
+                        const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
+                        if (isNotFoundError(shortMsg)) {
+                            droppedViewsRef.current.add('v_agent_feedback');
+                            setDroppedViews((prev) => new Set(prev).add('v_agent_feedback'));
+                        } else {
+                            brokenViewsRef.current.set('v_agent_feedback', shortMsg || 'Query error');
+                            setBrokenViews((prev) => new Map(prev).set('v_agent_feedback', shortMsg || 'Query error'));
+                        }
+                    }
                 }
-            }
+            });
         }
-    }, [projectId, datasetId, installedViews, installedViewsMap]);
+
+        if (tasks.length === 0) return;
+
+        setLiveDataLoading(true);
+        let completedCount = 0;
+        setQueryProgress({
+            completed: 0,
+            total: tasks.length,
+            currentLabel: tasks[0].label
+        });
+
+        try {
+            for (const task of tasks) {
+                setQueryProgress({
+                    completed: completedCount,
+                    total: tasks.length,
+                    currentLabel: task.label
+                });
+                await task.run();
+                completedCount += 1;
+                setQueryProgress({
+                    completed: completedCount,
+                    total: tasks.length,
+                    currentLabel: task.label
+                });
+            }
+        } finally {
+            setLiveDataLoading(false);
+        }
+    }, [projectId, datasetId, installedViews, installedViewsMap, executeBigQueryWithPolling]);
 
     useEffect(() => {
         fetchLiveData();
     }, [fetchLiveData]);
+
+    const validateSchemasAndViews = useCallback(async () => {
+        if (!projectId || !datasetId) return null;
+
+        setIsValidatingSchema(true);
+        setActionMessage(null);
+        const issues: SchemaValidationIssue[] = [];
+        let tablesChecked = 0;
+        let viewsChecked = 0;
+
+        try {
+            // 1. Validate Base Log Table Columns via INFORMATION_SCHEMA.COLUMNS
+            const colsQuery = `SELECT table_name, column_name, data_type
+                FROM \`${projectId}.${datasetId}.INFORMATION_SCHEMA.COLUMNS\`
+                WHERE NOT STARTS_WITH(table_name, 'v_')`;
+            const colsRes = await executeBigQueryWithPolling(projectId, colsQuery);
+            const tableColumnsMap = new Map<string, Set<string>>();
+
+            for (const row of (colsRes?.rows || []) as BigQueryTableRow[]) {
+                const rawTableName = String(row.f?.[0]?.v || '');
+                const colName = String(row.f?.[1]?.v || '');
+                if (!rawTableName || !colName) continue;
+                const baseTableName = rawTableName.replace(/_\d{8}$/, '');
+                if (!tableColumnsMap.has(baseTableName)) {
+                    tableColumnsMap.set(baseTableName, new Set());
+                }
+                tableColumnsMap.get(baseTableName)!.add(colName);
+            }
+
+            const requiredBaseCols = ['timestamp', 'jsonPayload', 'trace', 'insertId'];
+            for (const [baseTable, colSet] of tableColumnsMap.entries()) {
+                if (
+                    baseTable.includes('gemini_enterprise_user_activity') ||
+                    baseTable.includes('gen_ai_')
+                ) {
+                    tablesChecked++;
+                    const missing = requiredBaseCols.filter((c) => !colSet.has(c));
+                    if (missing.length > 0) {
+                        issues.push({
+                            target: baseTable,
+                            kind: 'table',
+                            severity: 'error',
+                            message: `Base log table \`${baseTable}\` is missing expected Cloud Logging column(s): ${missing.join(', ')}. Schema may have drifted.`
+                        });
+                    }
+                }
+            }
+
+            // 2. Inspect View Definitions via INFORMATION_SCHEMA.VIEWS
+            const viewsQuery = `SELECT table_name, view_definition
+                FROM \`${projectId}.${datasetId}.INFORMATION_SCHEMA.VIEWS\``;
+            const viewsRes = await executeBigQueryWithPolling(projectId, viewsQuery);
+            const viewDefMap = new Map<string, string>();
+            for (const row of (viewsRes?.rows || []) as BigQueryTableRow[]) {
+                const vName = String(row.f?.[0]?.v || '');
+                const vDef = String(row.f?.[1]?.v || '');
+                if (vName) viewDefMap.set(vName, vDef);
+            }
+
+            const hasAnyBaseTable =
+                tableColumnsMap.size > 0 ||
+                Array.from(tableNames).some((t) => t && !t.startsWith('v_'));
+
+            for (const canonicalViewId of Array.from(installedViews)) {
+                const actualViewName = installedViewsMap.get(canonicalViewId) || canonicalViewId;
+                viewsChecked++;
+                const sqlDef = viewDefMap.get(actualViewName) || '';
+
+                if (sqlDef.includes('FROM (SELECT 1) WHERE FALSE') && hasAnyBaseTable) {
+                    issues.push({
+                        target: actualViewName,
+                        kind: 'view',
+                        severity: 'warning',
+                        message: `View \`${actualViewName}\` is still bound to an empty placeholder stub (\`WHERE FALSE\`) even though base log tables now exist in \`${datasetId}\`. Re-deploy this view to query live data.`,
+                        remediationViewId: canonicalViewId
+                    });
+                }
+
+                // Dry-run / zero-row schema probe on each installed view to catch schema drift or broken column references
+                try {
+                    const probeQuery = `SELECT * FROM \`${projectId}.${datasetId}.${actualViewName}\` LIMIT 0;`;
+                    await executeBigQueryWithPolling(projectId, probeQuery);
+                } catch (probeErr: unknown) {
+                    const rawMsg = probeErr instanceof Error ? probeErr.message : String(probeErr);
+                    const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
+                    brokenViewsRef.current.set(canonicalViewId, shortMsg || 'View schema validation failed');
+                    setBrokenViews((prev) =>
+                        new Map(prev).set(canonicalViewId, shortMsg || 'View schema validation failed')
+                    );
+                    issues.push({
+                        target: actualViewName,
+                        kind: 'view',
+                        severity: 'error',
+                        message: `View \`${actualViewName}\` failed schema probe: ${shortMsg || 'Query execution error'}`,
+                        remediationViewId: canonicalViewId
+                    });
+                }
+            }
+
+            const totalChecked = tablesChecked + viewsChecked;
+            const report: SchemaValidationReport = {
+                checkedAt: new Date().toLocaleTimeString(),
+                tablesChecked,
+                viewsChecked,
+                healthyCount: Math.max(0, totalChecked - issues.length),
+                issues
+            };
+            setSchemaValidationReport(report);
+            return report;
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err || 'Schema validation failed');
+            const report: SchemaValidationReport = {
+                checkedAt: new Date().toLocaleTimeString(),
+                tablesChecked,
+                viewsChecked,
+                healthyCount: 0,
+                issues: [
+                    {
+                        target: datasetId,
+                        kind: 'table',
+                        severity: 'error',
+                        message: `Could not query INFORMATION_SCHEMA in \`${datasetId}\`: ${msg}`
+                    }
+                ]
+            };
+            setSchemaValidationReport(report);
+            return report;
+        } finally {
+            setIsValidatingSchema(false);
+        }
+    }, [projectId, datasetId, installedViews, installedViewsMap, tableNames, executeBigQueryWithPolling]);
 
     const isMissingSourceTableError = (msg: string) => {
         const lower = msg.toLowerCase();
@@ -745,11 +1005,21 @@ export function useOperationalDashboardState({
         }
     };
 
-    const isUserActivityLive = installedViews.has('v_consolidated_user_activity');
-    const isGenAiTelemetryLive = installedViews.has('v_gemini_genai_telemetry');
-    const isConnectorUsageLive = installedViews.has('v_user_connector_usage_30d');
-    const isAiChoicesLive = installedViews.has('v_consolidated_ai_choices');
-    const isFeedbackLive = installedViews.has('v_agent_feedback');
+    const isUserActivityLive =
+        installedViews.has('v_consolidated_user_activity') &&
+        !brokenViews.has('v_consolidated_user_activity');
+    const isGenAiTelemetryLive =
+        installedViews.has('v_gemini_genai_telemetry') &&
+        !brokenViews.has('v_gemini_genai_telemetry');
+    const isConnectorUsageLive =
+        installedViews.has('v_user_connector_usage_30d') &&
+        !brokenViews.has('v_user_connector_usage_30d');
+    const isAiChoicesLive =
+        installedViews.has('v_consolidated_ai_choices') &&
+        !brokenViews.has('v_consolidated_ai_choices');
+    const isFeedbackLive =
+        installedViews.has('v_agent_feedback') &&
+        !brokenViews.has('v_agent_feedback');
 
     const dailyActivityData = isUserActivityLive ? liveData.dailyActivity || [] : FALLBACK_SNAPSHOT.dailyActivity;
     const agentPopularityData = isUserActivityLive ? liveData.agentPopularity || [] : FALLBACK_SNAPSHOT.agentPopularity;
@@ -803,6 +1073,10 @@ export function useOperationalDashboardState({
         viewRows,
         rowsLoading,
         liveData,
+        liveDataLoading,
+        queryProgress,
+        isValidatingSchema,
+        schemaValidationReport,
         brokenViews,
         installedViews,
         installedViewsMap,
@@ -828,6 +1102,8 @@ export function useOperationalDashboardState({
         handleCreateView,
         handleDropView,
         handleRepairAllBrokenViews,
+        validateSchemasAndViews,
+        setSchemaValidationReport,
         fetchViewRows,
         setSelectedCategory,
         setSelectedDrawerRow,

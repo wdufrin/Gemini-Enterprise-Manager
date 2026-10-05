@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ObservabilityPage from './ObservabilityPage';
@@ -38,7 +38,10 @@ describe('ObservabilityPage', () => {
             sinks: [{ name: 'test-sink', destination: 'bigquery.googleapis.com/projects/test/datasets/my_dataset' }]
         });
         (listBigQueryTables as any).mockResolvedValue({
-            tables: [{ tableReference: { tableId: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity' } }]
+            tables: [
+                { tableReference: { tableId: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity' }, type: 'TABLE' },
+                { tableReference: { tableId: 'v_admin_feedback_review' }, type: 'VIEW' }
+            ]
         });
     });
 
@@ -77,4 +80,40 @@ describe('ObservabilityPage', () => {
             true
         );
     });
+
+    it('auto-collapses the dataset tables and views list by default and expands on toggle', async () => {
+        (runBigQueryQuery as any).mockResolvedValue({
+            jobComplete: true,
+            rows: [
+                { f: [{ v: 'summary' }, { v: '10' }, { v: '2' }, { v: '1' }] }
+            ]
+        });
+
+        render(
+            <ToastProvider>
+                <ObservabilityPage projectNumber="123" projectId="test-proj" />
+            </ToastProvider>
+        );
+
+        const expandButton = await screen.findByRole('button', { name: /Show 2 Tables & Views/i });
+        expect(expandButton).toHaveAttribute('aria-expanded', 'false');
+        expect(screen.getByText('2 total (1 table, 1 view)')).toBeInTheDocument();
+
+        // Collapsed by default: individual table/view rows are not rendered
+        expect(screen.queryByText('v_admin_feedback_review')).not.toBeInTheDocument();
+        expect(screen.queryByText('discoveryengine_googleapis_com_gemini_enterprise_user_activity')).not.toBeInTheDocument();
+
+        // Expand on click
+        fireEvent.click(expandButton);
+        expect(screen.getByRole('button', { name: /Hide Tables & Views/i })).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByText('v_admin_feedback_review')).toBeInTheDocument();
+        expect(screen.getByText('discoveryengine_googleapis_com_gemini_enterprise_user_activity')).toBeInTheDocument();
+        expect(screen.getByText('View')).toBeInTheDocument();
+        expect(screen.getByText('Partitioned')).toBeInTheDocument();
+
+        // Collapse again
+        fireEvent.click(screen.getByRole('button', { name: /Hide Tables & Views/i }));
+        expect(screen.queryByText('v_admin_feedback_review')).not.toBeInTheDocument();
+    });
 });
+

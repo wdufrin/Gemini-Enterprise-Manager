@@ -293,6 +293,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
                     data={data}
                     onRowClick={onRowClick}
                     isLoading={isLoading}
+                    isSimulated={!isInstalled}
                 />
             </div>
         </div>

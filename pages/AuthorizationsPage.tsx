@@ -91,6 +91,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   // State for delete confirmation modal
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [singleDeleteTargetId, setSingleDeleteTargetId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [partialFailures, setPartialFailures] = useState<PartialFailure[]>([]);
 
@@ -287,24 +288,33 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
     }
   };
 
+  const deleteTargetIds = useMemo(
+    () => (singleDeleteTargetId ? [singleDeleteTargetId] : Array.from(selectedIds)),
+    [singleDeleteTargetId, selectedIds]
+  );
+
   const openDeleteModal = (auth?: Authorization) => {
     if (auth) {
-      setSelectedIds(new Set([auth.name]));
-    }
-    if (selectedIds.size > 0 || auth) {
+      setSingleDeleteTargetId(auth.name);
+      setIsDeleteModalOpen(true);
+    } else if (selectedIds.size > 0) {
+      setSingleDeleteTargetId(null);
       setIsDeleteModalOpen(true);
     }
   };
 
   const confirmDelete = async () => {
-    if (selectedIds.size === 0) return;
+    if (deleteTargetIds.length === 0) return;
+
+    const targetSet = new Set(deleteTargetIds);
+    const wasSingleDelete = Boolean(singleDeleteTargetId);
 
     setIsDeleting(true);
     setIsDeleteModalOpen(false);
     setError(null);
 
     const failures: string[] = [];
-    const authsToDelete = authorizations.filter(a => selectedIds.has(a.name));
+    const authsToDelete = authorizations.filter(a => targetSet.has(a.name));
 
     for (const auth of authsToDelete) {
       const authDisplayName = auth.displayName || auth.name.split('/').pop() || auth.name;
@@ -319,7 +329,17 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       setError(`Failed to delete some authorizations:\n${failures.join('\n')}`);
     }
 
-    setSelectedIds(new Set());
+    if (wasSingleDelete && singleDeleteTargetId) {
+      setSingleDeleteTargetId(null);
+      setSelectedIds(prev => {
+        if (!prev.has(singleDeleteTargetId)) return prev;
+        const next = new Set(prev);
+        next.delete(singleDeleteTargetId);
+        return next;
+      });
+    } else {
+      setSelectedIds(new Set());
+    }
     setIsDeleting(false);
     fetchData(); // Refresh list and usage map
   };
@@ -481,15 +501,18 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       {isDeleteModalOpen && (
         <ConfirmationModal
             isOpen={isDeleteModalOpen}
-            onClose={() => setIsDeleteModalOpen(false)}
+            onClose={() => {
+              setIsDeleteModalOpen(false);
+              setSingleDeleteTargetId(null);
+            }}
             onConfirm={confirmDelete}
-          title={`Confirm Deletion of ${selectedIds.size} Authorization(s)`}
+            title={`Confirm Deletion of ${deleteTargetIds.length} Authorization(s)`}
             confirmText="Delete"
             isConfirming={isDeleting}
         >
           <p>Are you sure you want to permanently delete the following authorizations?</p>
           <ul className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600 max-h-48 overflow-y-auto space-y-1">
-            {Array.from(selectedIds).map(id => {
+            {deleteTargetIds.map(id => {
               const auth = authorizations.find(a => a.name === id);
               return (
                 <li key={id} className="text-sm">

@@ -27,3 +27,20 @@ When the user sends `/gemfullaudit` (or asks to run `/gemfullaudit`), the assist
 
 ## Single Tab Shorthands
 - `/gemaudit [tab-name]`: Run a forensic audit on a specific tab using `gem-swe-reviewer`.
+
+---
+
+### `/gemissues` (or `/gemtriage`)
+When the user sends `/gemissues` or `/gemtriage`, the assistant must immediately interpret this as:
+**"Pull all open GitHub issues, trace their root causes in the live codebase, and present a prioritized triage matrix."**
+
+#### Execution Steps:
+1. **Fetch Open Issues**: Run `gh issue list --repo wdufrin/Gemini-Enterprise-Manager --state open --json number,title,body,labels,createdAt,author --limit 30`.
+2. **Root-Cause Verification**: For each open issue, inspect the live source files referenced by the issue's `Active Module`, `Route`, or description.
+3. **Prioritized Triage Table**: Present a markdown table with:
+   - Issue `#` & Title
+   - Priority (`P0` Critical / `P1` High / `P2` Medium / `P3` Low)
+   - Verified Root Cause (`file:line` citations)
+   - Complexity & Blast Radius
+   - Recommended Fix
+

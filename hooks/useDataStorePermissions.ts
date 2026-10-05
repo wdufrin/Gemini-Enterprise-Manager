@@ -765,10 +765,19 @@ export function useDataStorePermissions(
     setSuccessMessage(null);
 
     try {
-      const nopLog = () => {};
+      const repairErrors: string[] = [];
+      const addRepairLog = (msg: string) => {
+        if (msg.startsWith('[ERROR')) {
+          repairErrors.push(msg);
+        }
+      };
+      let successCount = 0;
+      let failureCount = 0;
+
       for (const item of inconsistentConnectorGrants) {
+        let itemOk = true;
         if (!item.hasCollectionAccess) {
-          await syncPolicyRMW(
+          const ok = await syncPolicyRMW(
             `DataConnector Collection '${item.connectorId}'`,
             () => api.getCollectionIamPolicy(item.connectorId, config),
             (p) => api.setCollectionIamPolicy(item.connectorId, p, config),
@@ -776,11 +785,12 @@ export function useDataStorePermissions(
             AGENTSPACE_USER_ROLE,
             true,
             false,
-            nopLog
+            addRepairLog
           );
+          if (!ok) itemOk = false;
         }
         for (const entId of item.missingEntityIds) {
-          await syncPolicyRMW(
+          const ok = await syncPolicyRMW(
             `Entity DataStore '${entId}'`,
             () => api.getDataStoreIamPolicy(entId, config),
             (p) => api.setDataStoreIamPolicy(entId, p, config),
@@ -788,14 +798,31 @@ export function useDataStorePermissions(
             AGENTSPACE_USER_ROLE,
             true,
             false,
-            nopLog
+            addRepairLog
           );
+          if (!ok) itemOk = false;
+        }
+        if (itemOk) {
+          successCount++;
+        } else {
+          failureCount++;
         }
       }
       await refreshAll();
-      setSuccessMessage(
-        `Successfully synchronized ${inconsistentConnectorGrants.length} inconsistent DataConnector + Entity IAM binding(s)!`
-      );
+      if (failureCount > 0) {
+        setError(
+          `Failed to synchronize ${failureCount} of ${inconsistentConnectorGrants.length} inconsistent DataConnector + Entity IAM binding(s).${repairErrors.length > 0 ? ` ${repairErrors[0]}` : ''}`
+        );
+        if (successCount > 0) {
+          setSuccessMessage(
+            `Synchronized ${successCount} of ${inconsistentConnectorGrants.length} inconsistent DataConnector + Entity IAM binding(s).`
+          );
+        }
+      } else {
+        setSuccessMessage(
+          `Successfully synchronized ${successCount} inconsistent DataConnector + Entity IAM binding(s)!`
+        );
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(`Failed to repair connector entity bindings: ${msg}`);

@@ -47,6 +47,10 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
         viewRows,
         rowsLoading,
         liveData,
+        liveDataLoading,
+        queryProgress,
+        isValidatingSchema,
+        schemaValidationReport,
         brokenViews,
         installedViews,
         installedViewsMap,
@@ -70,6 +74,8 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
         handleCreateView,
         handleDropView,
         handleRepairAllBrokenViews,
+        validateSchemasAndViews,
+        setSchemaValidationReport,
         setSelectedCategory,
         setSelectedDrawerRow,
         setActionMessage
@@ -98,7 +104,7 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
             <div className="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-sm">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                        <div className="flex items-center gap-2.5">
+                        <div className="flex items-center gap-2.5 flex-wrap">
                             <h2 className="text-xl font-bold text-white tracking-tight">
                                 Extended Operational Analytics
                             </h2>
@@ -108,6 +114,15 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                             <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 font-mono">
                                 11 Dedicated Views
                             </span>
+                            {liveDataLoading && (
+                                <span
+                                    data-testid="operational-query-running-badge"
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-950/90 text-blue-300 border border-blue-700/80 animate-pulse"
+                                >
+                                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
+                                    Running Queries ({queryProgress.completed}/{queryProgress.total})
+                                </span>
+                            )}
                         </div>
                         <div className="text-xs text-gray-400 mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-1">
                             {datasetId ? (
@@ -135,8 +150,32 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                         </div>
                     </div>
 
-                    {/* View Switcher Controls */}
+                    {/* View Switcher & Schema Validation Controls */}
                     <div className="flex items-center gap-2.5 flex-wrap self-start md:self-center">
+                        {datasetId && (
+                            <button
+                                type="button"
+                                disabled={isValidatingSchema}
+                                onClick={validateSchemasAndViews}
+                                className="px-3 py-2 text-xs font-semibold rounded-lg flex items-center gap-1.5 bg-gray-900 hover:bg-gray-750 text-purple-300 hover:text-purple-200 border border-purple-800/70 transition-colors disabled:opacity-50"
+                                title="Validate underlying BigQuery log table schemas and view health"
+                            >
+                                {isValidatingSchema ? (
+                                    <>
+                                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-purple-400" />
+                                        <span>Validating Schemas...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg className="w-3.5 h-3.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <span>Validate Schemas & Views</span>
+                                    </>
+                                )}
+                            </button>
+                        )}
+
                         {/* Global Overview Tab */}
                         <button
                             type="button"
@@ -207,6 +246,127 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                         )}
                     </div>
                 </div>
+
+                {/* Active Query Execution Banner */}
+                {liveDataLoading && (
+                    <div
+                        data-testid="operational-query-progress-banner"
+                        className="mt-4 p-3.5 rounded-lg border border-blue-800/80 bg-blue-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-400 shrink-0" />
+                            <div>
+                                <div className="text-xs font-semibold text-blue-200">
+                                    Executing BigQuery Analytics Queries ({queryProgress.completed} of {queryProgress.total} complete)
+                                </div>
+                                <div className="text-[11px] text-blue-300/80 mt-0.5">
+                                    Currently querying: <span className="font-mono text-white">{queryProgress.currentLabel || 'Operational Views'}</span> — please wait while BigQuery aggregates your dataset...
+                                </div>
+                            </div>
+                        </div>
+                        <div className="w-full sm:w-44 bg-gray-900 rounded-full h-2 overflow-hidden border border-blue-900/60 shrink-0">
+                            <div
+                                className="bg-blue-500 h-full transition-all duration-300"
+                                style={{
+                                    width: `${
+                                        queryProgress.total > 0
+                                            ? Math.max(15, Math.round((queryProgress.completed / queryProgress.total) * 100))
+                                            : 30
+                                    }%`
+                                }}
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {/* Schema & View Health Validation Report */}
+                {schemaValidationReport && (
+                    <div
+                        data-testid="schema-validation-report"
+                        className={`mt-4 p-4 rounded-lg border text-xs space-y-3 ${
+                            schemaValidationReport.issues.length === 0
+                                ? 'bg-emerald-950/30 border-emerald-800/80 text-emerald-200'
+                                : 'bg-amber-950/30 border-amber-800/80 text-amber-200'
+                        }`}
+                    >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-white text-sm">
+                                    Schema & View Health Diagnostic Report
+                                </span>
+                                <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                        schemaValidationReport.issues.length === 0
+                                            ? 'bg-emerald-900/80 text-emerald-300 border border-emerald-700'
+                                            : 'bg-amber-900/80 text-amber-300 border border-amber-700'
+                                    }`}
+                                >
+                                    {schemaValidationReport.issues.length === 0
+                                        ? 'All Schemas & Views Healthy'
+                                        : `${schemaValidationReport.issues.length} Issue(s) Detected`}
+                                </span>
+                                <span className="text-[11px] text-gray-400 font-mono">
+                                    Checked {schemaValidationReport.tablesChecked} base table(s) & {schemaValidationReport.viewsChecked} deployed view(s) at {schemaValidationReport.checkedAt}
+                                </span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSchemaValidationReport(null)}
+                                className="text-gray-400 hover:text-white font-bold px-1.5"
+                                title="Dismiss schema validation report"
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        {schemaValidationReport.issues.length === 0 ? (
+                            <p className="text-xs text-emerald-300/90">
+                                All inspected Cloud Logging sink tables contain expected columns (<code className="font-mono">timestamp</code>, <code className="font-mono">jsonPayload</code>, <code className="font-mono">trace</code>, <code className="font-mono">insertId</code>) and all deployed views passed zero-row schema verification.
+                            </p>
+                        ) : (
+                            <div className="space-y-2">
+                                {schemaValidationReport.issues.map((issue, idx) => (
+                                    <div
+                                        key={`${issue.target}-${idx}`}
+                                        className="p-2.5 rounded bg-gray-900/90 border border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                                    >
+                                        <div className="space-y-0.5">
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                                                        issue.severity === 'error'
+                                                            ? 'bg-rose-950 text-rose-300 border border-rose-800'
+                                                            : 'bg-amber-950 text-amber-300 border border-amber-800'
+                                                    }`}
+                                                >
+                                                    {issue.severity}
+                                                </span>
+                                                <code className="text-xs font-mono text-white font-semibold">
+                                                    {issue.target}
+                                                </code>
+                                            </div>
+                                            <p className="text-[11px] text-gray-300 leading-relaxed">
+                                                {issue.message}
+                                            </p>
+                                        </div>
+                                        {issue.remediationViewId && (
+                                            <button
+                                                type="button"
+                                                disabled={operatingViewId !== null}
+                                                onClick={() => handleCreateView(issue.remediationViewId!)}
+                                                className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-semibold rounded shadow shrink-0 disabled:opacity-50"
+                                            >
+                                                {operatingViewId === issue.remediationViewId
+                                                    ? 'Repairing...'
+                                                    : 'Repair / Upgrade View'}
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {activeViewId === 'overview' && (
                     <div className="mt-4 pt-3.5 border-t border-gray-700/60 flex items-center justify-between gap-3 flex-wrap">

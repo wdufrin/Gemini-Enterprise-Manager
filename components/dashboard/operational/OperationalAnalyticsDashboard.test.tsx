@@ -291,4 +291,150 @@ describe('OperationalAnalyticsDashboard', () => {
             expect(screen.getByText(/Successfully created view/i)).toBeInTheDocument();
         });
     });
+
+    it('displays active query progress banner while BigQuery view queries are running', async () => {
+        let resolveQuery: ((val: unknown) => void) | null = null;
+        (apiService.runBigQueryQuery as any).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveQuery = resolve;
+                })
+        );
+
+        render(
+            <OperationalAnalyticsDashboard
+                projectId="test-project"
+                projectNumber="123456"
+                datasetId="test_dataset"
+                tables={mockTables}
+            />
+        );
+
+        expect(await screen.findByTestId('operational-query-progress-banner')).toBeInTheDocument();
+        expect(screen.getByTestId('operational-query-running-badge')).toHaveTextContent(/Running Queries/i);
+
+        // Resolve queries and verify banner disappears
+        (apiService.runBigQueryQuery as any).mockResolvedValue({ rows: [] });
+        if (resolveQuery) {
+            (resolveQuery as (val: unknown) => void)({ rows: [] });
+        }
+
+        await waitFor(() => {
+            expect(screen.queryByTestId('operational-query-progress-banner')).not.toBeInTheDocument();
+        });
+    });
+
+    it('validates schemas and views and reports healthy status when all required columns and views pass', async () => {
+        (apiService.runBigQueryQuery as any).mockImplementation(async (_proj: string, sql: string) => {
+            if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
+                return {
+                    rows: [
+                        { f: [{ v: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260801' }, { v: 'timestamp' }, { v: 'TIMESTAMP' }] },
+                        { f: [{ v: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260801' }, { v: 'jsonPayload' }, { v: 'RECORD' }] },
+                        { f: [{ v: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260801' }, { v: 'trace' }, { v: 'STRING' }] },
+                        { f: [{ v: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260801' }, { v: 'insertId' }, { v: 'STRING' }] }
+                    ]
+                };
+            }
+            if (sql.includes('INFORMATION_SCHEMA.VIEWS')) {
+                return {
+                    rows: [
+                        {
+                            f: [
+                                { v: 'v_consolidated_user_activity' },
+                                { v: 'SELECT * FROM `test-project.test_dataset.discoveryengine_googleapis_com_gemini_enterprise_user_activity_*`' }
+                            ]
+                        }
+                    ]
+                };
+            }
+            return { rows: [] };
+        });
+
+        render(
+            <OperationalAnalyticsDashboard
+                projectId="test-project"
+                projectNumber="123456"
+                datasetId="test_dataset"
+                tables={mockTables}
+            />
+        );
+
+        const validateBtn = screen.getByRole('button', { name: /Validate Schemas & Views/i });
+        fireEvent.click(validateBtn);
+
+        const report = await screen.findByTestId('schema-validation-report');
+        expect(report).toHaveTextContent('All Schemas & Views Healthy');
+        expect(report).toHaveTextContent(/Checked 1 base table\(s\) & 1 deployed view\(s\)/i);
+    });
+
+    it('detects missing base table columns, stale WHERE FALSE placeholder views, and broken view schemas during validation', async () => {
+        (apiService.runBigQueryQuery as any).mockImplementation(async (_proj: string, sql: string) => {
+            if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
+                // Missing jsonPayload and trace columns
+                return {
+                    rows: [
+                        { f: [{ v: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260801' }, { v: 'timestamp' }, { v: 'TIMESTAMP' }] },
+                        { f: [{ v: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260801' }, { v: 'insertId' }, { v: 'STRING' }] }
+                    ]
+                };
+            }
+            if (sql.includes('INFORMATION_SCHEMA.VIEWS')) {
+                return {
+                    rows: [
+                        {
+                            f: [
+                                { v: 'v_consolidated_user_activity' },
+                                { v: 'SELECT CAST(NULL AS TIMESTAMP) AS event_time FROM (SELECT 1) WHERE FALSE' }
+                            ]
+                        }
+                    ]
+                };
+            }
+            if (sql.includes('LIMIT 0')) {
+                return {
+                    error: { message: 'Unrecognized name: legacy_field at [1:15]' }
+                };
+            }
+            return { rows: [] };
+        });
+
+        render(
+            <OperationalAnalyticsDashboard
+                projectId="test-project"
+                projectNumber="123456"
+                datasetId="test_dataset"
+                tables={mockTables}
+            />
+        );
+
+        const validateBtn = screen.getByRole('button', { name: /Validate Schemas & Views/i });
+        fireEvent.click(validateBtn);
+
+        const report = await screen.findByTestId('schema-validation-report');
+        expect(report).toHaveTextContent('3 Issue(s) Detected');
+        expect(report).toHaveTextContent(/missing expected Cloud Logging column\(s\): jsonPayload, trace/i);
+        expect(report).toHaveTextContent(/still bound to an empty placeholder stub/i);
+        expect(report).toHaveTextContent(/Unrecognized name: legacy_field/i);
+        expect(screen.getAllByRole('button', { name: /Repair \/ Upgrade View/i }).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('falls back to projectNumber when projectId is empty so queries still execute', async () => {
+        render(
+            <OperationalAnalyticsDashboard
+                projectId=""
+                projectNumber="987654321"
+                datasetId="test_dataset"
+                tables={mockTables}
+            />
+        );
+
+        await waitFor(() => {
+            expect(apiService.runBigQueryQuery).toHaveBeenCalledWith(
+                '987654321',
+                expect.stringContaining('`987654321.test_dataset.v_consolidated_user_activity`'),
+                true
+            );
+        });
+    });
 });

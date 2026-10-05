@@ -9,9 +9,7 @@ import {
     YAxis,
     CartesianGrid,
     Tooltip,
-    ResponsiveContainer,
-    LineChart,
-    Line
+    ResponsiveContainer
 } from 'recharts';
 
 interface AgentEngineMetricsViewerProps {
@@ -118,16 +116,14 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
 
         // Format for Recharts
         const chartData = Array.from(toolStats.entries()).map(([toolId, stats]) => {
-            // Very naive approximation of P95 using available means if real percentiles aren't provided by the API without MQL
             const avgMean = stats.means.length > 0 ? stats.means.reduce((a,b) => a+b, 0) / stats.means.length : 0;
-            const p95Estimate = avgMean * 1.5; // Placeholder estimate
 
             return {
                 toolId: toolId.length > 20 ? toolId.substring(0, 20) + '...' : toolId, // Truncate long names
                 fullToolId: toolId,
                 calls: stats.calls,
                 errorRate: stats.calls > 0 ? (stats.errors / stats.calls) * 100 : 0,
-                p95: p95Estimate
+                avgLatency: avgMean
             };
         });
 
@@ -282,13 +278,13 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                                 </div>
                             </div>
 
-                            {/* P95 duration by tool */}
+                            {/* Mean duration by tool */}
                             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 lg:col-span-2">
-                                <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Duration (ms) by tool (Estimated P95)</h4>
+                                <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Mean Duration (ms) by tool</h4>
                                 <div className="h-72 w-full">
                                     <ResponsiveContainer width="100%" height={288} minWidth={0}>
-                                        <LineChart data={parsedData.chartData} margin={{ top: 5, right: 30, left: 20, bottom: 25 }}>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                                        <BarChart data={parsedData.chartData} margin={{ top: 5, right: 30, left: 20, bottom: 25 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                                             <XAxis 
                                                 dataKey="toolId" 
                                                 stroke="#9CA3AF" 
@@ -307,11 +303,12 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                                                 tickLine={false}
                                             />
                                             <Tooltip 
+                                                cursor={{ fill: '#374151' }}
                                                 contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6', fontSize: '13px' }}
-                                                formatter={(value: number) => [`${value.toFixed(0)} ms`, 'Est. P95 Duration']}
+                                                formatter={(value: number) => [`${value.toFixed(0)} ms`, 'Mean Duration']}
                                             />
-                                            <Line type="monotone" dataKey="p95" name="P95 Duration" stroke="#8b5cf6" strokeWidth={3} activeDot={{ r: 8 }} />
-                                        </LineChart>
+                                            <Bar dataKey="avgLatency" name="Mean Duration (ms)" fill="#8b5cf6" radius={[4, 4, 0, 0]} maxBarSize={50} />
+                                        </BarChart>
                                     </ResponsiveContainer>
                                 </div>
                             </div>

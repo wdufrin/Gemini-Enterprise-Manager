@@ -151,6 +151,7 @@ describe('BYOMCPConfigTab', () => {
           actionConfig: expect.objectContaining({
             actionParams: expect.objectContaining({
               mcp_server_description: 'Updated Enterprise Search MCP Server',
+              instance_uri: 'https://mcp-server.example.com/mcp',
             }),
           }),
         }),

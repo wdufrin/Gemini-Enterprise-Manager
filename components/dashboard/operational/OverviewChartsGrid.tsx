@@ -253,7 +253,15 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                                     onClick={() => handleViewChange('v_gemini_genai_telemetry')}
                                     className="text-[11px] text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1"
                                 >
-                                    Explore 1,813 Tool Calls →
+                                    {(() => {
+                                        const totalToolCalls = toolInvocationsData.reduce(
+                                            (sum, item) => sum + (Number(item?.count) || 0),
+                                            0
+                                        );
+                                        return totalToolCalls > 0
+                                            ? `Explore ${totalToolCalls.toLocaleString()} Tool Calls →`
+                                            : 'Explore Telemetry Table →';
+                                    })()}
                                 </button>
                             </div>
                             {genaiTokensData.length === 0 ? (
@@ -348,7 +356,9 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                                     onClick={() => handleViewChange('v_user_connector_usage_30d')}
                                     className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1"
                                 >
-                                    View All 19 Tools Table →
+                                    {connectorUsageData.length > 0
+                                        ? `View All ${connectorUsageData.length} Connectors Table →`
+                                        : 'View Connector Usage Table →'}
                                 </button>
                             </div>
                             {connectorUsageData.length === 0 ? (

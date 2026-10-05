@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Agent, ReasoningEngine, Config, EnvVar } from "../../types";
 import * as api from "../../services/apiService";
 import Spinner from "../Spinner";
@@ -22,6 +22,7 @@ import ConfirmationModal from "../ConfirmationModal";
 import AgentEngineMetricsViewer from "../assistants/AgentEngineMetricsViewer";
 import CloudConsoleButton from "../CloudConsoleButton";
 import AgentCardModal from "./AgentCardModal";
+import { useModalA11y } from "../../hooks/useModalA11y";
 
 interface EngineDetailsProps {
   engine: ReasoningEngine;
@@ -51,6 +52,9 @@ const ModelArmorModal: React.FC<{
   command: string;
 }> = ({ isOpen, onClose, command }) => {
   const [copyText, setCopyText] = useState("Copy");
+  const modalRef = useRef<HTMLDivElement>(null);
+  useModalA11y({ isOpen, onClose, containerRef: modalRef });
+
   if (!isOpen) return null;
   const handleCopy = () => {
     navigator.clipboard.writeText(command).then(() => {
@@ -59,11 +63,16 @@ const ModelArmorModal: React.FC<{
     });
   };
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="model-armor-modal-title"
+    >
+      <div ref={modalRef} className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl">
         <header className="p-4 border-b border-gray-700 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-white">Enable Model Armor</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
+          <h2 id="model-armor-modal-title" className="text-xl font-bold text-white">Enable Model Armor</h2>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-white">
             &times;
           </button>
         </header>
@@ -75,6 +84,7 @@ const ModelArmorModal: React.FC<{
           </p>
           <div className="bg-gray-900 rounded-lg overflow-hidden relative group">
             <button
+              type="button"
               onClick={handleCopy}
               className="absolute top-2 right-2 px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500 opacity-0 group-hover:opacity-100 transition-opacity"
             >
@@ -87,6 +97,7 @@ const ModelArmorModal: React.FC<{
         </main>
         <footer className="p-4 bg-gray-900/50 border-t border-gray-700 flex justify-end">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
           >

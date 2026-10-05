@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Agent, AppEngine, Assistant, Config, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
@@ -39,6 +39,7 @@ interface AssistantPageProps {
   accessToken: string;
   userProfile: UserProfile | null;
   onBuildTriggered?: (buildId: string, projectId?: string) => void;
+  context?: any;
 }
 
 const AssistantPage: React.FC<AssistantPageProps> = ({
@@ -48,6 +49,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
   accessToken,
   userProfile,
   onBuildTriggered,
+  context,
 }) => {
   const { toast } = useToast();
   const [config, setConfig] = usePersistedConfig<{ appLocation: string }>(
@@ -109,6 +111,46 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
     displayName: string;
     config: Config;
   } | null>(null);
+  const handledContextEngineRef = useRef<string | null>(null);
+
+  // Handle navigation context (e.g., "Test in Playground" from ArchitecturePage)
+  useEffect(() => {
+    const targetEngineName = context?.appEngineId;
+    if (!targetEngineName || typeof targetEngineName !== 'string') return;
+
+    const parts = targetEngineName.split('/');
+    const targetLocation = parts.length >= 4 ? parts[3] : undefined;
+    if (targetLocation && targetLocation !== config.appLocation) {
+      setConfig((prev) => ({ ...prev, appLocation: targetLocation }));
+      return;
+    }
+
+    if (handledContextEngineRef.current === targetEngineName || rows.length === 0) {
+      return;
+    }
+
+    const targetEngineId = parts.pop();
+    const matchedRow = rows.find(
+      (r) =>
+        r.engine.name === targetEngineName ||
+        (targetEngineId && r.engine.name.endsWith(`/${targetEngineId}`)),
+    );
+    if (matchedRow) {
+      handledContextEngineRef.current = targetEngineName;
+      const engineId = matchedRow.engine.name.split('/').pop()!;
+      const assistantId = matchedRow.assistant?.name
+        ? matchedRow.assistant.name.split('/').pop()!
+        : 'default_assistant';
+      setActiveChatConfig({
+        displayName: matchedRow.engine.displayName,
+        config: {
+          ...baseApiConfig,
+          appId: engineId,
+          assistantId,
+        },
+      });
+    }
+  }, [context, config.appLocation, setConfig, rows, baseApiConfig]);
 
   // Probe DataStore ACL feature capability for this project/location
   useEffect(() => {

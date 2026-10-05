@@ -236,7 +236,12 @@ export function useBYOMCPConfig({
     const authChanged = Boolean(clientId.trim());
 
     // If no changes detected, default to updating action_params with current description & instructions
-    const actionParamsChanged = descChanged || instChanged || customChanged || authChanged;
+    const actionParamsChanged =
+      descChanged ||
+      instChanged ||
+      customChanged ||
+      authChanged ||
+      (uriChanged && Boolean(origActionParams.instance_uri));
     const hasAnyChange = actionParamsChanged || toolsChanged || uriChanged || intervalChanged || staticIpChanged;
 
     const masks: string[] = [];
@@ -259,6 +264,9 @@ export function useBYOMCPConfig({
       if (registryMcpServerName.trim()) {
         actionParamsPayload.registry_mcp_server_name = registryMcpServerName.trim();
       }
+      if (instanceUri.trim()) {
+        actionParamsPayload.instance_uri = instanceUri.trim();
+      }
 
       if (authChanged) {
         actionParamsPayload.client_id = clientId.trim();
@@ -268,10 +276,8 @@ export function useBYOMCPConfig({
         if (authUri.trim()) actionParamsPayload.auth_uri = authUri.trim();
         if (tokenUri.trim()) actionParamsPayload.token_uri = tokenUri.trim();
         if (authUriParams.trim()) actionParamsPayload.auth_uri_params = authUriParams.trim();
-        if (instanceUri.trim()) actionParamsPayload.instance_uri = instanceUri.trim();
       } else if (authType && authType !== 'OAUTH') {
         actionParamsPayload.auth_type = authType;
-        if (instanceUri.trim()) actionParamsPayload.instance_uri = instanceUri.trim();
       }
 
       customActionParams.forEach((item) => {

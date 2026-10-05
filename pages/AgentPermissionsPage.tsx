@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import * as api from '../services/apiService';
 import { Agent, Config, IamPolicy, IamBinding, AppEngine, Assistant } from '../types';
 import ProjectInput from '../components/ProjectInput';
 import PartialResultsBanner, { PartialFailure } from '../components/common/PartialResultsBanner';
 import { toErrorMessage } from '../utils/errors';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 interface AgentPermissionsPageProps {
     projectNumber: string;
@@ -33,6 +34,13 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
     const [error, setError] = useState<string | null>(null);
     const [partialFailures, setPartialFailures] = useState<PartialFailure[]>([]);
     const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
+    const scriptModalRef = useRef<HTMLDivElement>(null);
+
+    useModalA11y({
+        isOpen: isScriptModalOpen,
+        onClose: () => setIsScriptModalOpen(false),
+        containerRef: scriptModalRef,
+    });
 
     const [filters, setFilters] = useState({
         location: '',
@@ -440,7 +448,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
 
             {/* Python Script Modal */}
             {isScriptModalOpen && (
-                <div className="fixed inset-0 z-50 overflow-y-auto">
+                <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="modal-title">
                     <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
                         <div className="fixed inset-0 transition-opacity" aria-hidden="true" onClick={() => setIsScriptModalOpen(false)}>
                             <div className="absolute inset-0 bg-gray-900 opacity-75"></div>
@@ -448,7 +456,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
 
                         <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
 
-                        <div className="inline-block align-bottom bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full border border-gray-700">
+                        <div ref={scriptModalRef} className="inline-block align-bottom bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full border border-gray-700">
                             <div className="bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                                 <div className="sm:flex sm:items-start">
                                     <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">

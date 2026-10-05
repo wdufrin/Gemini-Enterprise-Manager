@@ -26,6 +26,7 @@ interface A2aTesterPageProps {
   setProjectNumber: (projectNumber: string) => void;
   onNavigate?: (page: Page, context: any) => void;
   accessToken: string;
+  context?: any;
 }
 
 const CodeBlock: React.FC<{ content: string; onCopy: () => void; copyText: string; title: string; }> = ({ content, onCopy, copyText, title }) => (
@@ -45,12 +46,12 @@ const CodeBlock: React.FC<{ content: string; onCopy: () => void; copyText: strin
     </div>
 );
 
-const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProjectNumber, onNavigate, accessToken }) => {
+const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProjectNumber, onNavigate, accessToken, context }) => {
     // State for configuration
-    const [cloudRunRegion, setCloudRunRegion] = useState('us-central1');
+    const [cloudRunRegion, setCloudRunRegion] = useState(() => context?.serviceToEdit?.location || 'us-central1');
     const [services, setServices] = useState<CloudRunService[]>([]);
     const [isLoadingServices, setIsLoadingServices] = useState(false);
-    const [serviceUrl, setServiceUrl] = useState('');
+    const [serviceUrl, setServiceUrl] = useState(() => context?.serviceToEdit?.uri || '');
     
     // State for fetching agent card
     const [isLoading, setIsLoading] = useState(false);
@@ -66,6 +67,17 @@ const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProject
     const [invokeError, setInvokeError] = useState<string | null>(null);
     const [invokeCopyStatus, setInvokeCopyStatus] = useState('');
 
+    useEffect(() => {
+        if (context?.serviceToEdit) {
+            if (context.serviceToEdit.location) {
+                setCloudRunRegion(context.serviceToEdit.location);
+            }
+            if (context.serviceToEdit.uri) {
+                setServiceUrl(context.serviceToEdit.uri);
+            }
+        }
+    }, [context]);
+
     // Fetch Cloud Run services when project or region changes
     useEffect(() => {
         if (!projectNumber || !cloudRunRegion) {
@@ -76,13 +88,18 @@ const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProject
         const fetchServices = async () => {
             setIsLoadingServices(true);
             setServices([]);
-            setServiceUrl('');
+            if (!context?.serviceToEdit?.uri || context?.serviceToEdit?.location !== cloudRunRegion) {
+                setServiceUrl('');
+            }
             setError(null);
             setAgentCard(null);
             try {
                 const res = await api.listCloudRunServices({ projectId: projectNumber } as Config, cloudRunRegion);
                 const fetchedServices = res.services || [];
                 setServices(fetchedServices);
+                if (context?.serviceToEdit?.uri && context?.serviceToEdit?.location === cloudRunRegion) {
+                    setServiceUrl(context.serviceToEdit.uri);
+                }
                 if (fetchedServices.length === 0) {
                     setError(`No Cloud Run services found in ${cloudRunRegion}.`);
                 }
@@ -93,7 +110,7 @@ const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProject
             }
         };
         fetchServices();
-    }, [projectNumber, cloudRunRegion]);
+    }, [projectNumber, cloudRunRegion, context]);
 
     const handleFetchCard = async () => {
         if (!serviceUrl || !accessToken) {

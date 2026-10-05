@@ -44,6 +44,7 @@ interface Props {
     } | null;
     timeRange: number;
     setTimeRange: (range: number) => void;
+    isLoading?: boolean;
 }
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
@@ -126,7 +127,15 @@ const CustomXAxisTick = (props: any) => {
     );
 };
 
-const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRange, setTimeRange }) => {
+const ObservabilityDashboard: React.FC<Props> = ({
+    datasetId,
+    customData,
+    timeRange,
+    setTimeRange,
+    isLoading = false,
+}) => {
+    const [forceMockPreview, setForceMockPreview] = useState(false);
+
     // Mock data for Request Volume over time (fallback)
     const defaultVolumeData = useMemo(() => [
         { time: '00:00', requests: 2 },
@@ -139,9 +148,6 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
         { time: '24:00', requests: 1 },
     ], []);
 
-    const volumeData = customData?.volumeData || (datasetId ? [] : defaultVolumeData);
-    const isVolumeLive = !!customData?.volumeData || !!datasetId;
-
     // Mock data for Latency by Agent (fallback)
     const defaultLatencyData = useMemo(() => [
         { name: 'core_assistant', p50: 850, p95: 2450 },
@@ -150,33 +156,38 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
         { name: 'routing_agent', p50: 320, p95: 900 },
     ], []);
 
-    // Real data for Role Breakdown
+    const hasLiveResponse = Boolean(customData) && !forceMockPreview;
+    const isLiveZero =
+        Boolean(customData) &&
+        (customData?.totalRequests ?? 0) === 0 &&
+        (customData?.volumeData?.length ?? 0) === 0;
+
+    const volumeData = hasLiveResponse ? (customData?.volumeData || []) : defaultVolumeData;
+    const isVolumeLive = hasLiveResponse;
+
     const roleData = useMemo(() => {
-        return customData?.roleData || (datasetId ? [] : null);
-    }, [customData?.roleData, datasetId]);
+        return hasLiveResponse ? (customData?.roleData || []) : null;
+    }, [customData?.roleData, hasLiveResponse]);
 
-    // Real data for Agent Breakdown
     const agentData = useMemo(() => {
-        return customData?.agentData || (datasetId ? [] : null);
-    }, [customData?.agentData, datasetId]);
-    const isAgentLive = !!customData?.agentData || !!datasetId;
+        return hasLiveResponse ? (customData?.agentData || []) : null;
+    }, [customData?.agentData, hasLiveResponse]);
+    const isAgentLive = hasLiveResponse;
 
-    // Summary metrics from view or derived
-    const totalRequests = customData?.totalRequests !== undefined
+    const totalRequests = hasLiveResponse && customData?.totalRequests !== undefined
         ? customData.totalRequests
         : (roleData && roleData.length > 0
             ? roleData.reduce((acc, curr) => acc + curr.value, 0)
             : (volumeData.length > 0 ? volumeData.reduce((acc, curr) => acc + curr.requests, 0) : 0));
 
-    const usedAgentsCount = customData?.uniqueAgents !== undefined
+    const usedAgentsCount = hasLiveResponse && customData?.uniqueAgents !== undefined
         ? customData.uniqueAgents
-        : (agentData ? agentData.length : (datasetId ? 0 : defaultLatencyData.length));
+        : (agentData ? agentData.length : defaultLatencyData.length);
     
-    // Real data for Unique Users & Sessions
-    const uniqueUsers = customData?.uniqueUsers !== undefined ? customData.uniqueUsers : (datasetId ? 0 : undefined);
-    const isUsersLive = uniqueUsers !== undefined || !!datasetId;
-    const totalSessions = customData?.totalSessions !== undefined ? customData.totalSessions : (datasetId ? 0 : undefined);
-    const isSessionsLive = totalSessions !== undefined || !!datasetId;
+    const uniqueUsers = hasLiveResponse && customData?.uniqueUsers !== undefined ? customData.uniqueUsers : undefined;
+    const isUsersLive = hasLiveResponse && uniqueUsers !== undefined;
+    const totalSessions = hasLiveResponse && customData?.totalSessions !== undefined ? customData.totalSessions : undefined;
+    const isSessionsLive = hasLiveResponse && totalSessions !== undefined;
 
     const queries = customData?.queries;
 
@@ -194,6 +205,31 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
 
     return (
         <div className="space-y-6">
+            {/* Active Query Execution Banner */}
+            {isLoading && (
+                <div
+                    role="status"
+                    aria-live="polite"
+                    className="p-4 rounded-xl bg-blue-950/40 border border-blue-800/80 flex items-center justify-between gap-4"
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-400 shrink-0"></div>
+                        <div>
+                            <p className="text-sm font-semibold text-blue-200">
+                                Running BigQuery Analytics Queries...
+                            </p>
+                            <p className="text-xs text-blue-300/80 mt-0.5">
+                                Scanning {timeRange}-day partitioned log shards in{' '}
+                                <code className="font-mono text-blue-200">{datasetId || 'BigQuery'}</code>. Please wait...
+                            </p>
+                        </div>
+                    </div>
+                    <span className="text-[11px] font-mono px-2.5 py-1 rounded bg-blue-900/60 text-blue-200 border border-blue-700/60 shrink-0">
+                        Query in progress
+                    </span>
+                </div>
+            )}
+
             {/* Header with Dataset & Source Table Indicator */}
             <div className="flex justify-between items-center mb-4 bg-gray-800 p-4 rounded-lg border border-gray-700 flex-wrap gap-3">
                 <div>
@@ -201,7 +237,11 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         {datasetId ? (
                             <p className="text-sm text-gray-300">
                                 Dataset: <code className="text-green-400 font-mono font-semibold">{datasetId}</code>
-                                {roleData || agentData || customData?.volumeData || isUsersLive ? ' (Using live data)' : ' (Using example data)'}
+                                {isLoading
+                                    ? ' (Querying BigQuery...)'
+                                    : hasLiveResponse
+                                        ? ' (Using live data)'
+                                        : ' (Showing simulated fallback data)'}
                             </p>
                         ) : (
                             <p className="text-sm text-gray-400">No specific dataset identified. Showing example data.</p>
@@ -219,12 +259,34 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         </code>
                     </div>
                 </div>
+
+                {/* Controls when live query returned 0 events in current window or fallback mode */}
+                {!isLoading && (isLiveZero || forceMockPreview) && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                        {isLiveZero && timeRange < 30 && !forceMockPreview && (
+                            <button
+                                type="button"
+                                onClick={() => setTimeRange(30)}
+                                className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+                            >
+                                Expand to 30 Days
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => setForceMockPreview((prev) => !prev)}
+                            className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-gray-900 hover:bg-gray-700 text-amber-300 border border-amber-700/60 transition-colors"
+                        >
+                            {forceMockPreview ? 'Switch Back to Live Data' : 'Preview Simulated Data'}
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Summary Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${customData?.totalRequests !== undefined || datasetId ? 'border-gray-700' : 'border-yellow-700/50'}`}>
-                    {customData?.totalRequests === undefined && !datasetId && (
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${hasLiveResponse || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                    {!hasLiveResponse && !isLoading && (
                         <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                     )}
                     <div className="flex justify-between items-center mb-1">
@@ -243,12 +305,16 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         {queries?.summaryQuery && <QueryTooltip query={queries.summaryQuery} />}
                     </div>
                     <div className="text-3xl font-light text-white">
-                        {totalRequests.toLocaleString()}
+                        {isLoading ? (
+                            <span className="text-base text-blue-300 animate-pulse font-mono">Querying...</span>
+                        ) : (
+                            totalRequests.toLocaleString()
+                        )}
                     </div>
                 </div>
 
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${isUsersLive || datasetId ? 'border-gray-700' : 'border-yellow-700/50'}`}>
-                    {!isUsersLive && !datasetId && (
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${isUsersLive || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                    {!isUsersLive && !isLoading && (
                         <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                     )}
                     <div className="flex justify-between items-center mb-1">
@@ -266,13 +332,17 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         </div>
                         {queries?.userCountQuery && <QueryTooltip query={queries.userCountQuery} />}
                     </div>
-                    <div className={`text-3xl font-light ${isUsersLive || datasetId ? 'text-green-400' : 'text-white'}`}>
-                        {isUsersLive || datasetId ? uniqueUsers : 2}
+                    <div className={`text-3xl font-light ${isUsersLive ? 'text-green-400' : 'text-white'}`}>
+                        {isLoading ? (
+                            <span className="text-base text-blue-300 animate-pulse font-mono">Querying...</span>
+                        ) : (
+                            isUsersLive ? uniqueUsers : 2
+                        )}
                     </div>
                 </div>
 
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${(isSessionsLive && customData?.totalRequests !== undefined) || datasetId ? 'border-gray-700' : 'border-yellow-700/50'}`}>
-                    {(!isSessionsLive || customData?.totalRequests === undefined) && !datasetId && (
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${(isSessionsLive && customData?.totalRequests !== undefined) || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                    {(!isSessionsLive || customData?.totalRequests === undefined) && !isLoading && (
                         <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                     )}
                     <div className="flex justify-between items-center mb-1">
@@ -293,14 +363,16 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         )}
                     </div>
                     <div className="text-3xl font-light text-white">
-                        {isSessionsLive && customData?.totalRequests !== undefined && totalSessions !== undefined && totalSessions > 0
+                        {isLoading ? (
+                            <span className="text-base text-blue-300 animate-pulse font-mono">Querying...</span>
+                        ) : isSessionsLive && customData?.totalRequests !== undefined && totalSessions !== undefined && totalSessions > 0
                             ? (totalRequests / totalSessions).toFixed(1)
-                            : (datasetId ? '0.0' : '5.2')}
+                            : (hasLiveResponse ? '0.0' : '5.2')}
                     </div>
                 </div>
 
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${customData?.uniqueAgents !== undefined || isAgentLive || datasetId ? 'border-gray-700' : 'border-yellow-700/50'}`}>
-                    {customData?.uniqueAgents === undefined && !isAgentLive && !datasetId && (
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${hasLiveResponse || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                    {!hasLiveResponse && !isLoading && (
                         <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                     )}
                     <div className="flex justify-between items-center mb-1">
@@ -318,8 +390,12 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         </div>
                         {queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />}
                     </div>
-                    <div className={`text-3xl font-light ${customData?.uniqueAgents !== undefined || isAgentLive || datasetId ? 'text-green-400' : 'text-white'}`}>
-                        {usedAgentsCount}
+                    <div className={`text-3xl font-light ${hasLiveResponse ? 'text-green-400' : 'text-white'}`}>
+                        {isLoading ? (
+                            <span className="text-base text-blue-300 animate-pulse font-mono">Querying...</span>
+                        ) : (
+                            usedAgentsCount
+                        )}
                     </div>
                 </div>
             </div>
@@ -328,10 +404,9 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 
                 {/* Request Volume Chart */}
-                {/* Request Volume Chart */}
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${isVolumeLive || datasetId ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${isVolumeLive || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
                     <div className="absolute top-2 right-2 flex items-center gap-2">
-                        {!isVolumeLive && !datasetId && (
+                        {!isVolumeLive && !isLoading && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                         )}
                         {queries?.volumeQuery && <QueryTooltip query={queries.volumeQuery} />}
@@ -348,8 +423,33 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         />
                     </div>
                     <div className="h-64 w-full flex justify-center items-center">
-                        {isVolumeLive && volumeData.length === 0 ? (
-                            <span className="text-sm text-gray-500">No request logs in this time range.</span>
+                        {isLoading ? (
+                            <div className="flex flex-col items-center gap-2 text-blue-300">
+                                <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-400"></div>
+                                <span className="text-xs font-mono">Running Request Volume query...</span>
+                            </div>
+                        ) : isVolumeLive && volumeData.length === 0 ? (
+                            <div className="flex flex-col items-center gap-2 text-center">
+                                <span className="text-sm text-gray-400">No request logs in this {timeRange}-day time range.</span>
+                                <div className="flex items-center gap-2 mt-1">
+                                    {timeRange < 30 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setTimeRange(30)}
+                                            className="px-2.5 py-1 text-xs rounded bg-gray-800 hover:bg-gray-700 text-blue-400 border border-gray-700"
+                                        >
+                                            Try 30-Day Window
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => setForceMockPreview(true)}
+                                        className="px-2.5 py-1 text-xs rounded bg-gray-800 hover:bg-gray-700 text-amber-300 border border-gray-700"
+                                        >
+                                        Show Simulated Data
+                                    </button>
+                                </div>
+                            </div>
                         ) : (
                             <ResponsiveContainer width="100%" height={256} minWidth={0}>
                                 <AreaChart data={volumeData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -368,9 +468,9 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                 </div>
 
                 {/* Agent Activity Table */}
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${isAgentLive || datasetId ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${isAgentLive || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
                     <div className="absolute top-2 right-2 flex items-center gap-2">
-                        {!isAgentLive && !datasetId && (
+                        {!isAgentLive && !isLoading && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                         )}
                         {queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />}
@@ -387,7 +487,12 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         />
                     </div>
                     <div className="h-64 w-full overflow-y-auto custom-scrollbar pr-2">
-                        {isAgentLive && agentData && agentData.length === 0 ? (
+                        {isLoading ? (
+                            <div className="h-full flex flex-col justify-center items-center gap-2 text-blue-300">
+                                <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-400"></div>
+                                <span className="text-xs font-mono">Running Agent Activity query...</span>
+                            </div>
+                        ) : isAgentLive && agentData && agentData.length === 0 ? (
                             <div className="h-full flex justify-center items-center">
                                 <span className="text-sm text-gray-500">No agent logs in this time range.</span>
                             </div>
@@ -423,15 +528,17 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                 </div>
 
                 {/* Agent Breakdown Chart */}
-                <div className={`bg-gray-900 border rounded-lg p-4 lg:col-span-2 relative ${isAgentLive || datasetId ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                <div className={`bg-gray-900 border rounded-lg p-4 lg:col-span-2 relative ${isAgentLive || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
                     <div className="absolute top-2 right-2 flex items-center gap-2">
-                        {!isAgentLive && !datasetId && (
+                        {!isAgentLive && !isLoading && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                         )}
                         {queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />}
                     </div>
                     <div className="flex items-center gap-1.5 mb-4 px-2">
-                        <h4 className="text-sm font-medium text-gray-300">Top Agents (Visualized)</h4>
+                        <h4 className="text-sm font-medium text-gray-300">
+                            {topAgentChartData ? 'Top Agents by Message Volume' : 'Agent Latency Sample (ms)'}
+                        </h4>
                         <MetricInfoTooltip
                             title={CHARTS_METADATA.top_agents_chart.title}
                             whatItShows={CHARTS_METADATA.top_agents_chart.whatItShows}
@@ -442,7 +549,12 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         />
                     </div>
                     <div className="h-64 w-full flex justify-center items-center">
-                        {isAgentLive && agentData && agentData.length === 0 ? (
+                        {isLoading ? (
+                            <div className="flex flex-col items-center gap-2 text-blue-300">
+                                <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-400"></div>
+                                <span className="text-xs font-mono">Aggregating per-agent telemetry...</span>
+                            </div>
+                        ) : isAgentLive && agentData && agentData.length === 0 ? (
                             <span className="text-sm text-gray-500">No agent logs in this time range.</span>
                         ) : (
                             <ResponsiveContainer width="100%" height={256} minWidth={0}>

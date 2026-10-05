@@ -138,18 +138,18 @@ function mapTabName(title: string): string | undefined {
   const lower = title.toLowerCase();
   if (lower.includes('ge agent manager') || lower === 'agent manager') return 'GE Agent Manager';
   if (lower.includes('skills registry')) return 'Skills Registry';
-  if (lower.includes('adk studio') || lower.includes('agent builder')) return 'Agent Builder';
-  if (lower.includes('agent runtimes') || lower.includes('engines')) return 'Agent Engines';
-  if (lower.includes('connectors') && lower.includes('data stores')) return 'Data Stores';
-  if (lower.includes('quota') || lower.includes('cost estimator')) return 'GE Quota Usage';
-  if (lower.includes('engines & assistants') || lower.includes('assistants')) return 'Assistant';
+  if (lower.includes('adk studio') || lower.includes('agent builder')) return 'ADK Studio';
+  if (lower.includes('engines & assistants') || lower.includes('assistants')) return 'Engines & Assistants';
+  if (lower.includes('agent runtimes') || lower.includes('engines')) return 'Agent Runtimes';
+  if (lower.includes('connectors') && lower.includes('data stores')) return 'Connectors & Data Stores';
+  if (lower.includes('quota') || lower.includes('cost estimator')) return 'Quota & Cost Estimator';
   if (lower.includes('architecture')) return 'Architecture';
   if (lower.includes('authorizations')) return 'Authorizations';
   if (lower.includes('agent permissions')) return 'Agent Permissions';
   if (lower.includes('model armor')) return 'Model Armor';
   if (lower.includes('observability')) return 'Observability';
   if (lower.includes('backup & recovery')) return 'Backup & Recovery';
-  if (lower.includes('config audit')) return 'Config Audit';
+  if (lower.includes('config audit')) return 'App Config Audit';
   if (lower.includes('licenses')) return 'Licenses';
   return undefined;
 }

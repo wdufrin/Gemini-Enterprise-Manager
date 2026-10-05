@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Config, DataStore } from '../../types';
 import * as api from '../../services/apiService';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 export interface EditDataStoreModalProps {
   isOpen: boolean;
@@ -30,6 +31,14 @@ export const EditDataStoreModal: React.FC<EditDataStoreModalProps> = ({ isOpen, 
   const [displayName, setDisplayName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({
+    isOpen: Boolean(isOpen && dataStore),
+    onClose,
+    containerRef: modalRef,
+    preventClose: isSubmitting,
+  });
 
   useEffect(() => {
     if (isOpen && dataStore) {
@@ -61,11 +70,11 @@ export const EditDataStoreModal: React.FC<EditDataStoreModalProps> = ({ isOpen, 
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-lg">
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-datastore-modal-title">
+      <div ref={modalRef} className="bg-gray-800 rounded-lg shadow-xl w-full max-w-lg">
         <form onSubmit={handleSubmit}>
           <header className="p-4 border-b border-gray-700">
-            <h2 className="text-xl font-bold text-white">Edit Data Store</h2>
+            <h2 id="edit-datastore-modal-title" className="text-xl font-bold text-white">Edit Data Store</h2>
           </header>
           <main className="p-6 space-y-4">
             <div>

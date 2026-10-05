@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
     OPERATIONAL_VIEWS_METADATA,
     KPI_METRICS_INFO,
@@ -23,6 +23,7 @@ import {
     MetricDefinition,
     ChartMetadata
 } from './analyticsMetadata';
+import { useModalA11y } from '../../../hooks/useModalA11y';
 
 interface Props {
     isOpen: boolean;
@@ -39,6 +40,9 @@ export const ObservabilityDataDictionaryModal: React.FC<Props> = ({
     const [activeTab, setActiveTab] = useState<'views' | 'metrics' | 'tables'>('views');
     const [selectedViewId, setSelectedViewId] = useState<string>('v_consolidated_user_activity');
     const [copiedKey, setCopiedKey] = useState<string | null>(null);
+    const modalRef = useRef<HTMLDivElement>(null);
+
+    useModalA11y({ isOpen, onClose, containerRef: modalRef });
 
     const handleCopy = (text: string, key: string) => {
         navigator.clipboard.writeText(text);
@@ -151,8 +155,13 @@ export const ObservabilityDataDictionaryModal: React.FC<Props> = ({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-hidden animate-in fade-in duration-200">
-            <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-hidden animate-in fade-in duration-200"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="obs-data-dictionary-title"
+        >
+            <div ref={modalRef} className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden">
                 {/* Modal Header */}
                 <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-gray-950/60">
                     <div className="flex items-center gap-3">
@@ -162,7 +171,7 @@ export const ObservabilityDataDictionaryModal: React.FC<Props> = ({
                             </svg>
                         </div>
                         <div>
-                            <h3 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                            <h3 id="obs-data-dictionary-title" className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
                                 Observability Data Dictionary &amp; Tables Reference
                             </h3>
                             <p className="text-xs text-gray-400">

@@ -73,7 +73,7 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
     case Page.SKILLS_REGISTRY:
       return <SkillsRegistryPage {...projectProps} accessToken={accessToken} userProfile={userProfile} />;
     case Page.ASSISTANT:
-      return <AssistantPage {...projectProps} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={onBuildTriggered} />;
+      return <AssistantPage {...projectProps} context={pageContext} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={onBuildTriggered} />;
     case Page.AUTHORIZATIONS:
       return <AuthorizationsPage {...commonProps} />;
     case Page.AGENT_PERMISSIONS:
@@ -81,7 +81,7 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
     case Page.AGENT_ENGINES:
       return <AgentEnginesPage {...commonProps} onNavigate={onNavigate} accessToken={accessToken} onDirectQuery={onDirectQuery} />;
     case Page.A2A_TESTER:
-      return <A2aTesterPage {...projectProps} onNavigate={onNavigate} accessToken={accessToken} />;
+      return <A2aTesterPage {...projectProps} context={pageContext} onNavigate={onNavigate} accessToken={accessToken} />;
     case Page.AGENT_BUILDER:
       return <AgentBuilderPage {...projectProps} context={pageContext} onBuildTriggered={onBuildTriggered} />;
     case Page.CLOUD_RUN_AGENTS:
@@ -89,7 +89,7 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
     case Page.DIALOGFLOW_AGENTS:
       return <DialogflowAgentsPage {...projectProps} accessToken={accessToken} />;
     case Page.CHAT:
-      return <AssistantPage {...projectProps} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={onBuildTriggered} />;
+      return <AssistantPage {...projectProps} context={pageContext} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={onBuildTriggered} />;
     case Page.DATA_STORES:
       return <DataStoresPage {...projectProps} accessToken={accessToken} />;
     case Page.MCP_SERVERS:

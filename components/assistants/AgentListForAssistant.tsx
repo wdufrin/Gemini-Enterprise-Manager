@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Agent, AppEngine, Config } from '../../types';
 import * as api from '../../services/apiService';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
 import InfoTooltip from '../InfoTooltip';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface AgentListForAssistantProps {
   agents: Agent[];
@@ -57,6 +58,14 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
   const [configuringAgent, setConfiguringAgent] = useState<Agent | null>(null);
   const [configAgentObs, setConfigAgentObs] = useState<boolean>(false);
   const [configAgentSens, setConfigAgentSens] = useState<boolean>(false);
+  const telemetryModalRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({
+    isOpen: Boolean(configuringAgent),
+    onClose: () => setConfiguringAgent(null),
+    containerRef: telemetryModalRef,
+    preventClose: Boolean(enforcingAgentName),
+  });
 
   // Breakdown counts for visual summary
   const fullCount = agents.filter(
@@ -540,7 +549,7 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
           aria-modal="true"
           aria-labelledby="configure-telemetry-title"
         >
-          <div className="bg-gray-900 border border-gray-700 rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+          <div ref={telemetryModalRef} className="bg-gray-900 border border-gray-700 rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
             <div className="flex items-start justify-between">
               <div>
                 <h3 id="configure-telemetry-title" className="text-base font-bold text-white">

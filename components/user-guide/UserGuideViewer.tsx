@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { sanitizeLinkUrl } from '../SimpleMarkdownViewer';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface UserGuideViewerProps {
   content: string;
@@ -31,6 +32,13 @@ export const UserGuideViewer: React.FC<UserGuideViewerProps> = ({
 }) => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [activeImageZoom, setActiveImageZoom] = useState<{ src: string; alt: string } | null>(null);
+  const zoomModalRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({
+    isOpen: Boolean(activeImageZoom),
+    onClose: () => setActiveImageZoom(null),
+    containerRef: zoomModalRef,
+  });
 
   const handleCopyCode = async (code: string, index: number) => {
     try {
@@ -482,9 +490,12 @@ export const UserGuideViewer: React.FC<UserGuideViewerProps> = ({
       {activeImageZoom && (
         <div
           className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-label={activeImageZoom.alt || 'Enlarged screenshot'}
           onClick={() => setActiveImageZoom(null)}
         >
-          <div className="relative max-w-5xl max-h-[90vh] flex flex-col items-center">
+          <div ref={zoomModalRef} className="relative max-w-5xl max-h-[90vh] flex flex-col items-center">
             <button
               type="button"
               onClick={() => setActiveImageZoom(null)}

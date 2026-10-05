@@ -644,6 +644,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             }
 
             let widgetChanged = false;
+            let latestWidgetConfig = widgetConfig;
             if (widgetConfig && originalWidgetConfig) {
                 const currentProvider = idpData.idpType === 'THIRD_PARTY' ? idpData.workforcePoolName : '';
                 const origProvider = originalWidgetConfig.accessSettings?.workforceIdentityPoolProvider || '';
@@ -684,6 +685,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
 
                     const updatedWidget = await api.updateWidgetConfig(engine.name, updatePayload, widgetMask, config);
                     setWidgetConfig(updatedWidget);
+                    latestWidgetConfig = updatedWidget;
                     widgetChanged = true;
                 }
             }
@@ -704,8 +706,8 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 setOriginalIdpData(idpData);
             }
 
-            if (widgetChanged) {
-                setOriginalWidgetConfig(JSON.parse(JSON.stringify(widgetConfig)));
+            if (widgetChanged && latestWidgetConfig) {
+                setOriginalWidgetConfig(JSON.parse(JSON.stringify(latestWidgetConfig)));
             }
 
             setSuccess("Engine updated successfully!");

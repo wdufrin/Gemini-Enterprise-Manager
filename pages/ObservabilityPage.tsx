@@ -30,12 +30,19 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
     const [dashboardData, setDashboardData] = useState<ObservabilityDashboardMetrics | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [timeRange, setTimeRange] = useState(1);
-    const [activeDashboardTab, setActiveDashboardTab] = useState<'live' | 'operational'>('live');
+    const [activeDashboardTab, setActiveDashboardTab] = useState<'live' | 'operational'>(() => {
+        if (typeof window !== 'undefined' && (window.location.hash.includes('view=') || window.location.search.includes('view='))) {
+            return 'operational';
+        }
+        return 'live';
+    });
     const [selectedSinkName, setSelectedSinkName] = useState<string | null>(null);
     const [sinksLoading, setSinksLoading] = useState(false);
     const [queryLoading, setQueryLoading] = useState(false);
     const [showDataDictionary, setShowDataDictionary] = useState(false);
     const [showPolicyModal, setShowPolicyModal] = useState(false);
+    const [isTablesExpanded, setIsTablesExpanded] = useState(false);
+    const [isSinksExpanded, setIsSinksExpanded] = useState(true);
 
     const queryCache = useRef<Map<string, ObservabilityDashboardMetrics>>(new Map());
 
@@ -132,14 +139,16 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
         };
     }, [projectNumber, projectId, datasetId]);
 
+    const effectiveProjectId = projectId || projectNumber;
+
     // 3. Query Dashboard Metrics (optimized query with subquery JSON serialization & in-memory caching)
     useEffect(() => {
-        if (!projectId || !datasetId || tables.length === 0) {
+        if (!effectiveProjectId || !datasetId || tables.length === 0) {
             setDashboardData(null);
             return;
         }
 
-        const cacheKey = `${projectId}:${datasetId}:${timeRange}`;
+        const cacheKey = `${effectiveProjectId}:${datasetId}:${timeRange}`;
         if (queryCache.current.has(cacheKey)) {
             setDashboardData(queryCache.current.get(cacheKey)!);
             return;
@@ -200,7 +209,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         timestamp as event_time,
                         trace,
                         insertId
-                      FROM \`${projectId}.${datasetId}.${t}\`
+                      FROM \`${effectiveProjectId}.${datasetId}.${t}\`
                       WHERE timestamp >= TIMESTAMP('${startTimeStr}')
                         AND COALESCE(
                           JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.methodName'),
@@ -412,7 +421,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         FROM base_activity
                     `;
 
-                    let result = await runBigQueryQuery(projectId, consolidatedQuery, true);
+                    let result = await runBigQueryQuery(effectiveProjectId, consolidatedQuery, true);
 
                     if (result.error || (result.errors && result.errors.length > 0)) {
                         throw new Error(result.error?.message || result.errors?.[0]?.message || 'BigQuery query failed');
@@ -433,8 +442,8 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                                 'BigQuery reported the query as incomplete but returned no job reference to poll.'
                             );
                         }
-                        const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${jobId}${location ? `?location=${encodeURIComponent(location)}` : ''}`;
-                        result = await gapiRequest<BigQueryQueryResponse>(url, 'GET', projectId, undefined, undefined, undefined, true);
+                        const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${effectiveProjectId}/queries/${jobId}${location ? `?location=${encodeURIComponent(location)}` : ''}`;
+                        result = await gapiRequest<BigQueryQueryResponse>(url, 'GET', effectiveProjectId, undefined, undefined, undefined, true);
                         
                         if (result.error || (result.errors && result.errors.length > 0)) {
                             throw new Error(result.error?.message || result.errors?.[0]?.message || 'BigQuery polling failed');
@@ -490,7 +499,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
 
         runQuery();
         return () => abortController.abort();
-    }, [projectId, datasetId, timeRange, tables]);
+    }, [effectiveProjectId, datasetId, timeRange, tables]);
 
     const refreshTables = useCallback(async () => {
         if ((!projectId && !projectNumber) || !datasetId) return;
@@ -504,6 +513,24 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
             toast.error(`Failed to refresh BigQuery tables: ${toErrorMessage(e)}`);
         }
     }, [projectId, projectNumber, datasetId, toast]);
+
+    const datasetObjects = useMemo(() => {
+        const map = new Map<string, 'View' | 'Partitioned'>();
+        tables.forEach((table) => {
+            const rawId = table.tableReference?.tableId || '';
+            if (!rawId) return;
+            const baseId = rawId.replace(/_\d{8}$/, '');
+            const isView = table.type === 'VIEW' || baseId.startsWith('v_');
+            map.set(baseId, isView ? 'View' : 'Partitioned');
+        });
+        return Array.from(map.entries()).map(([id, kind]) => ({ id, kind }));
+    }, [tables]);
+
+    const viewObjectCount = useMemo(
+        () => datasetObjects.filter((o) => o.kind === 'View').length,
+        [datasetObjects]
+    );
+    const tableObjectCount = datasetObjects.length - viewObjectCount;
 
     return (
         <div className="flex-1 overflow-auto bg-gray-900 border-l border-gray-800 custom-scrollbar">
@@ -545,28 +572,54 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     </div>
                 </div>
                 
-                <div className="mt-6 bg-gray-800 p-6 rounded-lg border border-gray-700">
-                    <div className="flex justify-between items-center mb-4">
+                <div className="mt-6 bg-gray-800 p-5 rounded-lg border border-gray-700">
+                    <div className="flex flex-wrap justify-between items-center gap-3">
                         <div>
-                            <h2 className="text-xl font-semibold text-white">Log Router Sinks & Tables</h2>
-                            <p className="text-xs text-gray-400 mt-0.5">Click any BigQuery sink below to switch the active dataset.</p>
+                            <div className="flex items-center gap-2.5">
+                                <h2 className="text-lg font-semibold text-white">Log Router Sinks & Tables</h2>
+                                <span className="text-xs text-gray-400 bg-gray-900 border border-gray-700 px-2 py-0.5 rounded font-mono">
+                                    {bqSinks.length} sink{bqSinks.length !== 1 ? 's' : ''}
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                                {isSinksExpanded
+                                    ? 'Click any BigQuery sink below to switch the active dataset.'
+                                    : `Selected sink: ${activeSink?.name || 'None'}`}
+                            </p>
                         </div>
-                        {activeSink && (
-                            <span className="text-xs text-gray-400 bg-gray-900 border border-gray-700 px-2.5 py-1 rounded">
-                                Active Dataset: <code className="text-green-400 font-mono font-semibold">{datasetId}</code>
-                            </span>
-                        )}
+                        <div className="flex items-center gap-2.5">
+                            {activeSink && (
+                                <span className="text-xs text-gray-400 bg-gray-900 border border-gray-700 px-2.5 py-1 rounded">
+                                    Active Dataset: <code className="text-green-400 font-mono font-semibold">{datasetId}</code>
+                                </span>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => setIsSinksExpanded(prev => !prev)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-gray-900 hover:bg-gray-750 text-gray-300 hover:text-white border border-gray-700 transition-colors"
+                            >
+                                <span>{isSinksExpanded ? 'Hide Sinks' : 'Switch Sink'}</span>
+                                <svg
+                                    className={`w-3.5 h-3.5 transition-transform ${isSinksExpanded ? 'rotate-180' : ''}`}
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                     
                     {sinksLoading && (
-                        <div className="flex items-center justify-center p-4 text-sm text-blue-300">
+                        <div className="flex items-center justify-center p-4 text-sm text-blue-300 mt-3">
                             <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-400 mr-3"></div>
                             Discovering log sinks...
                         </div>
                     )}
                     
                     {error && (
-                        <div className="mb-4 p-3.5 text-xs text-red-300 bg-red-900/30 rounded-lg border border-red-800 flex items-start justify-between gap-3">
+                        <div className="mt-4 p-3.5 text-xs text-red-300 bg-red-900/30 rounded-lg border border-red-800 flex items-start justify-between gap-3">
                             <div className="flex-1 font-mono break-all line-clamp-3 hover:line-clamp-none">
                                 {error}
                             </div>
@@ -582,113 +635,155 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     )}
                     
                     {!sinksLoading && (
-                        <div className="space-y-6">
-                            <div>
-                                <div className="flex justify-between items-center mb-2">
-                                    <h3 className="text-lg font-medium text-white">BigQuery Sinks</h3>
-                                    <span className="text-xs text-gray-500">
-                                        {bqSinks.length} sink{bqSinks.length !== 1 ? 's' : ''} detected
-                                    </span>
-                                </div>
-                                {bqSinks.length === 0 ? (
-                                    <p className="text-gray-400 text-sm">No BigQuery log sinks found.</p>
-                                ) : (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {bqSinks.map(sink => {
-                                            const isActive = activeSink && sink.name === activeSink.name;
-                                            const sinkDataset = sink.destination.split('/').pop();
-                                            const hasCore4 = Boolean(
-                                                sink.filter &&
-                                                sink.filter.includes('gen_ai') &&
-                                                (sink.filter.includes('gemini_enterprise_user_activity') || sink.filter.includes('user_activity'))
-                                            );
-                                            const isSearchOnly = Boolean(
-                                                sink.filter &&
-                                                sink.filter.includes('methodName="Search"') &&
-                                                !sink.filter.includes('NOT') &&
-                                                !sink.filter.includes('!=')
-                                            );
-                                            const isUserActivity = Boolean(
-                                                sink.filter && (
-                                                    sink.filter.includes('gemini_enterprise_user_activity') ||
-                                                    sink.filter.includes('discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity')
-                                                )
-                                            );
+                        <div className="mt-4 space-y-4">
+                            {isSinksExpanded && (
+                                <div>
+                                    {bqSinks.length === 0 ? (
+                                        <p className="text-gray-400 text-sm">No BigQuery log sinks found.</p>
+                                    ) : (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                            {bqSinks.map(sink => {
+                                                const isActive = activeSink && sink.name === activeSink.name;
+                                                const sinkDataset = sink.destination.split('/').pop();
+                                                const hasCore4 = Boolean(
+                                                    sink.filter &&
+                                                    sink.filter.includes('gen_ai') &&
+                                                    (sink.filter.includes('gemini_enterprise_user_activity') || sink.filter.includes('user_activity'))
+                                                );
+                                                const isSearchOnly = Boolean(
+                                                    sink.filter &&
+                                                    sink.filter.includes('methodName="Search"') &&
+                                                    !sink.filter.includes('NOT') &&
+                                                    !sink.filter.includes('!=')
+                                                );
+                                                const isUserActivity = Boolean(
+                                                    sink.filter && (
+                                                        sink.filter.includes('gemini_enterprise_user_activity') ||
+                                                        sink.filter.includes('discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity')
+                                                    )
+                                                );
 
-                                            return (
-                                                <div
-                                                    key={sink.name}
-                                                    onClick={() => setSelectedSinkName(sink.name)}
-                                                    className={`p-3.5 rounded-lg border transition-all cursor-pointer select-none ${
-                                                        isActive
-                                                            ? 'border-blue-500 bg-blue-950/30 ring-1 ring-blue-500/80 shadow-md shadow-blue-950/40'
-                                                            : 'border-gray-700 bg-gray-900/70 hover:border-gray-500 hover:bg-gray-800/60'
-                                                    }`}
-                                                >
-                                                    <div className="flex justify-between items-start gap-2">
-                                                        <div className="min-w-0 flex-1">
-                                                            <div className="flex items-center gap-2 flex-wrap mb-1">
-                                                                <span className="text-sm font-semibold text-white truncate" title={sink.name}>
-                                                                    {sink.name}
-                                                                </span>
-                                                                {isActive && (
-                                                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-600 text-white flex items-center gap-1">
-                                                                        <span className="w-1.5 h-1.5 rounded-full bg-blue-200 animate-pulse"></span>
-                                                                        Active
+                                                return (
+                                                    <div
+                                                        key={sink.name}
+                                                        onClick={() => {
+                                                            setSelectedSinkName(sink.name);
+                                                            setIsTablesExpanded(false);
+                                                        }}
+                                                        className={`p-3 rounded-lg border transition-all cursor-pointer select-none ${
+                                                            isActive
+                                                                ? 'border-blue-500 bg-blue-950/30 ring-1 ring-blue-500/80 shadow-md shadow-blue-950/40'
+                                                                : 'border-gray-700 bg-gray-900/70 hover:border-gray-500 hover:bg-gray-800/60'
+                                                        }`}
+                                                    >
+                                                        <div className="flex justify-between items-start gap-2">
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                                                    <span className="text-xs font-semibold text-white truncate" title={sink.name}>
+                                                                        {sink.name}
                                                                     </span>
-                                                                )}
-                                                                {hasCore4 ? (
-                                                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-700/80">
-                                                                        4 Core Tables (Full Sink)
-                                                                    </span>
-                                                                ) : isSearchOnly ? (
-                                                                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-purple-900/60 text-purple-200 border border-purple-700/50">
-                                                                        Search Logs Only
-                                                                    </span>
-                                                                ) : isUserActivity ? (
-                                                                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-200 border border-emerald-700/50">
-                                                                        User & Assistant Logs
-                                                                    </span>
-                                                                ) : (
-                                                                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
-                                                                        BQ Sink
-                                                                    </span>
-                                                                )}
+                                                                    {isActive && (
+                                                                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-600 text-white flex items-center gap-1">
+                                                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-200 animate-pulse"></span>
+                                                                            Active
+                                                                        </span>
+                                                                    )}
+                                                                    {hasCore4 ? (
+                                                                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-700/80">
+                                                                            4 Core Tables (Full Sink)
+                                                                        </span>
+                                                                    ) : isSearchOnly ? (
+                                                                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-purple-900/60 text-purple-200 border border-purple-700/50">
+                                                                            Search Logs Only
+                                                                        </span>
+                                                                    ) : isUserActivity ? (
+                                                                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-200 border border-emerald-700/50">
+                                                                            User & Assistant Logs
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
+                                                                            BQ Sink
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <p className="text-xs text-gray-400">
+                                                                    Dataset: <code className="text-green-400 font-mono font-medium">{sinkDataset}</code>
+                                                                </p>
                                                             </div>
-                                                            <p className="text-xs text-gray-400">
-                                                                Dataset: <code className="text-green-400 font-mono font-medium">{sinkDataset}</code>
-                                                            </p>
-                                                        </div>
-                                                        <div className="shrink-0 pt-0.5">
-                                                            <span className={`text-[11px] font-medium ${isActive ? 'text-blue-400' : 'text-gray-500'}`}>
-                                                                {isActive ? '● Selected' : 'Click to select'}
-                                                            </span>
+                                                            <div className="shrink-0 pt-0.5">
+                                                                <span className={`text-[11px] font-medium ${isActive ? 'text-blue-400' : 'text-gray-500'}`}>
+                                                                    {isActive ? '● Selected' : 'Select'}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {datasetId && (
-                                <div>
-                                    <h3 className="text-lg font-medium text-white mb-2">Tables in <code className="text-green-400">{datasetId}</code></h3>
-                                    {tables.length === 0 ? (
-                                        <p className="text-gray-400 text-sm">No tables found or unable to list.</p>
-                                    ) : (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                            {Array.from(new Set(tables.map(table => {
-                                                const tableId = table.tableReference.tableId;
-                                                return tableId.replace(/_\d{8}$/, '');
-                                            }))).map(baseTableId => (
-                                                <div key={baseTableId} className="p-2 bg-gray-900 rounded-md border border-gray-700 text-sm text-gray-300 font-mono flex justify-between items-center min-w-0" title={baseTableId}>
-                                                    <span className="truncate mr-2">{baseTableId}</span>
-                                                    <span className="text-xs text-gray-500 bg-gray-800 px-1 rounded shrink-0">Partitioned</span>
-                                                </div>
-                                            ))}
+                                <div className="pt-3 border-t border-gray-700/80">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h3 className="text-sm font-medium text-gray-200">
+                                                Tables in <code className="text-green-400 font-mono">{datasetId}</code>
+                                            </h3>
+                                            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-900 text-gray-300 border border-gray-700">
+                                                {datasetObjects.length} total ({tableObjectCount} {tableObjectCount === 1 ? 'table' : 'tables'}, {viewObjectCount} {viewObjectCount === 1 ? 'view' : 'views'})
+                                            </span>
                                         </div>
+                                        {datasetObjects.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsTablesExpanded(prev => !prev)}
+                                                aria-expanded={isTablesExpanded}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md bg-gray-900 hover:bg-gray-750 text-blue-400 hover:text-blue-300 border border-gray-700 transition-colors"
+                                            >
+                                                <span>
+                                                    {isTablesExpanded
+                                                        ? `Hide Tables & Views`
+                                                        : `Show ${datasetObjects.length} Tables & Views`}
+                                                </span>
+                                                <svg
+                                                    className={`w-3.5 h-3.5 transition-transform ${isTablesExpanded ? 'rotate-180' : ''}`}
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                >
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                </svg>
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {tables.length === 0 ? (
+                                        <p className="text-gray-400 text-xs mt-2">No tables found or unable to list.</p>
+                                    ) : (
+                                        isTablesExpanded && (
+                                            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
+                                                {datasetObjects.map(({ id: baseTableId, kind }) => (
+                                                    <div
+                                                        key={baseTableId}
+                                                        className="px-2.5 py-1.5 bg-gray-900 rounded-md border border-gray-700 text-xs text-gray-300 font-mono flex justify-between items-center min-w-0"
+                                                        title={baseTableId}
+                                                    >
+                                                        <span className="truncate mr-2">{baseTableId}</span>
+                                                        <span
+                                                            className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
+                                                                kind === 'View'
+                                                                    ? 'bg-blue-950/70 text-blue-300 border border-blue-800/60'
+                                                                    : 'bg-gray-800 text-gray-400'
+                                                            }`}
+                                                        >
+                                                            {kind}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )
                                     )}
                                 </div>
                             )}
@@ -787,7 +882,13 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                                     </select>
                                 </div>
                             </div>
-                            <ObservabilityDashboard datasetId={datasetId} customData={dashboardData} timeRange={timeRange} setTimeRange={setTimeRange} />
+                            <ObservabilityDashboard
+                                datasetId={datasetId}
+                                customData={dashboardData}
+                                timeRange={timeRange}
+                                setTimeRange={setTimeRange}
+                                isLoading={queryLoading || sinksLoading}
+                            />
                         </div>
                     ) : (
                         <OperationalAnalyticsDashboard

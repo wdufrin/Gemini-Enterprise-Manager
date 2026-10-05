@@ -34,6 +34,7 @@ const PromptChipRow = React.memo<PromptChipRowProps>(({ chip, onEdit, onDelete }
         <td className="px-4 py-3">
             <div className="flex space-x-2">
                 <button 
+                    type="button"
                     onClick={() => onEdit(chip.raw)}
                     className="text-gray-400 hover:text-white" 
                     title="Edit"
@@ -42,6 +43,7 @@ const PromptChipRow = React.memo<PromptChipRowProps>(({ chip, onEdit, onDelete }
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                 </button>
                 <button 
+                    type="button"
                     onClick={() => onDelete(chip)}
                     className="text-gray-400 hover:text-red-400" 
                     title="Delete"
@@ -122,18 +124,21 @@ const PromptChipsTable: React.FC<PromptChipsTableProps> = ({ engineName }) => {
                 <h3 className="text-xl font-bold text-white">Prompt chips</h3>
                 <div className="flex space-x-2">
                     <button 
+                        type="button"
                         onClick={() => setActiveTab('All')}
                         className={`px-3 py-1.5 rounded-md text-sm font-medium ${activeTab === 'All' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
                     >
                         All
                     </button>
                     <button 
+                        type="button"
                         onClick={() => setActiveTab('Google-made')}
                         className={`px-3 py-1.5 rounded-md text-sm font-medium ${activeTab === 'Google-made' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
                     >
                         Google-made
                     </button>
                     <button 
+                        type="button"
                         onClick={() => setActiveTab('Our prompts')}
                         className={`px-3 py-1.5 rounded-md text-sm font-medium ${activeTab === 'Our prompts' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
                     >
@@ -141,6 +146,7 @@ const PromptChipsTable: React.FC<PromptChipsTableProps> = ({ engineName }) => {
                     </button>
                 </div>
                 <button 
+                    type="button"
                     onClick={() => { setSelectedChip(null); setIsModalOpen(true); }}
                     className="flex items-center text-blue-400 hover:text-blue-300 font-semibold text-sm"
                 >

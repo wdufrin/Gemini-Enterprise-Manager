@@ -26,6 +26,7 @@ interface SidebarProps {
   onShowInfo: (infoKey: string) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  onOpenFeedback?: () => void;
 }
 
 const NavItem: React.FC<{
@@ -98,7 +99,7 @@ const NavItem: React.FC<{
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowInfo, isCollapsed, onToggleCollapse }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowInfo, isCollapsed, onToggleCollapse, onOpenFeedback }) => {
   const { showCurlPreview, setShowCurlPreview, apiHistory, clearHistory } = useGlobalDebug();
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<ApiHistoryItem | null>(null);
   const [filterGet, setFilterGet] = useState(false);
@@ -160,7 +161,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
         {!isCollapsed && (
           <div className="flex flex-col ml-3 justify-center animate-fadeIn">
             <span className="text-lg font-bold text-gray-100 tracking-tight leading-none">Gemini Enterprise</span>
-            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.1002.355</span>
+            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.1005.356</span>
           </div>
         )}
       </div>
@@ -212,7 +213,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
                 </span>
               </label>
               <p className="text-[10px] text-gray-600 mt-1 ml-1 mb-2">
-                Intercepts save actions to show cURL commands.
+                Records outgoing REST requests and cURL commands in History.
               </p>
             </div>
 
@@ -280,8 +281,38 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
         <div className="h-4"></div>
       </div>
 
-      {/* Collapse/Expand Toggle Chevron Button at the bottom */}
-      <div className="p-3 border-t border-gray-800 shrink-0 bg-gray-900/40">
+      {/* Footer Actions: Feedback & Collapse/Expand Toggle */}
+      <div className="p-3 border-t border-gray-800 shrink-0 bg-gray-900/40 space-y-1.5">
+        {onOpenFeedback && (
+          <button
+            type="button"
+            onClick={onOpenFeedback}
+            aria-label="Report Issue or Feedback"
+            title="Report Issue or Feedback (PII-Sanitized GitHub Issue)"
+            className="w-full flex items-center justify-center py-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-800 hover:border-gray-700"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-4 w-4 text-blue-400 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
+              />
+            </svg>
+            {!isCollapsed && (
+              <span className="ml-2 text-xs font-semibold select-none animate-fadeIn">
+                Report Issue / Feedback
+              </span>
+            )}
+          </button>
+        )}
+
         <button
           type="button"
           onClick={onToggleCollapse}

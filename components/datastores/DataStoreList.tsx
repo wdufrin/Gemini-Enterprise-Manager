@@ -203,7 +203,7 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
       {dataStores.length > 0 && (hasPrevPage || nextPageToken) && (
         <div className="p-4 border-t border-gray-700 bg-gray-800/80 flex justify-between items-center text-sm text-gray-400">
           <div>
-            <span>Page {currentPage + 1}</span>
+            <span>Page {currentPage}</span>
             <span className="ml-2 text-xs text-gray-500">({dataStores.length} stores on this page)</span>
           </div>
           <div className="flex gap-2">

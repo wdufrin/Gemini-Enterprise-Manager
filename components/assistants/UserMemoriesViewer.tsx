@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Config, UserMemory, UserProfile } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import ConfirmationModal from '../ConfirmationModal';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface UserMemoriesViewerProps {
   config: Config;
@@ -36,6 +37,13 @@ export const UserMemoriesViewer: React.FC<UserMemoriesViewerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedRawMemory, setSelectedRawMemory] = useState<UserMemory | null>(null);
+  const rawMemoryModalRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({
+    isOpen: Boolean(selectedRawMemory),
+    onClose: () => setSelectedRawMemory(null),
+    containerRef: rawMemoryModalRef,
+  });
 
   // Pagination state
   const [pageToken, setPageToken] = useState<string | undefined>(undefined);
@@ -397,14 +405,20 @@ export const UserMemoriesViewer: React.FC<UserMemoriesViewerProps> = ({
 
       {/* Raw Memory JSON Viewer Modal */}
       {selectedRawMemory && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-gray-850 border border-gray-700 rounded-xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="raw-memory-modal-title"
+        >
+          <div ref={rawMemoryModalRef} className="bg-gray-850 border border-gray-700 rounded-xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-gray-700">
-              <h3 className="text-lg font-bold text-gray-100 flex items-center gap-2">
+              <h3 id="raw-memory-modal-title" className="text-lg font-bold text-gray-100 flex items-center gap-2">
                 <span className="text-blue-400 font-mono text-sm">&lt;/&gt;</span>
                 Raw Memory Object
               </h3>
               <button
+                type="button"
                 onClick={() => setSelectedRawMemory(null)}
                 className="text-gray-400 hover:text-gray-200 text-xl font-bold"
               >
@@ -416,6 +430,7 @@ export const UserMemoriesViewer: React.FC<UserMemoriesViewerProps> = ({
             </pre>
             <div className="flex justify-end pt-2">
               <button
+                type="button"
                 onClick={() => setSelectedRawMemory(null)}
                 className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium rounded-lg transition-colors"
               >

@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Config } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 export interface CreateDataStoreModalProps {
   isOpen: boolean;
@@ -32,6 +33,14 @@ export const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOp
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef: modalRef,
+    preventClose: isSubmitting,
+  });
 
   // State for advanced parser config
   const [defaultParser, setDefaultParser] = useState<'digital' | 'layout' | 'ocr'>('digital');
@@ -136,11 +145,11 @@ export const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOp
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="create-datastore-modal-title">
+      <div ref={modalRef} className="bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         <form onSubmit={handleSubmit} className="flex flex-col h-full">
           <header className="p-4 border-b border-gray-700">
-            <h2 className="text-xl font-bold text-white">Create New Data Store</h2>
+            <h2 id="create-datastore-modal-title" className="text-xl font-bold text-white">Create New Data Store</h2>
           </header>
           <main className="p-6 space-y-4 overflow-y-auto">
             <div>

@@ -25,6 +25,8 @@ import {
   slugify,
 } from './userGuideService';
 
+import { Page } from '../types';
+
 describe('userGuideService', () => {
   it('loads and parses all 5 chapters', () => {
     const chapters = getGuideChapters();
@@ -48,16 +50,30 @@ describe('userGuideService', () => {
     expect(firstSection.cleanText).not.toContain('## ');
   });
 
-  it('maps tab names correctly to sidebar pages', () => {
+  it('maps tab names correctly to valid Page enum values', () => {
     const sections = getAllGuideSections();
+    const validPages = new Set<string>(Object.values(Page));
+
+    const sectionsWithTabs = sections.filter((s) => s.tabName);
+    expect(sectionsWithTabs.length).toBeGreaterThanOrEqual(10);
+    for (const sec of sectionsWithTabs) {
+      expect(validPages.has(sec.tabName!)).toBe(true);
+    }
+
     const agentManagerSec = sections.find((s) => s.title.includes('GE Agent Manager'));
-    expect(agentManagerSec?.tabName).toBe('GE Agent Manager');
+    expect(agentManagerSec?.tabName).toBe(Page.AGENTS);
+
+    const adkStudioSec = sections.find((s) => s.title.includes('ADK Studio'));
+    expect(adkStudioSec?.tabName).toBe(Page.AGENT_BUILDER);
+
+    const enginesSec = sections.find((s) => s.title.includes('Engines & Assistants'));
+    expect(enginesSec?.tabName).toBe(Page.ASSISTANT);
 
     const modelArmorSec = sections.find((s) => s.title.includes('Model Armor'));
-    expect(modelArmorSec?.tabName).toBe('Model Armor');
+    expect(modelArmorSec?.tabName).toBe(Page.MODEL_ARMOR);
 
     const observabilitySec = sections.find((s) => s.title.includes('Observability'));
-    expect(observabilitySec?.tabName).toBe('Observability');
+    expect(observabilitySec?.tabName).toBe(Page.OBSERVABILITY);
   });
 
   it('retrieves section by ID', () => {

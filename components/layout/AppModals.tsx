@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ReasoningEngine, UserProfile } from '../../types';
 import CloudBuildProgress from '../agent-builder/CloudBuildProgress';
 import CurlInfoModal from '../CurlInfoModal';
 import DirectQueryChatWindow from '../agent-engines/DirectQueryChatWindow';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface AppModalsProps {
   activeBuilds: { id: string; projectId: string }[];
@@ -54,6 +55,13 @@ export const AppModals: React.FC<AppModalsProps> = ({
   onSetAccessToken,
 }) => {
   const [reauthTokenInput, setReauthTokenInput] = useState('');
+  const reauthModalRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({
+    isOpen: showReauthModal,
+    onClose: onCloseReauthModal,
+    containerRef: reauthModalRef,
+  });
 
   return (
     <>
@@ -91,8 +99,13 @@ export const AppModals: React.FC<AppModalsProps> = ({
       )}
 
       {showReauthModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-gray-800 border border-amber-500/40 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reauth-modal-title"
+        >
+          <div ref={reauthModalRef} className="bg-gray-800 border border-amber-500/40 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg">
                 <svg
@@ -110,7 +123,7 @@ export const AppModals: React.FC<AppModalsProps> = ({
                 </svg>
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-white">
+                <h3 id="reauth-modal-title" className="text-lg font-semibold text-white">
                   Session Expired
                 </h3>
                 <p className="text-xs text-gray-400">

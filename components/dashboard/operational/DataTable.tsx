@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 
 export interface ColumnDef {
     key: string;
@@ -14,6 +14,7 @@ interface Props {
     onRowClick?: (row: any) => void;
     pageSize?: number;
     isLoading?: boolean;
+    isSimulated?: boolean;
 }
 
 export const DataTable: React.FC<Props> = ({
@@ -23,22 +24,60 @@ export const DataTable: React.FC<Props> = ({
     subtitle,
     onRowClick,
     pageSize = 15,
-    isLoading = false
+    isLoading = false,
+    isSimulated = false
 }) => {
     const [search, setSearch] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
-    // Filtered rows
-    const filteredData = useMemo(() => {
-        if (!search.trim()) return data;
-        const q = search.toLowerCase();
-        return data.filter(row => {
-            return Object.values(row).some(val => {
-                if (val === null || val === undefined) return false;
-                return String(val).toLowerCase().includes(q);
-            });
+    // Reset pagination when data array reference changes (e.g. switching views)
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [data]);
+
+    const handleSort = (key: string) => {
+        setSortConfig(prev => {
+            if (prev?.key === key) {
+                return prev.direction === 'asc' ? { key, direction: 'desc' } : null;
+            }
+            return { key, direction: 'asc' };
         });
-    }, [data, search]);
+        setCurrentPage(1);
+    };
+
+    // Filtered & sorted rows
+    const filteredData = useMemo(() => {
+        const base = !search.trim()
+            ? data
+            : data.filter(row => {
+                  const q = search.toLowerCase();
+                  return Object.values(row).some(val => {
+                      if (val === null || val === undefined) return false;
+                      return String(val).toLowerCase().includes(q);
+                  });
+              });
+
+        if (!sortConfig) return base;
+
+        const { key, direction } = sortConfig;
+        return [...base].sort((a, b) => {
+            const valA = a?.[key];
+            const valB = b?.[key];
+            if (valA === valB) return 0;
+            if (valA === null || valA === undefined) return 1;
+            if (valB === null || valB === undefined) return -1;
+
+            const numA = Number(valA);
+            const numB = Number(valB);
+            if (!isNaN(numA) && !isNaN(numB) && String(valA).trim() !== '' && String(valB).trim() !== '') {
+                return direction === 'asc' ? numA - numB : numB - numA;
+            }
+
+            const cmp = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
+            return direction === 'asc' ? cmp : -cmp;
+        });
+    }, [data, search, sortConfig]);
 
     const totalPages = Math.max(1, Math.ceil(filteredData.length / pageSize));
     const paginatedData = useMemo(() => {
@@ -62,7 +101,8 @@ export const DataTable: React.FC<Props> = ({
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`;
+        const prefix = isSimulated ? 'simulated_' : '';
+        a.download = `${prefix}${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`;
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -130,6 +170,11 @@ export const DataTable: React.FC<Props> = ({
                         <span className="text-xs bg-gray-900/80 border border-gray-700 text-gray-400 px-2 py-0.5 rounded-full font-mono">
                             {filteredData.length.toLocaleString()} rows
                         </span>
+                        {isSimulated && (
+                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                Simulated Data
+                            </span>
+                        )}
                     </div>
                     {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
                 </div>
@@ -167,12 +212,12 @@ export const DataTable: React.FC<Props> = ({
                         onClick={handleExportCSV}
                         disabled={data.length === 0}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-lg text-xs font-medium transition-colors disabled:opacity-40"
-                        title="Export current filtered data to CSV"
+                        title={isSimulated ? "Export simulated fallback data to CSV" : "Export current filtered data to CSV"}
                     >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                         </svg>
-                        <span>Export CSV</span>
+                        <span>{isSimulated ? 'Export Simulated CSV' : 'Export CSV'}</span>
                     </button>
                 </div>
             </div>
@@ -182,11 +227,33 @@ export const DataTable: React.FC<Props> = ({
                 <table className="w-full text-left text-xs text-gray-300">
                     <thead className="bg-gray-900/80 uppercase text-[11px] text-gray-400 tracking-wider border-b border-gray-700/70">
                         <tr>
-                            {columns.map(col => (
-                                <th key={col.key} className="px-4 py-3 font-semibold whitespace-nowrap">
-                                    {col.header}
-                                </th>
-                            ))}
+                            {columns.map(col => {
+                                const isSorted = sortConfig?.key === col.key;
+                                const ariaSort = isSorted
+                                    ? sortConfig.direction === 'asc'
+                                        ? 'ascending'
+                                        : 'descending'
+                                    : 'none';
+                                return (
+                                    <th
+                                        key={col.key}
+                                        aria-sort={ariaSort}
+                                        className="px-4 py-3 font-semibold whitespace-nowrap select-none"
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSort(col.key)}
+                                            className="inline-flex items-center gap-1.5 uppercase tracking-wider hover:text-white transition-colors focus:outline-none"
+                                            title={`Sort by ${col.header}`}
+                                        >
+                                            <span>{col.header}</span>
+                                            <span className={`text-[10px] ${isSorted ? 'text-blue-400 font-bold' : 'text-gray-600'}`}>
+                                                {isSorted ? (sortConfig.direction === 'asc' ? '↑' : '↓') : '↕'}
+                                            </span>
+                                        </button>
+                                    </th>
+                                );
+                            })}
                             {onRowClick && (
                                 <th className="px-4 py-3 text-right font-semibold whitespace-nowrap w-16">
                                     Action
