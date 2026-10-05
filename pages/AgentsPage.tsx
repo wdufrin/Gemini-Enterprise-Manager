@@ -15,13 +15,14 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Agent, Config, SortableAgentKey, SortDirection, Assistant } from '../types';
+import { Agent, Config, SortableAgentKey, SortDirection, Assistant, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import AgentList from '../components/agents/AgentList';
 import AgentForm from '../components/agents/AgentForm';
 import AgentDetails from '../components/agents/AgentDetails';
 import BulkAgentDatasourcesPanel from '../components/agents/BulkAgentDatasourcesPanel';
+import ChatWindow from '../components/agents/ChatWindow';
 import ProjectInput from '../components/ProjectInput';
 import ConfirmationModal from '../components/ConfirmationModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
@@ -33,12 +34,14 @@ interface AgentsPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
   accessToken: string;
+  userProfile?: UserProfile | null;
   context?: any;
 }
 
-const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber, accessToken: _accessToken, context }) => {
+const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber, accessToken, userProfile = null, context }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [testingAgent, setTestingAgent] = useState<Agent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -535,6 +538,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             onToggleStatus={handleToggleStatus}
             togglingAgentId={togglingAgentId}
             error={error}
+            onTestAgent={(agent) => setTestingAgent(agent)}
             onAgentUpdated={handleAgentUpdatedInPlace}
         /> : null;
       case 'bulk-datasources':
@@ -558,6 +562,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
               onSelectAgent={handleSelectAgent}
               onEditAgent={handleEditAgent}
               onDeleteAgent={handleRequestDelete}
+              onTestAgent={(agent) => setTestingAgent(agent)}
               onRegisterNew={() => { setSelectedAgent(null); setViewMode('form'); }}
               onOpenBulkDatasources={() => setViewMode('bulk-datasources')}
               onToggleAgentStatus={handleToggleStatus}
@@ -659,6 +664,31 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
       )}
 
       {renderContent()}
+
+      {/* Scoped Agent Chat Test Modal */}
+      {testingAgent && (
+        <div
+          className="fixed inset-0 bg-black/75 flex justify-center items-center z-50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Test Agent ${testingAgent.displayName}`}
+          onClick={() => setTestingAgent(null)}
+        >
+          <div
+            className="w-full max-w-4xl h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ChatWindow
+              targetDisplayName={`Agent: ${testingAgent.displayName}`}
+              agentName={testingAgent.name}
+              config={apiConfig}
+              accessToken={accessToken}
+              onClose={() => setTestingAgent(null)}
+              userProfile={userProfile}
+            />
+          </div>
+        </div>
+      )}
 
       {agentsToDelete.length > 0 && (
         <ConfirmationModal

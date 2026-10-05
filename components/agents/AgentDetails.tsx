@@ -43,6 +43,7 @@ interface AgentDetailsProps {
     onToggleStatus: (agent: Agent) => void;
     togglingAgentId: string | null;
     error: string | null;
+    onTestAgent?: (agent: Agent) => void;
     onAgentUpdated?: (agent: Agent) => void;
 }
 
@@ -104,6 +105,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     onToggleStatus,
     togglingAgentId,
     error: pageError,
+    onTestAgent,
     onAgentUpdated,
 }) => {
     const { toast } = useToast();
@@ -619,6 +621,16 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                    {onTestAgent && currentAgent.agentType !== 'SKILL' && (
+                        <button
+                            type="button"
+                            onClick={() => onTestAgent(currentAgent)}
+                            title="Open interactive chat to test this agent via streamAssist (answerGenerationMode: AGENT)"
+                            className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-md hover:bg-emerald-500 transition-colors"
+                        >
+                            Test Agent
+                        </button>
+                    )}
                     {(currentAgent.state === 'ENABLED' || currentAgent.state === 'DISABLED') && (
                         <button 
                             onClick={onEdit} 

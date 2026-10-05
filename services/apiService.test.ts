@@ -202,6 +202,85 @@ describe('apiService', () => {
       expect(onChunk).toHaveBeenCalledTimes(1);
       expect(onChunk).toHaveBeenCalledWith(JSON.parse(jsonWithEscapedQuotes));
     });
+
+    it('should include answerGenerationMode AGENT and agentsSpec when agentName is provided', async () => {
+      mockFetch.mockClear();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(JSON.stringify([{ answer: { state: 'SUCCEEDED' } }])));
+          controller.close();
+        }
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        body: stream
+      } as Response);
+
+      const onChunk = vi.fn();
+      await streamChat(
+        'projects/p/locations/l/collections/c/engines/a/assistants/default_assistant/agents/13458552715529093415',
+        'list tables',
+        'projects/p/locations/l/collections/c/engines/a/sessions/s1',
+        testConfig,
+        'token-123',
+        onChunk
+      );
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [, requestInit] = mockFetch.mock.calls[0];
+      const parsedBody = JSON.parse(requestInit?.body as string);
+      expect(parsedBody).toEqual({
+        query: { text: 'list tables' },
+        session: 'projects/p/locations/l/collections/c/engines/a/sessions/s1',
+        answerGenerationMode: 'AGENT',
+        agentsSpec: {
+          agentSpecs: [{ agentId: '13458552715529093415' }]
+        }
+      });
+    });
+
+    it('should omit answerGenerationMode and agentsSpec when agentName is null', async () => {
+      mockFetch.mockClear();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.close();
+        }
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        body: stream
+      } as Response);
+
+      await streamChat(null, 'hello assistant', null, testConfig, 'token-123', vi.fn());
+
+      const [, requestInit] = mockFetch.mock.calls[0];
+      const parsedBody = JSON.parse(requestInit?.body as string);
+      expect(parsedBody.answerGenerationMode).toBeUndefined();
+      expect(parsedBody.agentsSpec).toBeUndefined();
+    });
+
+    it('should reject with Chat API Error when streamAssist returns non-OK HTTP status', async () => {
+      mockFetch.mockClear();
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        text: async () => '{"error":{"code":400,"message":"The model \'gemini-2.5-flash\' is not enabled","status":"INVALID_ARGUMENT"}}'
+      } as Response);
+
+      await expect(
+        streamChat(
+          'projects/p/locations/l/collections/c/engines/a/assistants/default_assistant/agents/8483702332718033022',
+          'hello',
+          null,
+          testConfig,
+          'token-123',
+          vi.fn()
+        )
+      ).rejects.toThrow(/Chat API Error: 400 Bad Request.*MODEL_NOT_ENABLED|gemini-2\.5-flash/i);
+    });
   });
 
   describe('createDiscoverySession', () => {

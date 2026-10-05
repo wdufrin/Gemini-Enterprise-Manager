@@ -147,6 +147,7 @@ export interface StreamChatChunk {
   sessionInfo?: { session?: string };
   answer?: {
     state?: string;
+    adkAuthor?: string;
     diagnosticInfo?: Record<string, unknown>;
     assistSkippedReasons?: string[];
     replies?: Array<{
@@ -187,6 +188,7 @@ export const streamChat = async (
     query: { text: string };
     toolsSpec?: unknown;
     session?: string;
+    answerGenerationMode?: "AGENT";
     agentsSpec?: { agentSpecs: Array<{ agentId: string }> };
   } = {
     query: { text: query },
@@ -197,6 +199,7 @@ export const streamChat = async (
   }
   if (agentName) {
     const agentId = agentName.split("/").pop() || agentName;
+    body.answerGenerationMode = "AGENT";
     body.agentsSpec = {
       agentSpecs: [{ agentId }],
     };

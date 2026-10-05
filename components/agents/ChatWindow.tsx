@@ -330,29 +330,27 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                             if (references) {
                                 allCitations.push(...references);
                             }
-                        }
-                    }
 
-                    const replyContent = parsedChunk.answer?.replies?.[0]?.groundedContent?.content;
-                    
-                    if (replyContent) {
-                        if (replyContent.thought && replyContent.text) {
-                            const thoughtText = replyContent.text;
-                            setThinkingProcess(prev => (prev ? prev + thoughtText : thoughtText));
-                        }
-                        else if (replyContent.text) {
-                            wasMessageReceived = true;
-                            const chunkText = replyContent.text;
-                            setMessages(prev => {
-                                const newMessages = [...prev];
-                                const lastMessage = newMessages[newMessages.length - 1];
-                                if (lastMessage && lastMessage.role === 'assistant') {
-                                    const updatedLastMessage = { ...lastMessage, content: lastMessage.content + chunkText };
-                                    newMessages[newMessages.length - 1] = updatedLastMessage;
-                                    return newMessages;
+                            const replyContent = reply.groundedContent?.content || reply.content;
+                            if (replyContent) {
+                                if (replyContent.thought && replyContent.text) {
+                                    const thoughtText = replyContent.text;
+                                    setThinkingProcess(prev => (prev ? prev + thoughtText : thoughtText));
+                                } else if (replyContent.text) {
+                                    wasMessageReceived = true;
+                                    const chunkText = replyContent.text;
+                                    setMessages(prev => {
+                                        const newMessages = [...prev];
+                                        const lastMessage = newMessages[newMessages.length - 1];
+                                        if (lastMessage && lastMessage.role === 'assistant') {
+                                            const updatedLastMessage = { ...lastMessage, content: lastMessage.content + chunkText };
+                                            newMessages[newMessages.length - 1] = updatedLastMessage;
+                                            return newMessages;
+                                        }
+                                        return prev;
+                                    });
                                 }
-                                return prev;
-                            });
+                            }
                         }
                     }
                 },

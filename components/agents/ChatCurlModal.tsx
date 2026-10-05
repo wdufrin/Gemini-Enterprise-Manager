@@ -90,6 +90,7 @@ const ChatCurlModal: React.FC<ChatCurlModalProps> = ({ isOpen, onClose, config, 
 
     if (agentName) {
       const agentId = agentName.split('/').pop() || agentName;
+      payload.answerGenerationMode = 'AGENT';
       payload.agentsSpec = {
         agentSpecs: [{ agentId }]
       };

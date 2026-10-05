@@ -23,6 +23,7 @@ interface AgentListProps {
   onSelectAgent: (agent: Agent) => void;
   onEditAgent: (agent: Agent) => void;
   onDeleteAgent: (agent: Agent) => void;
+  onTestAgent?: (agent: Agent) => void;
   onRegisterNew: () => void;
   onOpenBulkDatasources?: () => void;
   onToggleAgentStatus: (agent: Agent) => void;
@@ -65,6 +66,7 @@ const AgentList: React.FC<AgentListProps> = ({
   onSelectAgent, 
   onEditAgent, 
   onDeleteAgent, 
+  onTestAgent,
   onRegisterNew, 
   onOpenBulkDatasources,
   onToggleAgentStatus, 
@@ -547,6 +549,17 @@ const AgentList: React.FC<AgentListProps> = ({
                                         <span className="text-xs text-gray-400 italic">Deleting...</span>
                                     ) : (
                                         <>
+                                            {onTestAgent && agent.agentType !== 'SKILL' && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onTestAgent(agent)}
+                                                    disabled={isToggling}
+                                                    className="font-semibold text-emerald-400 hover:text-emerald-300 disabled:text-gray-500"
+                                                    title={`Test ${agent.displayName} via streamAssist (answerGenerationMode: AGENT)`}
+                                                >
+                                                    Test
+                                                </button>
+                                            )}
                                             <button onClick={() => onSelectAgent(agent)} disabled={isToggling} className="font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500">
                                                 View
                                             </button>

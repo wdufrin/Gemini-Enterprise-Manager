@@ -69,7 +69,7 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
 
   switch (currentPage) {
     case Page.AGENTS:
-      return <AgentsPage {...projectProps} context={pageContext} accessToken={accessToken} />;
+      return <AgentsPage {...projectProps} context={pageContext} accessToken={accessToken} userProfile={userProfile} />;
     case Page.SKILLS_REGISTRY:
       return <SkillsRegistryPage {...projectProps} accessToken={accessToken} userProfile={userProfile} />;
     case Page.ASSISTANT:
@@ -115,6 +115,6 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
         />
       );
     default:
-      return <AgentsPage {...projectProps} accessToken={accessToken} />;
+      return <AgentsPage {...projectProps} accessToken={accessToken} userProfile={userProfile} />;
   }
 };

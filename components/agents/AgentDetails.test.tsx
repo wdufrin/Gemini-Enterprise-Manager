@@ -724,6 +724,83 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
         expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
         expect(api.deleteResource).not.toHaveBeenCalled();
     });
+
+    it('triggers onTestAgent for conversational agents in AgentList and AgentDetails, and hides Test for SKILL agents', async () => {
+        const skillAgent: Agent = {
+            ...baseAgent,
+            name: 'projects/123/locations/global/collections/default_collection/engines/eng-1/assistants/default_assistant/agents/skill-1',
+            displayName: 'BQ Skill',
+            agentType: 'SKILL',
+        };
+        const onTestAgent = vi.fn();
+
+        const { unmount } = render(
+            <AgentList
+                agents={[baseAgent, skillAgent]}
+                onSelectAgent={vi.fn()}
+                onEditAgent={vi.fn()}
+                onDeleteAgent={vi.fn()}
+                onTestAgent={onTestAgent}
+                onRegisterNew={vi.fn()}
+                onToggleAgentStatus={vi.fn()}
+                togglingAgentId={null}
+                deletingAgentIds={new Set()}
+                selectedAgents={new Set()}
+                onToggleSelect={vi.fn()}
+                onToggleSelectAll={vi.fn()}
+                onDeleteSelected={vi.fn()}
+                onSort={vi.fn()}
+                sortConfig={{ key: 'displayName', direction: 'asc' }}
+            />
+        );
+
+        // Only 1 Test button should render (for baseAgent, not skillAgent)
+        const testButtons = screen.getAllByRole('button', { name: 'Test' });
+        expect(testButtons).toHaveLength(1);
+        fireEvent.click(testButtons[0]);
+        expect(onTestAgent).toHaveBeenCalledWith(baseAgent);
+
+        unmount();
+
+        // Render AgentDetails for baseAgent -> should show "Test Agent"
+        vi.mocked(api.getAgent).mockResolvedValue(baseAgent);
+        const { unmount: unmountDetails } = render(
+            <AgentDetails
+                agent={baseAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+                onTestAgent={onTestAgent}
+            />
+        );
+
+        const detailsTestBtn = await screen.findByRole('button', { name: 'Test Agent' });
+        fireEvent.click(detailsTestBtn);
+        expect(onTestAgent).toHaveBeenCalledTimes(2);
+        unmountDetails();
+
+        // Render AgentDetails for skillAgent -> should NOT show "Test Agent"
+        vi.mocked(api.getAgent).mockResolvedValue(skillAgent);
+        render(
+            <AgentDetails
+                agent={skillAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+                onTestAgent={onTestAgent}
+            />
+        );
+
+        expect(screen.queryByRole('button', { name: 'Test Agent' })).toBeNull();
+    });
 });
 
 
