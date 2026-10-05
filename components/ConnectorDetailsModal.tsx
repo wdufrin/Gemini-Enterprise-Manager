@@ -615,11 +615,11 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                 </div>
               )}
 
-              {Boolean(data && typeof data === 'object' && 'recentLogs' in data && Array.isArray(data.recentLogs) && data.recentLogs.length > 0) ? (
+              {recentErrorLogsCount > 0 ? (
                 <details className="group" open>
                   <summary className="flex justify-between items-center font-medium cursor-pointer list-none text-sm text-gray-300 hover:text-white bg-gray-900/50 border border-gray-700/70 p-3 rounded-lg">
                     <span className="text-red-400 font-bold">
-                      Recent Error Logs ({((data as Record<string, unknown>).recentLogs as unknown[]).length})
+                      Recent Error Logs ({recentErrorLogsCount})
                     </span>
                     <span className="transition group-open:rotate-180">
                       <svg fill="none" height="20" shapeRendering="geometricPrecision" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24" width="20"><path d="M6 9l6 6 6-6"></path></svg>
