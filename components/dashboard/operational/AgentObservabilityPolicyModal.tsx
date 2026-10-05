@@ -27,6 +27,7 @@ interface Props {
   projectId: string;
   projectNumber: string;
   activeDatasetId?: string;
+  inline?: boolean;
 }
 
 type TabType = 'coverage' | 'option1_eventarc' | 'option2_bulk' | 'option3_gateway';
@@ -37,6 +38,7 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
   projectId,
   projectNumber,
   activeDatasetId: _activeDatasetId,
+  inline = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<TabType>('coverage');
@@ -55,7 +57,7 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useModalA11y({
-    isOpen,
+    isOpen: isOpen && !inline,
     onClose,
     containerRef,
     preventClose: isSweeping,
@@ -379,91 +381,95 @@ def on_agent_created(cloud_event):
 
   if (!isOpen) return null;
 
-  return (
+  const panelContent = (
     <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="agent-obs-policy-title"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isSweeping) onClose();
-      }}
+      ref={containerRef}
+      tabIndex={inline ? undefined : -1}
+      className={
+        inline
+          ? 'bg-gray-900 border border-gray-700 rounded-xl shadow-lg w-full flex flex-col overflow-hidden outline-none'
+          : 'bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden outline-none'
+      }
+      onClick={inline ? undefined : (e) => e.stopPropagation()}
     >
-      <div
-        ref={containerRef}
-        tabIndex={-1}
-        className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden outline-none"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Modal Header */}
-        <div className="p-6 bg-gray-850 border-b border-gray-800 flex justify-between items-start gap-4">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <span className="p-2 rounded-lg bg-blue-950/80 border border-blue-700/60 text-blue-400">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10c0-1.718-.433-3.333-1.2-4.782" />
-                </svg>
-              </span>
-              <div>
-                <h2 id="agent-obs-policy-title" className="text-xl font-bold text-white tracking-tight">
-                  Agent Observability Policy & Telemetry Governance
-                </h2>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Understand log coverage boundaries (App vs Agent) and automate OpenTelemetry across all no-code agents.
-                </p>
-              </div>
+      {/* Header */}
+      <div className="p-6 bg-gray-850 border-b border-gray-800 flex justify-between items-start gap-4">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-lg bg-blue-950/80 border border-blue-700/60 text-blue-400">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10c0-1.718-.433-3.333-1.2-4.782" />
+              </svg>
+            </span>
+            <div>
+              <h2 id="agent-obs-policy-title" className="text-xl font-bold text-white tracking-tight">
+                Agent Observability Policy &amp; Telemetry Governance
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Understand log coverage boundaries (App vs Agent) and automate OpenTelemetry across all no-code agents.
+              </p>
             </div>
           </div>
+        </div>
+        {!inline && (
           <button
             type="button"
             onClick={onClose}
             disabled={isSweeping}
             className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-gray-800 transition-colors"
             title="Close modal"
+            aria-label="Close modal"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
-        </div>
+        )}
+      </div>
 
-        {/* Modal Tabs */}
-        <div className="flex border-b border-gray-800 bg-gray-900/60 px-6 gap-2">
-          {[
-            { id: 'coverage', label: '1. Coverage Gap (App vs Agent)', badge: 'Critical' },
-            { id: 'option1_eventarc', label: 'Option 1: Eventarc Auto-Enabler', badge: 'Best Practice' },
-            { id: 'option2_bulk', label: 'Option 2: Bulk Sweep in Manager', badge: 'Interactive' },
-            { id: 'option3_gateway', label: 'Option 3: Agent Gateway Governance', badge: 'Strategic' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id as TabType)}
-              className={`py-3.5 px-3.5 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-400 bg-blue-950/20'
-                  : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-700'
-              }`}
-            >
-              <span>{tab.label}</span>
-              {tab.badge && (
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
-                    tab.badge === 'Critical'
-                      ? 'bg-amber-950/80 text-amber-300 border border-amber-700/60'
-                      : tab.badge === 'Best Practice'
-                      ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/60'
-                      : tab.badge === 'Interactive'
-                      ? 'bg-blue-950/80 text-blue-300 border border-blue-700/60'
-                      : 'bg-purple-950/80 text-purple-300 border border-purple-700/60'
-                  }`}
-                >
-                  {tab.badge}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+      {/* Tabs */}
+      <div
+        className="flex flex-wrap border-b border-gray-800 bg-gray-900/60 px-6 gap-2"
+        role="tablist"
+        aria-label="Agent observability policy sections"
+      >
+        {[
+          { id: 'coverage', label: '1. Coverage Gap (App vs Agent)', badge: 'Critical' },
+          { id: 'option1_eventarc', label: 'Option 1: Eventarc Auto-Enabler', badge: 'Best Practice' },
+          { id: 'option2_bulk', label: 'Option 2: Bulk Sweep in Manager', badge: 'Interactive' },
+          { id: 'option3_gateway', label: 'Option 3: Agent Gateway Governance', badge: 'Strategic' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            onClick={() => setActiveTab(tab.id as TabType)}
+            className={`py-3.5 px-3.5 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${
+              activeTab === tab.id
+                ? 'border-blue-500 text-blue-400 bg-blue-950/20'
+                : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-700'
+            }`}
+          >
+            <span>{tab.label}</span>
+            {tab.badge && (
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+                  tab.badge === 'Critical'
+                    ? 'bg-amber-950/80 text-amber-300 border border-amber-700/60'
+                    : tab.badge === 'Best Practice'
+                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/60'
+                    : tab.badge === 'Interactive'
+                    ? 'bg-blue-950/80 text-blue-300 border border-blue-700/60'
+                    : 'bg-purple-950/80 text-purple-300 border border-purple-700/60'
+                }`}
+              >
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
 
         {/* Modal Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 text-sm text-gray-300 custom-scrollbar">
@@ -1039,11 +1045,12 @@ def on_agent_created(cloud_event):
           )}
         </div>
 
-        {/* Modal Footer */}
-        <div className="p-4 bg-gray-850 border-t border-gray-800 flex justify-between items-center">
-          <div className="text-[11px] text-gray-400">
-            Target Project: <code className="text-white font-mono">{projectId || projectNumber}</code>
-          </div>
+      {/* Footer */}
+      <div className="p-4 bg-gray-850 border-t border-gray-800 flex justify-between items-center">
+        <div className="text-[11px] text-gray-400">
+          Target Project: <code className="text-white font-mono">{projectId || projectNumber}</code>
+        </div>
+        {!inline && (
           <button
             type="button"
             onClick={onClose}
@@ -1052,8 +1059,26 @@ def on_agent_created(cloud_event):
           >
             Close Hub
           </button>
-        </div>
+        )}
       </div>
+    </div>
+  );
+
+  if (inline) {
+    return panelContent;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="agent-obs-policy-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isSweeping) onClose();
+      }}
+    >
+      {panelContent}
     </div>
   );
 };

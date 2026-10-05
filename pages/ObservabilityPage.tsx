@@ -30,7 +30,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
     const [dashboardData, setDashboardData] = useState<ObservabilityDashboardMetrics | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [timeRange, setTimeRange] = useState(1);
-    const [activeDashboardTab, setActiveDashboardTab] = useState<'live' | 'operational'>(() => {
+    const [activeDashboardTab, setActiveDashboardTab] = useState<'live' | 'operational' | 'policy'>(() => {
         if (typeof window !== 'undefined' && (window.location.hash.includes('view=') || window.location.search.includes('view='))) {
             return 'operational';
         }
@@ -823,9 +823,11 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
 
                 <div className="mt-8">
                     {/* Dashboard Mode Tabs */}
-                    <div className="flex border-b border-gray-700 mb-6">
+                    <div className="flex flex-wrap border-b border-gray-700 mb-6" role="tablist" aria-label="Observability dashboard views">
                         <button
                             type="button"
+                            role="tab"
+                            aria-selected={activeDashboardTab === 'live'}
                             onClick={() => setActiveDashboardTab('live')}
                             className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
                                 activeDashboardTab === 'live'
@@ -840,6 +842,8 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         </button>
                         <button
                             type="button"
+                            role="tab"
+                            aria-selected={activeDashboardTab === 'operational'}
                             onClick={() => setActiveDashboardTab('operational')}
                             className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
                                 activeDashboardTab === 'operational'
@@ -854,6 +858,22 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                             <span className="text-[10px] bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded border border-blue-700/50">
                                 11 Views
                             </span>
+                        </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={activeDashboardTab === 'policy'}
+                            onClick={() => setActiveDashboardTab('policy')}
+                            className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                                activeDashboardTab === 'policy'
+                                    ? 'border-purple-500 text-purple-400 font-semibold'
+                                    : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
+                            }`}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                            </svg>
+                            Policy &amp; Telemetry Governance
                         </button>
                     </div>
 
@@ -890,13 +910,22 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                                 isLoading={queryLoading || sinksLoading}
                             />
                         </div>
-                    ) : (
+                    ) : activeDashboardTab === 'operational' ? (
                         <OperationalAnalyticsDashboard
                             projectId={projectId}
                             projectNumber={projectNumber}
                             datasetId={datasetId}
                             tables={tables}
                             onRefreshTables={refreshTables}
+                        />
+                    ) : (
+                        <AgentObservabilityPolicyModal
+                            isOpen={true}
+                            inline={true}
+                            onClose={() => setActiveDashboardTab('live')}
+                            projectId={projectId}
+                            projectNumber={projectNumber}
+                            activeDatasetId={datasetId}
                         />
                     )}
                 </div>

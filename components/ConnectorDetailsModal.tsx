@@ -63,7 +63,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
     containerRef,
   });
 
-  const [activeTab, setActiveTab] = React.useState<'diagnostics' | 'verification' | 'filters' | 'config'>('diagnostics');
+  const [activeTab, setActiveTab] = React.useState<'diagnostics' | 'verification' | 'filters' | 'config' | 'logs'>('diagnostics');
   const [connector, setConnector] = useState<DataConnector | null>(null);
   const [isRefreshingTools, setIsRefreshingTools] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -200,24 +200,39 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
         });
       }
       const totalFilters = (incRules + excRules) > 0 ? (incRules + excRules) : entityRuleCount;
+      const recentErrorLogsCount =
+        data && typeof data === 'object' && 'recentLogs' in data && Array.isArray(data.recentLogs)
+          ? data.recentLogs.length
+          : 0;
+      const failedOpsCount = Array.isArray(rawOps) ? rawOps.filter((op: Operation) => !!op.error).length : 0;
+      const totalLogSignals = recentErrorLogsCount + failedOpsCount;
 
       return (
         <div>
           {/* Tabs */}
-          <div className="flex border-b border-gray-700 mb-6">
+          <div className="flex flex-wrap border-b border-gray-700 mb-6" role="tablist" aria-label="Connector details sections">
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'diagnostics'}
               className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'diagnostics' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
               onClick={() => setActiveTab('diagnostics')}
             >
               Diagnostics
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'verification'}
               className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'verification' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
               onClick={() => setActiveTab('verification')}
             >
               Validation Checklist
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'filters'}
               className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors flex items-center gap-1.5 ${activeTab === 'filters' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
               onClick={() => setActiveTab('filters')}
             >
@@ -229,10 +244,27 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
               )}
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'config'}
               className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'config' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
               onClick={() => setActiveTab('config')}
             >
               {connectorState?.dataSource === 'custom_mcp' ? 'BYOMCP Settings & JSON' : 'Configuration'}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'logs'}
+              className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors flex items-center gap-1.5 ${activeTab === 'logs' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
+              onClick={() => setActiveTab('logs')}
+            >
+              <span>Logs &amp; Raw State</span>
+              {totalLogSignals > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-900/80 text-red-200 border border-red-700">
+                  {totalLogSignals}
+                </span>
+              )}
             </button>
           </div>
 
@@ -519,11 +551,125 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                     </div>
                   </details>
                 )}
-
-
-
               </div>
 
+              {/* Quick Jump to Logs & Raw State */}
+              <div className="bg-gray-900/50 border border-gray-700/80 p-3 rounded-lg flex items-center justify-between">
+                <div className="text-xs text-gray-300">
+                  <span className="font-semibold text-gray-200">Logs &amp; Raw State:</span>{' '}
+                  {Array.isArray(rawOps) ? `${rawOps.length} operation(s)` : '0 operations'}
+                  {failedOpsCount > 0 ? ` (${failedOpsCount} failed)` : ''} &bull;{' '}
+                  {recentErrorLogsCount} error log(s)
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('logs')}
+                  className="text-xs text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-1 transition-colors hover:underline"
+                >
+                  Open Logs &amp; Raw State Tab &rarr;
+                </button>
+              </div>
+            </div>
+          ) : activeTab === 'logs' ? (
+            <div className="space-y-4 animate-fadeIn">
+              <details className="group" open>
+                <summary className="flex justify-between items-center font-medium cursor-pointer list-none text-sm text-gray-300 hover:text-white bg-gray-900/50 border border-gray-700/70 p-3 rounded-lg">
+                  <span>Raw Data Connector State</span>
+                  <span className="transition group-open:rotate-180">
+                    <svg fill="none" height="20" shapeRendering="geometricPrecision" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24" width="20"><path d="M6 9l6 6 6-6"></path></svg>
+                  </span>
+                </summary>
+                <div className="text-gray-300 mt-2 group-open:animate-fadeIn">
+                  <pre className="text-xs bg-gray-950 p-3 rounded-lg overflow-x-auto border border-gray-800"
+                    dangerouslySetInnerHTML={{
+                      __html: escapeHtml(JSON.stringify(connectorState, null, 2) || '{}')
+                        .replace(/(&quot;state&quot;: &quot;FAILED&quot;)/g, '<span class="text-red-500 font-bold">$1</span>')
+                        .replace(/(&quot;error&quot;:\s*\{[^}]+\})/g, '<span class="text-red-400">$1</span>')
+                    }}
+                  />
+                </div>
+              </details>
+
+              {rawOps && rawOps.length > 0 ? (
+                <details className="group" open>
+                  <summary className="flex justify-between items-center font-medium cursor-pointer list-none text-sm text-gray-300 hover:text-white bg-gray-900/50 border border-gray-700/70 p-3 rounded-lg">
+                    <span className={rawOps.some((op: Operation) => !!op.error) ? "text-red-400 font-bold" : ""}>
+                      Recent Operations ({rawOps.length}) {rawOps.some((op: Operation) => !!op.error) ? '(Failures Detected)' : ''}
+                    </span>
+                    <span className="transition group-open:rotate-180">
+                      <svg fill="none" height="20" shapeRendering="geometricPrecision" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24" width="20"><path d="M6 9l6 6 6-6"></path></svg>
+                    </span>
+                  </summary>
+                  <div className="text-gray-300 mt-2 group-open:animate-fadeIn">
+                    <pre className="text-xs bg-gray-950 p-3 rounded-lg overflow-x-auto border border-gray-800"
+                      dangerouslySetInnerHTML={{
+                        __html: escapeHtml(JSON.stringify(rawOps, null, 2))
+                          .replace(/(&quot;error&quot;:\s*\{[\s\S]*?\}(,|\s*\}))/g, '<span class="text-red-400 font-bold">$1</span>')
+                      }}
+                    />
+                  </div>
+                </details>
+              ) : (
+                <div className="p-3 rounded-lg bg-gray-900/40 border border-gray-800 text-xs text-gray-400">
+                  No recent connector operations recorded.
+                </div>
+              )}
+
+              {Boolean(data && typeof data === 'object' && 'recentLogs' in data && Array.isArray(data.recentLogs) && data.recentLogs.length > 0) ? (
+                <details className="group" open>
+                  <summary className="flex justify-between items-center font-medium cursor-pointer list-none text-sm text-gray-300 hover:text-white bg-gray-900/50 border border-gray-700/70 p-3 rounded-lg">
+                    <span className="text-red-400 font-bold">
+                      Recent Error Logs ({((data as Record<string, unknown>).recentLogs as unknown[]).length})
+                    </span>
+                    <span className="transition group-open:rotate-180">
+                      <svg fill="none" height="20" shapeRendering="geometricPrecision" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24" width="20"><path d="M6 9l6 6 6-6"></path></svg>
+                    </span>
+                  </summary>
+                  <div className="text-gray-300 mt-2 group-open:animate-fadeIn space-y-2">
+                    {((data as Record<string, unknown>).recentLogs as LogEntry[]).map((log, i: number) => (
+                      <div key={i} className="bg-gray-950 p-2 rounded border border-gray-800 text-xs font-mono">
+                        <div className="flex justify-between text-gray-500 mb-1">
+                          <span>{log.timestamp}</span>
+                          <span className={log.severity === 'ERROR' ? 'text-red-500' : 'text-yellow-500'}>{log.severity}</span>
+                        </div>
+                        <div className="whitespace-pre-wrap text-gray-300">
+                          {log.httpRequest ? (
+                            <div className="flex flex-col gap-1 text-[11px]">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-red-400 bg-red-950/40 border border-red-900/50 px-1 py-0.5 rounded text-[9px] uppercase">
+                                  {log.httpRequest.requestMethod}
+                                </span>
+                                <span className="font-semibold text-gray-200">
+                                  Status {log.httpRequest.status}
+                                </span>
+                                {log.httpRequest.latency && (
+                                  <span className="text-gray-500 text-[10px]">
+                                    ({log.httpRequest.latency})
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-gray-400 break-all select-all hover:text-gray-300 transition-colors">
+                                {log.httpRequest.requestUrl}
+                              </div>
+                              {log.httpRequest.userAgent && (
+                                <div className="text-[10px] text-gray-600 line-clamp-1 truncate" title={log.httpRequest.userAgent}>
+                                  User-Agent: {log.httpRequest.userAgent}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            log.textPayload || JSON.stringify(log.jsonPayload || log.protoPayload || log, null, 2)
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : (
+                <div className="p-3 rounded-lg bg-gray-900/40 border border-gray-800 text-xs text-gray-400">
+                  No recent Cloud Logging error entries found for this connector.
+                </div>
+              )}
             </div>
           ) : activeTab === 'verification' ? (
             <div className="space-y-6 animate-fadeIn">

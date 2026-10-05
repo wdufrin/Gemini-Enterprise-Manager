@@ -21,6 +21,7 @@ import { UserLicensesTab } from '../components/license/UserLicensesTab';
 import { AllocationsTab } from '../components/license/AllocationsTab';
 import { GroupAssignmentsTab } from '../components/license/GroupAssignmentsTab';
 import { LicenseModals } from '../components/license/LicenseModals';
+import { PrunerDeploymentModal } from '../components/license/PrunerDeploymentModal';
 
 export interface LicensePageProps {
   projectNumber: string;
@@ -142,8 +143,11 @@ const LicensePage: React.FC<LicensePageProps> = ({
 
       {/* Tabs */}
       <div className="border-b border-gray-700">
-        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+        <nav className="-mb-px flex flex-wrap gap-6" aria-label="License management sections" role="tablist">
           <button
+            type="button"
+            role="tab"
+            aria-selected={licenseState.activeTab === 'user_licenses'}
             onClick={() => licenseState.setActiveTab('user_licenses')}
             className={`${
               licenseState.activeTab === 'user_licenses'
@@ -154,6 +158,9 @@ const LicensePage: React.FC<LicensePageProps> = ({
             User Assignments
           </button>
           <button
+            type="button"
+            role="tab"
+            aria-selected={licenseState.activeTab === 'allocations'}
             onClick={() => licenseState.setActiveTab('allocations')}
             className={`${
               licenseState.activeTab === 'allocations'
@@ -164,6 +171,9 @@ const LicensePage: React.FC<LicensePageProps> = ({
             Allocation Management (Billing Account)
           </button>
           <button
+            type="button"
+            role="tab"
+            aria-selected={licenseState.activeTab === 'group_assignments'}
             onClick={() => licenseState.setActiveTab('group_assignments')}
             className={`${
               licenseState.activeTab === 'group_assignments'
@@ -172,6 +182,19 @@ const LicensePage: React.FC<LicensePageProps> = ({
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
           >
             Group License Assignments
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={licenseState.activeTab === 'automated_pruner'}
+            onClick={() => licenseState.setActiveTab('automated_pruner')}
+            className={`${
+              licenseState.activeTab === 'automated_pruner'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
+          >
+            Automated License Pruner
           </button>
         </nav>
       </div>
@@ -245,7 +268,7 @@ const LicensePage: React.FC<LicensePageProps> = ({
           setDistributeModalProps={licenseState.setDistributeModalProps}
           setRetractModalProps={licenseState.setRetractModalProps}
         />
-      ) : (
+      ) : licenseState.activeTab === 'group_assignments' ? (
         <GroupAssignmentsTab
           isServicesLoading={licenseState.isServicesLoading}
           servicesError={licenseState.servicesError}
@@ -259,6 +282,16 @@ const LicensePage: React.FC<LicensePageProps> = ({
           onRunService={licenseState.handleRunService}
           onEditService={licenseState.handleEditService}
           onDeleteService={(name) => licenseState.setServiceToDelete(name)}
+        />
+      ) : (
+        <PrunerDeploymentModal
+          isOpen={true}
+          inline={true}
+          onClose={() => licenseState.setActiveTab('user_licenses')}
+          projectNumber={projectNumber}
+          currentConfig={licenseState.apiConfig}
+          onBuildTriggered={onBuildTriggered}
+          onOpenManualPrune={() => licenseState.setIsPruneModalOpen(true)}
         />
       )}
     </div>

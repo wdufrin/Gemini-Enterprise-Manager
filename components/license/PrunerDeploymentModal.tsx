@@ -24,6 +24,8 @@ export interface PrunerDeploymentModalProps {
   projectNumber: string;
   currentConfig: { appLocation: string; userStoreId: string };
   onBuildTriggered?: (buildId: string) => void;
+  inline?: boolean;
+  onOpenManualPrune?: () => void;
 }
 
 export const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({
@@ -32,6 +34,8 @@ export const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({
   projectNumber,
   currentConfig,
   onBuildTriggered,
+  inline = false,
+  onOpenManualPrune,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const {
@@ -68,7 +72,7 @@ export const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({
   } = usePrunerDeployment(isOpen, onClose, projectNumber, currentConfig, onBuildTriggered);
 
   useModalA11y({
-    isOpen,
+    isOpen: isOpen && !inline,
     onClose,
     containerRef,
     preventClose: isDeploying,
@@ -76,35 +80,51 @@ export const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  const panelContent = (
     <div
-      className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4 animate-fade-in"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="pruner-modal-title"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isDeploying) onClose();
-      }}
+      ref={containerRef}
+      tabIndex={inline ? undefined : -1}
+      className={
+        inline
+          ? 'bg-gray-800 rounded-lg shadow-xl w-full flex flex-col border border-gray-700 outline-none'
+          : 'bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col outline-none'
+      }
+      onClick={inline ? undefined : (e) => e.stopPropagation()}
     >
-      <div
-        ref={containerRef}
-        tabIndex={-1}
-        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col outline-none"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="p-4 border-b border-gray-700 flex justify-between items-center">
+      <header className="p-4 border-b border-gray-700 flex justify-between items-center gap-3 flex-wrap">
+        <div>
           <h2 id="pruner-modal-title" className="text-xl font-bold text-white">Setup Automated Pruner</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white"
-            disabled={isDeploying}
-            aria-label="Close dialog"
-          >
-            &times;
-          </button>
-        </header>
+          {inline && (
+            <p className="text-xs text-gray-400 mt-0.5">
+              Deploy a scheduled Cloud Run job to automatically reclaim inactive Gemini Enterprise licenses, or run a one-time manual prune.
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {inline && onOpenManualPrune && (
+            <button
+              type="button"
+              onClick={onOpenManualPrune}
+              className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-md transition-colors"
+            >
+              Prune Inactive Users Now
+            </button>
+          )}
+          {!inline && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-gray-400 hover:text-white"
+              disabled={isDeploying}
+              aria-label="Close dialog"
+            >
+              &times;
+            </button>
+          )}
+        </div>
+      </header>
 
-        <main className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-y-auto">
+      <main className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-y-auto">
           {/* Left Config */}
           <div className="space-y-4">
             <div className="bg-blue-900/30 border border-blue-700 p-3 rounded-md text-sm text-blue-200">
@@ -382,8 +402,11 @@ export const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({
 
           {/* Right Code */}
           <div className="flex flex-col h-[500px] bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
-            <div className="flex bg-gray-800 border-b border-gray-700">
+            <div className="flex bg-gray-800 border-b border-gray-700" role="tablist" aria-label="Generated pruner files">
               <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'deploy'}
                 onClick={() => setActiveTab('deploy')}
                 className={`px-4 py-2 text-xs font-medium ${
                   activeTab === 'deploy' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'
@@ -392,6 +415,9 @@ export const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({
                 deploy.sh
               </button>
               <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'main'}
                 onClick={() => setActiveTab('main')}
                 className={`px-4 py-2 text-xs font-medium ${
                   activeTab === 'main' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'
@@ -400,6 +426,9 @@ export const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({
                 main.py
               </button>
               <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'requirements'}
                 onClick={() => setActiveTab('requirements')}
                 className={`px-4 py-2 text-xs font-medium ${
                   activeTab === 'requirements'
@@ -411,6 +440,7 @@ export const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({
               </button>
               <div className="flex-1"></div>
               <button
+                type="button"
                 onClick={() =>
                   handleCopy(
                     activeTab === 'deploy'
@@ -436,7 +466,24 @@ export const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({
             </div>
           </div>
         </main>
-      </div>
+    </div>
+  );
+
+  if (inline) {
+    return panelContent;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4 animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="pruner-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isDeploying) onClose();
+      }}
+    >
+      {panelContent}
     </div>
   );
 };

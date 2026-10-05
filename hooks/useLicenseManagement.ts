@@ -91,7 +91,7 @@ export function useLicenseManagement(projectNumber: string) {
   const [inputDateValue, setInputDateValue] = useState<string>('');
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'user_licenses' | 'allocations' | 'group_assignments'>('user_licenses');
+  const [activeTab, setActiveTab] = useState<'user_licenses' | 'allocations' | 'group_assignments' | 'automated_pruner'>('user_licenses');
 
   // Billing Account State
   const [billingAccountId, setBillingAccountId] = useState('');

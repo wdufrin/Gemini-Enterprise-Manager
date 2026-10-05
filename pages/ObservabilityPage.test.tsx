@@ -115,5 +115,33 @@ describe('ObservabilityPage', () => {
         fireEvent.click(screen.getByRole('button', { name: /Hide Tables & Views/i }));
         expect(screen.queryByText('v_admin_feedback_review')).not.toBeInTheDocument();
     });
+
+    it('renders the Policy & Telemetry Governance inline tab and switches internal policy sub-tabs', async () => {
+        (runBigQueryQuery as any).mockResolvedValue({
+            jobComplete: true,
+            rows: [
+                { f: [{ v: 'summary' }, { v: '10' }, { v: '2' }, { v: '1' }] }
+            ]
+        });
+
+        render(
+            <ToastProvider>
+                <ObservabilityPage projectNumber="123" projectId="test-proj" />
+            </ToastProvider>
+        );
+
+        const policyTab = await screen.findByRole('tab', { name: /Policy & Telemetry Governance/i });
+        expect(policyTab).toHaveAttribute('aria-selected', 'false');
+
+        fireEvent.click(policyTab);
+        expect(policyTab).toHaveAttribute('aria-selected', 'true');
+        expect(screen.getByText('Agent Observability Policy & Telemetry Governance')).toBeInTheDocument();
+
+        const eventarcSubTab = screen.getByRole('tab', { name: /Option 1: Eventarc Auto-Enabler/i });
+        expect(eventarcSubTab).toHaveAttribute('aria-selected', 'false');
+
+        fireEvent.click(eventarcSubTab);
+        expect(eventarcSubTab).toHaveAttribute('aria-selected', 'true');
+    });
 });
 
