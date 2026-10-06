@@ -24,6 +24,8 @@ import {
   AdminPublishAndShareOptions,
   AdminPublishAndShareResult,
   IamPolicy,
+  LowCodeAgentDefinition,
+  LowCodeValidationError,
 } from "../../../types";
 import {
   gapiRequest,
@@ -80,70 +82,421 @@ const resolveFullAgentResourceName = (name: string, config: Config): string => {
   return `projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId || "default_collection"}/engines/${config.appId}/assistants/${config.assistantId || "default_assistant"}/agents/${name.split("/").pop() || name}`;
 };
 
+/**
+ * Formats `lowCodeAgentDefinition.validationErrors` (populated by Discovery Engine's
+ * `UpdateLowCodeAgentValidationStatus` in `agent_validator.cc`) into a human-readable string.
+ */
+export const formatLowCodeValidationErrors = (
+  agent: Partial<Agent> | null | undefined,
+): string | null => {
+  const rawDef = agent?.lowCodeAgentDefinition as Record<string, unknown> | undefined;
+  if (!rawDef) return null;
+  const rawErrors = Array.isArray(rawDef.validationErrors)
+    ? rawDef.validationErrors
+    : Array.isArray(rawDef.validation_errors)
+      ? rawDef.validation_errors
+      : [];
+  if (rawErrors.length === 0) return null;
+  const parts = rawErrors
+    .map((err: unknown) => {
+      if (!err || typeof err !== "object") return String(err);
+      const e = err as Record<string, unknown>;
+      const field = typeof e.field === "string" ? e.field : "";
+      const message = typeof e.message === "string" ? e.message : "";
+      if (field && message) return `${field}: ${message}`;
+      return field || message || "";
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join("; ") : null;
+};
+
+export interface NormalizedLowCodeDefinitionResult {
+  lowCodeAgentDefinition: LowCodeAgentDefinition;
+  needsPatch: boolean;
+  repairedFields: string[];
+  existingValidationErrors: LowCodeValidationError[];
+}
+
+const VALID_LOW_CODE_NODE_ID_REGEX = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * Normalizes and repairs a `lowCodeAgentDefinition` so that it satisfies all
+ * Discovery Engine `UpdateLowCodeAgentValidationStatus` (`agent_validator.cc`)
+ * and `kLowCodeAgentImmutableSubFields` requirements:
+ * - Promotes `deployedNodes` -> `nodes` when `nodes` is empty.
+ * - Initializes a default root `llmAgentNode` if both `nodes` and `deployedNodes` are empty
+ *   (which occurs when a brand-new draft is created in Agent Designer before saving a flow).
+ * - Ensures every node has a valid unique `id` (`[a-zA-Z0-9_-]+`, not `"user"`) and non-empty `displayName`.
+ * - Ensures `rootAgentId` is non-empty and matches a node `id` in `nodes`.
+ * - Ensures every `llmAgentNode` has a non-empty `instruction` (falling back to the agent's
+ *   `description` / `draftDescription` or display name).
+ * - Strips server-rejected output-only fields (`deployedNodes`, `deployedRootAgentId`,
+ *   `deployedSchedules`, `deploymentInfo`, `validationErrors`, `owner`, `ownerName`, `session`).
+ */
+export const normalizeLowCodeAgentDefinitionForDeploy = (
+  agent: Partial<Agent>,
+  options?: { displayName?: string; description?: string },
+): NormalizedLowCodeDefinitionResult => {
+  const rawDef = (agent.lowCodeAgentDefinition || {}) as Record<string, unknown>;
+  const rawErrors = Array.isArray(rawDef.validationErrors)
+    ? rawDef.validationErrors
+    : Array.isArray(rawDef.validation_errors)
+      ? rawDef.validation_errors
+      : [];
+  const existingValidationErrors: LowCodeValidationError[] = rawErrors
+    .filter((e): e is Record<string, unknown> => Boolean(e && typeof e === "object"))
+    .map((e) => ({
+      field: typeof e.field === "string" ? e.field : undefined,
+      message: typeof e.message === "string" ? e.message : undefined,
+    }));
+
+  const lowCodeClone: Record<string, unknown> = JSON.parse(JSON.stringify(rawDef));
+  const repairedFields: string[] = [];
+
+  const fallbackDisplayName =
+    (
+      options?.displayName ||
+      (typeof agent.displayName === "string" ? agent.displayName : "") ||
+      (typeof lowCodeClone.draftDisplayName === "string"
+        ? lowCodeClone.draftDisplayName
+        : "") ||
+      (typeof lowCodeClone.draft_display_name === "string"
+        ? (lowCodeClone.draft_display_name as string)
+        : "") ||
+      "Main Agent"
+    ).trim() || "Main Agent";
+
+  const fallbackDescription = (
+    options?.description ||
+    (typeof agent.description === "string" ? agent.description : "") ||
+    (typeof lowCodeClone.draftDescription === "string"
+      ? lowCodeClone.draftDescription
+      : "") ||
+    (typeof lowCodeClone.draft_description === "string"
+      ? (lowCodeClone.draft_description as string)
+      : "") ||
+    ""
+  ).trim();
+
+  const fallbackInstruction =
+    fallbackDescription ||
+    `You are ${fallbackDisplayName}, a helpful enterprise assistant.`;
+
+  const isValidNodeId = (id: string): boolean =>
+    Boolean(id) && id !== "user" && VALID_LOW_CODE_NODE_ID_REGEX.test(id);
+
+  const rawRootId = (
+    (typeof lowCodeClone.rootAgentId === "string" ? lowCodeClone.rootAgentId : "") ||
+    (typeof lowCodeClone.root_agent_id === "string"
+      ? (lowCodeClone.root_agent_id as string)
+      : "") ||
+    (typeof lowCodeClone.deployedRootAgentId === "string"
+      ? lowCodeClone.deployedRootAgentId
+      : "") ||
+    (typeof lowCodeClone.deployed_root_agent_id === "string"
+      ? (lowCodeClone.deployed_root_agent_id as string)
+      : "") ||
+    ""
+  ).trim();
+
+  const draftNodes = Array.isArray(lowCodeClone.nodes)
+    ? (lowCodeClone.nodes as Array<Record<string, unknown>>)
+    : [];
+  const deployedNodes = Array.isArray(lowCodeClone.deployedNodes)
+    ? (lowCodeClone.deployedNodes as Array<Record<string, unknown>>)
+    : Array.isArray(lowCodeClone.deployed_nodes)
+      ? (lowCodeClone.deployed_nodes as Array<Record<string, unknown>>)
+      : [];
+
+  let nodes: Array<Record<string, unknown>> = draftNodes;
+  if (nodes.length === 0 && deployedNodes.length > 0) {
+    nodes = JSON.parse(JSON.stringify(deployedNodes));
+    lowCodeClone.nodes = nodes;
+    repairedFields.push("lowCodeAgentDefinition.nodes");
+  }
+
+  if (nodes.length === 0) {
+    const rootId = isValidNodeId(rawRootId) ? rawRootId : "root_agent";
+    nodes = [
+      {
+        id: rootId,
+        displayName: fallbackDisplayName,
+        llmAgentNode: {
+          instruction: fallbackInstruction,
+        },
+      },
+    ];
+    lowCodeClone.nodes = nodes;
+    lowCodeClone.rootAgentId = rootId;
+    repairedFields.push("lowCodeAgentDefinition.nodes[0]");
+    repairedFields.push("lowCodeAgentDefinition.rootAgentId");
+  }
+
+  const seenNodeIds = new Set<string>();
+  nodes.forEach((rawNode, idx) => {
+    const node: Record<string, unknown> = { ...(rawNode || {}) };
+    nodes[idx] = node;
+
+    const rawId = typeof node.id === "string" ? node.id.trim() : "";
+    let nodeId = rawId;
+    if (!isValidNodeId(nodeId) || seenNodeIds.has(nodeId)) {
+      nodeId =
+        idx === 0 && isValidNodeId(rawRootId) && !seenNodeIds.has(rawRootId)
+          ? rawRootId
+          : idx === 0 && !seenNodeIds.has("root_agent")
+            ? "root_agent"
+            : `node_${idx + 1}`;
+      node.id = nodeId;
+      repairedFields.push(`lowCodeAgentDefinition.nodes[${idx}].id`);
+    }
+    seenNodeIds.add(nodeId);
+
+    const rawNodeDisplay = (
+      (typeof node.displayName === "string" ? node.displayName : "") ||
+      (typeof node.display_name === "string" ? (node.display_name as string) : "")
+    ).trim();
+    if (!rawNodeDisplay) {
+      node.displayName = idx === 0 ? fallbackDisplayName : nodeId;
+      delete node.display_name;
+      repairedFields.push(`lowCodeAgentDefinition.nodes[${idx}].displayName`);
+    } else if (!node.displayName && node.display_name) {
+      node.displayName = rawNodeDisplay;
+      delete node.display_name;
+    }
+
+    const hasOtherNodeType = Boolean(
+      node.loopAgentNode ||
+        node.loop_agent_node ||
+        node.parallelAgentNode ||
+        node.parallel_agent_node ||
+        node.sequentialAgentNode ||
+        node.sequential_agent_node,
+    );
+
+    if (!hasOtherNodeType) {
+      const existingLlm =
+        (node.llmAgentNode as Record<string, unknown> | undefined) ||
+        (node.llm_agent_node as Record<string, unknown> | undefined);
+      const llmNode: Record<string, unknown> = existingLlm
+        ? { ...existingLlm }
+        : {};
+      if (!existingLlm) {
+        repairedFields.push(`lowCodeAgentDefinition.nodes[${idx}].llmAgentNode`);
+      }
+      delete node.llm_agent_node;
+
+      const currentInstruction =
+        typeof llmNode.instruction === "string" ? llmNode.instruction.trim() : "";
+      if (!currentInstruction) {
+        llmNode.instruction = fallbackInstruction;
+        repairedFields.push(
+          `lowCodeAgentDefinition.nodes[${idx}].llmAgentNode.instruction`,
+        );
+      }
+
+      if (
+        llmNode.selectedTools &&
+        typeof llmNode.selectedTools === "object" &&
+        Array.isArray((llmNode.selectedTools as Record<string, unknown>).tool)
+      ) {
+        const tools = (
+          (llmNode.selectedTools as Record<string, unknown>).tool as Array<
+            Record<string, unknown>
+          >
+        ).filter((t) => typeof t?.name === "string" && t.name.trim().length > 0);
+        llmNode.selectedTools = {
+          ...(llmNode.selectedTools as Record<string, unknown>),
+          tool: tools,
+        };
+      }
+
+      if (Array.isArray(llmNode.dataConnectors)) {
+        llmNode.dataConnectors = (
+          llmNode.dataConnectors as Array<Record<string, unknown>>
+        ).filter((dc) => typeof dc?.name === "string" && dc.name.trim().length > 0);
+      }
+
+      node.llmAgentNode = llmNode;
+    }
+  });
+
+  const effectiveRootId =
+    isValidNodeId(rawRootId) && seenNodeIds.has(rawRootId)
+      ? rawRootId
+      : String(nodes[0].id);
+  if (lowCodeClone.rootAgentId !== effectiveRootId) {
+    lowCodeClone.rootAgentId = effectiveRootId;
+    repairedFields.push("lowCodeAgentDefinition.rootAgentId");
+  }
+  delete lowCodeClone.root_agent_id;
+
+  const draftSchedules = Array.isArray(lowCodeClone.draftSchedules)
+    ? lowCodeClone.draftSchedules
+    : Array.isArray(lowCodeClone.deployedSchedules)
+      ? lowCodeClone.deployedSchedules
+      : [];
+  if (draftSchedules.length > 0) {
+    lowCodeClone.draftSchedules = draftSchedules.map(
+      (sched: Record<string, unknown>) => {
+        const cleanSched = { ...sched };
+        delete cleanSched.disabled;
+        return cleanSched;
+      },
+    );
+  }
+  if (Array.isArray(lowCodeClone.schedules)) {
+    lowCodeClone.schedules = (
+      lowCodeClone.schedules as Array<Record<string, unknown>>
+    ).map((sched) => {
+      const cleanSched = { ...sched };
+      delete cleanSched.disabled;
+      return cleanSched;
+    });
+  }
+
+  delete lowCodeClone.deployedNodes;
+  delete lowCodeClone.deployed_nodes;
+  delete lowCodeClone.deploymentInfo;
+  delete lowCodeClone.deployment_info;
+  delete lowCodeClone.deployedRootAgentId;
+  delete lowCodeClone.deployed_root_agent_id;
+  delete lowCodeClone.deployedSchedules;
+  delete lowCodeClone.deployed_schedules;
+  delete lowCodeClone.validationErrors;
+  delete lowCodeClone.validation_errors;
+  delete lowCodeClone.owner;
+  delete lowCodeClone.ownerName;
+  delete lowCodeClone.owner_name;
+  delete lowCodeClone.session;
+
+  return {
+    lowCodeAgentDefinition: lowCodeClone as LowCodeAgentDefinition,
+    needsPatch: repairedFields.length > 0 || existingValidationErrors.length > 0,
+    repairedFields,
+    existingValidationErrors,
+  };
+};
+
+/**
+ * Returns true if the agent record contains deprecated `agent.authorizations`
+ * or `adkAgentDefinition.authorizations` fields that trigger Discovery Engine's
+ * `ValidateDeprecatedAuthorizationFieldsAreNotSet` error during `UpdateAgent` (`PATCH`).
+ */
+export const hasLegacyAgentAuthorizations = (
+  agent: Partial<Agent> | null | undefined,
+): boolean => {
+  if (!agent) return false;
+  if (Array.isArray(agent.authorizations) && agent.authorizations.length > 0) {
+    return true;
+  }
+  const adkAuths = (agent.adkAgentDefinition as Record<string, unknown> | undefined)
+    ?.authorizations;
+  if (Array.isArray(adkAuths) && adkAuths.length > 0) {
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Returns true if an error from Discovery Engine is caused by the deprecated
+ * `agent.authorizations` or `adk_agent_definition.authorizations` field validation.
+ */
+export const isLegacyAuthorizationsDeprecationError = (err: unknown): boolean => {
+  const msg = ((err as Error)?.message || String(err)).toLowerCase();
+  return (
+    msg.includes("authorizations") &&
+    (msg.includes("deprecated") || msg.includes("authorization_config"))
+  );
+};
+
 export const updateAgent = async (
   agent: Partial<Agent> & { name: string },
   payload: Partial<Agent> | Record<string, unknown>,
   config: Config,
 ) => {
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-  const updateMask: string[] = [];
-  if (payload.displayName) updateMask.push("display_name");
-  if (payload.description !== undefined) updateMask.push("description");
-  if (payload.icon) updateMask.push("icon");
-  if (payload.starterPrompts) updateMask.push("starter_prompts");
-  if (payload.adkAgentDefinition) updateMask.push("adk_agent_definition");
-  if (payload.a2aAgentDefinition) updateMask.push("a2a_agent_definition");
-  if (payload.lowCodeAgentDefinition)
-    updateMask.push("low_code_agent_definition");
-  if (payload.workflowAgentDefinition)
-    updateMask.push("workflow_agent_definition");
-  if (payload.agentDesignerAgentDefinition)
-    updateMask.push("agent_designer_agent_definition");
-  if (payload.skillAgentDefinition)
-    updateMask.push("skill_agent_definition");
-  if (payload.dataStoreSpecs) updateMask.push("data_store_specs");
-  if (payload.dataConnectors) updateMask.push("data_connectors");
-  if (payload.sharingConfig) updateMask.push("sharing_config");
-  if (payload.authorizations) updateMask.push("authorizations");
-  if (payload.authorizationConfig) updateMask.push("authorization_config");
-  if (payload.observabilityConfig) updateMask.push("observabilityConfig");
-
   const sanitizedPayload: Record<string, unknown> = { ...payload };
+
+  // Never send deprecated `authorizations` in `PATCH` (`authorizations` is in `kPublicAgentImmutablePaths`
+  // and fails `ValidateDeprecatedAuthorizationFieldsAreNotSet`). Migrate to `authorizationConfig`.
+  if (Array.isArray(sanitizedPayload.authorizations)) {
+    const legacyAuths = (sanitizedPayload.authorizations as string[]).filter(Boolean);
+    if (!sanitizedPayload.authorizationConfig) {
+      sanitizedPayload.authorizationConfig = {
+        toolAuthorizations: legacyAuths,
+      };
+    }
+    delete sanitizedPayload.authorizations;
+  }
+
+  // If `agent.adkAgentDefinition` had deprecated nested `.authorizations`, or `sanitizedPayload.adkAgentDefinition`
+  // has `.authorizations`, strip it from `adkAgentDefinition` (which IS in `kPublicAgentMutablePaths`)
+  // and migrate to `authorizationConfig.toolAuthorizations`.
+  const existingAdkAuths = Array.isArray(
+    (agent.adkAgentDefinition as Record<string, unknown> | undefined)?.authorizations,
+  )
+    ? ((agent.adkAgentDefinition as Record<string, unknown>).authorizations as string[])
+    : [];
+  if (
+    sanitizedPayload.adkAgentDefinition ||
+    existingAdkAuths.length > 0
+  ) {
+    const adkClone: Record<string, unknown> = {
+      ...((agent.adkAgentDefinition as Record<string, unknown> | undefined) || {}),
+      ...((sanitizedPayload.adkAgentDefinition as Record<string, unknown> | undefined) || {}),
+    };
+    const payloadAdkAuths = Array.isArray(adkClone.authorizations)
+      ? (adkClone.authorizations as string[])
+      : [];
+    const mergedAdkAuths = Array.from(
+      new Set([...existingAdkAuths, ...payloadAdkAuths].filter(Boolean)),
+    );
+    delete adkClone.authorizations;
+    sanitizedPayload.adkAgentDefinition = adkClone;
+
+    if (mergedAdkAuths.length > 0 && !sanitizedPayload.authorizationConfig) {
+      const existingToolAuths =
+        agent.authorizationConfig?.toolAuthorizations || [];
+      sanitizedPayload.authorizationConfig = {
+        toolAuthorizations: Array.from(
+          new Set([...existingToolAuths, ...mergedAdkAuths]),
+        ),
+      };
+    }
+  }
+
+  const updateMask: string[] = [];
+  if (sanitizedPayload.displayName) updateMask.push("display_name");
+  if (sanitizedPayload.description !== undefined) updateMask.push("description");
+  if (sanitizedPayload.icon) updateMask.push("icon");
+  if (sanitizedPayload.starterPrompts) updateMask.push("starter_prompts");
+  if (sanitizedPayload.adkAgentDefinition) updateMask.push("adk_agent_definition");
+  if (sanitizedPayload.a2aAgentDefinition) updateMask.push("a2a_agent_definition");
+  if (sanitizedPayload.lowCodeAgentDefinition)
+    updateMask.push("low_code_agent_definition");
+  if (sanitizedPayload.workflowAgentDefinition)
+    updateMask.push("workflow_agent_definition");
+  if (sanitizedPayload.agentDesignerAgentDefinition)
+    updateMask.push("agent_designer_agent_definition");
+  if (sanitizedPayload.skillAgentDefinition)
+    updateMask.push("skill_agent_definition");
+  if (sanitizedPayload.dataStoreSpecs) updateMask.push("data_store_specs");
+  if (sanitizedPayload.dataConnectors) updateMask.push("data_connectors");
+  if (sanitizedPayload.sharingConfig) updateMask.push("sharing_config");
+  if (sanitizedPayload.authorizationConfig) updateMask.push("authorization_config");
+  if (sanitizedPayload.observabilityConfig) updateMask.push("observabilityConfig");
+
   if (
     sanitizedPayload.lowCodeAgentDefinition &&
     typeof sanitizedPayload.lowCodeAgentDefinition === "object"
   ) {
-    // Strip immutable/output-only subfields enforced by kLowCodeAgentImmutableSubFields in Discovery Engine
-    const lowCodeClone = {
-      ...(sanitizedPayload.lowCodeAgentDefinition as Record<string, unknown>),
-    };
-    const draftNodes = Array.isArray(lowCodeClone.nodes) ? lowCodeClone.nodes : [];
-    const deployedNodes = Array.isArray(lowCodeClone.deployedNodes)
-      ? lowCodeClone.deployedNodes
-      : Array.isArray(lowCodeClone.deployed_nodes)
-        ? lowCodeClone.deployed_nodes
-        : [];
-    if (draftNodes.length === 0 && deployedNodes.length > 0) {
-      lowCodeClone.nodes = deployedNodes;
-    }
-    if (!lowCodeClone.rootAgentId && lowCodeClone.deployedRootAgentId) {
-      lowCodeClone.rootAgentId = lowCodeClone.deployedRootAgentId;
-    }
-    delete lowCodeClone.deployedNodes;
-    delete lowCodeClone.deployed_nodes;
-    delete lowCodeClone.deploymentInfo;
-    delete lowCodeClone.deployment_info;
-    delete lowCodeClone.deployedRootAgentId;
-    delete lowCodeClone.deployed_root_agent_id;
-    delete lowCodeClone.deployedSchedules;
-    delete lowCodeClone.deployed_schedules;
-    delete lowCodeClone.validationErrors;
-    delete lowCodeClone.validation_errors;
-    delete lowCodeClone.owner;
-    delete lowCodeClone.ownerName;
-    delete lowCodeClone.owner_name;
-    delete lowCodeClone.session;
-    sanitizedPayload.lowCodeAgentDefinition = lowCodeClone;
+    const normalized = normalizeLowCodeAgentDefinitionForDeploy({
+      ...agent,
+      ...(sanitizedPayload as Partial<Agent>),
+      lowCodeAgentDefinition:
+        sanitizedPayload.lowCodeAgentDefinition as LowCodeAgentDefinition,
+    });
+    sanitizedPayload.lowCodeAgentDefinition = normalized.lowCodeAgentDefinition;
   }
 
   const agentName = resolveFullAgentResourceName(agent.name, config);
@@ -411,6 +764,201 @@ export const enableAgent = async (name: string, config: Config) => {
 };
 
 /**
+ * Returns true if a custom No-Code / Low-Code / Workflow / Agent Designer / Skill agent
+ * has been published or deployed out of draft (`deployedRootAgentId` / `deployedNodes` or `activeRevision`).
+ */
+export const isNoCodeAgentPublished = (
+  agent: Partial<Agent> | null | undefined,
+): boolean => {
+  if (!agent) return false;
+  if (agent.lowCodeAgentDefinition) {
+    const lc = agent.lowCodeAgentDefinition as Record<string, unknown>;
+    const deployedNodes = Array.isArray(lc.deployedNodes)
+      ? lc.deployedNodes
+      : Array.isArray(lc.deployed_nodes)
+        ? lc.deployed_nodes
+        : [];
+    return Boolean(
+      lc.deployedRootAgentId ||
+        lc.deployed_root_agent_id ||
+        deployedNodes.length > 0,
+    );
+  }
+  if (
+    agent.workflowAgentDefinition ||
+    agent.agentDesignerAgentDefinition ||
+    agent.skillAgentDefinition
+  ) {
+    const wf = (agent.workflowAgentDefinition ||
+      agent.agentDesignerAgentDefinition ||
+      agent.skillAgentDefinition) as Record<string, unknown>;
+    return Boolean(
+      agent.activeRevision || wf.activeRevision || wf.active_revision,
+    );
+  }
+  return agent.state === "ENABLED" || agent.state === "DISABLED";
+};
+
+const isLowCodeValidationError = (err: unknown): boolean => {
+  const msg = ((err as Error)?.message || String(err)).toLowerCase();
+  return (
+    msg.includes("agent has validation errors") ||
+    msg.includes("validation_errors")
+  );
+};
+
+/**
+ * Deploys a Low-Code agent (`:deployLowCode`), automatically repairing any missing draft defaults
+ * (`rootAgentId`, `nodes`, `node.id`, `node.displayName`, `llmAgentNode.instruction`) via `PATCH`
+ * (`updateAgent`) before or upon encountering Discovery Engine's `"Agent has validation errors."`
+ * (`DeployLowCodeAgentHandler` in `deploy_low_code_agent_handler.cc`).
+ */
+const deployLowCodeWithAutoRepair = async (
+  currentAgent: Agent,
+  config: Config,
+): Promise<void> => {
+  const agentName = resolveFullAgentResourceName(currentAgent.name, config);
+  const normalized = normalizeLowCodeAgentDefinitionForDeploy(currentAgent);
+
+  const rawDef = (currentAgent.lowCodeAgentDefinition || {}) as Record<
+    string,
+    unknown
+  >;
+  const rawNodes = Array.isArray(rawDef.nodes)
+    ? (rawDef.nodes as Array<Record<string, unknown>>)
+    : [];
+  const rawRootId = (
+    (rawDef.rootAgentId as string) ||
+    (rawDef.root_agent_id as string) ||
+    ""
+  ).trim();
+  const hasMissingCoreFields =
+    rawNodes.length === 0 ||
+    !rawRootId ||
+    !rawNodes.some((n) => n?.id === rawRootId) ||
+    rawNodes.some((n) => {
+      const hasOtherType = Boolean(
+        n?.loopAgentNode ||
+          n?.loop_agent_node ||
+          n?.parallelAgentNode ||
+          n?.parallel_agent_node ||
+          n?.sequentialAgentNode ||
+          n?.sequential_agent_node,
+      );
+      if (hasOtherType) return false;
+      const llm = (n?.llmAgentNode || n?.llm_agent_node) as
+        | Record<string, unknown>
+        | undefined;
+      return (
+        !llm || typeof llm.instruction !== "string" || !llm.instruction.trim()
+      );
+    });
+
+  let latestAgent: Agent = currentAgent;
+  let patchedBeforeDeploy = false;
+
+  if (normalized.existingValidationErrors.length > 0 || hasMissingCoreFields) {
+    latestAgent = await updateAgent(
+      currentAgent,
+      { lowCodeAgentDefinition: normalized.lowCodeAgentDefinition },
+      config,
+    );
+    patchedBeforeDeploy = true;
+  }
+
+  try {
+    await deployLowCodeAgent(agentName, config, "DEPLOY");
+  } catch (err: unknown) {
+    if (!patchedBeforeDeploy && isLowCodeValidationError(err)) {
+      latestAgent = await updateAgent(
+        currentAgent,
+        { lowCodeAgentDefinition: normalized.lowCodeAgentDefinition },
+        config,
+      );
+      try {
+        await deployLowCodeAgent(agentName, config, "DEPLOY");
+        return;
+      } catch (retryErr: unknown) {
+        if (isLowCodeValidationError(retryErr)) {
+          const details =
+            formatLowCodeValidationErrors(latestAgent) ||
+            formatLowCodeValidationErrors(currentAgent);
+          if (details) {
+            throw new Error(
+              `Agent has validation errors (${details}). Update the agent's System Instructions or node configuration and try again.`,
+            );
+          }
+        }
+        throw retryErr;
+      }
+    }
+    if (isLowCodeValidationError(err)) {
+      const details =
+        formatLowCodeValidationErrors(latestAgent) ||
+        formatLowCodeValidationErrors(currentAgent);
+      if (details) {
+        throw new Error(
+          `Agent has validation errors (${details}). Update the agent's System Instructions or node configuration and try again.`,
+        );
+      }
+    }
+    throw err;
+  }
+};
+
+/**
+ * Publishes or deploys a No-Code (`lowCodeAgentDefinition`, `workflowAgentDefinition`,
+ * `agentDesignerAgentDefinition`, or `skillAgentDefinition`) agent out of draft in-place
+ * (`:deployLowCode` or `:publish`) WITHOUT sharing it or changing its `state` / `sharingConfig`.
+ *
+ * If the agent is in `PRIVATE` state, it remains `PRIVATE` (unshared and not IAM-sharable)
+ * while its `deployedNodes`/`deployedRootAgentId` or `activeRevision` becomes live for the owner.
+ */
+export const publishNoCodeAgentOnly = async (
+  name: string,
+  config: Config,
+): Promise<Agent> => {
+  const agentName = resolveFullAgentResourceName(name, config);
+  const current = await getAgent(agentName, config);
+
+  const isPermissionError = (err: unknown): boolean => {
+    const msg = ((err as Error)?.message || String(err)).toLowerCase();
+    return (
+      msg.includes("403") ||
+      msg.includes("permission_denied") ||
+      msg.includes("permission denied") ||
+      msg.includes("does not have permission to access the agent") ||
+      msg.includes("does not have permission to deploy the low code agent")
+    );
+  };
+
+  try {
+    if (current.lowCodeAgentDefinition) {
+      await deployLowCodeWithAutoRepair(current, config);
+    } else if (
+      current.workflowAgentDefinition ||
+      current.agentDesignerAgentDefinition ||
+      current.skillAgentDefinition
+    ) {
+      await publishAgent(agentName, config, { publishMode: "PUBLISH" });
+    } else {
+      throw new Error(
+        "Agent does not contain a publishable Low-Code, Workflow, Agent Designer, or Skill definition.",
+      );
+    }
+  } catch (err: unknown) {
+    if (isPermissionError(err)) {
+      throw new Error(
+        "Only the agent owner can directly publish/deploy a PRIVATE agent in-place (Discovery Engine checks owner == caller). Use 'Admin Publish / Share' and select 'Keep Private (Publish Only)' or transfer ownership.",
+      );
+    }
+    throw err;
+  }
+
+  return getAgent(agentName, config);
+};
+
+/**
  * Shares an employee-made agent in-place using the Discovery Engine v1main/v1alpha
  * lifecycle RPCs (`:deployLowCode`/`:publish` -> `:initIamPolicy` -> `:requestAgentReview` -> `:enableAgent`).
  *
@@ -438,7 +986,7 @@ export const shareAgent = async (name: string, config: Config): Promise<Agent> =
       current.lowCodeAgentDefinition &&
       !current.lowCodeAgentDefinition.deployedRootAgentId
     ) {
-      await deployLowCodeAgent(agentName, config, "DEPLOY");
+      await deployLowCodeWithAutoRepair(current, config);
     } else if (
       (current.workflowAgentDefinition ||
         current.agentDesignerAgentDefinition ||
@@ -466,6 +1014,71 @@ export const shareAgent = async (name: string, config: Config): Promise<Agent> =
     return enableAgent(agentName, config);
   }
   return afterReview;
+};
+
+/**
+ * Transitions a shared No-Code (`lowCodeAgentDefinition`, `workflowAgentDefinition`,
+ * `agentDesignerAgentDefinition`, or `skillAgentDefinition`) agent back to `PRIVATE`
+ * (unshared) state in-place via `POST /v1alpha/{name}:withdrawAgent`.
+ *
+ * Why this solves the `agent.authorizations` deprecation error when making an agent private:
+ * - In Discovery Engine (`withdraw_agent_handler.cc`), `WithdrawAgentHandler` sets
+ *   `state = PRIVATE`, sets `sharing_config.scope = RESTRICTED`, resets the IAM policy
+ *   to the owner alone (`ResetIamPolicyWithCurrentUserAsOwner`), and writes directly
+ *   to Spanner **without calling `ValidateAgent`**.
+ * - Because `WithdrawAgentHandler` requires `owner == caller_cpi`, if the caller is an Admin
+ *   and receives a 403 permission error (`autoClaimOwnership !== false`), this function
+ *   automatically claims ownership via `:transferAgentOwner` (`{ currentUser: {} }`, which
+ *   also skips `ValidateAgent`) and retries `:withdrawAgent`.
+ */
+export const withdrawAgent = async (
+  name: string,
+  config: Config,
+  options?: { autoClaimOwnership?: boolean },
+): Promise<Agent> => {
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const agentName = resolveFullAgentResourceName(name, config);
+  const withdrawUrl = `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}:withdrawAgent`;
+
+  const isPermissionError = (err: unknown): boolean => {
+    const msg = ((err as Error)?.message || String(err)).toLowerCase();
+    return (
+      msg.includes("403") ||
+      msg.includes("permission_denied") ||
+      msg.includes("permission denied") ||
+      msg.includes("does not have permission") ||
+      msg.includes("not the owner")
+    );
+  };
+
+  try {
+    await gapiRequest<Agent>(
+      withdrawUrl,
+      "POST",
+      config.projectId,
+      undefined,
+      {},
+    );
+  } catch (err: unknown) {
+    if (options?.autoClaimOwnership !== false && isPermissionError(err)) {
+      await transferAgentOwner(
+        agentName,
+        { toSelf: true, previousOwnerDisposition: "KEEP_AS_AGENT_USER" },
+        config,
+      );
+      await gapiRequest<Agent>(
+        withdrawUrl,
+        "POST",
+        config.projectId,
+        undefined,
+        {},
+      );
+    } else {
+      throw err;
+    }
+  }
+
+  return getAgent(agentName, config);
 };
 
 const EMAIL_REGEX = /^[^\s@:]+@[^\s@:]+\.[^\s@:]+$/;
@@ -584,21 +1197,23 @@ export const formatSharedIamPrincipal = (rawPrincipal: string): string => {
 };
 
 /**
- * Builds a clean `CreateAgent` payload from an existing user-owned agent so an Admin
- * can clone a `PRIVATE` agent, publish it, share it, and transfer ownership back to the user.
+ * Builds a clean `CreateAgent` payload from an existing agent so an Admin can clone a `PRIVATE`
+ * agent or migrate a legacy agent that has deprecated `agent.authorizations` to `authorizationConfig`.
  *
  * Enforces all Discovery Engine `ValidateCreateAgentRequest` / `CreateAgentHandler` constraints:
  * - Ensures non-empty `displayName` and `description`.
- * - Migrates deprecated `authorizations` array to `authorizationConfig.toolAuthorizations`.
+ * - Migrates deprecated `authorizations` (and `adkAgentDefinition.authorizations`) to `authorizationConfig.toolAuthorizations`.
  * - For `lowCodeAgentDefinition`: promotes `deployedNodes` -> `nodes`, `deployedRootAgentId` -> `rootAgentId`,
  *   `deployedSchedules` -> `draftSchedules` (stripping output-only `disabled` on schedules), and strips
  *   `deployedNodes`, `deployedRootAgentId`, `deployedSchedules`, `deploymentInfo`, `validationErrors`,
  *   `owner`, `ownerName`, and `session` (which would otherwise fail `VerifySession` ownership check).
  * - For `workflowAgentDefinition` / `agentDesignerAgentDefinition` / `skillAgentDefinition`: strips `owner` / `ownerName`.
+ * - For `adkAgentDefinition` / `a2aAgentDefinition` / `dialogflowAgentDefinition`: preserves the definition while stripping
+ *   deprecated nested `authorizations` and output-only marketplace subfields.
  */
 export const buildCloneAgentPayloadForCreate = (
   sourceAgent: Agent,
-  options?: { displayName?: string; sharingScope?: 'RESTRICTED' | 'ALL_USERS' },
+  options?: { displayName?: string; sharingScope?: 'PRIVATE' | 'RESTRICTED' | 'ALL_USERS' },
 ): Partial<Agent> => {
   const displayName = (options?.displayName || sourceAgent.displayName || "").trim();
   if (!displayName) {
@@ -641,87 +1256,43 @@ export const buildCloneAgentPayloadForCreate = (
     };
   }
 
-  if (
-    sourceAgent.authorizationConfig?.toolAuthorizations &&
-    sourceAgent.authorizationConfig.toolAuthorizations.length > 0
-  ) {
+  const existingToolAuths = Array.isArray(sourceAgent.authorizationConfig?.toolAuthorizations)
+    ? sourceAgent.authorizationConfig!.toolAuthorizations
+    : [];
+  const legacyTopAuths = Array.isArray(sourceAgent.authorizations)
+    ? sourceAgent.authorizations
+    : [];
+  const legacyAdkAuths = Array.isArray(
+    (sourceAgent.adkAgentDefinition as Record<string, unknown> | undefined)?.authorizations,
+  )
+    ? ((sourceAgent.adkAgentDefinition as Record<string, unknown>).authorizations as string[])
+    : [];
+
+  const mergedToolAuths = Array.from(
+    new Set([...existingToolAuths, ...legacyTopAuths, ...legacyAdkAuths].filter(Boolean)),
+  );
+  if (mergedToolAuths.length > 0) {
     payload.authorizationConfig = {
-      toolAuthorizations: [...sourceAgent.authorizationConfig.toolAuthorizations],
-    };
-  } else if (Array.isArray(sourceAgent.authorizations) && sourceAgent.authorizations.length > 0) {
-    payload.authorizationConfig = {
-      toolAuthorizations: [...sourceAgent.authorizations],
+      toolAuthorizations: mergedToolAuths,
     };
   }
 
+  const sourceRec = sourceAgent as unknown as Record<string, unknown>;
+
   if (sourceAgent.lowCodeAgentDefinition) {
-    const lowCodeClone: Record<string, unknown> = JSON.parse(
-      JSON.stringify(sourceAgent.lowCodeAgentDefinition),
-    );
-    const draftNodes = Array.isArray(lowCodeClone.nodes) ? lowCodeClone.nodes : [];
-    const deployedNodes = Array.isArray(lowCodeClone.deployedNodes)
-      ? lowCodeClone.deployedNodes
-      : Array.isArray(lowCodeClone.deployed_nodes)
-        ? lowCodeClone.deployed_nodes
-        : [];
-
-    if (draftNodes.length === 0 && deployedNodes.length > 0) {
-      lowCodeClone.nodes = deployedNodes;
-    }
-
-    const rootAgentId =
-      (lowCodeClone.rootAgentId as string) ||
-      (lowCodeClone.root_agent_id as string) ||
-      (lowCodeClone.deployedRootAgentId as string) ||
-      (lowCodeClone.deployed_root_agent_id as string) ||
-      "";
-    if (rootAgentId) {
-      lowCodeClone.rootAgentId = rootAgentId;
-    }
-
-    const draftSchedules = Array.isArray(lowCodeClone.draftSchedules)
-      ? lowCodeClone.draftSchedules
-      : Array.isArray(lowCodeClone.deployedSchedules)
-        ? lowCodeClone.deployedSchedules
-        : [];
-    if (draftSchedules.length > 0) {
-      lowCodeClone.draftSchedules = draftSchedules.map((sched: Record<string, unknown>) => {
-        const cleanSched = { ...sched };
-        delete cleanSched.disabled;
-        return cleanSched;
-      });
-    }
-    if (Array.isArray(lowCodeClone.schedules)) {
-      lowCodeClone.schedules = (lowCodeClone.schedules as Array<Record<string, unknown>>).map(
-        (sched) => {
-          const cleanSched = { ...sched };
-          delete cleanSched.disabled;
-          return cleanSched;
-        },
-      );
-    }
-
+    const normalized = normalizeLowCodeAgentDefinitionForDeploy(sourceAgent, {
+      displayName,
+      description,
+    });
+    const lowCodeClone: Record<string, unknown> = {
+      ...(normalized.lowCodeAgentDefinition as Record<string, unknown>),
+    };
     lowCodeClone.draftDisplayName =
       (lowCodeClone.draftDisplayName as string) || displayName;
     lowCodeClone.draftDescription =
       (lowCodeClone.draftDescription as string) || description;
 
-    delete lowCodeClone.deployedNodes;
-    delete lowCodeClone.deployed_nodes;
-    delete lowCodeClone.deployedRootAgentId;
-    delete lowCodeClone.deployed_root_agent_id;
-    delete lowCodeClone.deployedSchedules;
-    delete lowCodeClone.deployed_schedules;
-    delete lowCodeClone.deploymentInfo;
-    delete lowCodeClone.deployment_info;
-    delete lowCodeClone.validationErrors;
-    delete lowCodeClone.validation_errors;
-    delete lowCodeClone.owner;
-    delete lowCodeClone.ownerName;
-    delete lowCodeClone.owner_name;
-    delete lowCodeClone.session;
-
-    payload.lowCodeAgentDefinition = lowCodeClone;
+    payload.lowCodeAgentDefinition = lowCodeClone as LowCodeAgentDefinition;
   } else if (sourceAgent.workflowAgentDefinition) {
     const workflowClone: Record<string, unknown> = JSON.parse(
       JSON.stringify(sourceAgent.workflowAgentDefinition),
@@ -746,13 +1317,42 @@ export const buildCloneAgentPayloadForCreate = (
     delete skillClone.ownerName;
     delete skillClone.owner_name;
     payload.skillAgentDefinition = skillClone;
+  } else if (sourceAgent.adkAgentDefinition) {
+    const adkClone: Record<string, unknown> = JSON.parse(
+      JSON.stringify(sourceAgent.adkAgentDefinition),
+    );
+    delete adkClone.authorizations;
+    payload.adkAgentDefinition = adkClone as Agent["adkAgentDefinition"];
+  } else if (sourceAgent.a2aAgentDefinition) {
+    const a2aClone: Record<string, unknown> = JSON.parse(
+      JSON.stringify(sourceAgent.a2aAgentDefinition),
+    );
+    if (
+      a2aClone.cloudMarketplaceConfig &&
+      typeof a2aClone.cloudMarketplaceConfig === "object"
+    ) {
+      const mkt = {
+        ...(a2aClone.cloudMarketplaceConfig as Record<string, unknown>),
+      };
+      delete mkt.order;
+      delete mkt.procurementAccount;
+      delete mkt.procurement_account;
+      delete mkt.serviceName;
+      delete mkt.service_name;
+      a2aClone.cloudMarketplaceConfig = mkt;
+    }
+    payload.a2aAgentDefinition = a2aClone as Agent["a2aAgentDefinition"];
+  } else if (sourceRec.dialogflowAgentDefinition) {
+    (payload as Record<string, unknown>).dialogflowAgentDefinition = JSON.parse(
+      JSON.stringify(sourceRec.dialogflowAgentDefinition),
+    );
   } else if (sourceAgent.noCodeAgentDefinition) {
     throw new Error(
       "Legacy no_code_agent_definition agents do not support the Discovery Engine sharing/review workflow. Recreate the agent as a Low-Code or Workflow agent.",
     );
   } else {
     throw new Error(
-      "Agent does not contain a shareable Low-Code, Workflow, Agent Designer, or Skill definition.",
+      "Agent does not contain a supported Low-Code, Workflow, Agent Designer, Skill, ADK, or A2A definition.",
     );
   }
 
@@ -762,14 +1362,15 @@ export const buildCloneAgentPayloadForCreate = (
 /**
  * Automates the Admin "Publish & Share for User" workflow:
  * 1. Fetches the full source agent definition (Admins have read access to PRIVATE agents).
- * 2. If the agent is in `PRIVATE` state (where `:requestAgentReview` and `:transferAgentOwner` block non-owners),
- *    clones the agent as the Admin (`CreateAgent`) so the Admin is the initial owner.
+ * 2. If the agent is in `PRIVATE` state (where `:requestAgentReview` and `:transferAgentOwner` block non-owners)
+ *    or contains deprecated `agent.authorizations` (which blocks `UpdateAgent`), clones the agent as the Admin
+ *    (`CreateAgent`) so the Admin is the initial owner and `authorizations` is migrated to `authorizationConfig`.
  * 3. Deploys (`:deployLowCode`) or publishes (`:publish`) the agent.
  * 4. Initializes the agent IAM policy (`:initIamPolicy`) and transitions out of `PRIVATE` (`:requestAgentReview`).
  * 5. Enables the agent (`:enableAgent`) if it entered `DISABLED` pending admin approval.
  * 6. Configures `sharingConfig` (`ALL_USERS` or `RESTRICTED`) and optional `roles/discoveryengine.agentUser` IAM bindings.
  * 7. Transfers `roles/discoveryengine.agentOwner` to the target user via `:transferAgentOwner`.
- * 8. Optionally deletes the original unshared `PRIVATE` draft.
+ * 8. Optionally deletes the original unshared `PRIVATE` or legacy draft.
  */
 export const adminPublishAndShareForUser = async (
   sourceAgentOrName: Agent | string,
@@ -782,17 +1383,21 @@ export const adminPublishAndShareForUser = async (
     options.onProgress?.(step);
   };
 
+  const keepPrivateUnshared = options.sharingScope === "PRIVATE";
+
   let normalizedTargetOwner: string | undefined;
-  if (!options.keepAdminAsOwner) {
+  if (!keepPrivateUnshared && !options.keepAdminAsOwner) {
     normalizedTargetOwner = formatTransferTargetPrincipal(
       options.targetOwnerPrincipal || "",
     );
   }
 
-  const normalizedSharedPrincipals = (options.sharedPrincipals || [])
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((p) => formatSharedIamPrincipal(p));
+  const normalizedSharedPrincipals = keepPrivateUnshared
+    ? []
+    : (options.sharedPrincipals || [])
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((p) => formatSharedIamPrincipal(p));
 
   const sourceName =
     typeof sourceAgentOrName === "string"
@@ -803,11 +1408,16 @@ export const adminPublishAndShareForUser = async (
   const sourceAgent = await getAgent(sourceName, config);
 
   const isSourcePrivate = sourceAgent.state === "PRIVATE" || !sourceAgent.state;
+  const hasLegacyAuth = hasLegacyAgentAuthorizations(sourceAgent);
   let targetAgent: Agent = sourceAgent;
   let wasCloned = false;
 
-  if (isSourcePrivate) {
-    reportStep("Cloning private agent definition as Admin");
+  if (isSourcePrivate || hasLegacyAuth) {
+    reportStep(
+      hasLegacyAuth && !isSourcePrivate
+        ? "Cloning agent definition to migrate deprecated agent.authorizations to authorizationConfig"
+        : "Cloning private agent definition as Admin",
+    );
     const clonePayload = buildCloneAgentPayloadForCreate(sourceAgent, {
       displayName: options.displayName,
     });
@@ -830,7 +1440,11 @@ export const adminPublishAndShareForUser = async (
 
   if (targetAgent.lowCodeAgentDefinition || sourceAgent.lowCodeAgentDefinition) {
     reportStep("Deploying Low-Code agent (:deployLowCode)");
-    await deployLowCodeAgent(targetAgentName, config, "DEPLOY");
+    if (wasCloned) {
+      await deployLowCodeAgent(targetAgentName, config, "DEPLOY");
+    } else {
+      await deployLowCodeWithAutoRepair(targetAgent, config);
+    }
   } else if (
     targetAgent.workflowAgentDefinition ||
     sourceAgent.workflowAgentDefinition ||
@@ -843,81 +1457,88 @@ export const adminPublishAndShareForUser = async (
     await publishAgent(targetAgentName, config, { publishMode: "PUBLISH" });
   }
 
-  if (wasCloned || targetAgent.state === "PRIVATE" || !targetAgent.state) {
-    reportStep("Initializing IAM policy (:initIamPolicy)");
-    await initIamPolicy(targetAgentName, config);
-
-    reportStep("Transitioning agent out of PRIVATE (:requestAgentReview)");
-    await requestAgentReview(targetAgentName, config);
-  }
-
-  const afterReview = await getAgent(targetAgentName, config);
-  if (afterReview.state === "DISABLED" || afterReview.state === "SUSPENDED") {
-    reportStep("Approving & enabling shared agent (:enableAgent)");
-    await enableAgent(targetAgentName, config);
-  }
-
-  if (options.sharingScope === "ALL_USERS") {
-    reportStep("Setting sharing scope to ALL_USERS");
-    await updateAgent(
-      { name: targetAgentName },
-      { sharingConfig: { scope: "ALL_USERS" } },
-      config,
-    );
-  }
-
-  if (normalizedSharedPrincipals.length > 0) {
-    reportStep("Granting roles/discoveryengine.agentUser in IAM policy (:setIamPolicy)");
-    const currentPolicy: IamPolicy = await getAgentIamPolicy(
-      targetAgentName,
-      config,
-    ).catch(() => ({ bindings: [] }));
-    const bindings = [...(currentPolicy.bindings || [])];
-    const agentUserRole = "roles/discoveryengine.agentUser";
-    const existingBindingIndex = bindings.findIndex(
-      (b) => b.role === agentUserRole,
-    );
-    if (existingBindingIndex >= 0) {
-      const mergedMembers = Array.from(
-        new Set([
-          ...(bindings[existingBindingIndex].members || []),
-          ...normalizedSharedPrincipals,
-        ]),
-      );
-      bindings[existingBindingIndex] = {
-        ...bindings[existingBindingIndex],
-        members: mergedMembers,
-      };
-    } else {
-      bindings.push({
-        role: agentUserRole,
-        members: Array.from(new Set(normalizedSharedPrincipals)),
-      });
+  if (keepPrivateUnshared) {
+    if (!wasCloned && !isSourcePrivate) {
+      reportStep("Withdrawing shared agent to PRIVATE (:withdrawAgent)");
+      await withdrawAgent(targetAgentName, config);
     }
-    await setAgentIamPolicy(
-      targetAgentName,
-      { ...currentPolicy, bindings },
-      config,
-    );
-  }
+  } else {
+    if (wasCloned || targetAgent.state === "PRIVATE" || !targetAgent.state) {
+      reportStep("Initializing IAM policy (:initIamPolicy)");
+      await initIamPolicy(targetAgentName, config);
 
-  if (normalizedTargetOwner) {
-    reportStep(`Transferring ownership to ${normalizedTargetOwner} (:transferAgentOwner)`);
-    await transferAgentOwner(
-      targetAgentName,
-      {
-        toSelf: false,
-        targetPrincipal: normalizedTargetOwner,
-        previousOwnerDisposition:
-          options.previousOwnerDisposition || "KEEP_AS_AGENT_USER",
-      },
-      config,
-    );
+      reportStep("Transitioning agent out of PRIVATE (:requestAgentReview)");
+      await requestAgentReview(targetAgentName, config);
+    }
+
+    const afterReview = await getAgent(targetAgentName, config);
+    if (afterReview.state === "DISABLED" || afterReview.state === "SUSPENDED") {
+      reportStep("Approving & enabling shared agent (:enableAgent)");
+      await enableAgent(targetAgentName, config);
+    }
+
+    if (options.sharingScope === "ALL_USERS") {
+      reportStep("Setting sharing scope to ALL_USERS");
+      await updateAgent(
+        { name: targetAgentName },
+        { sharingConfig: { scope: "ALL_USERS" } },
+        config,
+      );
+    }
+
+    if (normalizedSharedPrincipals.length > 0) {
+      reportStep("Granting roles/discoveryengine.agentUser in IAM policy (:setIamPolicy)");
+      const currentPolicy: IamPolicy = await getAgentIamPolicy(
+        targetAgentName,
+        config,
+      ).catch(() => ({ bindings: [] }));
+      const bindings = [...(currentPolicy.bindings || [])];
+      const agentUserRole = "roles/discoveryengine.agentUser";
+      const existingBindingIndex = bindings.findIndex(
+        (b) => b.role === agentUserRole,
+      );
+      if (existingBindingIndex >= 0) {
+        const mergedMembers = Array.from(
+          new Set([
+            ...(bindings[existingBindingIndex].members || []),
+            ...normalizedSharedPrincipals,
+          ]),
+        );
+        bindings[existingBindingIndex] = {
+          ...bindings[existingBindingIndex],
+          members: mergedMembers,
+        };
+      } else {
+        bindings.push({
+          role: agentUserRole,
+          members: Array.from(new Set(normalizedSharedPrincipals)),
+        });
+      }
+      await setAgentIamPolicy(
+        targetAgentName,
+        { ...currentPolicy, bindings },
+        config,
+      );
+    }
+
+    if (normalizedTargetOwner) {
+      reportStep(`Transferring ownership to ${normalizedTargetOwner} (:transferAgentOwner)`);
+      await transferAgentOwner(
+        targetAgentName,
+        {
+          toSelf: false,
+          targetPrincipal: normalizedTargetOwner,
+          previousOwnerDisposition:
+            options.previousOwnerDisposition || "KEEP_AS_AGENT_USER",
+        },
+        config,
+      );
+    }
   }
 
   let deletedOriginal = false;
   if (wasCloned && options.deleteOriginalPrivateAgent) {
-    reportStep("Deleting original unshared PRIVATE agent draft");
+    reportStep("Deleting original agent draft");
     await deleteResource(sourceName, config);
     deletedOriginal = true;
   }
@@ -930,6 +1551,219 @@ export const adminPublishAndShareForUser = async (
     deletedOriginal,
     transferredTo: normalizedTargetOwner,
     stepsCompleted,
+  };
+};
+
+export interface MigrateLegacyAgentOptions {
+  displayName?: string;
+  sharingScope?: 'PRIVATE' | 'RESTRICTED' | 'ALL_USERS';
+  patchPayload?: Partial<Agent>;
+  deleteLegacyAgent?: boolean;
+}
+
+export interface MigrateLegacyAgentResult {
+  agent: Agent;
+  migratedFrom: string;
+  deletedLegacyAgent: boolean;
+  inPlace: boolean;
+}
+
+/**
+ * Migrates an agent that is blocked from `PATCH` (`UpdateAgent`) due to the deprecated
+ * `agent.authorizations` field (`ValidateDeprecatedAuthorizationFieldsAreNotSet`) over to
+ * `authorizationConfig.toolAuthorizations`, applying any requested `sharingScope` or `patchPayload`.
+ *
+ * How it works:
+ * 1. If the deprecation is on `adk_agent_definition.authorizations` (and top-level `agent.authorizations`
+ *    is not set), `adk_agent_definition` is in `kPublicAgentMutablePaths` and is migrated in-place via `PATCH`.
+ * 2. If top-level `agent.authorizations` is set in Spanner (`"authorizations"` is in `kPublicAgentImmutablePaths`
+ *    and cannot be cleared via `PATCH`), it safely creates the migrated agent with `authorizationConfig`
+ *    (preserving `lowCodeAgentDefinition` / `workflowAgentDefinition` / `adkAgentDefinition` / `a2aAgentDefinition`,
+ *    IAM `agentUser` bindings, and `sharingScope`) and deletes the legacy resource only after creation succeeds.
+ */
+export const migrateLegacyAgentAuthorizations = async (
+  agentOrName: Agent | string,
+  config: Config,
+  options?: MigrateLegacyAgentOptions,
+): Promise<MigrateLegacyAgentResult> => {
+  const sourceName =
+    typeof agentOrName === "string"
+      ? resolveFullAgentResourceName(agentOrName, config)
+      : resolveFullAgentResourceName(agentOrName.name, config);
+
+  const sourceAgent = await getAgent(sourceName, config);
+  const hasTopLevelLegacyAuth =
+    Array.isArray(sourceAgent.authorizations) &&
+    sourceAgent.authorizations.length > 0;
+  const hasNestedAdkLegacyAuth = Array.isArray(
+    (sourceAgent.adkAgentDefinition as Record<string, unknown> | undefined)
+      ?.authorizations,
+  );
+
+  const desiredScope: 'PRIVATE' | 'RESTRICTED' | 'ALL_USERS' =
+    options?.sharingScope ||
+    (options?.patchPayload?.sharingConfig?.scope as
+      | 'PRIVATE'
+      | 'RESTRICTED'
+      | 'ALL_USERS'
+      | undefined) ||
+    (sourceAgent.state === "PRIVATE"
+      ? "PRIVATE"
+      : sourceAgent.sharingConfig?.scope === "ALL_USERS"
+        ? "ALL_USERS"
+        : "RESTRICTED");
+
+  // Case 1: If top-level `agent.authorizations` is NOT set (e.g. only `adk_agent_definition.authorizations`
+  // was set), attempt an in-place PATCH first (`updateAgent` automatically strips `adk_agent_definition.authorizations`
+  // and migrates it to `authorizationConfig`).
+  if (!hasTopLevelLegacyAuth && hasNestedAdkLegacyAuth) {
+    try {
+      const inPlacePayload: Partial<Agent> = {
+        ...(options?.patchPayload || {}),
+      };
+      if (options?.displayName) {
+        inPlacePayload.displayName = options.displayName;
+      }
+      if (options?.sharingScope) {
+        inPlacePayload.sharingConfig = { scope: options.sharingScope };
+      }
+      const updated = await updateAgent(sourceAgent, inPlacePayload, config);
+      return {
+        agent: updated,
+        migratedFrom: sourceName,
+        deletedLegacyAgent: false,
+        inPlace: true,
+      };
+    } catch (err: unknown) {
+      if (!isLegacyAuthorizationsDeprecationError(err)) {
+        throw err;
+      }
+      // Fall through to full re-creation if Spanner also had top-level `authorizations`
+    }
+  }
+
+  // Merge any requested patchPayload onto sourceAgent before building the clean CreateAgent payload
+  const mergedSource: Agent = {
+    ...sourceAgent,
+    ...(options?.patchPayload || {}),
+  };
+
+  const isShareableNoCode = Boolean(
+    mergedSource.lowCodeAgentDefinition ||
+      mergedSource.workflowAgentDefinition ||
+      mergedSource.agentDesignerAgentDefinition ||
+      mergedSource.skillAgentDefinition,
+  );
+
+  // Preserve existing IAM `roles/discoveryengine.agentUser` principals when migrating a shared agent
+  let existingAgentUsers: string[] = [];
+  let existingPolicy: IamPolicy | null = null;
+  if (sourceAgent.state !== "PRIVATE" && desiredScope !== "PRIVATE") {
+    existingPolicy = await getAgentIamPolicy(sourceName, config).catch(
+      () => null,
+    );
+    const userBinding = existingPolicy?.bindings?.find(
+      (b) => b.role === "roles/discoveryengine.agentUser",
+    );
+    if (userBinding?.members?.length) {
+      existingAgentUsers = userBinding.members;
+    }
+  }
+
+  if (isShareableNoCode) {
+    const res = await adminPublishAndShareForUser(
+      mergedSource,
+      {
+        displayName:
+          options?.displayName ||
+          options?.patchPayload?.displayName ||
+          mergedSource.displayName,
+        sharingScope: desiredScope,
+        sharedPrincipals: existingAgentUsers,
+        keepAdminAsOwner: true,
+        deleteOriginalPrivateAgent: options?.deleteLegacyAgent !== false,
+      },
+      config,
+    );
+    return {
+      agent: res.agent,
+      migratedFrom: sourceName,
+      deletedLegacyAgent: res.deletedOriginal,
+      inPlace: false,
+    };
+  }
+
+  // Case 2: ADK / A2A / Dialogflow agent with top-level `agent.authorizations`
+  const cleanPayload = buildCloneAgentPayloadForCreate(mergedSource, {
+    displayName:
+      options?.displayName ||
+      options?.patchPayload?.displayName ||
+      mergedSource.displayName,
+    sharingScope: desiredScope,
+  });
+
+  // Create the replacement agent first so the customer never loses the agent if CreateAgent fails
+  const created = await createAgent(cleanPayload, config);
+  const createdName = resolveFullAgentResourceName(created.name, config);
+
+  if (existingAgentUsers.length > 0 && desiredScope !== "PRIVATE") {
+    try {
+      const newPolicy: IamPolicy = await getAgentIamPolicy(
+        createdName,
+        config,
+      ).catch(() => ({ bindings: [] }));
+      const bindings = [...(newPolicy.bindings || [])];
+      const agentUserRole = "roles/discoveryengine.agentUser";
+      const idx = bindings.findIndex((b) => b.role === agentUserRole);
+      if (idx >= 0) {
+        bindings[idx] = {
+          ...bindings[idx],
+          members: Array.from(
+            new Set([...(bindings[idx].members || []), ...existingAgentUsers]),
+          ),
+        };
+      } else {
+        bindings.push({
+          role: agentUserRole,
+          members: Array.from(new Set(existingAgentUsers)),
+        });
+      }
+      await setAgentIamPolicy(
+        createdName,
+        { ...newPolicy, bindings },
+        config,
+      );
+    } catch (iamErr) {
+      console.warn(
+        "[migrateLegacyAgentAuthorizations] Could not copy IAM bindings to migrated agent:",
+        iamErr,
+      );
+    }
+  }
+
+  if (sourceAgent.state === "DISABLED") {
+    try {
+      await disableAgent(createdName, config);
+    } catch (disErr) {
+      console.warn(
+        "[migrateLegacyAgentAuthorizations] Could not set DISABLED state on migrated agent:",
+        disErr,
+      );
+    }
+  }
+
+  let deletedLegacyAgent = false;
+  if (options?.deleteLegacyAgent !== false) {
+    await deleteResource(sourceName, config);
+    deletedLegacyAgent = true;
+  }
+
+  const finalAgent = await getAgent(createdName, config);
+  return {
+    agent: finalAgent,
+    migratedFrom: sourceName,
+    deletedLegacyAgent,
+    inPlace: false,
   };
 };
 

@@ -207,7 +207,7 @@ const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buil
                 </div>
             </div>
             <button 
-                onClick={(e) => { e.stopPropagation(); onClose && onClose(); }}
+                onClick={(e) => { e.stopPropagation(); onClose?.(); }}
                 className="p-1 rounded-full hover:bg-gray-600 text-gray-400 hover:text-white relative z-10 flex-shrink-0"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">

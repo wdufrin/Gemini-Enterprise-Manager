@@ -1057,19 +1057,29 @@ Think of it as adding an app to a company app store. The app already exists; thi
 > Agents living in a non-default collection are invisible in this app. This is not configurable
 > from the UI.
 
-**The agent table.** Sortable columns showing display name, type, state, and actions. Type is read
-from the agent definition, with a fallback inference chain when the API doesn't say
-([AgentsPage.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/pages/AgentsPage.tsx#L230-L240)):
+**The agent table.** Sortable columns with search and status/type/scope filter pills showing display
+name, sharing scope, type, state, and actions. Type is read from the agent definition, with a
+fallback inference chain when the API doesn't say
+([AgentsPage.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/pages/AgentsPage.tsx#L219-L229)):
 
 | Signal in the API response | Type shown |
 |---|---|
 | `adkAgentDefinition` present | `ADK` |
 | `a2aAgentDefinition` present | `A2A` |
-| low-code or workflow definition present | `LOW_CODE` |
-| an unusual `state` value | `LOW_CODE` |
+| `workflowAgentDefinition` present | `WORKFLOW` |
+| `lowCodeAgentDefinition` or `managedAgentDefinition` present | `LOW_CODE` |
 
-**State badges** come from the agent's `state` field. A missing state means a *private no-code
-agent* — those are read-only in this app (see Known limitations).
+**State & Sharing badges** reflect both the agent's lifecycle state (`Enabled`, `Disabled`, or
+`Private (Unshared)`) and, for No-Code agents, whether the definition is currently in **`Draft`**
+(`Draft (Unpublished)` / `Has Draft Edits`) or **`Published`**.
+
+**Row actions:**
+- **`View / Edit`** — opens the unified Agent Details & Configuration view for any custom agent
+  (`ADK`, `A2A`, `LOW_CODE`, `WORKFLOW`). For Google-managed built-in agents (such as **Deep Research**),
+  the button displays **`View`**
+  ([AgentList.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/agents/AgentList.tsx#L533-L542)).
+- **`Test`** — jumps directly to the interactive chat Playground with that agent pre-selected (enabled when `state === 'ENABLED'`).
+- **`Delete`** — opens a confirmation modal before deleting the agent (hidden for protected Google built-in agents).
 
 ````carousel
 ![GE Agent Manager — First-run setup and empty state when no Discovery Engine app exists in the selected region.](./assets/07-agent-manager-firstrun.png)
@@ -1082,24 +1092,15 @@ agent* — those are read-only in this app (see Known limitations).
 ### How to: register a new agent
 
 1. Set **Location** and pick your **App (engine)** at the top of the page.
-2. Click **Register Agent**. The registration form opens.
-3. Choose the backend type. There are exactly two buttons:
-   **Agent Engine** and **HTTP Service (A2A)**
+2. Click **Register New Agent**. The registration form opens.
+3. Choose the backend type: **Agent Engine** or **HTTP Service (A2A)**
    ([AgentBackendConfig.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/agents/form/AgentBackendConfig.tsx#L86-L107)).
 4. Fill in **Display Name** and **Description** — both are required.
 5. Fill in the backend fields (see the field reference below).
-6. Attach an **Authorization** if the agent needs to act as the signed-in user.
-7. Click **Create**.
+6. Attach one or more **Authorization IDs** (`authorizationConfig.toolAuthorizations`) if the agent needs OAuth credentials to act on behalf of the signed-in user.
+7. Click **Save Agent**.
 
 Expected result: the form closes, the list refreshes, and your agent appears with its type badge.
-
-> [!WARNING]
-> Authorizations are immutable. Once an agent is created you cannot add, remove, or change its
-> authorizations from this app — the edit form renders them disabled with the note
-> "Authorization cannot be changed after an agent is created", and the update payload deliberately
-> omits `authorizationConfig`
-> ([useAgentForm.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useAgentForm.ts#L525-L532)).
-> Get this right the first time, or delete and re-create the agent.
 
 <details>
 <summary>Under the hood — the API call this makes</summary>
@@ -1113,44 +1114,48 @@ POST https://discoveryengine.googleapis.com/v1alpha/projects/{project}/locations
 For a non-`global` location the host becomes `https://{location}-discoveryengine.googleapis.com`
 ([core.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/core.ts#L20-L28)).
 
-The body contains `displayName`, `description`, and one of `adkAgentDefinition` or
-`a2aAgentDefinition`. Implementation: `createAgent` in
-[agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L47-L60).
+The body contains `displayName`, `description`, optional `starterPrompts` and `authorizationConfig`,
+and one of `adkAgentDefinition` or `a2aAgentDefinition`. Implementation: `createAgent` in
+[agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L50-L76).
 
-Edits use `PATCH` with an `updateMask` assembled from whichever keys are present in the payload
-([agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L64)).
+Edits use `PATCH` with an explicit `updateMask` assembled from the keys in the payload
+([agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L179-L263)).
 </details>
 
-### How to: deploy, undeploy, or delete an agent
+### How to: view and edit an existing agent (`View / Edit`)
 
-- **Enable / disable** — calls `:enableAgent` or `:disableAgent`
-  ([agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L195-L213)).
-- **Share** — calls `:share`; the code strips `/assistants/default_assistant` from the resource
-  path before calling
-  ([agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L215-L224)).
-- **Delete from the list** — select one or more rows and click delete. You get a confirmation
-  modal titled `Confirm Deletion of {n} Agent(s)`, listing each agent and warning
-  "This action cannot be undone."
-  ([AgentsPage.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/pages/AgentsPage.tsx#L507-L527)).
+Click **`View / Edit`** on any custom agent row to open the unified **Agent Details** workspace
+([AgentDetails.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/agents/AgentDetails.tsx)):
 
-> [!CAUTION]
-> There is a **second** Delete button, and it has no confirmation at all. Open an agent's detail
-> view and scroll to **Advanced Actions** — the red **Delete** button there calls the delete API
-> immediately on click. No modal, no prompt, no undo.
-> See [AgentDetails.tsx:398](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/agents/AgentDetails.tsx#L398)
-> calling `handleDelete` at
-> [L133-L144](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/agents/AgentDetails.tsx#L133-L144).
-> Treat that button as live ammunition.
+- **For No-Code / Low-Code / Workflow Agents:**
+  - **Agent Identity & Starter Prompts** — edit **Display Name**, **Description**, **Icon URI**, and **Starter Prompts** inline and click **Save Agent Details**. This updates both top-level agent metadata and `lowCodeAgentDefinition` draft fields (`draftDisplayName`, `draftDescription`, `draftIcon`) in a single `PATCH`.
+  - **Model** — select from the Gemini models enabled for your engine (`resolveAvailableAppModels`) and click **Save Model**.
+  - **System Instructions / Prompt** — edit the root `LlmAgentNode` instruction and click **Save Instructions**. If a newly created draft has an empty `nodes` array, saving instructions automatically initializes a valid `root_agent` node.
+  - **Low-Code Draft Validation Warnings** — if the Discovery Engine API reports `validationErrors` on the draft definition, an amber diagnostic banner lists each field path and message so you can fix it before publishing.
+  - **Connectors & Data Stores tab** (`AgentDatasourceEditor`) — inspect, attach, detach, or migrate bound Data Connectors (`connectorToolNodes`) and Vertex AI Search Data Stores (`vertexAiSearchToolNodes`), with a live `PATCH` cURL preview. You can also bulk-migrate data sources across multiple agents from the list view via **Bulk Update Selected**.
+- **For ADK (Agent Engine) & A2A Agents:**
+  - The **Overview & Configuration** tab embeds the full **Edit Agent & Backend Configuration** form (`AgentForm` in `embedded` mode), allowing you to update the display name, description (with AI rewrite), icon URI, starter prompts, `authorizationConfig.toolAuthorizations`, and Reasoning Engine / A2A endpoint settings alongside a live `PATCH` cURL preview.
 
-### How to: check who can use an agent
+### How to: publish, share, unshare (make private), or delete an agent
 
-In the agent detail view:
+- **Publish Agent / Republish Agent (No-Code Drafts)** — compiles and publishes a No-Code agent out of `Draft` state **without sharing it**, keeping the agent `Private (Unshared)` (`publishNoCodeAgentOnly` in [agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L597-L664)). Before calling `:deployLowCode` / `:publish`, the app automatically runs `normalizeLowCodeAgentDefinitionForDeploy` to repair missing `rootAgentId`, `draftDisplayName`, `draftDescription`, or default `LlmAgentNode` fields and re-syncs the draft via `PATCH` if needed.
+- **Share Agent** — calls `:shareAgent` (with fallback to `:share`) to make the agent discoverable across the app ([agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L537-L590)).
+- **Publish & Share for User (Admin Action)** — under **Advanced Actions**, admins can publish a No-Code agent on behalf of its creator (`adminPublishAndShareForUser` in [agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L671-L772)) and choose between **Publish Only — Keep Private (Unshared)**, **Restricted (Specific IAM Users / Groups)**, or **All Users in App**.
+- **Make Private (Unshare)** — clicking **Private** in the status bar revokes organization-wide sharing and returns the agent to private visibility (`unshareAgent` in [agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L459-L530)). For No-Code agents, this invokes `:withdrawAgent` in-place so the agent's resource ID and ownership are preserved.
+- **Migrate Legacy `agent.authorizations`** — if a `PATCH` fails with `The 'agent.authorizations' field is deprecated. Please use 'agent.authorization_config' instead`, an amber banner appears in `AgentDetails` with a one-click **Migrate to `authorization_config`** button (`migrateLegacyAgentAuthorizations` in [agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L387-L453)) that copies `authorizations` into `authorizationConfig.toolAuthorizations` and clears the deprecated field.
+- **Enable / Disable** — toggles a shared agent between `ENABLED` and `DISABLED` via `:enableAgent` / `:disableAgent` ([agents.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/discovery/agents.ts#L337-L380)).
+- **Delete** — both bulk deletion from the list and the **Delete** button under **Advanced Actions** in `AgentDetails` open a confirmation modal before calling `DELETE` ([AgentsPage.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/pages/AgentsPage.tsx#L533-L553), [AgentDetails.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/agents/AgentDetails.tsx#L1012-L1026)).
+
+### How to: check who can use an agent (IAM & Ownership)
+
+In the **Agent Details** view:
 
 1. Click **Fetch Policy**. This calls `:getIamPolicy` on the agent resource.
-2. Review the bindings.
+2. Review the role bindings (`roles/discoveryengine.agentOwner`, `roles/discoveryengine.agentUser`, etc.).
 3. Click **Edit Policy** — it stays disabled until step 1 succeeds, with the tooltip
    "Fetch the policy first to get the required ETag".
 4. Save. On success you see "IAM Policy updated successfully.", which clears after 5 seconds.
+5. For shared custom No-Code agents, you can also click **Transfer Ownership** (`:transferAgentOwner`) to claim ownership for yourself or assign it to another principal (`user:`, `group:`, `serviceAccount:`, or WIF `principal://`).
 
 <details>
 <summary>Under the hood — the API call this makes</summary>
@@ -1161,32 +1166,35 @@ In the agent detail view:
 `setAgentIamPolicy` → `POST {agentResource}:setIamPolicy`. If the etag is missing it silently
 re-fetches the current policy first; that internal warning is swallowed
 ([iam.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/iam.ts#L169-L191)).
+
+`transferAgentOwner` → `POST {agentResource}:transferAgentOwner`
+([iam.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/iam.ts#L198-L246)).
 </details>
 
-### Field reference — registration form
+### Field reference — registration & embedded edit form
 
 | Field | What to enter | Required | Notes / Default |
 |---|---|---|---|
 | **Agent ID** | Lowercase letters, numbers, hyphens. Max 63 chars. | No (generated if blank) | Pattern `[a-z0-9-]{1,63}`. **Create-only** — cannot be changed later. |
-| **Display Name** | What users will see. | **Yes** | — |
+| **Display Name** | What users will see. | **Yes** | Editable anytime via `View / Edit`. |
 | **Description** | What the agent does. Shown to users. | **Yes** | An **AI rewrite** helper is available; it uses `gemini-2.5-flash`. |
-| **Backend type** | **Agent Engine** or **HTTP Service (A2A)** | **Yes** | Disabled when editing. Only these two — see limitations. |
+| **Backend type** | **Agent Engine** or **HTTP Service (A2A)** | **Yes** | Locked after creation. |
 | **Agent Engine ID** | The reasoning engine's short ID or full resource name. | **Yes** (Agent Engine mode) | — |
 | **Agent Engine Location** | — | — | **Read-only.** Derived from the app location: `us`/`global` → `us-central1`, `eu` → `europe-west1`, anything else → `us-central1` ([types.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/agents/form/types.ts#L43-L53)). Default `us-central1`. |
 | **Invoke URL** | Full HTTPS URL of your A2A endpoint. | **Yes** (A2A mode) | The Cloud Run picker sets this to `{serviceUri}/invoke`. |
 | **Source Project ID** | The project owning the backend. | **Yes** when cross-project | — |
-| **Created By** | Free text — a team or owner name. | No | Stored inside a synthesized metadata block, not a real API field. |
+| **Created By** | Free text — a team or owner name. | No | Stored inside a synthesized metadata block in `toolDescription`. |
 | **Additional Info** | Free text notes. | No | Same synthesized block. |
-| **Authorizations** | Pick from your project's authorizations, or type IDs manually. | No | Default input mode is `manual`. Bare IDs expand to `projects/{project}/locations/global/authorizations/{id}` — **always `global`** ([useAgentForm.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useAgentForm.ts#L549)). |
+| **Authorization IDs** | Pick from your project's authorizations, or type IDs manually. | No | Default input mode is `manual`. Bare IDs expand to `projects/{project}/locations/global/authorizations/{id}` ([useAgentForm.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useAgentForm.ts#L588-L591)). Stored in `authorizationConfig.toolAuthorizations`. |
 | **Organization** (A2A) | Provider organization name for the agent card. | No | Default `My Organization`. |
 | **Streaming** (A2A) | Whether the endpoint streams. | No | Default **on**. |
 | **DCR extension URI** | Marketplace setup URL. | No | Default `https://cloud.google.com/marketplace/docs/partners/ai-agents/setup-dcr`. |
 
 > [!NOTE]
-> **Created By** and **Additional Info** are not first-class API fields. The form packs them into
-> the agent's `toolDescription` as a text block, and parses them back out with regular expressions
-> when you re-open the agent
-> ([useAgentForm.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useAgentForm.ts#L119-L130)):
+> **Created By** and **Additional Info** are not first-class API fields. For Agent Engine registrations,
+> the form packs them into the agent's `toolDescription` as a text block, and parses them back out with
+> regular expressions when you re-open the agent
+> ([useAgentForm.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useAgentForm.ts#L128-L140)):
 >
 > ```
 > [Agent Metadata]
@@ -1199,45 +1207,18 @@ re-fetches the current policy first; that internal warning is swallowed
 
 ### Known limitations & gotchas
 
-- **Only two backend types.** The UI offers `reasoning_engine` and `a2a`. There is **no Dialogflow
-  option** in the registration form, despite a Dialogflow page existing elsewhere in the codebase.
-- **Private no-code agents are read-only.** If an agent has no `state`, the whole form is disabled
-  and you see the banner: *"Editing is disabled for this agent because it is a private no-code
-  agent. Its configuration cannot be modified."*
-- **The A2A agent card is fabricated.** When you register an A2A agent, the app synthesizes the
-  card for you with `protocolVersion: '0.3.0'`, `version: '1.0.0'`, input/output modes
-  `['text/plain']`, and exactly one hard-coded skill:
-  `{ id: 'chat', name: 'Chat', description: 'Chat', examples: ['Hello'], tags: ['chat'] }`
-  ([useAgentForm.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useAgentForm.ts#L498-L515)).
-  There is no UI to change any of it. Your real agent's skills are not represented.
-- **Permission errors are hidden by design.** Listing calls `getAgentView` per agent and swallows
-  403s, returning `null`
-  ([AgentsPage.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/pages/AgentsPage.tsx#L215-L222)).
-  The table still renders, but an agent you lack permission on will show sparse or missing detail
-  rather than an error. If a row looks empty, suspect IAM.
-- **The Cloud Run service scan fails silently.** In A2A mode, clicking to load Cloud Run services
-  catches the error and only writes to the browser console
-  ([useAgentForm.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useAgentForm.ts#L403-L413)).
-  An empty picker may mean "no services" or "the call failed" — you cannot tell from the UI.
-  The picker covers 9 regions only: `us-central1`, `us-east1`, `us-east4`, `us-west1`,
+- **Only two backend types in the registration form.** The **Register New Agent** form offers `reasoning_engine` (ADK) and `a2a`. Custom No-Code / Low-Code agents are authored in the Gemini Enterprise end-user UI (or cloned via **Publish & Share for User**) and then managed via **`View / Edit`** in GE Agent Manager.
+- **Google-managed built-in agents are read-only.** Built-in agents like **Deep Research** (`managedAgentDefinition`) cannot have their prompts or definitions modified, though you can inspect their configuration, toggle their status, or restore Deep Research if deleted.
+- **The A2A agent card is synthesized on save.** When you register or update an A2A agent through the form, the app constructs `jsonAgentCard` with `protocolVersion: '0.3.0'`, `version: '1.0.0'`, input/output modes `['text/plain']`, and a default `chat` skill
+  ([useAgentForm.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useAgentForm.ts#L559-L576)).
+- **Permission errors on `getAgentView` are gracefully ignored.** Listing calls `getAgentView` per agent and catches 403s, returning `null`
+  ([AgentsPage.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/pages/AgentsPage.tsx#L204-L211)).
+  The table still renders, but an agent you lack permission on may show fewer runtime details.
+- **The Cloud Run service scan logs errors to the console.** In A2A mode, clicking to scan Cloud Run services catches errors and logs them to the browser console
+  ([useAgentForm.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useAgentForm.ts#L455-L465)).
+  The picker covers 9 regions: `us-central1`, `us-east1`, `us-east4`, `us-west1`,
   `europe-west1`, `europe-west2`, `europe-west4`, `asia-east1`, `asia-southeast1`.
-- **Sorting by state is slightly wrong.** When an agent has no state, the sort comparator
-  substitutes the literal string `'private'`
-  ([AgentsPage.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/pages/AgentsPage.tsx#L400-L408)).
-  Stateless agents therefore sort alphabetically among the `p`s.
-- **Listing is slow on large tenants.** The page walks every assistant × every agent, then issues
-  one `getAgentView` per agent.
-- **Low-code model list is hard-coded** and includes preview model names that may not exist in your
-  project: `gemini-3.1-pro-preview`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-2.5-pro`,
-  `gemini-2.5-flash`, `gemini-1.5-pro`, `gemini-1.5-flash`
-  ([AgentDetails.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/agents/AgentDetails.tsx#L455-L462)).
-- **There is no agent catalog or gallery in this tab.** The `components/agent-catalog/` folder is
-  used only by ADK Studio's deployment modal.
-- **Data store discovery is heuristic.** The "data stores used by this agent" panel walks the
-  agent-view JSON looking for any string whose key contains `datastore` and whose value starts with
-  `projects/` and contains `/dataStores/`
-  ([AgentDetails.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/agents/AgentDetails.tsx#L205-L232)).
-  Unusual tool schemas will show "No data stores found in this agent's tool configuration."
+- **Listing can take several seconds on large tenants.** The page walks every assistant × every agent, then issues `getAgentView` calls to enrich agent metadata.
 
 ### Troubleshooting
 
@@ -1245,12 +1226,12 @@ re-fetches the current policy first; that internal warning is swallowed
 |---|---|---|
 | Agent list is empty but agents exist in Console | Agents are in a non-default collection | Not fixable in-app. Use the Cloud Console link. |
 | A row shows no type, no state, no detail | `getAgentView` returned 403 and was swallowed | Grant yourself the Discovery Engine viewer/editor role on that agent. |
+| `The 'agent.authorizations' field is deprecated. Please use 'agent.authorization_config' instead.` | Agent was created with the legacy `authorizations` array | Click the **Migrate to `authorization_config`** button in the amber remediation banner inside `View / Edit`. |
+| Publishing a No-Code draft fails with `INVALID_ARGUMENT` | Incomplete `lowCodeAgentDefinition` (e.g., missing `rootAgentId` or `instruction`) | Open **`View / Edit`**, check the **Low-Code Draft Validation Warnings** banner, save System Instructions, and click **Publish Agent** (which runs auto-repair before `:deployLowCode`). |
 | Cloud Run picker is empty in A2A mode | Scan failed silently, or no services in the 9 supported regions | Open the browser console to see the real error; or paste the Invoke URL manually. |
 | `AI rewrite failed: {message}` | The `gemini-2.5-flash` call failed | Check `aiplatform.googleapis.com` is enabled and you have `roles/aiplatform.user`. |
 | `Please enter some text to rewrite.` | You clicked AI rewrite with an empty description | Type something first. |
-| Editing fields are greyed out with a yellow banner | Private no-code agent | Cannot be edited here. Manage it in the Console. |
 | **Edit Policy** stays disabled | No policy fetched yet | Click **Fetch Policy** first — the app needs the ETag. |
-| Agent deleted unexpectedly | You clicked Delete under **Advanced Actions** | Unrecoverable. Re-register the agent. |
 
 ---
 
@@ -1265,9 +1246,8 @@ template. Skills are published once and then deployed into a Gemini Enterprise a
 
 > [!NOTE]
 > This tab is **100% live API** against `https://agentregistry.googleapis.com` (`v1alpha`). There is
-> no mock data and no GitHub dependency. The files `services/gitHubService.ts` (imported by nothing)
-> and `services/githubApiCache.ts` (used only by ADK Studio's GitHub deploy modal) are unrelated to
-> this screen.
+> no mock data and no GitHub dependency (`services/githubApiCache.ts`, used only by ADK Studio's
+> GitHub deploy modal, is unrelated to this screen).
 
 ### The screen, explained
 
@@ -2061,27 +2041,26 @@ flowchart TD
 
   subgraph S3["GE Agent Manager"]
     B4 --> C1["Set Location and App (engine)"]
-    C1 --> C2["Click Register Agent"]
+    C1 --> C2["Click Register New Agent"]
     C2 --> C3["Choose backend Agent Engine"]
     C3 --> C4["Paste the Resource ID, add Display Name and Description"]
-    C4 --> C5["Attach Authorizations — LAST CHANCE, immutable after create"]
-    C5 --> C6["Click Create"]
+    C4 --> C5["Attach Authorization IDs (authorizationConfig.toolAuthorizations)"]
+    C5 --> C6["Click Save Agent"]
   end
 
   subgraph S4["Grant access"]
-    C6 --> D1["Open the agent, click Fetch Policy"]
+    C6 --> D1["Click View / Edit on the agent, then Fetch Policy"]
     D1 --> D2["Click Edit Policy, add principals, Save"]
   end
 
   subgraph S5["Test"]
     D2 --> E1["Agent Runtimes — Direct Query tests the engine directly"]
-    D2 --> E2["Engines and Assistants tab tests the full GE path"]
+    D2 --> E2["Engines and Assistants tab (or Test button) tests the full GE path"]
   end
 ```
 
-> [!IMPORTANT]
-> Step **C5** is the one that catches people. Authorizations cannot be changed after creation. If
-> you get it wrong, your only remedy is to delete the agent and register it again.
+> [!TIP]
+> You can update an agent's `authorizationConfig.toolAuthorizations`, starter prompts, icon, or backend settings at any time by clicking **`View / Edit`** on its row in GE Agent Manager.
 
 Shortcut: ADK Studio's **🔗 Register in GE...** button collapses S2 and S3 into one dialog. It is
 faster, but it never sets an icon or starter prompts, and its dropdowns fail silently — so for a
@@ -2101,11 +2080,11 @@ Every error string this chapter's code can surface.
 | `Please enter some text to rewrite.` | AI rewrite clicked with an empty field | Enter text first. |
 | Empty agent list | Non-default collection, or wrong location/engine | Only `default_collection` is visible. Check Location and App. |
 | Row with missing type/state | 403 on `getAgentView`, swallowed | Fix IAM on that agent. |
+| `The 'agent.authorizations' field is deprecated. Please use 'agent.authorization_config' instead.` | Legacy `authorizations` array present on the agent | Click **Migrate to `authorization_config`** in the amber banner inside `View / Edit`. |
+| Publishing a No-Code draft fails with `INVALID_ARGUMENT` | Incomplete `lowCodeAgentDefinition` | Open `View / Edit`, check the **Low-Code Draft Validation Warnings** banner, save System Instructions, and click **Publish Agent**. |
 | Empty Cloud Run picker | Scan failed silently, or no services in the 9 regions | Check the console; paste the URL manually. |
-| Form disabled + yellow banner | Private no-code agent | Not editable here. |
 | **Edit Policy** disabled | No ETag yet | Click **Fetch Policy**. |
 | `IAM Policy updated successfully.` disappears | Intentional — clears after 5s | None. |
-| Agent gone with no prompt | **Advanced Actions → Delete** has no confirmation | Unrecoverable. Re-register. |
 
 ### Skills Registry
 

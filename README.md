@@ -9,7 +9,10 @@ Built with **React 18**, **TypeScript**, **Vite**, and **Tailwind CSS**, communi
 ## Complete Feature Matrix (18 Console Modules)
 
 ### 🤖 Agent Management & Studio
-1. **Agent Manager**: Discover, inspect, and manage Discovery Engine agents across collections. Toggle states (`ENABLED` / `DISABLED`), inspect session history, and update display configurations.
+1. **Agent Manager**: Unified **`View / Edit`** console for Discovery Engine agents (`ADK`, `A2A`, `LOW_CODE`, and `WORKFLOW`):
+   - **Inline No-Code Editing & Auto-Repair**: Edit Display Name, Description, Icon, Starter Prompts, Gemini Model, System Instructions, and bound Data Connectors / Data Stores directly in the Agent Details view, with draft validation warnings and automatic `lowCodeAgentDefinition` normalization.
+   - **Embedded ADK & A2A Configuration**: Update Reasoning Engine or Cloud Run A2A backend settings, starter prompts, and `authorizationConfig.toolAuthorizations` with live `PATCH` cURL previews.
+   - **Decoupled Publish, Share & Unshare**: Publish No-Code drafts out of `Draft` state while keeping them `Private (Unshared)` (`:deployLowCode`), share with the organization (`:shareAgent`), unshare in-place (`:withdrawAgent`), transfer ownership (`:transferAgentOwner`), and one-click migrate legacy `agent.authorizations` to `authorization_config`.
 2. **Skills Registry**: Centralized enterprise skills governance powered by Google Cloud Agent Platform (`agentregistry.googleapis.com`):
    - **Package Authoring & Upload**: Create new skills or upload `.zip` bundles containing `SKILL.md` instructions and tool definitions.
    - **Immutable Revision Control**: Inspect versioned revisions (`revisions/rev-1`), build logs, and raw JSON specifications.

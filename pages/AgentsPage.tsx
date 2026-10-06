@@ -467,8 +467,8 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   };
 
   const handleEditAgent = (agent: Agent) => {
-      setSelectedAgent(agent);
-      setViewMode('form');
+    setSelectedAgent(agent);
+    setViewMode('details');
   };
 
   const handleSort = (key: SortableAgentKey) => {

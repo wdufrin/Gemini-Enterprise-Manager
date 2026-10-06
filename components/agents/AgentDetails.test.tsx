@@ -51,7 +51,10 @@ vi.mock('../../services/apiService', async (importOriginal) => {
         updateAndPublishNoCodeAgent: vi.fn(),
         getAgentIamPolicy: vi.fn(),
         deleteResource: vi.fn(),
+        publishNoCodeAgentOnly: vi.fn(),
         shareAgent: vi.fn(),
+        withdrawAgent: vi.fn(),
+        migrateLegacyAgentAuthorizations: vi.fn(),
         adminPublishAndShareForUser: vi.fn(),
         isCustomNoCodeAgent: vi.fn(() => true),
         extractAgentDatasources: vi.fn(() => ({ connectors: [], dataStores: [] })),
@@ -801,6 +804,441 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
 
         expect(screen.queryByRole('button', { name: 'Test Agent' })).toBeNull();
     });
+
+    it('renders separate Publish Agent and Share Agent buttons for a PRIVATE draft no-code agent and invokes publishNoCodeAgentOnly without sharing', async () => {
+        const privateDraftAgent: Agent = {
+            ...baseAgent,
+            state: 'PRIVATE',
+            lowCodeAgentDefinition: {
+                nodes: [
+                    {
+                        id: 'root',
+                        displayName: 'Main Node',
+                        llmAgentNode: {
+                            model: 'gemini-3.6-flash',
+                            instruction: 'Help users.',
+                        },
+                    },
+                ],
+                rootAgentId: 'root',
+            },
+        };
+
+        const publishedPrivateAgent: Agent = {
+            ...privateDraftAgent,
+            lowCodeAgentDefinition: {
+                ...privateDraftAgent.lowCodeAgentDefinition,
+                deployedRootAgentId: 'root',
+                deployedNodes: privateDraftAgent.lowCodeAgentDefinition?.nodes,
+            },
+        };
+
+        vi.mocked(api.getAgent).mockResolvedValue(privateDraftAgent);
+        vi.mocked(api.publishNoCodeAgentOnly).mockResolvedValue(publishedPrivateAgent);
+
+        render(
+            <AgentDetails
+                agent={privateDraftAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        // Both Draft and Private (Unshared) badges should appear
+        expect(await screen.findByText('Draft')).toBeTruthy();
+        expect(screen.getByText('Private (Unshared)')).toBeTruthy();
+
+        // Separate "Publish Agent" and "Share Agent" buttons should render
+        const publishBtn = screen.getByRole('button', { name: 'Publish Agent' });
+        const shareBtn = screen.getByRole('button', { name: 'Share Agent' });
+        expect(publishBtn).toBeTruthy();
+        expect(shareBtn).toBeTruthy();
+
+        fireEvent.click(publishBtn);
+
+        await waitFor(() => {
+            expect(api.publishNoCodeAgentOnly).toHaveBeenCalledWith(privateDraftAgent.name, mockConfig);
+            expect(api.shareAgent).not.toHaveBeenCalled();
+            expect(screen.getByText('Published')).toBeTruthy();
+            expect(screen.getByText('Private (Unshared)')).toBeTruthy();
+            expect(screen.getByRole('button', { name: 'Republish Agent' })).toBeTruthy();
+        });
+    });
+
+    it('surfaces 403 error banner when Publish Agent fails on another user PRIVATE agent and opens Admin Publish modal in Keep Private mode', async () => {
+        const privateDraftAgent: Agent = {
+            ...baseAgent,
+            state: 'PRIVATE',
+        };
+
+        vi.mocked(api.getAgent).mockResolvedValue(privateDraftAgent);
+        vi.mocked(api.publishNoCodeAgentOnly).mockRejectedValue(
+            new Error(
+                'Only the agent owner can publish a PRIVATE agent in-place (Discovery Engine returns 403 Permission Denied for non-owners, even Project Owners/Admins).'
+            )
+        );
+
+        render(
+            <AgentDetails
+                agent={privateDraftAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        const publishBtn = await screen.findByRole('button', { name: 'Publish Agent' });
+        fireEvent.click(publishBtn);
+
+        const adminKeepPrivateBtn = await screen.findByRole('button', {
+            name: 'Admin Publish Only (Keep Private)',
+        });
+        expect(adminKeepPrivateBtn).toBeTruthy();
+
+        fireEvent.click(adminKeepPrivateBtn);
+
+        // Modal should open pre-selected to Keep Private (Publish Only)
+        expect(await screen.findByRole('button', { name: 'Publish Agent (Keep Private)' })).toBeTruthy();
+        expect(screen.getByText(/Publish Without Sharing:/i)).toBeTruthy();
+    });
+
+    it('withdraws a shared low-code agent back to PRIVATE in-place via :withdrawAgent when clicking Private (Unshare)', async () => {
+        const sharedLowCodeAgent: Agent = {
+            ...baseAgent,
+            state: 'ENABLED',
+            sharingConfig: { scope: 'ALL_USERS' },
+        };
+
+        const withdrawnPrivateAgent: Agent = {
+            ...baseAgent,
+            state: 'PRIVATE',
+            sharingConfig: { scope: 'RESTRICTED' },
+        };
+
+        vi.mocked(api.getAgent).mockResolvedValue(sharedLowCodeAgent);
+        vi.mocked(api.withdrawAgent).mockResolvedValue(withdrawnPrivateAgent);
+
+        render(
+            <AgentDetails
+                agent={sharedLowCodeAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        const sharingTab = await screen.findByRole('button', { name: /Sharing & IAM/i });
+        fireEvent.click(sharingTab);
+
+        const makePrivateBtn = await screen.findByRole('button', { name: 'Private (Unshare)' });
+        fireEvent.click(makePrivateBtn);
+
+        await waitFor(() => {
+            expect(api.withdrawAgent).toHaveBeenCalledWith(sharedLowCodeAgent.name, mockConfig);
+            expect(screen.getByText('Private (Unshared)')).toBeTruthy();
+        });
+    });
+
+    it('handles the deprecated agent.authorizations error when changing sharing scope and migrates the agent to authorization_config', async () => {
+        const legacyAdkAgent: Agent = {
+            name: 'projects/test-proj/locations/global/collections/default_collection/engines/engine-123/assistants/default_assistant/agents/legacy-adk-1',
+            displayName: 'Legacy OAuth ADK Agent',
+            state: 'ENABLED',
+            sharingConfig: { scope: 'ALL_USERS' },
+            authorizations: ['projects/test-proj/locations/global/authorizations/my-oauth'],
+            adkAgentDefinition: {
+                provisionedReasoningEngine: {
+                    reasoningEngine: 'projects/test-proj/locations/us-central1/reasoningEngines/999',
+                },
+            },
+        };
+
+        const migratedAdkAgent: Agent = {
+            ...legacyAdkAgent,
+            authorizations: undefined,
+            sharingConfig: { scope: 'RESTRICTED' },
+            authorizationConfig: {
+                toolAuthorizations: ['projects/test-proj/locations/global/authorizations/my-oauth'],
+            },
+        };
+
+        vi.mocked(api.getAgent).mockResolvedValue(legacyAdkAgent);
+        vi.mocked(api.updateAgent).mockRejectedValueOnce(
+            new Error(
+                `The 'agent.authorizations' field is deprecated. Please use 'agent.authorization_config' instead. ([ORIGINAL ERROR] generic::invalid_argument: The 'agent.authorizations' field is deprecated. Please use 'agent.authorization_config' instead.)`
+            )
+        );
+        vi.mocked(api.migrateLegacyAgentAuthorizations).mockResolvedValueOnce({
+            agent: migratedAdkAgent,
+            migratedFrom: legacyAdkAgent.name,
+            deletedLegacyAgent: true,
+            inPlace: false,
+        });
+
+        render(
+            <AgentDetails
+                agent={legacyAdkAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        // Proactive warning banner should render when agent.authorizations is present
+        expect(await screen.findByText(/Deprecated/i)).toBeTruthy();
+
+        const sharingTab = screen.getByRole('button', { name: /Sharing & IAM/i });
+        fireEvent.click(sharingTab);
+
+        const restrictedBtn = await screen.findByRole('button', { name: 'Restricted IAM' });
+        fireEvent.click(restrictedBtn);
+
+        // Should surface the deprecation error and offer one-click migration with the requested RESTRICTED scope
+        const migrateBtn = await screen.findByRole('button', {
+            name: /Migrate to authorization_config & Set RESTRICTED/i,
+        });
+        expect(migrateBtn).toBeTruthy();
+
+        fireEvent.click(migrateBtn);
+
+        await waitFor(() => {
+            expect(api.migrateLegacyAgentAuthorizations).toHaveBeenCalledWith(
+                expect.objectContaining({ name: legacyAdkAgent.name }),
+                mockConfig,
+                {
+                    sharingScope: 'RESTRICTED',
+                    deleteLegacyAgent: true,
+                }
+            );
+            expect(screen.getByText('Shared: Restricted IAM')).toBeTruthy();
+        });
+    });
+
+    it('renders Low-Code Draft Validation Warnings and System Instructions editor even when a new draft has empty nodes', async () => {
+        const skeletonPrivateDraft: Agent = {
+            name: 'projects/test-proj/locations/global/collections/default_collection/engines/engine-123/assistants/default_assistant/agents/skeleton-draft-1',
+            displayName: 'test publishing agent',
+            description: 'Agent to help interact with enterprise data.',
+            state: 'PRIVATE',
+            agentType: 'LOW_CODE',
+            lowCodeAgentDefinition: {
+                nodes: [],
+                rootAgentId: '',
+                validationErrors: [
+                    {
+                        field: 'agent.low_code_agent_definition.root_agent_id',
+                        message: 'Field cannot be empty.',
+                    },
+                ],
+            },
+        };
+
+        vi.mocked(api.getAgent).mockResolvedValue(skeletonPrivateDraft);
+
+        render(
+            <AgentDetails
+                agent={skeletonPrivateDraft}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        expect(await screen.findByText(/Low-Code Draft Validation Warnings:/i)).toBeTruthy();
+        expect(
+            screen.getByText(/agent\.low_code_agent_definition\.root_agent_id: Field cannot be empty\./i)
+        ).toBeTruthy();
+
+        // System Instructions / Prompt editor must still render so the user can enter instructions on a new skeleton draft
+        const instructionTextarea = screen.getByPlaceholderText(
+            'Enter system instructions for this agent...'
+        ) as HTMLTextAreaElement;
+        expect(instructionTextarea).toBeTruthy();
+        expect(instructionTextarea.value).toBe('');
+    });
+
+    it('unifies View and Edit for No-Code agents in AgentDetails (inline Display Name, Description, Icon, Starter Prompts) and hides redundant Edit/Update buttons', async () => {
+        const draftNoCodeAgent: Agent = {
+            ...baseAgent,
+            displayName: 'Original No-Code Agent',
+            description: 'Original description',
+            starterPrompts: [{ text: 'First prompt' }],
+        };
+        vi.mocked(api.getAgent).mockResolvedValue(draftNoCodeAgent);
+        vi.mocked(api.updateAndPublishNoCodeAgent).mockResolvedValue({
+            updatedAgent: {
+                ...draftNoCodeAgent,
+                displayName: 'Renamed Inline Agent',
+                description: 'Updated inline description',
+                starterPrompts: [{ text: 'Updated prompt 1' }, { text: 'Added prompt 2' }],
+            },
+            deployedOrPublished: false,
+            ownershipClaimed: false,
+        });
+
+        const onAgentUpdated = vi.fn();
+        render(
+            <AgentDetails
+                agent={draftNoCodeAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+                onAgentUpdated={onAgentUpdated}
+            />
+        );
+
+        expect(await screen.findByText('Agent Identity & Starter Prompts')).toBeTruthy();
+        // Redundant "Update Agent" button must NOT appear for No-Code agents
+        expect(screen.queryByRole('button', { name: 'Update Agent' })).toBeNull();
+
+        // Adversarial check: empty Display Name is rejected before calling API
+        const nameInput = screen.getByLabelText('Display Name') as HTMLInputElement;
+        fireEvent.change(nameInput, { target: { value: '   ' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save Agent Details' }));
+        expect(await screen.findByText('Display Name is required.')).toBeTruthy();
+        expect(api.updateAndPublishNoCodeAgent).not.toHaveBeenCalled();
+
+        // Valid inline update of Display Name, Description, and Starter Prompts
+        fireEvent.change(nameInput, { target: { value: 'Renamed Inline Agent' } });
+        fireEvent.change(screen.getByLabelText('Description'), {
+            target: { value: 'Updated inline description' },
+        });
+        fireEvent.change(screen.getByLabelText('Starter Prompt #1'), {
+            target: { value: 'Updated prompt 1' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: '+ Add Starter Prompt' }));
+        fireEvent.change(screen.getByLabelText('Starter Prompt #2'), {
+            target: { value: 'Added prompt 2' },
+        });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Save Agent Details' }));
+
+        await waitFor(() => {
+            expect(api.updateAndPublishNoCodeAgent).toHaveBeenCalledWith(
+                expect.objectContaining({ name: draftNoCodeAgent.name }),
+                expect.objectContaining({
+                    displayName: 'Renamed Inline Agent',
+                    description: 'Updated inline description',
+                    starterPrompts: [{ text: 'Updated prompt 1' }, { text: 'Added prompt 2' }],
+                    lowCodeAgentDefinition: expect.objectContaining({
+                        draftDisplayName: 'Renamed Inline Agent',
+                        draftDescription: 'Updated inline description',
+                    }),
+                }),
+                mockConfig,
+                { autoDeployOrPublish: false, autoClaimOwnershipOn403: false }
+            );
+            expect(onAgentUpdated).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    it('renders a single "View / Edit" button in AgentList and embeds AgentForm inside AgentDetails for ADK and A2A agents', async () => {
+        const adkAgent: Agent = {
+            name: 'projects/test-proj/locations/global/collections/default_collection/engines/engine-123/assistants/default_assistant/agents/adk-1',
+            displayName: 'ADK Reasoning Agent',
+            description: 'Initial ADK description',
+            state: 'ENABLED',
+            agentType: 'ADK',
+            adkAgentDefinition: {
+                provisionedReasoningEngine: {
+                    reasoningEngine: 'projects/test-proj/locations/us-central1/reasoningEngines/re-999',
+                },
+                toolSettings: {
+                    toolDescription: '[Agent Metadata]\nCreated By: dev@company.com\nAdditional Info: Prod ADK',
+                },
+            },
+        };
+
+        const { unmount } = render(
+            <AgentList
+                agents={[adkAgent]}
+                onSelectAgent={vi.fn()}
+                onEditAgent={vi.fn()}
+                onDeleteAgent={vi.fn()}
+                onRegisterNew={vi.fn()}
+                onToggleAgentStatus={vi.fn()}
+                deletingAgentIds={new Set()}
+                selectedAgents={new Set()}
+                onToggleSelect={vi.fn()}
+                onToggleSelectAll={vi.fn()}
+                onDeleteSelected={vi.fn()}
+                onSort={vi.fn()}
+                sortConfig={{ key: 'displayName', direction: 'asc' }}
+            />
+        );
+
+        expect(screen.getByRole('button', { name: 'View / Edit' })).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+        unmount();
+
+        // Now render AgentDetails for the ADK agent -> should embed Edit Agent & Backend Configuration
+        vi.mocked(api.isCustomNoCodeAgent).mockReturnValueOnce(false).mockReturnValue(false);
+        vi.mocked(api.getAgent).mockResolvedValue(adkAgent);
+        vi.mocked(api.updateAgent).mockResolvedValue({
+            ...adkAgent,
+            displayName: 'Updated ADK Agent',
+        });
+
+        render(
+            <AgentDetails
+                agent={adkAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        expect(await screen.findByText('Edit Agent & Backend Configuration')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Update Agent' })).toBeNull();
+
+        fireEvent.change(screen.getByLabelText('Display Name'), {
+            target: { value: 'Updated ADK Agent' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Save Agent' }));
+
+        await waitFor(() => {
+            expect(api.updateAgent).toHaveBeenCalledWith(
+                expect.objectContaining({ name: adkAgent.name }),
+                expect.objectContaining({
+                    displayName: 'Updated ADK Agent',
+                    adkAgentDefinition: expect.objectContaining({
+                        provisionedReasoningEngine: {
+                            reasoningEngine: 'projects/test-proj/locations/us-central1/reasoningEngines/re-999',
+                        },
+                    }),
+                }),
+                mockConfig
+            );
+        });
+        vi.mocked(api.isCustomNoCodeAgent).mockReturnValue(true);
+    });
 });
-
-

@@ -31,6 +31,7 @@ export interface AdminPublishAndShareModalProps {
   onSuccess: (result: AdminPublishAndShareResult) => void;
   agent: Agent;
   config: Config;
+  initialSharingScope?: 'PRIVATE' | 'RESTRICTED' | 'ALL_USERS';
 }
 
 const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
@@ -39,6 +40,7 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
   onSuccess,
   agent,
   config,
+  initialSharingScope = 'RESTRICTED',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -52,9 +54,9 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
   const [targetOwnerInput, setTargetOwnerInput] = useState(detectedOwnerHint);
   const [previousOwnerDisposition, setPreviousOwnerDisposition] =
     useState<PreviousOwnerDisposition>('KEEP_AS_AGENT_USER');
-  const [sharingScope, setSharingScope] = useState<'RESTRICTED' | 'ALL_USERS'>(
-    'RESTRICTED',
-  );
+  const [sharingScope, setSharingScope] = useState<
+    'PRIVATE' | 'RESTRICTED' | 'ALL_USERS'
+  >(initialSharingScope);
   const [sharedPrincipalsInput, setSharedPrincipalsInput] = useState('');
   const [deleteOriginalPrivateAgent, setDeleteOriginalPrivateAgent] =
     useState(false);
@@ -75,9 +77,13 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
     setDisplayName(agent.displayName || '');
     const hint = api.extractAgentOwnerHint(agent) || '';
     setTargetOwnerInput(hint);
+    setSharingScope(initialSharingScope);
+    if (initialSharingScope === 'PRIVATE') {
+      setOwnerMode('self');
+    }
     setError(null);
     setProgressMessage(null);
-  }, [isOpen, agent]);
+  }, [isOpen, agent, initialSharingScope]);
 
   const parsedSharedPrincipals = useMemo(
     () =>
@@ -97,8 +103,10 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
       return;
     }
 
+    const isPrivateOnly = sharingScope === 'PRIVATE';
+
     let validatedOwnerPrincipal: string | undefined;
-    if (ownerMode === 'user') {
+    if (!isPrivateOnly && ownerMode === 'user') {
       if (!targetOwnerInput.trim()) {
         setError(
           'Enter the user email or Workforce Identity principal who should own the published agent, or select "Keep Myself (Admin) as Owner".',
@@ -126,15 +134,21 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
     }
 
     setIsSubmitting(true);
-    setProgressMessage('Starting Admin Publish & Share workflow...');
+    setProgressMessage(
+      isPrivateOnly
+        ? 'Publishing agent out of draft (keeping Private / unshared)...'
+        : 'Starting Admin Publish & Share workflow...',
+    );
     try {
       const result = await api.adminPublishAndShareForUser(
         agent,
         {
           displayName: displayName.trim(),
-          keepAdminAsOwner: ownerMode === 'self',
+          keepAdminAsOwner: isPrivateOnly || ownerMode === 'self',
           targetOwnerPrincipal:
-            ownerMode === 'user' ? validatedOwnerPrincipal : undefined,
+            !isPrivateOnly && ownerMode === 'user'
+              ? validatedOwnerPrincipal
+              : undefined,
           previousOwnerDisposition,
           sharingScope,
           sharedPrincipals:
@@ -383,7 +397,36 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
               <label className="block text-sm font-medium text-gray-300">
                 Sharing Scope
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label
+                  className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                    sharingScope === 'PRIVATE'
+                      ? 'bg-cyan-950/30 border-cyan-500/80 text-white'
+                      : 'bg-gray-900/40 border-gray-700 text-gray-300 hover:border-gray-600'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="publishSharingScope"
+                    value="PRIVATE"
+                    checked={sharingScope === 'PRIVATE'}
+                    onChange={() => {
+                      setSharingScope('PRIVATE');
+                      setOwnerMode('self');
+                    }}
+                    disabled={isSubmitting}
+                    className="mt-1 text-cyan-500 focus:ring-cyan-500"
+                  />
+                  <div>
+                    <div className="text-sm font-semibold">
+                      Keep Private (Publish Only)
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      Publishes out of draft (<code className="font-mono">:deployLowCode</code> / <code className="font-mono">:publish</code>) without sharing (<code className="font-mono">state: PRIVATE</code>).
+                    </div>
+                  </div>
+                </label>
+
                 <label
                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                     sharingScope === 'RESTRICTED'
@@ -437,6 +480,17 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
                 </label>
               </div>
 
+              {sharingScope === 'PRIVATE' && (
+                <div className="p-3 bg-cyan-950/30 border border-cyan-700/50 rounded-md text-xs text-cyan-200">
+                  <strong>Publish Without Sharing:</strong> Skips{' '}
+                  <code className="font-mono">:initIamPolicy</code> and{' '}
+                  <code className="font-mono">:requestAgentReview</code>. The
+                  agent is deployed out of draft while remaining{' '}
+                  <code className="font-mono">PRIVATE</code> (unshared and not
+                  sharable via IAM).
+                </div>
+              )}
+
               {sharingScope === 'RESTRICTED' && (
                 <div>
                   <label
@@ -455,7 +509,7 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
                     className="w-full bg-gray-900 border border-gray-600 rounded-md px-3 py-2 text-xs text-white font-mono placeholder-gray-500 focus:ring-indigo-500 focus:border-indigo-500"
                   />
                   <p className="text-xs text-gray-400 mt-1">
-                    Comma- or newline-separated emails, <code className="font-mono">user:...</code>, <code className="font-mono">group:...</code>, <code className="font-mono">domain:...</code>, or Workforce <code className="font-mono">principal://...</code> / <code className="font-mono">principalSet://...</code>.
+                    Leave blank to keep access restricted strictly to the owner. Comma- or newline-separated emails, <code className="font-mono">user:...</code>, <code className="font-mono">group:...</code>, <code className="font-mono">domain:...</code>, or Workforce <code className="font-mono">principal://...</code> / <code className="font-mono">principalSet://...</code>.
                   </p>
                 </div>
               )}
@@ -478,7 +532,7 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
                     Delete original unshared Private agent after publishing succeeds
                   </span>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Removes the original <code className="font-mono">{agent.name.split('/').pop()}</code> draft once the new shared agent is active and ownership is assigned, preventing duplicate agents in the user&apos;s list.
+                    Removes the original <code className="font-mono">{agent.name.split('/').pop()}</code> draft once the new agent is published, preventing duplicate agents in the list.
                   </p>
                 </div>
               </label>
@@ -521,8 +575,12 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
               {isSubmitting ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white" />
-                  Publishing &amp; Sharing...
+                  {sharingScope === 'PRIVATE'
+                    ? 'Publishing...'
+                    : 'Publishing & Sharing...'}
                 </>
+              ) : sharingScope === 'PRIVATE' ? (
+                'Publish Agent (Keep Private)'
               ) : (
                 'Publish & Share Agent'
               )}

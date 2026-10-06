@@ -560,19 +560,14 @@ const AgentList: React.FC<AgentListProps> = ({
                                                     Test
                                                 </button>
                                             )}
-                                            <button onClick={() => onSelectAgent(agent)} disabled={isToggling} className="font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500">
-                                                View
+                                            <button
+                                                onClick={() => onSelectAgent(agent)}
+                                                disabled={isToggling}
+                                                className="font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500"
+                                                title={isGoogleManaged ? 'View built-in Google agent details' : 'View and edit agent details, configuration, and permissions'}
+                                            >
+                                                {isGoogleManaged ? 'View' : 'View / Edit'}
                                             </button>
-                                            {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
-                                                <button 
-                                                    onClick={() => onEditAgent(agent)} 
-                                                    disabled={isToggling} 
-                                                    className="font-semibold text-indigo-400 hover:text-indigo-300 disabled:text-gray-500"
-                                                    title="Edit Agent"
-                                                >
-                                                    Edit
-                                                </button>
-                                            )}
                                             {isGoogleManaged ? (
                                                 <span
                                                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-gray-700/80 text-gray-400 border border-gray-600 cursor-not-allowed select-none"

@@ -7,6 +7,8 @@ import {
   formatTransferTargetPrincipal,
   buildTransferAgentOwnerPayload,
   isCustomNoCodeAgent,
+  isNoCodeAgentPublished,
+  publishNoCodeAgentOnly,
   shareAgent,
   buildCloneAgentPayloadForCreate,
   formatSharedIamPrincipal,
@@ -16,6 +18,12 @@ import {
   isProtectedGoogleAgentResourceName,
   deleteResource,
   restoreDeepResearchAgent,
+  withdrawAgent,
+  migrateLegacyAgentAuthorizations,
+  hasLegacyAgentAuthorizations,
+  isLegacyAuthorizationsDeprecationError,
+  normalizeLowCodeAgentDefinitionForDeploy,
+  formatLowCodeValidationErrors,
 } from './agents';
 import { Agent, Config } from '../../../types';
 
@@ -395,6 +403,141 @@ describe('agents API - shareAgent and Admin Publish & Share for User', () => {
     );
   });
 
+  it('isNoCodeAgentPublished detects whether a low-code or workflow agent is published out of draft', () => {
+    expect(isNoCodeAgentPublished(null)).toBe(false);
+    expect(
+      isNoCodeAgentPublished({
+        lowCodeAgentDefinition: {
+          nodes: [{ id: 'root' }],
+          rootAgentId: 'root',
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isNoCodeAgentPublished({
+        lowCodeAgentDefinition: {
+          nodes: [{ id: 'root' }],
+          rootAgentId: 'root',
+          deployedRootAgentId: 'root',
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isNoCodeAgentPublished({
+        lowCodeAgentDefinition: {
+          deployedNodes: [{ id: 'root' }],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isNoCodeAgentPublished({
+        workflowAgentDefinition: {
+          agentFlow: {},
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isNoCodeAgentPublished({
+        workflowAgentDefinition: {
+          agentFlow: {},
+          activeRevision: 'rev-1',
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it('publishNoCodeAgentOnly calls :deployLowCode without calling :initIamPolicy, :requestAgentReview, or :enableAgent', async () => {
+    const mockPrivateAgent: Agent = {
+      name: privateAgentName,
+      displayName: 'User Draft Agent',
+      state: 'PRIVATE',
+      lowCodeAgentDefinition: {
+        nodes: [{ id: 'root', llmAgentNode: { instruction: 'Help' } }],
+        rootAgentId: 'root',
+      },
+    };
+
+    const deployedPrivateAgent: Agent = {
+      ...mockPrivateAgent,
+      lowCodeAgentDefinition: {
+        ...mockPrivateAgent.lowCodeAgentDefinition,
+        deployedRootAgentId: 'root',
+        deployedNodes: [{ id: 'root', llmAgentNode: { instruction: 'Help' } }],
+      },
+    };
+
+    vi.mocked(core.gapiRequest)
+      // 1. getAgent (initial)
+      .mockResolvedValueOnce(mockPrivateAgent)
+      // 2. deployLowCodeAgent (:deployLowCode)
+      .mockResolvedValueOnce(deployedPrivateAgent)
+      // 3. getAgent (final refresh)
+      .mockResolvedValueOnce(deployedPrivateAgent);
+
+    const res = await publishNoCodeAgentOnly(privateAgentName, mockConfig);
+
+    expect(res.state).toBe('PRIVATE');
+    expect(res.lowCodeAgentDefinition?.deployedRootAgentId).toBe('root');
+    expect(core.gapiRequest).toHaveBeenCalledTimes(3);
+    const urls = vi.mocked(core.gapiRequest).mock.calls.map((c) => String(c[0]));
+    expect(urls[0]).toBe(`https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}`);
+    expect(urls[1]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}:deployLowCode`,
+    );
+    expect(urls[2]).toBe(`https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}`);
+    expect(urls.some((u) => u.includes(':initIamPolicy'))).toBe(false);
+    expect(urls.some((u) => u.includes(':requestAgentReview'))).toBe(false);
+    expect(urls.some((u) => u.includes(':enableAgent'))).toBe(false);
+  });
+
+  it('publishNoCodeAgentOnly calls :publish for workflow agents and rejects non-no-code agents or 403 non-owner errors', async () => {
+    const workflowAgent: Agent = {
+      name: privateAgentName,
+      displayName: 'Workflow Draft',
+      state: 'PRIVATE',
+      workflowAgentDefinition: {
+        agentFlow: { steps: [] },
+      },
+    };
+
+    vi.mocked(core.gapiRequest)
+      .mockResolvedValueOnce(workflowAgent)
+      .mockResolvedValueOnce({
+        ...workflowAgent,
+        workflowAgentDefinition: { agentFlow: { steps: [] }, activeRevision: '1' },
+      })
+      .mockResolvedValueOnce({
+        ...workflowAgent,
+        workflowAgentDefinition: { agentFlow: { steps: [] }, activeRevision: '1' },
+      });
+
+    const publishedWf = await publishNoCodeAgentOnly(privateAgentName, mockConfig);
+    expect(publishedWf.workflowAgentDefinition?.activeRevision).toBe('1');
+    expect(vi.mocked(core.gapiRequest).mock.calls[1][0]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}:publish`,
+    );
+
+    // Rejects ADK agent (not a low-code / workflow agent)
+    vi.clearAllMocks();
+    vi.mocked(core.gapiRequest).mockResolvedValueOnce({
+      name: privateAgentName,
+      displayName: 'ADK Agent',
+      adkAgentDefinition: {},
+    });
+    await expect(publishNoCodeAgentOnly(privateAgentName, mockConfig)).rejects.toThrow(
+      /Agent does not contain a publishable Low-Code, Workflow, Agent Designer, or Skill definition/i,
+    );
+
+    // Surfaces clear explanation when non-owner Admin hits 403 on a PRIVATE agent
+    vi.clearAllMocks();
+    vi.mocked(core.gapiRequest)
+      .mockResolvedValueOnce(workflowAgent)
+      .mockRejectedValueOnce(new Error('403 PERMISSION_DENIED: Caller is not the owner'));
+    await expect(publishNoCodeAgentOnly(privateAgentName, mockConfig)).rejects.toThrow(
+      /Only the agent owner can directly publish\/deploy a PRIVATE agent in-place/i,
+    );
+  });
+
   it('buildCloneAgentPayloadForCreate promotes deployedNodes to nodes, strips server-rejected output-only fields, and migrates legacy authorizations', () => {
     const sourceAgent: Agent = {
       name: privateAgentName,
@@ -431,7 +574,11 @@ describe('agents API - shareAgent and Admin Publish & Share for User', () => {
       toolAuthorizations: ['projects/123/locations/global/authorizations/jira-auth'],
     });
     expect(payload.lowCodeAgentDefinition?.nodes).toEqual([
-      { id: 'root_1', llmAgentNode: { instruction: 'Run' } },
+      {
+        id: 'root_1',
+        displayName: 'Published Ticket Agent',
+        llmAgentNode: { instruction: 'Run' },
+      },
     ]);
     expect(payload.lowCodeAgentDefinition?.rootAgentId).toBe('root_1');
     expect(payload.lowCodeAgentDefinition?.deployedNodes).toBeUndefined();
@@ -600,6 +747,78 @@ describe('agents API - shareAgent and Admin Publish & Share for User', () => {
     );
   });
 
+  it('adminPublishAndShareForUser with sharingScope: PRIVATE clones and publishes out of draft while keeping state PRIVATE and skipping IAM sharing', async () => {
+    const sourceAgent: Agent = {
+      name: privateAgentName,
+      displayName: 'Bob Private Draft Bot',
+      description: 'Private bot in draft',
+      state: 'PRIVATE',
+      lowCodeAgentDefinition: {
+        nodes: [{ id: 'root', llmAgentNode: { instruction: 'Analyze' } }],
+        rootAgentId: 'root',
+      },
+    };
+
+    const clonedAgentName =
+      'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/cloned-private-bot-1';
+
+    const clonedAgent: Agent = {
+      ...sourceAgent,
+      name: clonedAgentName,
+      state: 'PRIVATE',
+    };
+
+    vi.mocked(core.gapiRequest)
+      // 1. getAgent (source)
+      .mockResolvedValueOnce(sourceAgent)
+      // 2. createAgent (POST .../agents)
+      .mockResolvedValueOnce(clonedAgent)
+      // 3. deployLowCodeAgent (:deployLowCode)
+      .mockResolvedValueOnce({
+        ...clonedAgent,
+        lowCodeAgentDefinition: {
+          ...clonedAgent.lowCodeAgentDefinition,
+          deployedRootAgentId: 'root',
+          deployedNodes: [{ id: 'root', llmAgentNode: { instruction: 'Analyze' } }],
+        },
+      })
+      // 4. final getAgent
+      .mockResolvedValueOnce({
+        ...clonedAgent,
+        state: 'PRIVATE',
+        lowCodeAgentDefinition: {
+          ...clonedAgent.lowCodeAgentDefinition,
+          deployedRootAgentId: 'root',
+          deployedNodes: [{ id: 'root', llmAgentNode: { instruction: 'Analyze' } }],
+        },
+      });
+
+    const result = await adminPublishAndShareForUser(
+      sourceAgent,
+      {
+        displayName: 'Bob Published Private Bot',
+        sharingScope: 'PRIVATE',
+        deleteOriginalPrivateAgent: false,
+      },
+      mockConfig,
+    );
+
+    expect(result.agent.name).toBe(clonedAgentName);
+    expect(result.agent.state).toBe('PRIVATE');
+    expect(result.agent.lowCodeAgentDefinition?.deployedRootAgentId).toBe('root');
+    expect(result.transferredTo).toBeUndefined();
+    expect(result.deletedOriginal).toBe(false);
+    expect(result.wasCloned).toBe(true);
+
+    const calledUrls = vi.mocked(core.gapiRequest).mock.calls.map((c) => String(c[0]));
+    expect(calledUrls.some((u) => u.endsWith(':deployLowCode'))).toBe(true);
+    expect(calledUrls.some((u) => u.includes(':initIamPolicy'))).toBe(false);
+    expect(calledUrls.some((u) => u.includes(':requestAgentReview'))).toBe(false);
+    expect(calledUrls.some((u) => u.includes(':enableAgent'))).toBe(false);
+    expect(calledUrls.some((u) => u.includes(':setIamPolicy'))).toBe(false);
+    expect(calledUrls.some((u) => u.includes(':transferAgentOwner'))).toBe(false);
+  });
+
   it('adminPublishAndShareForUser rejects invalid targetOwnerPrincipal before making mutating API calls', async () => {
     const sourceAgent: Agent = {
       name: privateAgentName,
@@ -738,6 +957,397 @@ describe('agents API - shareAgent and Admin Publish & Share for User', () => {
     );
     expect(deployCall[1]).toBe('POST');
   });
+
+  it('hasLegacyAgentAuthorizations and isLegacyAuthorizationsDeprecationError detect deprecated agent.authorizations and adk_agent_definition.authorizations', () => {
+    expect(
+      hasLegacyAgentAuthorizations({
+        name: privateAgentName,
+        displayName: 'Legacy Top Auth Agent',
+        authorizations: ['projects/123/locations/global/authorizations/oauth-1'],
+      }),
+    ).toBe(true);
+
+    expect(
+      hasLegacyAgentAuthorizations({
+        name: privateAgentName,
+        displayName: 'Legacy ADK Auth Agent',
+        adkAgentDefinition: {
+          authorizations: ['projects/123/locations/global/authorizations/oauth-2'],
+        } as unknown as Agent['adkAgentDefinition'],
+      }),
+    ).toBe(true);
+
+    expect(
+      hasLegacyAgentAuthorizations({
+        name: privateAgentName,
+        displayName: 'Modern Agent',
+        authorizationConfig: {
+          toolAuthorizations: ['projects/123/locations/global/authorizations/oauth-1'],
+        },
+      }),
+    ).toBe(false);
+
+    expect(
+      isLegacyAuthorizationsDeprecationError(
+        new Error(
+          `The 'agent.authorizations' field is deprecated. Please use 'agent.authorization_config' instead. ([ORIGINAL ERROR] generic::invalid_argument: The 'agent.authorizations' field is deprecated. Please use 'agent.authorization_config' instead.)`,
+        ),
+      ),
+    ).toBe(true);
+
+    expect(
+      isLegacyAuthorizationsDeprecationError(new Error('403 Permission denied')),
+    ).toBe(false);
+  });
+
+  it('updateAgent never sends deprecated authorizations in updateMask and automatically migrates payload.authorizations and adkAgentDefinition.authorizations to authorizationConfig', async () => {
+    const adkAgent: Agent = {
+      name: privateAgentName,
+      displayName: 'ADK Agent',
+      adkAgentDefinition: {
+        provisionedReasoningEngine: {
+          reasoningEngine: 'projects/test-project/locations/us-central1/reasoningEngines/111',
+        },
+        authorizations: ['projects/test-project/locations/global/authorizations/legacy-adk-auth'],
+      } as unknown as Agent['adkAgentDefinition'],
+    };
+
+    vi.mocked(core.gapiRequest).mockResolvedValueOnce({
+      ...adkAgent,
+      authorizationConfig: {
+        toolAuthorizations: ['projects/test-project/locations/global/authorizations/legacy-adk-auth'],
+      },
+    });
+
+    await updateAgent(
+      adkAgent,
+      {
+        sharingConfig: { scope: 'RESTRICTED' },
+      },
+      mockConfig,
+    );
+
+    const patchCall = vi.mocked(core.gapiRequest).mock.calls[0];
+    expect(patchCall[0]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}?updateMask=adk_agent_definition,sharing_config,authorization_config`,
+    );
+    expect(patchCall[0]).not.toContain('updateMask=authorizations');
+    expect(patchCall[4]).toEqual({
+      sharingConfig: { scope: 'RESTRICTED' },
+      adkAgentDefinition: {
+        provisionedReasoningEngine: {
+          reasoningEngine: 'projects/test-project/locations/us-central1/reasoningEngines/111',
+        },
+      },
+      authorizationConfig: {
+        toolAuthorizations: ['projects/test-project/locations/global/authorizations/legacy-adk-auth'],
+      },
+    });
+  });
+
+  it('withdrawAgent transitions a shared agent to PRIVATE in-place via :withdrawAgent and automatically claims ownership via :transferAgentOwner on 403', async () => {
+    const withdrawnAgent: Agent = {
+      name: privateAgentName,
+      displayName: 'Withdrawn Low-Code Agent',
+      state: 'PRIVATE',
+      sharingConfig: { scope: 'RESTRICTED' },
+      authorizations: ['projects/test-project/locations/global/authorizations/legacy-auth'],
+    };
+
+    // 1. First :withdrawAgent returns 403 because Admin is not current agentOwner
+    // 2. :transferAgentOwner ({ currentUser: {} }) succeeds
+    // 3. Retry :withdrawAgent succeeds
+    // 4. getAgent returns PRIVATE agent
+    vi.mocked(core.gapiRequest)
+      .mockRejectedValueOnce(new Error('403 Permission denied: caller is not the owner of the agent'))
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce(withdrawnAgent)
+      .mockResolvedValueOnce(withdrawnAgent);
+
+    const res = await withdrawAgent(privateAgentName, mockConfig);
+
+    expect(res.state).toBe('PRIVATE');
+    expect(core.gapiRequest).toHaveBeenCalledTimes(4);
+    expect(vi.mocked(core.gapiRequest).mock.calls[0][0]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}:withdrawAgent`,
+    );
+    expect(vi.mocked(core.gapiRequest).mock.calls[1][0]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}:transferAgentOwner`,
+    );
+    expect(vi.mocked(core.gapiRequest).mock.calls[1][4]).toEqual({
+      currentUser: {},
+      previousOwnerDisposition: 'KEEP_AS_AGENT_USER',
+    });
+    expect(vi.mocked(core.gapiRequest).mock.calls[2][0]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}:withdrawAgent`,
+    );
+
+    // Negative test: non-permission error from :withdrawAgent is propagated without calling :transferAgentOwner
+    vi.clearAllMocks();
+    vi.mocked(core.gapiRequest).mockRejectedValueOnce(
+      new Error('400 Bad Request: Agent sharing is not supported for this agent type'),
+    );
+    await expect(withdrawAgent(privateAgentName, mockConfig)).rejects.toThrow(
+      /Agent sharing is not supported/i,
+    );
+    expect(core.gapiRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('migrateLegacyAgentAuthorizations safely re-creates an ADK agent blocked by top-level agent.authorizations with authorizationConfig and deletes the legacy resource only after creation succeeds', async () => {
+    const legacyAdkAgent: Agent = {
+      name: privateAgentName,
+      displayName: 'Legacy Finance ADK Agent',
+      description: 'Answers finance questions',
+      state: 'ENABLED',
+      sharingConfig: { scope: 'ALL_USERS' },
+      authorizations: ['projects/test-project/locations/global/authorizations/fin-oauth'],
+      adkAgentDefinition: {
+        toolSettings: { toolDescription: 'Finance tool' },
+        provisionedReasoningEngine: {
+          reasoningEngine: 'projects/test-project/locations/us-central1/reasoningEngines/555',
+        },
+      },
+    };
+
+    const migratedAgentName =
+      'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/migrated-adk-777';
+
+    const migratedAgent: Agent = {
+      name: migratedAgentName,
+      displayName: 'Legacy Finance ADK Agent',
+      description: 'Answers finance questions',
+      state: 'ENABLED',
+      sharingConfig: { scope: 'PRIVATE' },
+      authorizationConfig: {
+        toolAuthorizations: ['projects/test-project/locations/global/authorizations/fin-oauth'],
+      },
+      adkAgentDefinition: legacyAdkAgent.adkAgentDefinition,
+    };
+
+    vi.mocked(core.gapiRequest)
+      // 1. getAgent (source)
+      .mockResolvedValueOnce(legacyAdkAgent)
+      // 2. createAgent (POST .../agents)
+      .mockResolvedValueOnce(migratedAgent)
+      // 3. deleteResource (DELETE legacy agent)
+      .mockResolvedValueOnce({})
+      // 4. getAgent (final)
+      .mockResolvedValueOnce(migratedAgent);
+
+    const result = await migrateLegacyAgentAuthorizations(legacyAdkAgent, mockConfig, {
+      sharingScope: 'PRIVATE',
+      deleteLegacyAgent: true,
+    });
+
+    expect(result.inPlace).toBe(false);
+    expect(result.deletedLegacyAgent).toBe(true);
+    expect(result.agent.name).toBe(migratedAgentName);
+    expect(result.agent.authorizationConfig?.toolAuthorizations).toEqual([
+      'projects/test-project/locations/global/authorizations/fin-oauth',
+    ]);
+    expect(result.agent.authorizations).toBeUndefined();
+
+    const createCall = vi.mocked(core.gapiRequest).mock.calls[1];
+    expect(createCall[1]).toBe('POST');
+    expect(createCall[4]).toEqual({
+      displayName: 'Legacy Finance ADK Agent',
+      description: 'Answers finance questions',
+      sharingConfig: { scope: 'PRIVATE' },
+      authorizationConfig: {
+        toolAuthorizations: ['projects/test-project/locations/global/authorizations/fin-oauth'],
+      },
+      adkAgentDefinition: {
+        toolSettings: { toolDescription: 'Finance tool' },
+        provisionedReasoningEngine: {
+          reasoningEngine: 'projects/test-project/locations/us-central1/reasoningEngines/555',
+        },
+      },
+    });
+
+    const deleteCall = vi.mocked(core.gapiRequest).mock.calls[2];
+    expect(deleteCall[0]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}`,
+    );
+    expect(deleteCall[1]).toBe('DELETE');
+
+    // Negative test: if createAgent fails, deleteResource is NEVER called (preventing data loss)
+    vi.clearAllMocks();
+    vi.mocked(core.gapiRequest)
+      .mockResolvedValueOnce(legacyAdkAgent)
+      .mockRejectedValueOnce(new Error('500 Internal error creating agent'));
+
+    await expect(
+      migrateLegacyAgentAuthorizations(legacyAdkAgent, mockConfig, {
+        sharingScope: 'PRIVATE',
+        deleteLegacyAgent: true,
+      }),
+    ).rejects.toThrow(/500 Internal error creating agent/i);
+    expect(core.gapiRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('normalizeLowCodeAgentDefinitionForDeploy repairs blank/skeleton Low-Code drafts and formatLowCodeValidationErrors formats validation_errors', () => {
+    const skeletonDraft: Agent = {
+      name: privateAgentName,
+      displayName: 'test publishing agent',
+      description: 'Agent to help interact with enterprise data.',
+      state: 'PRIVATE',
+      lowCodeAgentDefinition: {
+        nodes: [],
+        rootAgentId: '',
+        validationErrors: [
+          {
+            field: 'agent.low_code_agent_definition.root_agent_id',
+            message: 'Field cannot be empty.',
+          },
+        ],
+      },
+    };
+
+    expect(formatLowCodeValidationErrors(skeletonDraft)).toBe(
+      'agent.low_code_agent_definition.root_agent_id: Field cannot be empty.',
+    );
+
+    const normalized = normalizeLowCodeAgentDefinitionForDeploy(skeletonDraft);
+    expect(normalized.needsPatch).toBe(true);
+    expect(normalized.lowCodeAgentDefinition.rootAgentId).toBe('root_agent');
+    expect(normalized.lowCodeAgentDefinition.nodes).toEqual([
+      {
+        id: 'root_agent',
+        displayName: 'test publishing agent',
+        llmAgentNode: {
+          instruction: 'Agent to help interact with enterprise data.',
+        },
+      },
+    ]);
+    expect(normalized.lowCodeAgentDefinition.validationErrors).toBeUndefined();
+  });
+
+  it('publishNoCodeAgentOnly auto-repairs a Low-Code draft with validationErrors via PATCH before calling :deployLowCode, and surfaces detailed errors if unresolvable graph errors persist', async () => {
+    const incompleteDraft: Agent = {
+      name: privateAgentName,
+      displayName: 'test publishing agent',
+      description: 'Agent to help interact with enterprise data.',
+      state: 'PRIVATE',
+      lowCodeAgentDefinition: {
+        nodes: [
+          {
+            id: 'root_agent',
+            displayName: '',
+            llmAgentNode: { instruction: '' },
+          },
+        ],
+        rootAgentId: 'root_agent',
+        validationErrors: [
+          {
+            field: 'agent.low_code_agent_definition.nodes[0].display_name',
+            message: 'Field cannot be empty.',
+          },
+          {
+            field: 'agent.low_code_agent_definition.nodes[0].llm_agent_node.instruction',
+            message: 'Field cannot be empty.',
+          },
+        ],
+      },
+    };
+
+    const repairedDraft: Agent = {
+      ...incompleteDraft,
+      lowCodeAgentDefinition: {
+        nodes: [
+          {
+            id: 'root_agent',
+            displayName: 'test publishing agent',
+            llmAgentNode: {
+              instruction: 'Agent to help interact with enterprise data.',
+            },
+          },
+        ],
+        rootAgentId: 'root_agent',
+      },
+    };
+
+    const deployedDraft: Agent = {
+      ...repairedDraft,
+      lowCodeAgentDefinition: {
+        ...repairedDraft.lowCodeAgentDefinition,
+        deployedRootAgentId: 'root_agent',
+        deployedNodes: repairedDraft.lowCodeAgentDefinition?.nodes,
+      },
+    };
+
+    vi.mocked(core.gapiRequest)
+      // 1. getAgent (initial)
+      .mockResolvedValueOnce(incompleteDraft)
+      // 2. updateAgent (PATCH auto-repair)
+      .mockResolvedValueOnce(repairedDraft)
+      // 3. deployLowCodeAgent (:deployLowCode)
+      .mockResolvedValueOnce(deployedDraft)
+      // 4. getAgent (final refresh)
+      .mockResolvedValueOnce(deployedDraft);
+
+    const published = await publishNoCodeAgentOnly(privateAgentName, mockConfig);
+
+    expect(published.lowCodeAgentDefinition?.deployedRootAgentId).toBe('root_agent');
+    expect(core.gapiRequest).toHaveBeenCalledTimes(4);
+    const patchCall = vi.mocked(core.gapiRequest).mock.calls[1];
+    expect(patchCall[1]).toBe('PATCH');
+    expect(String(patchCall[0])).toContain('updateMask=low_code_agent_definition');
+    expect(patchCall[4]).toEqual({
+      lowCodeAgentDefinition: {
+        rootAgentId: 'root_agent',
+        nodes: [
+          {
+            id: 'root_agent',
+            displayName: 'test publishing agent',
+            llmAgentNode: {
+              instruction: 'Agent to help interact with enterprise data.',
+            },
+          },
+        ],
+      },
+    });
+    expect(vi.mocked(core.gapiRequest).mock.calls[2][0]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${privateAgentName}:deployLowCode`,
+    );
+
+    // Negative / adversarial test: if a structural graph error (e.g. disconnected sub-agent node) persists
+    // after PATCH, publishNoCodeAgentOnly surfaces the exact validationErrors field + message
+    vi.clearAllMocks();
+    const brokenGraphDraft: Agent = {
+      ...incompleteDraft,
+      lowCodeAgentDefinition: {
+        nodes: [
+          {
+            id: 'root_agent',
+            displayName: 'Main',
+            llmAgentNode: { instruction: 'Help' },
+          },
+          {
+            id: 'orphan_node',
+            displayName: 'Orphan',
+            llmAgentNode: { instruction: 'Orphan task' },
+          },
+        ],
+        rootAgentId: 'root_agent',
+        validationErrors: [
+          {
+            field: 'agent.low_code_agent_definition.nodes[1]',
+            message: "Agent node with ID 'orphan_node' is disconnected and not reachable from the root agent.",
+          },
+        ],
+      },
+    };
+
+    vi.mocked(core.gapiRequest)
+      .mockResolvedValueOnce(brokenGraphDraft)
+      .mockResolvedValueOnce(brokenGraphDraft)
+      .mockRejectedValueOnce(new Error('Agent has validation errors.'));
+
+    await expect(publishNoCodeAgentOnly(privateAgentName, mockConfig)).rejects.toThrow(
+      /Agent has validation errors \(agent\.low_code_agent_definition\.nodes\[1\]: Agent node with ID 'orphan_node' is disconnected/i,
+    );
+  });
 });
+
 
 

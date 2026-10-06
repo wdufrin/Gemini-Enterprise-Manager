@@ -75,7 +75,7 @@ export function useAgentForm(
   const [fullEditingAgent, setFullEditingAgent] = useState<Agent | null>(agentToEdit || null);
 
   const isEditingDisabled = Boolean(
-    agentToEdit && (agentToEdit.state === 'PRIVATE' || !agentToEdit.state)
+    agentToEdit && api.isGoogleManagedAgent(agentToEdit)
   );
 
   useEffect(() => {

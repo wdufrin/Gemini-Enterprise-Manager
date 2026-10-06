@@ -21,6 +21,7 @@ export interface AgentFormProps {
   onSuccess: () => void;
   onCancel: () => void;
   agentToEdit?: Agent | null;
+  embedded?: boolean;
 }
 
 export type AgentType = 'reasoning_engine' | 'a2a' | 'no_code';

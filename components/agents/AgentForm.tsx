@@ -24,19 +24,30 @@ import { AgentCurlPreview } from './form/AgentCurlPreview';
 export type { AgentFormProps, AgentType };
 export { getCompatibleReasoningEngineLocation };
 
-const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agentToEdit }) => {
+const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agentToEdit, embedded = false }) => {
   const form = useAgentForm(config, agentToEdit, onSuccess);
 
   return (
-    <div className="bg-gray-800 shadow-xl rounded-lg p-6 max-w-7xl mx-auto">
+    <div className={embedded ? 'p-4 bg-gray-900/40 border border-gray-700 rounded-lg' : 'bg-gray-800 shadow-xl rounded-lg p-6 max-w-7xl mx-auto'}>
       <div className="flex justify-between items-start mb-6">
-        <h2 className="text-2xl font-bold text-white">{agentToEdit ? 'Update Agent' : 'Register New Agent'}</h2>
-        <button type="button" onClick={onCancel} className="text-gray-400 hover:text-white">&larr; Back to list</button>
+        <div>
+          <h2 className={embedded ? 'text-lg font-semibold text-white' : 'text-2xl font-bold text-white'}>
+            {embedded ? 'Edit Agent & Backend Configuration' : agentToEdit ? 'Update Agent' : 'Register New Agent'}
+          </h2>
+          {embedded && (
+            <p className="text-xs text-gray-400 mt-0.5">
+              Update display name, description, icon, starter prompts, authorizations, and Agent Engine / A2A endpoint settings.
+            </p>
+          )}
+        </div>
+        {!embedded && (
+          <button type="button" onClick={onCancel} className="text-gray-400 hover:text-white">&larr; Back to list</button>
+        )}
       </div>
 
       {form.isEditingDisabled && (
         <div className="bg-yellow-900/30 border border-yellow-700 text-yellow-300 text-sm rounded-md p-3 mb-6" role="alert">
-          Editing is disabled for this agent because it is a private no-code agent. Its configuration cannot be modified.
+          Editing is disabled for this Google-managed built-in agent. Its configuration is managed by Google Cloud.
         </div>
       )}
 
@@ -117,7 +128,9 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
       <div className="mt-6">
         {form.error && <p className="text-red-400 mb-4 text-center">{form.error}</p>}
         <div className="flex justify-end space-x-3 border-t border-gray-700 pt-4">
-          <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">Cancel</button>
+          {!embedded && (
+            <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">Cancel</button>
+          )}
           <button
             type="submit"
             form="agent-form"

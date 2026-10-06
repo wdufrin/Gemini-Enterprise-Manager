@@ -23,6 +23,7 @@ import SetIamPolicyModal from './SetIamPolicyModal';
 import TransferAgentOwnershipModal from './TransferAgentOwnershipModal';
 import AdminPublishAndShareModal from './AdminPublishAndShareModal';
 import AgentDatasourceEditor from './AgentDatasourceEditor';
+import AgentForm from './AgentForm';
 import {
     extractEngineNameFromAgentName,
     formatModelDisplayName,
@@ -73,6 +74,19 @@ const extractInstructionDrafts = (target: Agent | null): InstructionNodeDraft[] 
                 });
             }
         });
+        if (drafts.length === 0) {
+            const rootId =
+                target.lowCodeAgentDefinition.rootAgentId ||
+                target.lowCodeAgentDefinition.deployedRootAgentId ||
+                nodes[0]?.id ||
+                'root_agent';
+            drafts.push({
+                nodeId: rootId,
+                nodeLabel: nodes[0]?.displayName || target.displayName || 'Main Agent',
+                instruction: '',
+                kind: 'lowCode',
+            });
+        }
     } else if (target.workflowAgentDefinition?.agentFlow?.nodes) {
         target.workflowAgentDefinition.agentFlow.nodes.forEach((n, idx) => {
             if (n.agentNode) {
@@ -123,10 +137,15 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     const [isPublishAndShareModalOpen, setIsPublishAndShareModalOpen] = useState(false);
     const [policySuccess, setPolicySuccess] = useState<string | null>(null);
 
-    // Sharing state
+    // Publishing & Sharing state
+    const [isPublishingOnly, setIsPublishingOnly] = useState(false);
     const [isSharing, setIsSharing] = useState(false);
+    const [isWithdrawing, setIsWithdrawing] = useState(false);
+    const [isMigratingLegacyAuth, setIsMigratingLegacyAuth] = useState(false);
+    const [pendingMigrationScope, setPendingMigrationScope] = useState<'PRIVATE' | 'RESTRICTED' | 'ALL_USERS' | undefined>(undefined);
     const [shareError, setShareError] = useState<string | null>(null);
     const [isUpdatingScope, setIsUpdatingScope] = useState(false);
+    const [publishModalInitialScope, setPublishModalInitialScope] = useState<'PRIVATE' | 'RESTRICTED' | 'ALL_USERS'>('RESTRICTED');
 
     // State for accessible data stores
     const [accessibleDataStores, setAccessibleDataStores] = useState<DataStore[] | null>(null);
@@ -146,7 +165,27 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     const [isSavingModel, setIsSavingModel] = useState(false);
     const [saveModelError, setSaveModelError] = useState<string | null>(null);
 
-    const [instructionDrafts, setInstructionDrafts] = useState<InstructionNodeDraft[]>([]);
+    // State for inline No-Code Agent Details (Name, Description, Icon, Starter Prompts) editing
+    const [draftDisplayName, setDraftDisplayName] = useState<string>(
+        () => agent.displayName || agent.lowCodeAgentDefinition?.draftDisplayName || ''
+    );
+    const [draftDescription, setDraftDescription] = useState<string>(
+        () => agent.description || agent.lowCodeAgentDefinition?.draftDescription || ''
+    );
+    const [draftIconUri, setDraftIconUri] = useState<string>(
+        () => agent.icon?.uri || agent.lowCodeAgentDefinition?.draftIcon?.uri || ''
+    );
+    const [draftStarterPrompts, setDraftStarterPrompts] = useState<string[]>(() =>
+        agent.starterPrompts && agent.starterPrompts.length > 0
+            ? agent.starterPrompts.map(p => p.text)
+            : ['']
+    );
+    const [isSavingAgentInfo, setIsSavingAgentInfo] = useState(false);
+    const [saveAgentInfoError, setSaveAgentInfoError] = useState<string | null>(null);
+
+    const [instructionDrafts, setInstructionDrafts] = useState<InstructionNodeDraft[]>(() =>
+        extractInstructionDrafts(agent)
+    );
     const [isSavingInstructions, setIsSavingInstructions] = useState(false);
     const [saveInstructionsError, setSaveInstructionsError] = useState<string | null>(null);
 
@@ -166,6 +205,15 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     const ownerHint = api.extractAgentOwnerHint(currentAgent);
 
     React.useEffect(() => {
+        setDraftDisplayName(agent.displayName || agent.lowCodeAgentDefinition?.draftDisplayName || '');
+        setDraftDescription(agent.description || agent.lowCodeAgentDefinition?.draftDescription || '');
+        setDraftIconUri(agent.icon?.uri || agent.lowCodeAgentDefinition?.draftIcon?.uri || '');
+        setDraftStarterPrompts(
+            agent.starterPrompts && agent.starterPrompts.length > 0
+                ? agent.starterPrompts.map(p => p.text)
+                : ['']
+        );
+
         const fetchFullAgentAndAppModels = async () => {
             const engineName = extractEngineNameFromAgentName(agent.name, config);
             const [agentRes, engineRes, widgetRes] = await Promise.allSettled([
@@ -189,6 +237,14 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                 const data = agentRes.value;
                 setFullAgent(data);
                 setInstructionDrafts(extractInstructionDrafts(data));
+                setDraftDisplayName(data.displayName || data.lowCodeAgentDefinition?.draftDisplayName || '');
+                setDraftDescription(data.description || data.lowCodeAgentDefinition?.draftDescription || '');
+                setDraftIconUri(data.icon?.uri || data.lowCodeAgentDefinition?.draftIcon?.uri || '');
+                setDraftStarterPrompts(
+                    data.starterPrompts && data.starterPrompts.length > 0
+                        ? data.starterPrompts.map(p => p.text)
+                        : ['']
+                );
 
                 const lowCodeNodes =
                     data.lowCodeAgentDefinition?.nodes && data.lowCodeAgentDefinition.nodes.length > 0
@@ -227,10 +283,23 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
 
             if (updatedAgent.lowCodeAgentDefinition) {
                 const def = updatedAgent.lowCodeAgentDefinition;
-                if ((!def.nodes || def.nodes.length === 0) && Array.isArray(def.deployedNodes)) {
+                if ((!def.nodes || def.nodes.length === 0) && Array.isArray(def.deployedNodes) && def.deployedNodes.length > 0) {
                     def.nodes = JSON.parse(JSON.stringify(def.deployedNodes));
                 }
-                if (Array.isArray(def.nodes)) {
+                if (!def.nodes || def.nodes.length === 0) {
+                    const rootId = def.rootAgentId || def.deployedRootAgentId || 'root_agent';
+                    def.rootAgentId = rootId;
+                    def.nodes = [
+                        {
+                            id: rootId,
+                            displayName: updatedAgent.displayName || 'Main Agent',
+                            llmAgentNode: {
+                                model: selectedModel,
+                                instruction: instructionDrafts[0]?.instruction || updatedAgent.description || '',
+                            },
+                        },
+                    ];
+                } else {
                     def.nodes.forEach(node => {
                         if (node.llmAgentNode) {
                             node.llmAgentNode.model = selectedModel;
@@ -252,6 +321,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                 autoClaimOwnershipOn403: false,
             });
             setFullAgent(res.updatedAgent);
+            setInstructionDrafts(extractInstructionDrafts(res.updatedAgent));
             setSavedModel(selectedModel);
             onAgentUpdated?.(res.updatedAgent);
             if (res.deployWarning) {
@@ -288,13 +358,29 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
 
             if (updatedAgent.lowCodeAgentDefinition) {
                 const def = updatedAgent.lowCodeAgentDefinition;
-                if ((!def.nodes || def.nodes.length === 0) && Array.isArray(def.deployedNodes)) {
+                if ((!def.nodes || def.nodes.length === 0) && Array.isArray(def.deployedNodes) && def.deployedNodes.length > 0) {
                     def.nodes = JSON.parse(JSON.stringify(def.deployedNodes));
                 }
-                if (Array.isArray(def.nodes)) {
+                if (!def.nodes || def.nodes.length === 0) {
+                    const firstDraft = instructionDrafts[0];
+                    const rootId = def.rootAgentId || firstDraft?.nodeId || 'root_agent';
+                    def.rootAgentId = rootId;
+                    def.nodes = [
+                        {
+                            id: rootId,
+                            displayName: firstDraft?.nodeLabel || updatedAgent.displayName || 'Main Agent',
+                            llmAgentNode: {
+                                instruction: firstDraft?.instruction || '',
+                            },
+                        },
+                    ];
+                } else {
                     def.nodes.forEach((node, idx) => {
                         const key = node.id || `node_${idx}`;
-                        if (node.llmAgentNode && draftById.has(key)) {
+                        if (draftById.has(key)) {
+                            if (!node.llmAgentNode) {
+                                node.llmAgentNode = {};
+                            }
                             node.llmAgentNode.instruction = draftById.get(key) || '';
                         }
                     });
@@ -329,6 +415,91 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
         }
     };
 
+    const handleStarterPromptDraftChange = (index: number, value: string) => {
+        setDraftStarterPrompts(prev => prev.map((p, i) => (i === index ? value : p)));
+    };
+
+    const handleAddStarterPromptDraft = () => {
+        setDraftStarterPrompts(prev => [...prev, '']);
+    };
+
+    const handleRemoveStarterPromptDraft = (index: number) => {
+        setDraftStarterPrompts(prev => {
+            if (prev.length <= 1) return [''];
+            return prev.filter((_, i) => i !== index);
+        });
+    };
+
+    const handleSaveAgentInfo = async () => {
+        const base = fullAgent || agent;
+        if (!base) return;
+        const trimmedName = draftDisplayName.trim();
+        if (!trimmedName) {
+            setSaveAgentInfoError('Display Name is required.');
+            return;
+        }
+        setIsSavingAgentInfo(true);
+        setSaveAgentInfoError(null);
+        try {
+            const updatedAgent: Agent = JSON.parse(JSON.stringify(base));
+            const finalStarterPrompts = draftStarterPrompts
+                .map(text => text.trim())
+                .filter(Boolean)
+                .map(text => ({ text }));
+            const trimmedIconUri = draftIconUri.trim();
+
+            const payload: Partial<Agent> = {
+                displayName: trimmedName,
+                description: draftDescription,
+                icon: { uri: trimmedIconUri },
+                starterPrompts: finalStarterPrompts,
+            };
+
+            if (updatedAgent.lowCodeAgentDefinition) {
+                payload.lowCodeAgentDefinition = {
+                    ...updatedAgent.lowCodeAgentDefinition,
+                    draftDisplayName: trimmedName,
+                    draftDescription: draftDescription,
+                    ...(trimmedIconUri ? { draftIcon: { uri: trimmedIconUri } } : {}),
+                };
+            }
+
+            const alreadyPublished = api.isNoCodeAgentPublished(updatedAgent);
+            const res = await api.updateAndPublishNoCodeAgent(updatedAgent, payload, config, {
+                autoDeployOrPublish: alreadyPublished,
+                autoClaimOwnershipOn403: false,
+            });
+            setFullAgent(res.updatedAgent);
+            setInstructionDrafts(extractInstructionDrafts(res.updatedAgent));
+            setDraftDisplayName(
+                res.updatedAgent.displayName || res.updatedAgent.lowCodeAgentDefinition?.draftDisplayName || trimmedName
+            );
+            setDraftDescription(
+                res.updatedAgent.description || res.updatedAgent.lowCodeAgentDefinition?.draftDescription || draftDescription
+            );
+            setDraftIconUri(
+                res.updatedAgent.icon?.uri || res.updatedAgent.lowCodeAgentDefinition?.draftIcon?.uri || trimmedIconUri
+            );
+            setDraftStarterPrompts(
+                res.updatedAgent.starterPrompts && res.updatedAgent.starterPrompts.length > 0
+                    ? res.updatedAgent.starterPrompts.map(p => p.text)
+                    : ['']
+            );
+            onAgentUpdated?.(res.updatedAgent);
+            if (res.deployWarning) {
+                toast.info(`Agent details saved to draft (${res.deployWarning})`);
+            } else if (alreadyPublished && res.deployedOrPublished) {
+                toast.success('Agent details updated and published to live agent!');
+            } else {
+                toast.success('Agent details saved!');
+            }
+        } catch (err: unknown) {
+            setSaveAgentInfoError(toErrorMessage(err) || 'Failed to save agent details.');
+        } finally {
+            setIsSavingAgentInfo(false);
+        }
+    };
+
     const isToggling = togglingAgentId === agentId;
     const isGoogleManaged = api.isGoogleManagedAgent(currentAgent);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -355,12 +526,34 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
         }
     };
     
+    const handlePublishOnly = async () => {
+        setIsPublishingOnly(true);
+        setShareError(null);
+        try {
+            const published = await api.publishNoCodeAgentOnly(currentAgent.name, config);
+            setFullAgent(published);
+            setInstructionDrafts(extractInstructionDrafts(published));
+            onAgentUpdated?.(published);
+            const isStillPrivate = published.state === 'PRIVATE' || !published.state;
+            toast.success(
+                isStillPrivate
+                    ? 'Agent published out of draft (kept Private / unshared)!'
+                    : 'Agent published to live revision!'
+            );
+        } catch (err: unknown) {
+            setShareError(toErrorMessage(err) || 'Failed to publish agent.');
+        } finally {
+            setIsPublishingOnly(false);
+        }
+    };
+
     const handleShare = async () => {
         setIsSharing(true);
         setShareError(null);
         try {
             const shared = await api.shareAgent(currentAgent.name, config);
             setFullAgent(shared);
+            setInstructionDrafts(extractInstructionDrafts(shared));
             if (onAgentUpdated) {
                 onAgentUpdated(shared);
                 toast.success("Agent deployed and shared in-place!");
@@ -374,9 +567,14 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
         }
     };
 
-    const handleToggleSharingScope = async (targetScope: 'ALL_USERS' | 'RESTRICTED') => {
+    const handleToggleSharingScope = async (targetScope: 'ALL_USERS' | 'RESTRICTED' | 'PRIVATE') => {
+        if (targetScope === 'PRIVATE') {
+            await handleWithdrawToPrivate();
+            return;
+        }
         setIsUpdatingScope(true);
         setShareError(null);
+        setPendingMigrationScope(undefined);
         try {
             const updated = await api.updateAgent(
                 currentAgent,
@@ -391,9 +589,70 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                     : 'Sharing scope set to Restricted (IAM Policy Only).'
             );
         } catch (err: unknown) {
+            if (typeof api.isLegacyAuthorizationsDeprecationError === 'function' && api.isLegacyAuthorizationsDeprecationError(err)) {
+                setPendingMigrationScope(targetScope);
+            }
             setShareError(toErrorMessage(err) || 'Failed to update sharing scope.');
         } finally {
             setIsUpdatingScope(false);
+        }
+    };
+
+    const handleWithdrawToPrivate = async () => {
+        setIsWithdrawing(true);
+        setShareError(null);
+        setPendingMigrationScope(undefined);
+        try {
+            if (
+                currentAgent.lowCodeAgentDefinition ||
+                currentAgent.workflowAgentDefinition ||
+                currentAgent.agentDesignerAgentDefinition ||
+                currentAgent.skillAgentDefinition
+            ) {
+                const withdrawn = await api.withdrawAgent(currentAgent.name, config);
+                setFullAgent(withdrawn);
+                onAgentUpdated?.(withdrawn);
+                toast.success('Agent withdrawn to Private (unshared) in-place!');
+            } else {
+                const updated = await api.updateAgent(
+                    currentAgent,
+                    { sharingConfig: { scope: 'PRIVATE' } },
+                    config
+                );
+                setFullAgent(updated);
+                onAgentUpdated?.(updated);
+                toast.success('Sharing scope set to Private (Creator Only).');
+            }
+        } catch (err: unknown) {
+            if (typeof api.isLegacyAuthorizationsDeprecationError === 'function' && api.isLegacyAuthorizationsDeprecationError(err)) {
+                setPendingMigrationScope('PRIVATE');
+            }
+            setShareError(toErrorMessage(err) || 'Failed to make agent private.');
+        } finally {
+            setIsWithdrawing(false);
+        }
+    };
+
+    const handleMigrateLegacyAuth = async (targetScope?: 'PRIVATE' | 'RESTRICTED' | 'ALL_USERS') => {
+        setIsMigratingLegacyAuth(true);
+        setShareError(null);
+        try {
+            const res = await api.migrateLegacyAgentAuthorizations(currentAgent, config, {
+                sharingScope: targetScope || pendingMigrationScope,
+                deleteLegacyAgent: true,
+            });
+            setPendingMigrationScope(undefined);
+            setFullAgent(res.agent);
+            onAgentUpdated?.(res.agent);
+            toast.success(
+                res.inPlace
+                    ? 'Migrated deprecated authorizations to authorizationConfig in-place!'
+                    : 'Migrated agent from deprecated agent.authorizations to authorizationConfig!'
+            );
+        } catch (err: unknown) {
+            setShareError(toErrorMessage(err) || 'Failed to migrate legacy authorizations.');
+        } finally {
+            setIsMigratingLegacyAuth(false);
         }
     };
 
@@ -453,14 +712,18 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     const handlePublishAndShareSuccess = (result: AdminPublishAndShareResult) => {
         setIsPublishAndShareModalOpen(false);
         setShareError(null);
+        const isResultPrivate = result.agent.state === 'PRIVATE' || !result.agent.state;
         const ownerNote = result.transferredTo
             ? ` and ownership transferred to ${result.transferredTo}`
             : '';
         toast.success(
-            `Agent "${result.agent.displayName}" published, shared${ownerNote}!`
+            isResultPrivate
+                ? `Agent "${result.agent.displayName}" published out of draft (kept Private / unshared)!`
+                : `Agent "${result.agent.displayName}" published, shared${ownerNote}!`
         );
         if (onAgentUpdated) {
             setFullAgent(result.agent);
+            setInstructionDrafts(extractInstructionDrafts(result.agent));
             onAgentUpdated(result.agent);
         } else {
             onBack();
@@ -570,11 +833,32 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     }
 
     const isNoCodeAgent = api.isCustomNoCodeAgent(currentAgent) || isPrivate;
-    const currentSharingScope = isPrivate
+    const isNoCodePublishable = Boolean(
+        currentAgent.lowCodeAgentDefinition ||
+        currentAgent.workflowAgentDefinition ||
+        currentAgent.agentDesignerAgentDefinition ||
+        currentAgent.skillAgentDefinition
+    );
+    const isPublished = api.isNoCodeAgentPublished(currentAgent);
+    const currentSharingScope = isPrivate || currentAgent.sharingConfig?.scope === 'PRIVATE'
         ? 'PRIVATE'
         : currentAgent.sharingConfig?.scope === 'ALL_USERS'
             ? 'ALL_USERS'
             : 'RESTRICTED';
+    const hasLegacyAuth =
+        typeof api.hasLegacyAgentAuthorizations === 'function'
+            ? api.hasLegacyAgentAuthorizations(currentAgent)
+            : Boolean(currentAgent.authorizations && currentAgent.authorizations.length > 0);
+    const isShareErrorLegacyAuth = Boolean(
+        shareError &&
+            (typeof api.isLegacyAuthorizationsDeprecationError === 'function'
+                ? api.isLegacyAuthorizationsDeprecationError(shareError)
+                : shareError.toLowerCase().includes('authorizations') &&
+                  shareError.toLowerCase().includes('deprecated'))
+    );
+    const lowCodeValidationErrors = Array.isArray(currentAgent.lowCodeAgentDefinition?.validationErrors)
+        ? currentAgent.lowCodeAgentDefinition!.validationErrors!
+        : [];
 
     return (
         <div className="bg-gray-800 shadow-xl rounded-lg p-6">
@@ -598,6 +882,23 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                                 {currentAgent.agentType}
                             </span>
                         )}
+                        {isNoCodePublishable && (
+                            isPublished ? (
+                                <span
+                                    className="px-2.5 py-0.5 text-xs font-medium rounded bg-cyan-900/50 text-cyan-300 border border-cyan-700/50"
+                                    title="This agent's draft has been deployed/published (:deployLowCode / :publish)."
+                                >
+                                    Published
+                                </span>
+                            ) : (
+                                <span
+                                    className="px-2.5 py-0.5 text-xs font-medium rounded bg-amber-500/20 text-amber-300 border border-amber-600/50"
+                                    title="This agent is currently an unpublished draft."
+                                >
+                                    Draft
+                                </span>
+                            )
+                        )}
                         {currentSharingScope === 'ALL_USERS' ? (
                             <span className="px-2.5 py-0.5 text-xs font-medium rounded bg-emerald-900/50 text-emerald-300 border border-emerald-700/50">
                                 Shared: All Users
@@ -608,7 +909,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                             </span>
                         ) : (
                             <span className="px-2.5 py-0.5 text-xs font-medium rounded bg-yellow-500/20 text-yellow-300 border border-yellow-600/50">
-                                Private Draft
+                                Private (Unshared)
                             </span>
                         )}
                     </div>
@@ -631,13 +932,16 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                             Test Agent
                         </button>
                     )}
-                    {(currentAgent.state === 'ENABLED' || currentAgent.state === 'DISABLED') && (
-                        <button 
-                            onClick={onEdit} 
-                            title="Update agent's display name, description, icon, or starter prompts"
-                            className="px-4 py-2 bg-gray-600 text-white text-sm font-semibold rounded-md hover:bg-gray-500"
+                    {isNoCodePublishable && (
+                        <button
+                            type="button"
+                            onClick={handlePublishOnly}
+                            disabled={isPublishingOnly}
+                            className="px-4 py-2 bg-cyan-600 text-white text-sm font-semibold rounded-md hover:bg-cyan-500 disabled:bg-cyan-800 flex items-center gap-1.5"
+                            title="Publish/deploy draft nodes to live agent (:deployLowCode / :publish) without sharing or changing IAM visibility"
                         >
-                            Update Agent
+                            {isPublishingOnly && <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white"></div>}
+                            {isPublished ? 'Republish Agent' : 'Publish Agent'}
                         </button>
                     )}
                     {isPrivate && (
@@ -652,9 +956,12 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                                 Share Agent
                             </button>
                             <button
-                                onClick={() => setIsPublishAndShareModalOpen(true)}
+                                onClick={() => {
+                                    setPublishModalInitialScope('RESTRICTED');
+                                    setIsPublishAndShareModalOpen(true);
+                                }}
                                 className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-md hover:bg-emerald-500 flex items-center gap-1.5"
-                                title="Admin workflow: clone, deploy/publish, activate sharing, configure IAM access, and transfer ownership back to the user"
+                                title="Admin workflow: clone, deploy/publish, and either keep Private (unshared) or share and transfer ownership back to the user"
                             >
                                 Publish &amp; Share for User
                             </button>
@@ -687,18 +994,114 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
             {/* Error Banners */}
             {pageError && <p className="text-red-400 mt-4 text-sm">{pageError}</p>}
             {deleteError && <p className="text-red-400 mt-4 text-sm">{deleteError}</p>}
-            {shareError && (
-                <div className="mt-4 p-3.5 bg-red-900/30 border border-red-700/70 rounded-lg text-sm text-red-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <span>{shareError}</span>
-                    {isPrivate && (
+            {lowCodeValidationErrors.length > 0 && (
+                <div className="mt-4 p-3.5 bg-amber-900/30 border border-amber-600/70 rounded-lg text-xs text-amber-200 space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                            <strong className="text-amber-100">Low-Code Draft Validation Warnings:</strong>{' '}
+                            Discovery Engine reported {lowCodeValidationErrors.length} validation issue(s) on this draft (commonly caused by a newly created draft before system instructions or root node fields are saved). Clicking <strong>Publish Agent</strong> or saving <strong>System Instructions / Prompt</strong> below will automatically repair missing node defaults before deploying.
+                        </div>
+                    </div>
+                    <ul className="list-disc list-inside font-mono text-[11px] text-amber-300 space-y-0.5">
+                        {lowCodeValidationErrors.map((ve, idx) => (
+                            <li key={idx}>
+                                {ve.field ? `${ve.field}: ` : ''}
+                                {ve.message || 'Validation error'}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+            {hasLegacyAuth && !shareError && (
+                <div className="mt-4 p-3.5 bg-amber-900/30 border border-amber-600/70 rounded-lg text-xs text-amber-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <strong className="text-amber-100">Deprecated <code>agent.authorizations</code> Schema Detected:</strong>{' '}
+                        This agent was created with the legacy <code>agent.authorizations</code> field. Discovery Engine rejects in-place <code>PATCH</code> updates (such as changing <code>sharingConfig</code>) until the agent is migrated to <code>authorization_config</code> (or withdrawn in-place via <code>:withdrawAgent</code>).
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {isNoCodePublishable && !isPrivate && (
+                            <button
+                                type="button"
+                                onClick={handleWithdrawToPrivate}
+                                disabled={isWithdrawing || isMigratingLegacyAuth}
+                                className="px-3.5 py-2 bg-yellow-600 text-white text-xs font-semibold rounded-md hover:bg-yellow-500 disabled:bg-yellow-800"
+                            >
+                                {isWithdrawing ? 'Withdrawing...' : 'Make Private In-Place (:withdrawAgent)'}
+                            </button>
+                        )}
                         <button
                             type="button"
-                            onClick={() => setIsPublishAndShareModalOpen(true)}
-                            className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-md hover:bg-emerald-500 shrink-0"
+                            onClick={() => handleMigrateLegacyAuth()}
+                            disabled={isMigratingLegacyAuth || isWithdrawing}
+                            className="px-3.5 py-2 bg-amber-600 text-white text-xs font-semibold rounded-md hover:bg-amber-500 disabled:bg-amber-800"
                         >
-                            Publish &amp; Share for User
+                            {isMigratingLegacyAuth ? 'Migrating...' : 'Migrate to authorization_config'}
                         </button>
-                    )}
+                    </div>
+                </div>
+            )}
+            {shareError && (
+                <div className="mt-4 p-3.5 bg-red-900/30 border border-red-700/70 rounded-lg text-sm text-red-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="space-y-1">
+                        <span>{shareError}</span>
+                        {isShareErrorLegacyAuth && (
+                            <p className="text-xs text-red-300">
+                                Discovery Engine stored this agent with the immutable legacy <code>agent.authorizations</code> field and blocks <code>PATCH</code> updates. You can withdraw No-Code agents to Private in-place via <code>:withdrawAgent</code>, or migrate the agent to <code>authorization_config</code>.
+                            </p>
+                        )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {isShareErrorLegacyAuth && (
+                            <>
+                                {isNoCodePublishable && !isPrivate && (
+                                    <button
+                                        type="button"
+                                        onClick={handleWithdrawToPrivate}
+                                        disabled={isWithdrawing || isMigratingLegacyAuth}
+                                        className="px-3.5 py-2 bg-yellow-600 text-white text-xs font-semibold rounded-md hover:bg-yellow-500 disabled:bg-yellow-800"
+                                    >
+                                        {isWithdrawing ? 'Withdrawing...' : 'Make Private In-Place (:withdrawAgent)'}
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => handleMigrateLegacyAuth(pendingMigrationScope)}
+                                    disabled={isMigratingLegacyAuth || isWithdrawing}
+                                    className="px-3.5 py-2 bg-amber-600 text-white text-xs font-semibold rounded-md hover:bg-amber-500 disabled:bg-amber-800"
+                                >
+                                    {isMigratingLegacyAuth
+                                        ? 'Migrating...'
+                                        : pendingMigrationScope
+                                            ? `Migrate to authorization_config & Set ${pendingMigrationScope}`
+                                            : 'Migrate to authorization_config'}
+                                </button>
+                            </>
+                        )}
+                        {isPrivate && (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setPublishModalInitialScope('PRIVATE');
+                                        setIsPublishAndShareModalOpen(true);
+                                    }}
+                                    className="px-3.5 py-2 bg-cyan-600 text-white text-xs font-semibold rounded-md hover:bg-cyan-500"
+                                >
+                                    Admin Publish Only (Keep Private)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setPublishModalInitialScope('RESTRICTED');
+                                        setIsPublishAndShareModalOpen(true);
+                                    }}
+                                    className="px-3.5 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-md hover:bg-emerald-500"
+                                >
+                                    Publish &amp; Share for User
+                                </button>
+                            </>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -797,7 +1200,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                         </div>
                     )}
 
-                    {currentAgent.starterPrompts && currentAgent.starterPrompts.length > 0 && (
+                    {isGoogleManaged && currentAgent.starterPrompts && currentAgent.starterPrompts.length > 0 && (
                         <div className="border-t border-gray-700 pt-6">
                             <h3 className="text-lg font-semibold text-white">Starter Prompts</h3>
                             <ul className="mt-2 space-y-2">
@@ -807,6 +1210,133 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                                     </li>
                                 ))}
                             </ul>
+                        </div>
+                    )}
+
+                    {!isNoCodeAgent && !isGoogleManaged && (
+                        <div className="border-t border-gray-700 pt-6">
+                            <AgentForm
+                                config={config}
+                                agentToEdit={currentAgent}
+                                embedded
+                                onCancel={onBack}
+                                onSuccess={async () => {
+                                    try {
+                                        const refreshed = await api.getAgent(currentAgent.name, config);
+                                        if (refreshed) {
+                                            setFullAgent(refreshed);
+                                            onAgentUpdated?.(refreshed);
+                                        }
+                                    } catch {
+                                        // Best-effort refresh
+                                    }
+                                    toast.success('Agent configuration updated!');
+                                }}
+                            />
+                        </div>
+                    )}
+
+                    {isNoCodeAgent && !isGoogleManaged && (
+                        <div className="border-t border-gray-700 pt-6">
+                            <div className="p-4 bg-gray-900/40 border border-gray-700 rounded-lg space-y-4">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                        <h3 className="text-sm font-semibold text-white">Agent Identity &amp; Starter Prompts</h3>
+                                        <p className="text-xs text-gray-400">
+                                            Edit this agent&apos;s display name, description, icon URI, and starter prompts directly in place.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveAgentInfo}
+                                        disabled={isSavingAgentInfo}
+                                        className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-500 disabled:bg-gray-600"
+                                    >
+                                        {isSavingAgentInfo ? 'Saving Details...' : 'Save Agent Details'}
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label htmlFor="details-display-name" className="block text-xs font-medium text-gray-300 mb-1">
+                                            Display Name
+                                        </label>
+                                        <input
+                                            id="details-display-name"
+                                            type="text"
+                                            value={draftDisplayName}
+                                            onChange={(e) => setDraftDisplayName(e.target.value)}
+                                            className="w-full bg-gray-800 border border-gray-600 rounded-md px-3 py-2 text-xs text-white focus:ring-blue-500 focus:border-blue-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label htmlFor="details-icon-uri" className="block text-xs font-medium text-gray-300 mb-1">
+                                            Icon URI (Optional)
+                                        </label>
+                                        <input
+                                            id="details-icon-uri"
+                                            type="text"
+                                            value={draftIconUri}
+                                            onChange={(e) => setDraftIconUri(e.target.value)}
+                                            placeholder="https://..."
+                                            className="w-full bg-gray-800 border border-gray-600 rounded-md px-3 py-2 text-xs text-white focus:ring-blue-500 focus:border-blue-500"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label htmlFor="details-description" className="block text-xs font-medium text-gray-300 mb-1">
+                                        Description
+                                    </label>
+                                    <textarea
+                                        id="details-description"
+                                        rows={2}
+                                        value={draftDescription}
+                                        onChange={(e) => setDraftDescription(e.target.value)}
+                                        placeholder="Describe what this agent helps users accomplish..."
+                                        className="w-full bg-gray-800 border border-gray-600 rounded-md px-3 py-2 text-xs text-white focus:ring-blue-500 focus:border-blue-500"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-300 mb-1">
+                                        Starter Prompts
+                                    </label>
+                                    <div className="space-y-2">
+                                        {draftStarterPrompts.map((promptText, idx) => (
+                                            <div key={idx} className="flex items-center gap-2">
+                                                <input
+                                                    type="text"
+                                                    aria-label={`Starter Prompt #${idx + 1}`}
+                                                    value={promptText}
+                                                    onChange={(e) => handleStarterPromptDraftChange(idx, e.target.value)}
+                                                    placeholder={`Starter Prompt #${idx + 1}`}
+                                                    className="flex-1 bg-gray-800 border border-gray-600 rounded-md px-3 py-1.5 text-xs text-white focus:ring-blue-500 focus:border-blue-500"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveStarterPromptDraft(idx)}
+                                                    aria-label={`Remove starter prompt ${idx + 1}`}
+                                                    className="px-2.5 py-1.5 bg-gray-700 hover:bg-red-600 text-gray-300 hover:text-white rounded-md text-xs transition-colors"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleAddStarterPromptDraft}
+                                        className="mt-2 text-xs font-semibold text-blue-400 hover:text-blue-300"
+                                    >
+                                        + Add Starter Prompt
+                                    </button>
+                                </div>
+
+                                {saveAgentInfoError && (
+                                    <p className="text-red-400 text-xs">{saveAgentInfoError}</p>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -971,14 +1501,29 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                     <div className="p-4 bg-gray-900/40 border border-gray-700 rounded-lg space-y-4">
                         <div className="flex flex-wrap items-center justify-between gap-4">
                             <div>
-                                <h3 className="text-base font-semibold text-white">Sharing &amp; Ownership Controls</h3>
+                                <h3 className="text-base font-semibold text-white">Publishing, Sharing &amp; Ownership Controls</h3>
                                 <p className="text-xs text-gray-400 mt-0.5">
                                     {isPrivate
-                                        ? 'This agent is currently Private. Share it in-place (if you are the creator) or use Publish & Share for User.'
+                                        ? 'This agent is currently Private (unshared). You can publish it out of draft while keeping it Private, or share it.'
                                         : 'Manage whether this shared agent is visible to all users in the app or restricted to specific IAM principals.'}
                                 </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-3">
+                                {isNoCodePublishable && (
+                                    <button
+                                        type="button"
+                                        onClick={handlePublishOnly}
+                                        disabled={isPublishingOnly}
+                                        className="px-4 py-2 bg-cyan-600 text-white text-xs font-semibold rounded-md hover:bg-cyan-500 disabled:bg-cyan-800"
+                                        title="Publish/deploy draft nodes to live agent (:deployLowCode / :publish) without sharing"
+                                    >
+                                        {isPublishingOnly
+                                            ? 'Publishing...'
+                                            : isPublished
+                                                ? 'Republish Agent (Keep Scope)'
+                                                : 'Publish Agent (Keep Private)'}
+                                    </button>
+                                )}
                                 {isPrivate ? (
                                     <>
                                         <button
@@ -989,7 +1534,10 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                                             {isSharing ? 'Sharing...' : 'Share Agent (Creator)'}
                                         </button>
                                         <button
-                                            onClick={() => setIsPublishAndShareModalOpen(true)}
+                                            onClick={() => {
+                                                setPublishModalInitialScope('RESTRICTED');
+                                                setIsPublishAndShareModalOpen(true);
+                                            }}
                                             className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-md hover:bg-emerald-500"
                                         >
                                             Publish &amp; Share for User (Admin)
@@ -1000,7 +1548,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                                         <div className="flex items-center rounded-md overflow-hidden border border-gray-600">
                                             <button
                                                 type="button"
-                                                disabled={isUpdatingScope}
+                                                disabled={isUpdatingScope || isWithdrawing}
                                                 onClick={() => handleToggleSharingScope('ALL_USERS')}
                                                 className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
                                                     currentSharingScope === 'ALL_USERS'
@@ -1012,7 +1560,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                                             </button>
                                             <button
                                                 type="button"
-                                                disabled={isUpdatingScope}
+                                                disabled={isUpdatingScope || isWithdrawing}
                                                 onClick={() => handleToggleSharingScope('RESTRICTED')}
                                                 className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
                                                     currentSharingScope === 'RESTRICTED'
@@ -1021,6 +1569,23 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                                                 }`}
                                             >
                                                 Restricted IAM
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={isUpdatingScope || isWithdrawing}
+                                                onClick={() => handleToggleSharingScope('PRIVATE')}
+                                                title={
+                                                    isNoCodePublishable
+                                                        ? 'Withdraw this shared agent back to Private (unshared) in-place via :withdrawAgent'
+                                                        : 'Set sharingConfig.scope to PRIVATE (Creator Only)'
+                                                }
+                                                className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
+                                                    currentSharingScope === 'PRIVATE'
+                                                        ? 'bg-yellow-500 text-black'
+                                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                }`}
+                                            >
+                                                {isWithdrawing ? 'Withdrawing...' : 'Private (Unshare)'}
                                             </button>
                                         </div>
                                         {isNoCodeAgent && (
@@ -1197,6 +1762,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                 onSuccess={handlePublishAndShareSuccess}
                 agent={currentAgent}
                 config={config}
+                initialSharingScope={publishModalInitialScope}
             />
             <ConfirmationModal
                 isOpen={isDeleteConfirmOpen}

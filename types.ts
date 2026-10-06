@@ -145,6 +145,11 @@ export interface LowCodeAgentNode {
   [key: string]: unknown;
 }
 
+export interface LowCodeValidationError {
+  field?: string;
+  message?: string;
+}
+
 export interface LowCodeAgentDefinition {
   nodes?: LowCodeAgentNode[];
   deployedNodes?: LowCodeAgentNode[];
@@ -154,6 +159,7 @@ export interface LowCodeAgentDefinition {
   draftDescription?: string;
   draftIcon?: { uri: string };
   ownerName?: string;
+  validationErrors?: LowCodeValidationError[];
   [key: string]: unknown;
 }
 
@@ -256,7 +262,7 @@ export interface Agent {
   entitlements?: unknown[];
   iamPolicy?: IamPolicy;
   state?: 'ENABLED' | 'DISABLED' | 'PRIVATE' | 'CONFIGURED' | 'DEPLOYING' | 'DEPLOYMENT_FAILED' | 'SUSPENDED' | 'CREATING' | 'CREATION_FAILED' | string;
-  sharingConfig?: { scope?: 'RESTRICTED' | 'ALL_USERS' | string };
+  sharingConfig?: { scope?: 'PRIVATE' | 'RESTRICTED' | 'ALL_USERS' | string };
   longRunningOperationsEnabled?: boolean;
   activeRevision?: string;
   createTime?: string;
@@ -285,7 +291,7 @@ export interface AdminPublishAndShareOptions {
   targetOwnerPrincipal?: string;
   keepAdminAsOwner?: boolean;
   previousOwnerDisposition?: PreviousOwnerDisposition;
-  sharingScope?: 'RESTRICTED' | 'ALL_USERS';
+  sharingScope?: 'PRIVATE' | 'RESTRICTED' | 'ALL_USERS';
   sharedPrincipals?: string[];
   deleteOriginalPrivateAgent?: boolean;
   displayName?: string;
