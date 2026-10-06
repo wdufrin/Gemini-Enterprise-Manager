@@ -64,7 +64,7 @@ const getAgentSharingScope = (agent: Agent): 'ALL_USERS' | 'RESTRICTED' | 'PRIVA
 const AgentList: React.FC<AgentListProps> = ({ 
   agents, 
   onSelectAgent, 
-  onEditAgent, 
+  onEditAgent: _onEditAgent, 
   onDeleteAgent, 
   onTestAgent,
   onRegisterNew, 

@@ -114,7 +114,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     agent,
     config,
     onBack,
-    onEdit,
+    onEdit: _onEdit,
     onDeleteSuccess,
     onToggleStatus,
     togglingAgentId,
