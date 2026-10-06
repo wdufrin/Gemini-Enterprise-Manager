@@ -266,14 +266,20 @@ export function useArchitectureScanner(projectNumber: string): UseArchitectureSc
               if (fullEngine.dataStoreIds && fullEngine.dataStoreIds.length > 0) {
                 addLog(`    - Engine '${engine.displayName}' is linked to ${fullEngine.dataStoreIds.length} data store(s).`);
                 for (const dsId of fullEngine.dataStoreIds) {
-                  const fullDsName = `projects/${projectNumber}/locations/${location}/collections/default_collection/dataStores/${dsId}`;
-                  if (!foundNodeIds.has(fullDsName)) {
+                  const dsSuffix = `/locations/${location}/collections/default_collection/dataStores/${dsId}`;
+                  const existingDsNode = newNodes.find(
+                    (n) => n.type === 'DataStore' && (n.id === dsId || n.id.endsWith(dsSuffix))
+                  );
+                  const targetDsNodeId = existingDsNode
+                    ? existingDsNode.id
+                    : `projects/${projectNumber}/locations/${location}/collections/default_collection/dataStores/${dsId}`;
+                  if (!foundNodeIds.has(targetDsNodeId)) {
                     addLog(
                       `    - WARNING: Engine '${engine.displayName}' links to DataStore '${dsId}' which was not found in the initial scan. Adding a placeholder node.`
                     );
-                    addNode({ id: fullDsName, type: 'DataStore', label: dsId, data: { name: fullDsName, error: 'Not found in initial scan' } });
+                    addNode({ id: targetDsNodeId, type: 'DataStore', label: dsId, data: { name: targetDsNodeId, error: 'Not found in initial scan' } });
                   }
-                  addEdge(engine.name, fullDsName);
+                  addEdge(engine.name, targetDsNodeId);
                 }
               }
             } catch (e: unknown) {
@@ -325,7 +331,13 @@ export function useArchitectureScanner(projectNumber: string): UseArchitectureSc
                 addEdge(assistant.name, agent.name);
 
                 const reName = agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
-                if (reName) addEdge(agent.name, reName);
+                if (reName) {
+                  const reSuffixMatch = reName.match(/\/locations\/[^/]+\/reasoningEngines\/[^/]+$/);
+                  const matchingReNode = reSuffixMatch
+                    ? newNodes.find((n) => n.type === 'ReasoningEngine' && n.id.endsWith(reSuffixMatch[0]))
+                    : undefined;
+                  addEdge(agent.name, matchingReNode ? matchingReNode.id : reName);
+                }
 
                 if (agent.a2aAgentDefinition?.jsonAgentCard) {
                   try {
@@ -357,9 +369,13 @@ export function useArchitectureScanner(projectNumber: string): UseArchitectureSc
                   }
                 }
 
-                (agent.authorizationConfig?.toolAuthorizations || agent.authorizations || []).forEach((authName) =>
-                  addEdge(agent.name, authName)
-                );
+                (agent.authorizationConfig?.toolAuthorizations || agent.authorizations || []).forEach((authName) => {
+                  const authSuffixMatch = authName.match(/\/locations\/[^/]+\/authorizations\/[^/]+$/);
+                  const matchingAuthNode = authSuffixMatch
+                    ? newNodes.find((n) => n.type === 'Authorization' && n.id.endsWith(authSuffixMatch[0]))
+                    : undefined;
+                  addEdge(agent.name, matchingAuthNode ? matchingAuthNode.id : authName);
+                });
 
                 try {
                   const assistantConfig = {
@@ -378,21 +394,29 @@ export function useArchitectureScanner(projectNumber: string): UseArchitectureSc
                   };
                   const dataStoreIds = [...new Set(findDataStoreIds(agentView))];
                   for (const dsId of dataStoreIds) {
-                    if (!foundNodeIds.has(dsId)) {
+                    const dsSuffixMatch = dsId.match(/\/locations\/[^/]+\/collections\/[^/]+\/dataStores\/[^/]+$/);
+                    const existingDsNode = dsSuffixMatch
+                      ? newNodes.find((n) => n.type === 'DataStore' && n.id.endsWith(dsSuffixMatch[0]))
+                      : newNodes.find((n) => n.id === dsId);
+                    const canonicalDsId = existingDsNode ? existingDsNode.id : dsId;
+                    if (!foundNodeIds.has(canonicalDsId)) {
                       try {
                         const dataStore = await api.getDataStore(dsId, assistantConfig);
-                        addNode({ id: dsId, type: 'DataStore', label: dataStore.displayName, data: dataStore });
+                        const nodeId = dataStore.name || canonicalDsId;
+                        addNode({ id: nodeId, type: 'DataStore', label: dataStore.displayName, data: dataStore });
+                        addEdge(agent.name, nodeId);
+                        continue;
                       } catch (dsError: unknown) {
                         addLog(`WARNING: Could not fetch details for DataStore ${dsId}: ${toErrorMessage(dsError)}`);
                         addNode({
-                          id: dsId,
+                          id: canonicalDsId,
                           type: 'DataStore',
                           label: dsId.split('/').pop()!,
-                          data: { name: dsId, error: 'Could not fetch details' },
+                          data: { name: canonicalDsId, error: 'Could not fetch details' },
                         });
                       }
                     }
-                    addEdge(agent.name, dsId);
+                    addEdge(agent.name, canonicalDsId);
                   }
                 } catch (viewError: unknown) {
                   addLog(

@@ -77,8 +77,8 @@ export async function runConfigAudit(
   // Helper to extract clean CID / IdP details
   const extractIdpInfo = (engine?: Partial<AppEngine> | null): { type: string; cid?: string } => {
     if (!engine) return { type: 'UNKNOWN' };
-    const cid = engine.widgetConfigConfigId || engine.commonConfig?.companyName || engine.cid || '';
-    const isWif = engine.isExternalIdp || !!cid || engine.name?.includes('wif');
+    const cid = engine.widgetConfigConfigId || engine.cid || '';
+    const isWif = Boolean(engine.isExternalIdp || cid || engine.name?.includes('wif'));
     return {
       type: isWif
         ? 'Workforce Identity Federation (WiF / Entra ID)'
@@ -241,11 +241,14 @@ export async function runConfigAudit(
 
   let sourceDataStores: DataStore[] = [];
   let targetDataStores: DataStore[] = [];
+  let srcDsFetchFailed = false;
+  let tgtDsFetchFailed = false;
 
   try {
     const srcDsRes = await api.listResources('dataStores', sourceConfig, undefined, 100, true);
     sourceDataStores = srcDsRes?.dataStores || [];
   } catch (err: unknown) {
+    srcDsFetchFailed = true;
     // A failed listing tells us nothing about the source config, so it cannot
     // be drift. Record it as unknown so it is excluded from the score.
     items.push({
@@ -266,6 +269,7 @@ export async function runConfigAudit(
     const tgtDsRes = await api.listResources('dataStores', targetConfig, undefined, 100, true);
     targetDataStores = tgtDsRes?.dataStores || [];
   } catch (err: unknown) {
+    tgtDsFetchFailed = true;
     // Same reasoning as above: an unreadable list is not a missing list.
     items.push({
       id: 'tgt-datastores-error',
@@ -281,66 +285,68 @@ export async function runConfigAudit(
     });
   }
 
-  const targetDsMap = new Map<string, DataStore>();
-  const targetDsByName = new Map<string, DataStore>();
+  if (!srcDsFetchFailed && !tgtDsFetchFailed) {
+    const targetDsMap = new Map<string, DataStore>();
+    const targetDsByName = new Map<string, DataStore>();
 
-  targetDataStores.forEach((ds) => {
-    const id = getResourceId(ds.name);
-    targetDsMap.set(id, ds);
-    if (ds.displayName) {
-      targetDsByName.set(ds.displayName.toLowerCase().trim(), ds);
-    }
-  });
-
-  if (sourceDataStores.length === 0) {
-    items.push({
-      id: 'no-source-datastores',
-      category: 'Grounding DataStores',
-      name: 'DataStores Baseline',
-      sourceValue: '0 DataStores',
-      targetValue: `${targetDataStores.length} DataStores`,
-      status: 'INFO',
-      severity: 'OK',
-      details:
-        'No DataStores found in source project. Agents do not depend on enterprise document grounding.',
+    targetDataStores.forEach((ds) => {
+      const id = getResourceId(ds.name);
+      targetDsMap.set(id, ds);
+      if (ds.displayName) {
+        targetDsByName.set(ds.displayName.toLowerCase().trim(), ds);
+      }
     });
-  } else {
-    for (const srcDs of sourceDataStores) {
-      const dsId = getResourceId(srcDs.name);
-      const dsName = srcDs.displayName || dsId;
-      const matchedTarget =
-        targetDsMap.get(dsId) || targetDsByName.get(dsName.toLowerCase().trim());
 
-      if (matchedTarget) {
-        const targetDsId = getResourceId(matchedTarget.name);
-        const isExactId = dsId === targetDsId;
-        items.push({
-          id: `ds-${dsId}`,
-          category: 'Grounding DataStores',
-          name: `DataStore: ${dsName}`,
-          sourceValue: `ID: ${dsId}`,
-          targetValue: `ID: ${targetDsId}`,
-          status: isExactId ? 'MATCH' : 'DRIFT',
-          severity: isExactId ? 'OK' : 'WARNING',
-          details: isExactId
-            ? `Exact DataStore ID match found in target project.`
-            : `Matched by display name, but target ID differs (${dsId} -> ${targetDsId}).`,
-          remediation: isExactId
-            ? undefined
-            : `Map "${dsId}": "${targetDsId}" under datastoreMapping in migration-config.json.`,
-        });
-      } else {
-        items.push({
-          id: `ds-${dsId}`,
-          category: 'Grounding DataStores',
-          name: `DataStore: ${dsName}`,
-          sourceValue: `ID: ${dsId}`,
-          targetValue: 'MISSING IN TARGET',
-          status: 'MISSING_IN_TARGET',
-          severity: 'ERROR',
-          details: `Source DataStore "${dsName}" (${dsId}) does not exist in the destination environment. Agents referencing this DataStore will fail or skip grounding.`,
-          remediation: `Create a DataStore in the destination project with ID "${dsId}" or configure an explicit mapping in datastoreMapping.`,
-        });
+    if (sourceDataStores.length === 0) {
+      items.push({
+        id: 'no-source-datastores',
+        category: 'Grounding DataStores',
+        name: 'DataStores Baseline',
+        sourceValue: '0 DataStores',
+        targetValue: `${targetDataStores.length} DataStores`,
+        status: 'INFO',
+        severity: 'OK',
+        details:
+          'No DataStores found in source project. Agents do not depend on enterprise document grounding.',
+      });
+    } else {
+      for (const srcDs of sourceDataStores) {
+        const dsId = getResourceId(srcDs.name);
+        const dsName = srcDs.displayName || dsId;
+        const matchedTarget =
+          targetDsMap.get(dsId) || targetDsByName.get(dsName.toLowerCase().trim());
+
+        if (matchedTarget) {
+          const targetDsId = getResourceId(matchedTarget.name);
+          const isExactId = dsId === targetDsId;
+          items.push({
+            id: `ds-${dsId}`,
+            category: 'Grounding DataStores',
+            name: `DataStore: ${dsName}`,
+            sourceValue: `ID: ${dsId}`,
+            targetValue: `ID: ${targetDsId}`,
+            status: isExactId ? 'MATCH' : 'DRIFT',
+            severity: isExactId ? 'OK' : 'WARNING',
+            details: isExactId
+              ? `Exact DataStore ID match found in target project.`
+              : `Matched by display name, but target ID differs (${dsId} -> ${targetDsId}).`,
+            remediation: isExactId
+              ? undefined
+              : `Map "${dsId}": "${targetDsId}" under datastoreMapping in migration-config.json.`,
+          });
+        } else {
+          items.push({
+            id: `ds-${dsId}`,
+            category: 'Grounding DataStores',
+            name: `DataStore: ${dsName}`,
+            sourceValue: `ID: ${dsId}`,
+            targetValue: 'MISSING IN TARGET',
+            status: 'MISSING_IN_TARGET',
+            severity: 'ERROR',
+            details: `Source DataStore "${dsName}" (${dsId}) does not exist in the destination environment. Agents referencing this DataStore will fail or skip grounding.`,
+            remediation: `Create a DataStore in the destination project with ID "${dsId}" or configure an explicit mapping in datastoreMapping.`,
+          });
+        }
       }
     }
   }
@@ -352,10 +358,13 @@ export async function runConfigAudit(
 
   let sourceSkills: RegistrySkill[] = [];
   let targetSkills: RegistrySkill[] = [];
+  let srcSkillsFetchFailed = false;
+  let tgtSkillsFetchFailed = false;
 
   try {
     sourceSkills = await api.listRegistrySkills(sourceConfig);
   } catch (err: unknown) {
+    srcSkillsFetchFailed = true;
     items.push({
       id: 'src-skills-error',
       category: 'Skills & Tools',
@@ -371,6 +380,7 @@ export async function runConfigAudit(
   try {
     targetSkills = await api.listRegistrySkills(targetConfig);
   } catch (err: unknown) {
+    tgtSkillsFetchFailed = true;
     items.push({
       id: 'tgt-skills-error',
       category: 'Skills & Tools',
@@ -383,56 +393,58 @@ export async function runConfigAudit(
     });
   }
 
-  const targetSkillMap = new Map<string, RegistrySkill>();
-  targetSkills.forEach((s) => {
-    const id = s.skillId || s.name.split('/').pop() || s.displayName;
-    targetSkillMap.set(id, s);
-    if (s.displayName) {
-      targetSkillMap.set(s.displayName.toLowerCase().trim(), s);
-    }
-  });
-
-  if (sourceSkills.length === 0) {
-    items.push({
-      id: 'no-source-skills',
-      category: 'Skills & Tools',
-      name: 'Agent Registry Skills',
-      sourceValue: '0 Skills',
-      targetValue: `${targetSkills.length} Skills`,
-      status: 'INFO',
-      severity: 'OK',
-      details: 'No Agent Registry skills detected in source project.',
+  if (!srcSkillsFetchFailed && !tgtSkillsFetchFailed) {
+    const targetSkillMap = new Map<string, RegistrySkill>();
+    targetSkills.forEach((s) => {
+      const id = s.skillId || s.name.split('/').pop() || s.displayName;
+      targetSkillMap.set(id, s);
+      if (s.displayName) {
+        targetSkillMap.set(s.displayName.toLowerCase().trim(), s);
+      }
     });
-  } else {
-    for (const srcSkill of sourceSkills) {
-      const skillId = srcSkill.skillId || srcSkill.name.split('/').pop() || srcSkill.displayName;
-      const skillTitle = srcSkill.displayName || skillId;
-      const matchedSkill =
-        targetSkillMap.get(skillId) || targetSkillMap.get(skillTitle.toLowerCase().trim());
 
-      if (matchedSkill) {
-        items.push({
-          id: `skill-${skillId}`,
-          category: 'Skills & Tools',
-          name: `Skill: ${skillTitle}`,
-          sourceValue: `State: ${srcSkill.state || 'ACTIVE'}`,
-          targetValue: `State: ${matchedSkill.state || 'ACTIVE'}`,
-          status: 'MATCH',
-          severity: 'OK',
-          details: 'Skill exists in destination Agent Registry.',
-        });
-      } else {
-        items.push({
-          id: `skill-${skillId}`,
-          category: 'Skills & Tools',
-          name: `Skill: ${skillTitle}`,
-          sourceValue: `ID: ${skillId}`,
-          targetValue: 'MISSING IN TARGET',
-          status: 'MISSING_IN_TARGET',
-          severity: 'WARNING',
-          details: `Source skill "${skillTitle}" is not registered in destination. Agents requiring this skill must have it published to target.`,
-          remediation: `Publish "${skillTitle}" to destination Agent Registry or use gemini-migrate v1.3.0 Tool Migrator.`,
-        });
+    if (sourceSkills.length === 0) {
+      items.push({
+        id: 'no-source-skills',
+        category: 'Skills & Tools',
+        name: 'Agent Registry Skills',
+        sourceValue: '0 Skills',
+        targetValue: `${targetSkills.length} Skills`,
+        status: 'INFO',
+        severity: 'OK',
+        details: 'No Agent Registry skills detected in source project.',
+      });
+    } else {
+      for (const srcSkill of sourceSkills) {
+        const skillId = srcSkill.skillId || srcSkill.name.split('/').pop() || srcSkill.displayName;
+        const skillTitle = srcSkill.displayName || skillId;
+        const matchedSkill =
+          targetSkillMap.get(skillId) || targetSkillMap.get(skillTitle.toLowerCase().trim());
+
+        if (matchedSkill) {
+          items.push({
+            id: `skill-${skillId}`,
+            category: 'Skills & Tools',
+            name: `Skill: ${skillTitle}`,
+            sourceValue: `State: ${srcSkill.state || 'ACTIVE'}`,
+            targetValue: `State: ${matchedSkill.state || 'ACTIVE'}`,
+            status: 'MATCH',
+            severity: 'OK',
+            details: 'Skill exists in destination Agent Registry.',
+          });
+        } else {
+          items.push({
+            id: `skill-${skillId}`,
+            category: 'Skills & Tools',
+            name: `Skill: ${skillTitle}`,
+            sourceValue: `ID: ${skillId}`,
+            targetValue: 'MISSING IN TARGET',
+            status: 'MISSING_IN_TARGET',
+            severity: 'WARNING',
+            details: `Source skill "${skillTitle}" is not registered in destination. Agents requiring this skill must have it published to target.`,
+            remediation: `Publish "${skillTitle}" to destination Agent Registry or use gemini-migrate v1.3.0 Tool Migrator.`,
+          });
+        }
       }
     }
   }
@@ -444,11 +456,14 @@ export async function runConfigAudit(
 
   let sourceAuths: Authorization[] = [];
   let targetAuths: Authorization[] = [];
+  let srcAuthsFetchFailed = false;
+  let tgtAuthsFetchFailed = false;
 
   try {
     const res = await api.listAuthorizations(sourceConfig);
     sourceAuths = res?.authorizations || [];
   } catch (err: unknown) {
+    srcAuthsFetchFailed = true;
     items.push({
       id: 'src-auths-error',
       category: 'Authorizations',
@@ -465,6 +480,7 @@ export async function runConfigAudit(
     const res = await api.listAuthorizations(targetConfig);
     targetAuths = res?.authorizations || [];
   } catch (err: unknown) {
+    tgtAuthsFetchFailed = true;
     items.push({
       id: 'tgt-auths-error',
       category: 'Authorizations',
@@ -477,17 +493,17 @@ export async function runConfigAudit(
     });
   }
 
-  const targetAuthMap = new Map<string, Authorization>();
-  targetAuths.forEach((a) => {
-    const id = getResourceId(a.name);
-    targetAuthMap.set(id, a);
-    const clientId = a.serverSideOauth2?.clientId || a.serverClientId;
-    if (clientId) {
-      targetAuthMap.set(clientId, a);
-    }
-  });
+  if (!srcAuthsFetchFailed && !tgtAuthsFetchFailed && sourceAuths.length > 0) {
+    const targetAuthMap = new Map<string, Authorization>();
+    targetAuths.forEach((a) => {
+      const id = getResourceId(a.name);
+      targetAuthMap.set(id, a);
+      const clientId = a.serverSideOauth2?.clientId || a.serverClientId;
+      if (clientId) {
+        targetAuthMap.set(clientId, a);
+      }
+    });
 
-  if (sourceAuths.length > 0) {
     for (const srcAuth of sourceAuths) {
       const authId = getResourceId(srcAuth.name);
       const srcClientId = srcAuth.serverSideOauth2?.clientId || srcAuth.serverClientId;
@@ -585,9 +601,13 @@ export async function runConfigAudit(
   let score: number | null = 100 - missingCount * 15 - driftCount * 5;
   if (score < 0) score = 0;
 
-  // If we couldn't run any meaningful checks (only INFO or UNKNOWN items)
+  // If either the source or destination engine could not be fetched:
+  // - If it was missing/not-found (actionableChecks > 0), the environment is a blocker (score = 0).
+  // - If we couldn't run any meaningful checks (only INFO or UNKNOWN items), score = null.
   if (actionableChecks === 0) {
     score = null;
+  } else if (!sourceEngine || !targetEngine) {
+    score = 0;
   }
 
   return {
@@ -672,7 +692,9 @@ export function generateAuditMarkdown(summary: ConfigAuditSummary): string {
           ? '🟡 DRIFT'
           : item.status === 'MISSING_IN_TARGET'
             ? '🔴 MISSING'
-            : 'ℹ️ INFO';
+            : item.status === 'UNKNOWN'
+              ? '⚪ UNKNOWN'
+              : 'ℹ️ INFO';
 
     const remediation = item.remediation ? `**Action:** ${item.remediation}` : item.details || 'OK';
 
@@ -684,11 +706,21 @@ export function generateAuditMarkdown(summary: ConfigAuditSummary): string {
   lines.push('');
   lines.push(`---`);
   lines.push(`## 3. Recommended Cutover Actions`);
-  if (summary.missingCount === 0 && summary.driftCount === 0) {
+  if (
+    summary.overallScore !== null &&
+    summary.missingCount === 0 &&
+    summary.driftCount === 0 &&
+    summary.unknownCount === 0
+  ) {
     lines.push(
       `- ✅ All configuration checks passed. The target environment is fully prepared for one-time cutover with \`gemini-migrate\`.`
     );
   } else {
+    if (summary.overallScore === null || summary.unknownCount > 0) {
+      lines.push(
+        `- ⚪ **Resolve Unchecked / Inaccessible Resources**: ${summary.unknownCount} check(s) could not be completed due to missing permissions or unreachable endpoints. Grant read access and re-run the audit before cutover.`
+      );
+    }
     if (summary.missingCount > 0) {
       lines.push(
         `- 🔴 **Resolve Missing Assets**: Create or map the flagged DataStores and Tools in destination project \`${summary.targetProject}\` prior to starting batch user transfer.`

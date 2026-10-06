@@ -19,20 +19,24 @@ import {
   executeRestoreDataStores,
   executeRestoreAuthorizations,
   executeRestoreNotebooks,
+  executeRestoreDiscovery,
   restoreAgentsIntoAssistant,
 } from './restoreOperations';
 import { assertRestoreComplete, RestoreIncompleteError } from './restoreOutcome';
 import * as api from '../apiService';
-import { Agent, Authorization, Config, DataStore } from '../../types';
+import { Agent, AppEngine, Authorization, Collection, Config, DataStore } from '../../types';
 
 vi.mock('../apiService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../apiService')>();
   return {
     ...actual,
+    createCollection: vi.fn(),
     createDataStore: vi.fn(),
     createAuthorization: vi.fn(),
     createNotebook: vi.fn(),
     batchCreateNotebookSources: vi.fn(),
+    createEngine: vi.fn(),
+    updateAssistant: vi.fn(),
     createAgent: vi.fn(),
     setAgentIamPolicy: vi.fn(),
     getAuthorization: vi.fn(),
@@ -237,4 +241,70 @@ describe('restore failure accounting', () => {
       /alpha.*beta/s
     );
   });
+
+  it('restores collection dataStores, engines, and invokes restoreAssistantFn with nested agents during Full Discovery restore', async () => {
+    vi.mocked(api.createCollection).mockResolvedValueOnce({} as never);
+    vi.mocked(api.createDataStore).mockResolvedValueOnce({} as never);
+    vi.mocked(api.createEngine).mockResolvedValueOnce({ done: true } as never);
+
+    const restoreAssistantSpy = vi.fn().mockImplementation(async (backupData: { assistant?: { agents?: Agent[] } }) => ({
+      created: (backupData.assistant?.agents || []).map((a) => a.displayName),
+      skipped: [],
+      failed: [],
+    }));
+
+    const outcome = await runWithTimers(() =>
+      executeRestoreDiscovery(
+        {
+          collections: [
+            {
+              name: 'projects/p/locations/global/collections/default_collection',
+              displayName: 'Default Collection',
+              dataStores: [{ name: 'projects/p/locations/global/collections/default_collection/dataStores/ds-1' } as DataStore],
+              engines: [
+                {
+                  name: 'projects/p/locations/global/collections/default_collection/engines/eng-1',
+                  displayName: 'Enterprise App',
+                  solutionType: 'SOLUTION_TYPE_SEARCH',
+                  assistants: [
+                    {
+                      name: 'projects/p/locations/global/collections/default_collection/engines/eng-1/assistants/default_assistant',
+                      displayName: 'Default Assistant',
+                      generationConfig: { systemInstruction: { additionalSystemInstruction: 'Be concise' } },
+                      agents: [
+                        {
+                          name: 'projects/p/locations/global/collections/default_collection/engines/eng-1/assistants/default_assistant/agents/agent-1',
+                          displayName: 'Nested Agent',
+                        } as Agent,
+                      ],
+                    },
+                  ],
+                } as AppEngine,
+              ],
+            } as Collection,
+          ],
+        },
+        apiConfig,
+        noopLog,
+        restoreAssistantSpy
+      )
+    );
+
+    expect(api.createCollection).toHaveBeenCalledTimes(1);
+    expect(api.createDataStore).toHaveBeenCalledTimes(1);
+    expect(api.createEngine).toHaveBeenCalledTimes(1);
+    expect(restoreAssistantSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assistant: expect.objectContaining({
+          displayName: 'Default Assistant',
+          agents: [expect.objectContaining({ displayName: 'Nested Agent' })],
+        }),
+      }),
+      false
+    );
+    expect(outcome.created).toEqual(['default_collection', 'ds-1', 'eng-1', 'Nested Agent']);
+    expect(outcome.failed).toHaveLength(0);
+  });
 });
+
+

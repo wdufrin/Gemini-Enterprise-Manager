@@ -162,6 +162,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
     });
 
     const [groupsInput, setGroupsInput] = useState('');
+    const [billingAccountId, setBillingAccountId] = useState(() => editConfig?.billing_account_id || '');
     const [selectedTier, setSelectedTier] = useState(() => {
         if (apiLicenseConfigs.length > 0) {
             const name = apiLicenseConfigs[0].name;
@@ -194,6 +195,9 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
     useEffect(() => {
         if (isOpen) {
             if (editConfig) {
+                if (editConfig.billing_account_id && editConfig.billing_account_id !== 'YOUR_BILLING_ACCOUNT_ID') {
+                    setBillingAccountId(editConfig.billing_account_id);
+                }
                 const projects = editConfig.projects || {};
                 const projConfig = projects[config.projectId] || [];
                 if (projConfig.length > 0) {
@@ -283,10 +287,18 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
     };
 
     const groups = groupsInput.split(',').map(g => g.trim()).filter(Boolean);
+    const resolvedBillingAccountId =
+        billingAccountId.trim() || editConfig?.billing_account_id || "YOUR_BILLING_ACCOUNT_ID";
+    const existingProjects = editConfig?.projects || {};
+    const existingProjectEntries = (existingProjects[config.projectId] || []).filter(
+        (entry) => !(entry.subscription_tier === selectedTier && entry.location === appLocation)
+    );
     const entitlementsConfig = {
-        "billing_account_id": "YOUR_BILLING_ACCOUNT_ID",
+        "billing_account_id": resolvedBillingAccountId,
         "projects": {
+            ...existingProjects,
             [config.projectId]: [
+                ...existingProjectEntries,
                 {
                     "subscription_tier": selectedTier,
                     "location": appLocation,
@@ -379,20 +391,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
         zip.file('Dockerfile', dockerfile);
         
         // Generate a sample entitlements.json based on inputs
-        const groups = groupsInput.split(',').map(g => g.trim()).filter(Boolean);
-        const sampleEntitlements = {
-            "billing_account_id": "YOUR_BILLING_ACCOUNT_ID",
-            "projects": {
-                [config.projectId]: [
-                    {
-                        "subscription_tier": selectedTier,
-                        "location": config.appLocation,
-                        "groups": groups
-                    }
-                ]
-            }
-        };
-        zip.file('entitlements.json.sample', JSON.stringify(sampleEntitlements, null, 2));
+        zip.file('entitlements.json.sample', JSON.stringify(entitlementsConfig, null, 2));
 
         const blob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(blob);
@@ -558,6 +557,11 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                         <div>
                             <label className="block text-sm font-medium text-gray-400">Groups (Comma separated emails)</label>
                             <input type="text" value={groupsInput} onChange={(e) => setGroupsInput(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" placeholder="group1@example.com, group2@example.com" disabled={isDeploying} />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400">Billing Account ID (Optional)</label>
+                            <input type="text" value={billingAccountId} onChange={(e) => setBillingAccountId(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" placeholder="012345-6789AB-CDEF01" disabled={isDeploying} />
                         </div>
                         
                         <div>

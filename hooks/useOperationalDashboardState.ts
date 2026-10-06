@@ -143,6 +143,8 @@ export function useOperationalDashboardState({
     const droppedViewsRef = useRef<Set<string>>(new Set());
     const [brokenViews, setBrokenViews] = useState<Map<string, string>>(new Map());
     const brokenViewsRef = useRef<Map<string, string>>(new Map());
+    const [stubViews, setStubViews] = useState<Set<string>>(new Set());
+    const stubViewsRef = useRef<Set<string>>(new Set());
 
     const executeBigQueryWithPolling = useCallback(
         async (targetProject: string, query: string): Promise<BigQueryQueryResponse> => {
@@ -251,6 +253,8 @@ export function useOperationalDashboardState({
         droppedViewsRef.current = new Set();
         setBrokenViews(new Map());
         brokenViewsRef.current = new Map();
+        setStubViews(new Set());
+        stubViewsRef.current = new Set();
         setSchemaValidationReport(null);
     }, [datasetId]);
 
@@ -732,13 +736,25 @@ export function useOperationalDashboardState({
                 viewsChecked++;
                 const sqlDef = viewDefMap.get(actualViewName) || '';
 
-                if (sqlDef.includes('FROM (SELECT 1) WHERE FALSE') && hasAnyBaseTable) {
+                if (sqlDef.includes('FROM (SELECT 1) WHERE FALSE')) {
+                    stubViewsRef.current.add(canonicalViewId);
+                    setStubViews((prev) => new Set(prev).add(canonicalViewId));
                     issues.push({
                         target: actualViewName,
                         kind: 'view',
                         severity: 'warning',
-                        message: `View \`${actualViewName}\` is still bound to an empty placeholder stub (\`WHERE FALSE\`) even though base log tables now exist in \`${datasetId}\`. Re-deploy this view to query live data.`,
+                        message: hasAnyBaseTable
+                            ? `View \`${actualViewName}\` is still bound to an empty placeholder stub (\`WHERE FALSE\`) even though base log tables now exist in \`${datasetId}\`. Re-deploy this view to query live data.`
+                            : `View \`${actualViewName}\` is currently an empty placeholder stub (\`WHERE FALSE\`) awaiting the first Cloud Logging sink flush into \`${datasetId}\`.`,
                         remediationViewId: canonicalViewId
+                    });
+                } else {
+                    stubViewsRef.current.delete(canonicalViewId);
+                    setStubViews((prev) => {
+                        if (!prev.has(canonicalViewId)) return prev;
+                        const next = new Set(prev);
+                        next.delete(canonicalViewId);
+                        return next;
                     });
                 }
 
@@ -825,6 +841,13 @@ export function useOperationalDashboardState({
         const primaryDdl = viewDef.getDdl(projectId, datasetId, tableNames);
         try {
             await runBigQueryQuery(projectId, primaryDdl);
+            stubViewsRef.current.delete(targetViewId);
+            setStubViews((prev) => {
+                if (!prev.has(targetViewId)) return prev;
+                const next = new Set(prev);
+                next.delete(targetViewId);
+                return next;
+            });
             return { usedEmptyFallback: false };
         } catch (primaryErr: unknown) {
             const primaryMsg =
@@ -839,6 +862,13 @@ export function useOperationalDashboardState({
             if (alternateDdl && alternateDdl !== primaryDdl) {
                 try {
                     await runBigQueryQuery(projectId, alternateDdl);
+                    stubViewsRef.current.delete(targetViewId);
+                    setStubViews((prev) => {
+                        if (!prev.has(targetViewId)) return prev;
+                        const next = new Set(prev);
+                        next.delete(targetViewId);
+                        return next;
+                    });
                     return { usedEmptyFallback: false };
                 } catch (altErr: unknown) {
                     const altMsg =
@@ -851,10 +881,13 @@ export function useOperationalDashboardState({
 
             // 2. Neither the un-suffixed table nor any `_YYYYMMDD` fragment exists yet
             // (e.g., a newly created log sink before Cloud Logging flushes the first log entry).
-            // Provision an empty schema-compatible view so the view and downstream queries succeed.
+            // Provision an empty schema-compatible view so the view and downstream queries succeed,
+            // and track it in stubViews so it is not falsely badged as LIVE until base tables arrive.
             const emptyDdl = getEmptyViewDdl(projectId, datasetId, targetViewId);
             if (emptyDdl) {
                 await runBigQueryQuery(projectId, emptyDdl);
+                stubViewsRef.current.add(targetViewId);
+                setStubViews((prev) => new Set(prev).add(targetViewId));
                 return { usedEmptyFallback: true };
             }
 
@@ -968,6 +1001,13 @@ export function useOperationalDashboardState({
                 next.delete(viewId);
                 return next;
             });
+            stubViewsRef.current.delete(viewId);
+            setStubViews((prev) => {
+                if (!prev.has(viewId)) return prev;
+                const next = new Set(prev);
+                next.delete(viewId);
+                return next;
+            });
 
             setLiveData((prev) => {
                 const next = { ...prev };
@@ -1007,19 +1047,24 @@ export function useOperationalDashboardState({
 
     const isUserActivityLive =
         installedViews.has('v_consolidated_user_activity') &&
-        !brokenViews.has('v_consolidated_user_activity');
+        !brokenViews.has('v_consolidated_user_activity') &&
+        !stubViews.has('v_consolidated_user_activity');
     const isGenAiTelemetryLive =
         installedViews.has('v_gemini_genai_telemetry') &&
-        !brokenViews.has('v_gemini_genai_telemetry');
+        !brokenViews.has('v_gemini_genai_telemetry') &&
+        !stubViews.has('v_gemini_genai_telemetry');
     const isConnectorUsageLive =
         installedViews.has('v_user_connector_usage_30d') &&
-        !brokenViews.has('v_user_connector_usage_30d');
+        !brokenViews.has('v_user_connector_usage_30d') &&
+        !stubViews.has('v_user_connector_usage_30d');
     const isAiChoicesLive =
         installedViews.has('v_consolidated_ai_choices') &&
-        !brokenViews.has('v_consolidated_ai_choices');
+        !brokenViews.has('v_consolidated_ai_choices') &&
+        !stubViews.has('v_consolidated_ai_choices');
     const isFeedbackLive =
         installedViews.has('v_agent_feedback') &&
-        !brokenViews.has('v_agent_feedback');
+        !brokenViews.has('v_agent_feedback') &&
+        !stubViews.has('v_agent_feedback');
 
     const dailyActivityData = isUserActivityLive ? liveData.dailyActivity || [] : FALLBACK_SNAPSHOT.dailyActivity;
     const agentPopularityData = isUserActivityLive ? liveData.agentPopularity || [] : FALLBACK_SNAPSHOT.agentPopularity;

@@ -326,6 +326,17 @@ export async function executeRestoreDiscovery(
     }
     await delay(2000);
 
+    if (collection.dataStores && collection.dataStores.length > 0) {
+      mergeRestoreOutcomes(
+        outcome,
+        await executeRestoreDataStores(
+          { dataStores: collection.dataStores },
+          restoreConfig,
+          addLog
+        )
+      );
+    }
+
     if (collection.engines && collection.engines.length > 0) {
       addLog(
         `  - Restoring ${collection.engines.length} App/Engine(s) into collection '${collectionId}'...`

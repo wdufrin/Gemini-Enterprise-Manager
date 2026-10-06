@@ -426,6 +426,7 @@ export interface Collection {
     displayName?: string;
     description?: string;
     engines?: AppEngine[]; // For backup structure
+    dataStores?: DataStore[]; // For backup structure
     [key: string]: unknown;
 }
 export interface SearchEngineConfig {

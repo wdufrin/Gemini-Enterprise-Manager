@@ -100,8 +100,16 @@ export function useAgentEngines(projectNumber: string, location: string) {
         const reName =
           agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
         if (reName) {
-          if (!acc[reName]) acc[reName] = [];
-          acc[reName].push(agent);
+          const suffixMatch = reName.match(/\/locations\/[^/]+\/reasoningEngines\/[^/]+$/);
+          const reSuffix = suffixMatch ? suffixMatch[0] : null;
+          const matchingResource = resources.find(
+            (r) =>
+              r.type === "Agent Engine" &&
+              (r.id === reName || (reSuffix !== null && r.id.endsWith(reSuffix))),
+          );
+          const key = matchingResource ? matchingResource.id : reName;
+          if (!acc[key]) acc[key] = [];
+          acc[key].push(agent);
         }
 
         if (agent.a2aAgentDefinition?.jsonAgentCard) {
@@ -250,6 +258,7 @@ export function useAgentEngines(projectNumber: string, location: string) {
       setResources(unifiedList);
       if (errors.length > 0) setError(errors.join(" | "));
 
+      const warnings: string[] = [];
       try {
         const agentsList: Agent[] = [];
         const discoveryLocations = ["global", "us", "eu"];
@@ -286,7 +295,9 @@ export function useAgentEngines(projectNumber: string, location: string) {
                       if (res.agents) agentsList.push(...res.agents);
                     }
                   }
-                } catch (e) {
+                } catch (e: any) {
+                  const msg = `Could not enumerate agents in collection "${col.name.split("/").pop()}" (${loc}): ${e?.message || String(e)}. "Used By" status may be incomplete.`;
+                  warnings.push(msg);
                   console.warn(
                     `[AgentEngines] Failed to enumerate agents under collection ` +
                       `"${col.name}" in "${loc}". Agent list may be incomplete.`,
@@ -294,7 +305,9 @@ export function useAgentEngines(projectNumber: string, location: string) {
                   );
                 }
               }
-            } catch (e) {
+            } catch (e: any) {
+              const msg = `Could not list Discovery Engine collections in "${loc}": ${e?.message || String(e)}. "Used By" status may be incomplete.`;
+              warnings.push(msg);
               console.warn(
                 `[AgentEngines] Failed to list collections in location "${loc}". ` +
                   `Agent list may be incomplete.`,
@@ -304,8 +317,12 @@ export function useAgentEngines(projectNumber: string, location: string) {
           }),
         );
         setAllAgents(agentsList);
-      } catch (e) {
+      } catch (e: any) {
+        warnings.push(`Failed to fetch agent usage data: ${e?.message || String(e)}`);
         console.warn("Failed to fetch usage data", e);
+      }
+      if (warnings.length > 0) {
+        setPermissionWarnings(warnings);
       }
     } catch (err: any) {
       setError(err.message || "Failed to fetch resources.");

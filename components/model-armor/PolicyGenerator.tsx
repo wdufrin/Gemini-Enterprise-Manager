@@ -119,19 +119,6 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
   };
 
   const generatedJson = useMemo(() => {
-    const filters: Array<Record<string, unknown>> = [];
-
-    if (config.pii) {
-      filters.push({
-        infoType: 'PHONE_NUMBER',
-        filterConfig: { replaceWithInfoTypeConfig: {} },
-      });
-      filters.push({
-        infoType: 'EMAIL_ADDRESS',
-        filterConfig: { replaceWithInfoTypeConfig: {} },
-      });
-    }
-
     const raiFilters: Array<Record<string, string>> = [];
     if (config.hateSpeech !== 'OFF')
       raiFilters.push({ filterType: 'HATE_SPEECH', confidenceLevel: config.hateSpeech });
@@ -148,7 +135,9 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
           raiFilters,
         },
         sdpSettings: {
-          sdpFilters: filters,
+          basicConfig: {
+            filterEnforcement: config.pii ? 'ENABLED' : 'DISABLED',
+          },
         },
         piAndJailbreakFilterSettings: {
           filterEnforcement: config.jailbreak ? 'ENABLED' : 'DISABLED',

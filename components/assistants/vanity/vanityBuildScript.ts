@@ -143,9 +143,8 @@ if [ "${autoAllocatePscIp}" = "true" ]; then
       gcloud compute addresses create "$$PSC_IP_NAME" \\
       --global \\
       --purpose=PRIVATE_SERVICE_CONNECT \\
-      --addresses=10.128.0.100 \\
       --network=${vpcNetwork}
-  PSC_IP="10.128.0.100"
+  PSC_IP=$$(gcloud compute addresses describe "$$PSC_IP_NAME" --global --format="value(address)")
 else
   echo "1. Registering static custom IP $$PSC_IP_VAL for PSC..."
   provision_resource "PSC address" "$$PSC_IP_NAME" \\

@@ -287,7 +287,7 @@ export function useBackupOperations({
         setReasoningEngines(engines);
         if (engines.length === 1) {
           const id = engines[0].name.split('/').pop() || '';
-          setConfig((p) => ({ ...p, reasoningEngineId: id }));
+          setConfig((p) => (p.reasoningEngineId === id ? p : { ...p, reasoningEngineId: id }));
         }
       } catch (e) {
         console.error('Failed to fetch agent engines:', e);
@@ -379,16 +379,36 @@ export function useBackupOperations({
 
     if (useModal) {
       if (!assistant.agents || assistant.agents.length === 0) {
-        addLog('No agents found in the assistant backup file to restore.');
-        return outcome;
+        addLog('No agents found in assistant backup; restoring assistant settings directly...');
+        return processRestoreAssistant(backupData, false);
       }
-      const processor = async (data: { assistant?: { agents?: Agent[] } }) => {
+      const processor = async (data: { assistant?: { name?: string; displayName?: string; generationConfig?: Record<string, unknown>; agents?: Agent[] } }) => {
         const agentsToRestore = data.assistant?.agents || [];
         const restoreConfig = apiConfig;
         if (!restoreConfig.appId) {
           throw new Error(
             'You must select a target Gemini Enterprise in the configuration before restoring agents from an assistant backup.'
           );
+        }
+        const assistantId = restoreConfig.assistantId || 'default_assistant';
+        const assistantName = `projects/${restoreConfig.projectId}/locations/${restoreConfig.appLocation}/collections/${restoreConfig.collectionId}/engines/${restoreConfig.appId}/assistants/${assistantId}`;
+        const payload: Record<string, unknown> = {};
+        const updateMask: string[] = [];
+        if (assistant.displayName) {
+          payload.displayName = assistant.displayName;
+          updateMask.push('displayName');
+        }
+        if (assistant.generationConfig) {
+          payload.generationConfig = assistant.generationConfig;
+          updateMask.push('generationConfig');
+        }
+        if (updateMask.length > 0) {
+          try {
+            await api.updateAssistant(assistantName, payload, updateMask, restoreConfig);
+            addLog(`  - UPDATED: Assistant '${assistantId}' settings applied.`);
+          } catch (updateErr: unknown) {
+            addLog(`  - WARNING: Could not update assistant '${assistantId}' settings: ${toErrorMessage(updateErr)}`);
+          }
         }
         addLog(
           `Restoring ${agentsToRestore.length} agent(s) into selected assistant '${restoreConfig.assistantId}'...`

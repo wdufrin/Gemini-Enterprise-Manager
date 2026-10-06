@@ -94,6 +94,23 @@ export async function backupDiscoveryResources(
     } while (engToken);
     collection.engines = engines;
 
+    const dataStores: DataStore[] = [];
+    let dsToken: string | undefined = undefined;
+    try {
+      do {
+        const dsResponse = await api.listResources(
+          'dataStores',
+          { ...apiConfig, collectionId },
+          dsToken
+        );
+        dataStores.push(...(dsResponse.dataStores || []));
+        dsToken = dsResponse.nextPageToken;
+      } while (dsToken);
+      collection.dataStores = dataStores;
+    } catch (dsErr) {
+      addLog(`  - WARNING: Could not list Data Stores in collection '${collectionId}': ${toErrorMessage(dsErr)}`);
+    }
+
     for (const engine of engines) {
       const appId = engine.name.split('/').pop()!;
       const assistants: Assistant[] = [];
@@ -111,6 +128,27 @@ export async function backupDiscoveryResources(
         );
         asstToken = assistantsResponse.nextPageToken;
       } while (asstToken);
+
+      for (const assistant of assistants) {
+        const assistantId = assistant.name.split('/').pop()!;
+        const agents: Agent[] = [];
+        let agtToken: string | undefined = undefined;
+        try {
+          do {
+            const agentsResponse = await api.listResources(
+              'agents',
+              { ...apiConfig, collectionId, appId, assistantId },
+              agtToken
+            );
+            agents.push(...(agentsResponse.agents || []));
+            agtToken = agentsResponse.nextPageToken;
+          } while (agtToken);
+          assistant.agents = agents;
+        } catch (agtErr) {
+          addLog(`    - WARNING: Could not list Agents for assistant '${assistantId}' in engine '${appId}': ${toErrorMessage(agtErr)}`);
+        }
+      }
+
       engine.assistants = assistants;
     }
   }

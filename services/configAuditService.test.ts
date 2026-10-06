@@ -135,5 +135,77 @@ describe('configAuditService', () => {
 
     const md = generateAuditMarkdown(summary);
     expect(md).toContain('UNABLE TO ASSESS');
+    expect(md).not.toContain('All configuration checks passed');
+  });
+
+  it('does not treat commonConfig.companyName starting with C as a Google Workspace Customer ID', async () => {
+    vi.mocked(api.getEngine).mockImplementation(async (appId, cfg) => ({
+      name: `projects/${cfg.projectId}/locations/global/collections/default_collection/engines/${appId}`,
+      displayName: 'Test Engine',
+      solutionType: 'SOLUTION_TYPE_SEARCH_AND_ASSISTANT',
+      commonConfig: { companyName: 'CloudCorp1' },
+    } as unknown as AppEngine));
+    vi.mocked(api.listResources).mockResolvedValue({ dataStores: [] });
+    vi.mocked(api.listRegistrySkills).mockResolvedValue([]);
+    vi.mocked(api.listAuthorizations).mockResolvedValue({ authorizations: [] });
+    vi.mocked(api.listLicenseConfigsUsageStats).mockResolvedValue({ licenseConfigUsageStats: [] } as unknown as { licenseConfigUsageStats: [] });
+
+    const summary = await runConfigAudit(sourceConfig, targetConfig);
+    const idpItem = summary.items.find(i => i.id === 'engine-idp-mode');
+    const cidItem = summary.items.find(i => i.id === 'engine-widget-cid');
+    expect(idpItem).toBeDefined();
+    expect(idpItem?.sourceValue).toBe('Google Workspace / Cloud Identity');
+    expect(cidItem).toBeUndefined();
+  });
+
+  it('does not report false MISSING_IN_TARGET DataStores when target listResources fails with 403', async () => {
+    vi.mocked(api.getEngine).mockResolvedValue({
+      name: 'projects/src/locations/global/collections/default_collection/engines/default_engine',
+      displayName: 'Test Engine',
+      solutionType: 'SOLUTION_TYPE_SEARCH_AND_ASSISTANT',
+    } as unknown as AppEngine);
+
+    vi.mocked(api.listResources).mockImplementation(async (type, cfg) => {
+      if (type === 'dataStores') {
+        if (cfg.projectId === 'source-project-100') {
+          return {
+            dataStores: [
+              { name: 'projects/src/locations/global/collections/default_collection/dataStores/ds-1', displayName: 'Prod KB' }
+            ]
+          };
+        }
+        throw new Error('403 PERMISSION_DENIED');
+      }
+      return {};
+    });
+    vi.mocked(api.listRegistrySkills).mockResolvedValue([]);
+    vi.mocked(api.listAuthorizations).mockResolvedValue({ authorizations: [] });
+    vi.mocked(api.listLicenseConfigsUsageStats).mockResolvedValue({ licenseConfigUsageStats: [] } as unknown as { licenseConfigUsageStats: [] });
+
+    const summary = await runConfigAudit(sourceConfig, targetConfig);
+    expect(summary.missingCount).toBe(0);
+    expect(summary.items.find(i => i.id === 'tgt-datastores-error')?.status).toBe('UNKNOWN');
+    expect(summary.items.find(i => i.id === 'ds-ds-1')).toBeUndefined();
+  });
+
+  it('caps overallScore at 0 when target engine does not exist even if project-level skills match', async () => {
+    vi.mocked(api.getEngine).mockImplementation(async (_appId, cfg) => {
+      if (cfg.projectId === 'source-project-100') {
+        return {
+          name: 'projects/source-project-100/locations/global/collections/default_collection/engines/default_engine',
+          displayName: 'Prod Engine',
+          solutionType: 'SOLUTION_TYPE_SEARCH_AND_ASSISTANT',
+        } as unknown as AppEngine;
+      }
+      throw new Error('404 NOT_FOUND');
+    });
+    vi.mocked(api.listResources).mockResolvedValue({ dataStores: [] });
+    vi.mocked(api.listRegistrySkills).mockResolvedValue([]);
+    vi.mocked(api.listAuthorizations).mockResolvedValue({ authorizations: [] });
+    vi.mocked(api.listLicenseConfigsUsageStats).mockResolvedValue({ licenseConfigUsageStats: [] } as unknown as { licenseConfigUsageStats: [] });
+
+    const summary = await runConfigAudit(sourceConfig, targetConfig);
+    expect(summary.overallScore).toBe(0);
   });
 });
+

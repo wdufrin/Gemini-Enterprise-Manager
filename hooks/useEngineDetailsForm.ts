@@ -295,9 +295,9 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             searchTier: engine.searchEngineConfig?.searchTier || 'SEARCH_TIER_STANDARD',
             searchAddOnLlm: engine.searchEngineConfig?.searchAddOns?.includes('SEARCH_ADD_ON_LLM') || false,
             requiredSubscriptionTier: engine.searchEngineConfig?.requiredSubscriptionTier || 'SUBSCRIPTION_TIER_UNSPECIFIED',
-            enableWebApp: widgetConfig?.accessSettings?.enableWebApp || false,
-            enableAutocomplete: widgetConfig?.uiSettings?.enableAutocomplete || false,
-            enableQualityFeedback: widgetConfig?.uiSettings?.enableQualityFeedback || false,
+            enableWebApp: originalWidgetConfig?.accessSettings?.enableWebApp || false,
+            enableAutocomplete: originalWidgetConfig?.uiSettings?.enableAutocomplete || false,
+            enableQualityFeedback: originalWidgetConfig?.uiSettings?.enableQualityFeedback || false,
         });
 
         const currentFeatures: Record<string, boolean> = {};
@@ -353,7 +353,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         STANDARD_ENTERPRISE_MODELS.forEach(m => {
             currentModels[m.id] = false;
         });
-        const resolvedList = widgetConfig?.uiSettings?.modelConfigInfo?.resolvedModels;
+        const resolvedList = originalWidgetConfig?.uiSettings?.modelConfigInfo?.resolvedModels;
         if (Array.isArray(resolvedList)) {
             resolvedList.forEach(m => {
                 if (m.modelId && m.adminView?.enabledByDefault !== undefined) {
@@ -366,14 +366,23 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 currentModels[key] = engine.modelConfigs![key] === 'MODEL_ENABLED';
             });
         }
-        const widgetOverrides = widgetConfig?.uiSettings?.modelConfigs;
+        const widgetOverrides = originalWidgetConfig?.uiSettings?.modelConfigs;
         if (widgetOverrides) {
             Object.keys(widgetOverrides).forEach(key => {
                 currentModels[key] = widgetOverrides[key] === 'MODEL_ENABLED';
             });
         }
         setModelConfigs(currentModels);
-    }, [engine, widgetConfig, isSupportedIdpForQrCode]);
+        // Only re-initialize form state when engine or baseline originalWidgetConfig loads,
+        // not when user edits widgetConfig or idpData in-memory.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [engine, originalWidgetConfig]);
+
+    useEffect(() => {
+        if (!isSupportedIdpForQrCode()) {
+            setFeatures(prev => prev['qr-code-widget'] ? { ...prev, 'qr-code-widget': false } : prev);
+        }
+    }, [isSupportedIdpForQrCode]);
 
     useEffect(() => {
         const fetchConfigs = async () => {
@@ -646,7 +655,9 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             let widgetChanged = false;
             let latestWidgetConfig = widgetConfig;
             if (widgetConfig && originalWidgetConfig) {
-                const currentProvider = idpData.idpType === 'THIRD_PARTY' ? idpData.workforcePoolName : '';
+                const currentProvider = idpData.idpType === 'THIRD_PARTY'
+                    ? (widgetConfig.accessSettings?.workforceIdentityPoolProvider || '')
+                    : '';
                 const origProvider = originalWidgetConfig.accessSettings?.workforceIdentityPoolProvider || '';
                 const currentEnableWebApp = formData.enableWebApp;
                 const origEnableWebApp = originalWidgetConfig.accessSettings?.enableWebApp || false;

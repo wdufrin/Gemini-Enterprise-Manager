@@ -94,6 +94,11 @@ export function useDataStoreQuery(
             const poolId = poolName.split('/').pop();
             if (poolId) {
               setWifPoolId(prev => prev || poolId);
+              setAvailablePools(prev =>
+                prev.some(p => p.name === poolName || p.name.endsWith(`/${poolId}`))
+                  ? prev
+                  : [{ name: poolName, displayName: poolId }, ...prev]
+              );
             }
           }
         } catch (e) {
@@ -102,15 +107,21 @@ export function useDataStoreQuery(
       }
     };
     discoverPool();
-  }, [authMode, showWifConfig, projectId, location]);
+  }, [authMode, showWifConfig, projectId, location, config]);
 
   useEffect(() => {
     const fetchPools = async () => {
       if (authMode === 'wif' && showWifConfig && projectId) {
         setIsLoadingPools(true);
         try {
-          const pools = await api.listWorkloadIdentityPools(projectId);
-          setAvailablePools(pools);
+          const pools = typeof api.listWorkforcePools === 'function'
+            ? await api.listWorkforcePools(projectId)
+            : await api.listWorkloadIdentityPools(projectId);
+          setAvailablePools(prev => {
+            const existingNames = new Set(pools.map(p => p.name));
+            const preserved = prev.filter(p => !existingNames.has(p.name));
+            return [...pools, ...preserved];
+          });
         } catch (e: any) {
           console.error('Failed to fetch workforce pools', e);
           const msg = toErrorMessage(e);

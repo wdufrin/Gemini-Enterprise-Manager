@@ -485,6 +485,7 @@ export const updateAgent = async (
   if (sanitizedPayload.sharingConfig) updateMask.push("sharing_config");
   if (sanitizedPayload.authorizationConfig) updateMask.push("authorization_config");
   if (sanitizedPayload.observabilityConfig) updateMask.push("observabilityConfig");
+  if (sanitizedPayload.state) updateMask.push("state");
 
   if (
     sanitizedPayload.lowCodeAgentDefinition &&
@@ -696,21 +697,13 @@ export const promoteSkillToOrg = async (agent: Agent, config: Config): Promise<A
     console.warn("enableAgent failed, proceeding to sharing_config:", e);
   }
 
-  try {
-    await updateAgent(agent, { sharingConfig: { scope: "ALL_USERS" } }, config);
-  } catch (e) {
-    console.warn("Failed to patch sharing_config:", e);
-  }
+  await updateAgent(agent, { sharingConfig: { scope: "ALL_USERS" } }, config);
 
   return getAgent(agent.name, config);
 };
 
 export const demoteSkillToPersonal = async (agent: Agent, config: Config): Promise<Agent> => {
-  try {
-    await updateAgent(agent, { sharingConfig: { scope: "RESTRICTED" } }, config);
-  } catch (e) {
-    console.warn("Failed to set RESTRICTED sharing_config:", e);
-  }
+  await updateAgent(agent, { sharingConfig: { scope: "RESTRICTED" } }, config);
   return getAgent(agent.name, config);
 };
 

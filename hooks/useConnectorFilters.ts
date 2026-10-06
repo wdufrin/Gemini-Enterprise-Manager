@@ -369,15 +369,19 @@ export function useConnectorFilters({
       ];
 
       if (topLevelFilterSources.includes(dataSource)) {
-        payload.params = {
+        const mergedParams: Record<string, any> = {
+          ...(connector.params || {}),
           structured_search_filter: cleanInc,
           structured_exclusion_search_filter: cleanExc,
         };
 
         if (customSqlFilter.trim()) {
-          payload.params.global_custom_sql_filter = customSqlFilter.trim();
+          mergedParams.global_custom_sql_filter = customSqlFilter.trim();
+        } else {
+          delete mergedParams.global_custom_sql_filter;
         }
 
+        payload.params = mergedParams;
         updateMaskSet.add('params');
       }
 

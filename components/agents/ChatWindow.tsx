@@ -144,6 +144,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                         const poolId = poolName.split('/').pop();
                         if (poolId) {
                             setWifPoolId(prev => prev || poolId);
+                            setAvailablePools(prev =>
+                                prev.some(p => p.name === poolName || p.name.endsWith(`/${poolId}`))
+                                    ? prev
+                                    : [{ name: poolName, displayName: poolId }, ...prev]
+                            );
                         }
                     }
                 } catch (e) {
@@ -159,8 +164,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
             if (authMode === 'wif' && showWifConfig && config.projectId) {
                 setIsLoadingPools(true);
                 try {
-                    const pools = await api.listWorkloadIdentityPools(config.projectId);
-                    setAvailablePools(pools);
+                    const pools = typeof api.listWorkforcePools === 'function'
+                        ? await api.listWorkforcePools(config.projectId)
+                        : await api.listWorkloadIdentityPools(config.projectId);
+                    setAvailablePools(prev => {
+                        const existingNames = new Set(pools.map(p => p.name));
+                        const preserved = prev.filter(p => !existingNames.has(p.name));
+                        return [...pools, ...preserved];
+                    });
                 } catch (e) {
                     console.error("Failed to fetch workforce pools", e);
                 } finally {

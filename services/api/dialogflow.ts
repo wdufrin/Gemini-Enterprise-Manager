@@ -17,15 +17,20 @@
 import { Config, DialogflowAgent } from "../../types";
 import { gapiRequest } from "./core";
 
+const getDialogflowBaseUrl = (location: string): string =>
+  location === "global"
+    ? "https://dialogflow.googleapis.com/v3"
+    : `https://${location}-dialogflow.googleapis.com/v3`;
+
 export const listDialogflowAgents = async (config: Config): Promise<{ agents?: DialogflowAgent[] }> => {
   const location = config.reasoningEngineLocation || "us-central1";
-  const url = `https://${location}-dialogflow.googleapis.com/v3/projects/${config.projectId}/locations/${location}/agents`;
+  const url = `${getDialogflowBaseUrl(location)}/projects/${config.projectId}/locations/${location}/agents`;
   return gapiRequest<{ agents?: DialogflowAgent[] }>(url, "GET", config.projectId);
 };
 
 export const deleteDialogflowAgent = async (name: string, config: Config): Promise<Record<string, unknown>> => {
-  const location = name.split("/")[3];
-  const url = `https://${location}-dialogflow.googleapis.com/v3/${name}`;
+  const location = name.split("/")[3] || "global";
+  const url = `${getDialogflowBaseUrl(location)}/${name}`;
   return gapiRequest<Record<string, unknown>>(url, "DELETE", config.projectId);
 };
 
@@ -35,15 +40,16 @@ export const detectDialogflowIntent = async (
   sessionId: string,
   config: Config,
   accessToken: string,
+  languageCode = "en",
 ) => {
-  const location = agentName.split("/")[3];
+  const location = agentName.split("/")[3] || "global";
   const sessionPath = `${agentName}/sessions/${sessionId}`;
-  const url = `https://${location}-dialogflow.googleapis.com/v3/${sessionPath}:detectIntent`;
+  const url = `${getDialogflowBaseUrl(location)}/${sessionPath}:detectIntent`;
 
   const body = {
     queryInput: {
       text: { text: query },
-      languageCode: "en",
+      languageCode: languageCode || "en",
     },
   };
 

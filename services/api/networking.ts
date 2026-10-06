@@ -108,6 +108,7 @@ export const deleteVanityUrl = async (
 echo "========== STARTING REDIRECT URL & PRIVATE ROUTING INFRASTRUCTURE DISMANTLING =========="
 CLEAN_SUFFIX=$$(echo "${serviceName}" | sed 's/assistant-//' | tr -d '_' | tr '[:upper:]' '[:lower:]' | cut -c1-12)
 ALPHA_SUFFIX=$$(echo "${serviceName}" | sed 's/assistant-//' | tr -d '_' | tr -d '-' | tr '[:upper:]' '[:lower:]' | cut -c1-14)
+ENGINE_SUFFIX=$$(echo "${serviceName}" | sed 's/assistant-//' | tr -d '_' | tr -d '-' | tr '[:upper:]' '[:lower:]' | cut -c1-10)
 
 FAILURES=0
 SKIPPED=0
@@ -132,6 +133,18 @@ teardown_resource() {
   fi
 }
 
+teardown_dns_zone() {
+  local zone_label="$$1"
+  local zone_name="$$2"
+  echo "Purging custom record-sets in $$zone_label: $$zone_name (if present)..."
+  gcloud dns record-sets list --zone="$$zone_name" --format="csv[no-heading](name,type)" 2>/dev/null | while IFS=, read -r rec_name rec_type; do
+    if [ -n "$$rec_name" ] && [ "$$rec_type" != "NS" ] && [ "$$rec_type" != "SOA" ]; then
+      gcloud dns record-sets delete "$$rec_name" --type="$$rec_type" --zone="$$zone_name" --quiet 2>/dev/null || true
+    fi
+  done
+  teardown_resource "$$zone_label" "$$zone_name" gcloud dns managed-zones delete "$$zone_name" --quiet
+}
+
 # 1. Dismantling Public Global Load Balancer (if exists)
 echo "1. Dismantling Global Forwarding Rules and certificates..."
 teardown_resource "Forwarding Rule" "${serviceName}-fwd-rule" gcloud compute forwarding-rules delete "${serviceName}-fwd-rule" --global --quiet
@@ -149,17 +162,21 @@ teardown_resource "Proxy Subnet" "${serviceName}-proxy-subnet" gcloud compute ne
 
 # 3. Dismantling Private Service Connect (PSC) (if exists)
 echo "3. Dismantling Private Service Connect (PSC) endpoints and IPs..."
-teardown_resource "PSC Forwarding Rule (default)" "pscrldefa$$ALPHA_SUFFIX" gcloud compute forwarding-rules delete "pscrldefa$$ALPHA_SUFFIX" --global --quiet
-teardown_resource "PSC Forwarding Rule (testcr)" "pscrltest$$ALPHA_SUFFIX" gcloud compute forwarding-rules delete "pscrltest$$ALPHA_SUFFIX" --global --quiet
+teardown_resource "PSC Forwarding Rule (default)" "pscrldefa$$ENGINE_SUFFIX" gcloud compute forwarding-rules delete "pscrldefa$$ENGINE_SUFFIX" --global --quiet
+teardown_resource "PSC Forwarding Rule (testcr)" "pscrltest$$ENGINE_SUFFIX" gcloud compute forwarding-rules delete "pscrltest$$ENGINE_SUFFIX" --global --quiet
+if [ "$$ALPHA_SUFFIX" != "$$ENGINE_SUFFIX" ]; then
+  teardown_resource "PSC Forwarding Rule (default-legacy)" "pscrldefa$$ALPHA_SUFFIX" gcloud compute forwarding-rules delete "pscrldefa$$ALPHA_SUFFIX" --global --quiet
+  teardown_resource "PSC Forwarding Rule (testcr-legacy)" "pscrltest$$ALPHA_SUFFIX" gcloud compute forwarding-rules delete "pscrltest$$ALPHA_SUFFIX" --global --quiet
+fi
 teardown_resource "PSC Address (default)" "psc-ip-default-$$CLEAN_SUFFIX" gcloud compute addresses delete "psc-ip-default-$$CLEAN_SUFFIX" --global --quiet
 teardown_resource "PSC Address (testcr)" "psc-ip-testcr-$$CLEAN_SUFFIX" gcloud compute addresses delete "psc-ip-testcr-$$CLEAN_SUFFIX" --global --quiet
 
 # 4. Dismantling Cloud DNS Zones (if exists)
 echo "4. Dismantling Private DNS Zones..."
-teardown_resource "DNS Zone (custom)" "${serviceName}-custom-dns" gcloud dns managed-zones delete "${serviceName}-custom-dns" --quiet
-teardown_resource "DNS Zone (apis)" "${serviceName}-apis-dns" gcloud dns managed-zones delete "${serviceName}-apis-dns" --quiet
-teardown_resource "DNS Zone (cloud)" "${serviceName}-cloud-dns" gcloud dns managed-zones delete "${serviceName}-cloud-dns" --quiet
-teardown_resource "DNS Zone (com)" "${serviceName}-com-dns" gcloud dns managed-zones delete "${serviceName}-com-dns" --quiet
+teardown_dns_zone "DNS Zone (custom)" "${serviceName}-custom-dns"
+teardown_dns_zone "DNS Zone (apis)" "${serviceName}-apis-dns"
+teardown_dns_zone "DNS Zone (cloud)" "${serviceName}-cloud-dns"
+teardown_dns_zone "DNS Zone (com)" "${serviceName}-com-dns"
 
 echo "--------------------------------------------------"
 echo "Teardown Summary: Deleted=$$DELETED, Skipped=$$SKIPPED, Failures=$$FAILURES"

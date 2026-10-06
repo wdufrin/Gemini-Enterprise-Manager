@@ -103,7 +103,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
 
         // Check if the existing URI matches the standard pattern for the detected provider
         const generated = constructAuthUri(detectedProvider, clientId, redirectUri, scopes, detectedTenantId);
-        const isStandard = authUri === generated;
+        const isStandard = !authUri || authUri === generated;
 
         setFormData({
             authId: authToEdit.name,
@@ -117,9 +117,9 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
             authorizationUri: authUri, // Keep original URI initially
         });
 
-        // Smart Auto-Generate: User requested to always have this enabled by default.
-        // This ensures the URI is regenerated based on the loaded fields.
-        setAutoGenerateUri(true); 
+        // Smart Auto-Generate: Only enable auto-regeneration when the existing URI is empty
+        // or matches the standard Google/Microsoft template; preserve custom 3P OAuth URIs.
+        setAutoGenerateUri(isStandard); 
     } else {
         setFormData({
             ...initialFormData,

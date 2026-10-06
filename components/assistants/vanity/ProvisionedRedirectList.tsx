@@ -28,6 +28,7 @@ export interface ProvisionedRedirect {
   creationTimestamp: string;
   fwdRuleName: string;
   routingMode: 'public' | 'private';
+  region?: string;
   /** True when the redirect's service name maps to the assistant on screen. */
   belongsToThisAssistant: boolean;
 }
@@ -95,11 +96,17 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
       ]);
 
       const scopes = aggRes.items || {};
-      const rules: Array<{ name: string; IPAddress: string; creationTimestamp: string }> = [];
+      const rules: Array<{ name: string; IPAddress: string; creationTimestamp: string; region?: string }> = [];
       Object.keys(scopes).forEach((key) => {
         const scopeData = scopes[key];
+        const scopeRegion = key.startsWith('regions/') ? key.replace('regions/', '') : undefined;
         if (scopeData?.forwardingRules) {
-          rules.push(...scopeData.forwardingRules);
+          rules.push(
+            ...scopeData.forwardingRules.map((r) => ({
+              ...r,
+              ...(scopeRegion ? { region: scopeRegion } : {}),
+            }))
+          );
         }
       });
 
@@ -140,6 +147,7 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
             creationTimestamp: rule.creationTimestamp,
             fwdRuleName: rule.name,
             routingMode: isPrivate ? ('private' as const) : ('public' as const),
+            ...(rule.region ? { region: rule.region } : {}),
             belongsToThisAssistant: matchesEngine(serviceName, engine.name),
           };
         })
@@ -173,11 +181,11 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
 
   const handleConfirmDelete = async () => {
     if (!redirectToDelete) return;
-    const { serviceName } = redirectToDelete;
+    const { serviceName, region } = redirectToDelete;
     setIsDeleting(serviceName);
     setError(null);
     try {
-      const buildId = await api.deleteVanityUrl(projectId, serviceName);
+      const buildId = await api.deleteVanityUrl(projectId, serviceName, region);
       if (onBuildTriggered) {
         onBuildTriggered(buildId, projectId);
       }

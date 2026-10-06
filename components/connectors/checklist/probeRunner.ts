@@ -43,15 +43,26 @@ export async function runAutomatedProbe(
         }
 
         try {
+          const fullConnectorName =
+            (typeof connector?.name === 'string' && connector.name) ||
+            (typeof connectorState?.name === 'string' && connectorState.name) ||
+            '';
+          const projectNumMatch = fullConnectorName.match(/^projects\/(\d+)\//);
+          const resolvedProjectNumber =
+            projectNumMatch?.[1] || (/^\d+$/.test(config.projectId) ? config.projectId : '');
+          const saEmail = resolvedProjectNumber
+            ? `service-${resolvedProjectNumber}@gcp-sa-discoveryengine.iam.gserviceaccount.com`
+            : 'discoveryengine-service-agent';
+
           const result = await api.checkServiceAccountPermissions(
             config.projectId,
-            '',
+            saEmail,
             permissions
           );
           if (result.hasAll) {
             return {
               status: 'pass',
-              message: `All ${permissions.length} verified project IAM permissions are active.`,
+              message: `All ${permissions.length} verified project IAM permissions are active for ${saEmail}.`,
               details: { grantedPermissions: permissions },
               executedAt,
             };

@@ -24,11 +24,108 @@ import {
 } from "../../types";
 import { gapiRequest, getDiscoveryEngineUrl, DISCOVERY_API_VERSION } from "./core";
 
+const ROLE_PERMISSION_PREFIX_MAP: Record<string, string[]> = {
+  "roles/owner": ["*"],
+  "roles/editor": ["*"],
+  "roles/viewer": [
+    "discoveryengine.dataStores.get",
+    "discoveryengine.collections.get",
+    "bigquery.tables.get",
+    "bigquery.datasets.get",
+  ],
+  "roles/discoveryengine.serviceAgent": ["discoveryengine.", "bigquery."],
+  "roles/discoveryengine.admin": ["discoveryengine."],
+  "roles/discoveryengine.editor": ["discoveryengine."],
+  "roles/discoveryengine.viewer": [
+    "discoveryengine.dataStores.get",
+    "discoveryengine.collections.get",
+  ],
+  "roles/bigquery.admin": ["bigquery."],
+  "roles/bigquery.dataEditor": ["bigquery.tables.", "bigquery.datasets.get"],
+  "roles/bigquery.dataViewer": [
+    "bigquery.tables.get",
+    "bigquery.tables.getData",
+    "bigquery.tables.list",
+    "bigquery.datasets.get",
+  ],
+  "roles/bigquery.jobUser": ["bigquery.jobs.create"],
+  "roles/bigquery.user": ["bigquery.jobs.create", "bigquery.datasets.get", "bigquery.tables.list"],
+};
+
+const roleGrantsRequirement = (boundRoles: Set<string>, requirement: string): boolean => {
+  if (requirement.startsWith("roles/")) {
+    return (
+      boundRoles.has(requirement) ||
+      boundRoles.has("roles/owner") ||
+      boundRoles.has("roles/editor")
+    );
+  }
+  for (const role of boundRoles) {
+    const patterns = ROLE_PERMISSION_PREFIX_MAP[role];
+    if (!patterns) continue;
+    for (const pattern of patterns) {
+      if (pattern === "*" || pattern === requirement || (pattern.endsWith(".") && requirement.startsWith(pattern))) {
+        return true;
+      }
+    }
+  }
+  return false;
+};
+
 export const checkServiceAccountPermissions = async (
   projectId: string,
   saEmail: string,
   permissions: string[],
 ): Promise<{ hasAll: boolean; missing: string[] }> => {
+  const hasRoleIdentifiers = permissions.some((p) => p.startsWith("roles/"));
+
+  if (saEmail || hasRoleIdentifiers) {
+    let resolvedSaEmail = saEmail;
+    if (saEmail === "discoveryengine-service-agent") {
+      if (/^\d+$/.test(projectId)) {
+        resolvedSaEmail = `service-${projectId}@gcp-sa-discoveryengine.iam.gserviceaccount.com`;
+      } else {
+        try {
+          const proj = await gapiRequest<{ projectNumber?: string }>(
+            `https://cloudresourcemanager.googleapis.com/v1/projects/${projectId}`,
+            "GET",
+            projectId,
+          );
+          if (proj?.projectNumber) {
+            resolvedSaEmail = `service-${proj.projectNumber}@gcp-sa-discoveryengine.iam.gserviceaccount.com`;
+          }
+        } catch {
+          // Fall back to matching any @gcp-sa-discoveryengine.iam.gserviceaccount.com binding below
+        }
+      }
+    }
+
+    try {
+      const policy = await getProjectIamPolicy(projectId);
+      const boundRoles = new Set<string>();
+      for (const binding of policy.bindings || []) {
+        const members = binding.members || [];
+        const matchesPrincipal = resolvedSaEmail
+          ? members.some((m) =>
+              resolvedSaEmail === "discoveryengine-service-agent"
+                ? m.endsWith("@gcp-sa-discoveryengine.iam.gserviceaccount.com")
+                : m === `serviceAccount:${resolvedSaEmail}` || m === resolvedSaEmail,
+            )
+          : true;
+        if (matchesPrincipal && binding.role) {
+          boundRoles.add(binding.role);
+        }
+      }
+      const missing = permissions.filter((req) => !roleGrantsRequirement(boundRoles, req));
+      return { hasAll: missing.length === 0, missing };
+    } catch (err) {
+      if (hasRoleIdentifiers) {
+        throw err;
+      }
+      // If caller cannot read project IAM policy and requested raw permissions, fall back to testIamPermissions
+    }
+  }
+
   const response = await gapiRequest<{ permissions?: string[] }>(
     `https://cloudresourcemanager.googleapis.com/v1/projects/${projectId}:testIamPermissions`,
     "POST",
@@ -75,6 +172,45 @@ export const listWorkloadIdentityPools = async (
     if (pools) {
       allPools = allPools.concat(
         pools.filter((p) => p.state !== "DELETED"),
+      );
+    }
+    pageToken = response.nextPageToken || "";
+  } while (pageToken);
+  return allPools;
+};
+
+export const listWorkforcePools = async (
+  projectId: string,
+): Promise<WorkloadIdentityPool[]> => {
+  const ancestry = await gapiRequest<{
+    ancestor?: Array<{ resourceId?: { type?: string; id?: string } }>;
+  }>(
+    `https://cloudresourcemanager.googleapis.com/v1/projects/${projectId}:getAncestry`,
+    "POST",
+    projectId,
+    undefined,
+    {},
+  );
+  const orgEntry = (ancestry.ancestor || []).find(
+    (a) => a.resourceId?.type === "organization" && a.resourceId?.id,
+  );
+  const orgId = orgEntry?.resourceId?.id;
+  if (!orgId) {
+    return [];
+  }
+
+  let allPools: WorkloadIdentityPool[] = [];
+  let pageToken = "";
+  do {
+    let url = `https://iam.googleapis.com/v1/locations/global/workforcePools?parent=organizations/${encodeURIComponent(orgId)}&pageSize=50`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+    const response = await gapiRequest<{
+      workforcePools?: WorkloadIdentityPool[];
+      nextPageToken?: string;
+    }>(url, "GET", projectId);
+    if (response.workforcePools) {
+      allPools = allPools.concat(
+        response.workforcePools.filter((p) => p.state !== "DELETED"),
       );
     }
     pageToken = response.nextPageToken || "";

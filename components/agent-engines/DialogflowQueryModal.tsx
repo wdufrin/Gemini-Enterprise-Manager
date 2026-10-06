@@ -76,7 +76,8 @@ const DialogflowQueryModal: React.FC<DialogflowQueryModalProps> = ({ isOpen, onC
                 userMessage.content,
                 sessionId,
                 config,
-                accessToken
+                accessToken,
+                agent.defaultLanguageCode || 'en'
             );
 
             // Dialogflow CX response structure
