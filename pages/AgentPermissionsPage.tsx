@@ -148,11 +148,13 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
             const inheritedBindings: IamBinding[] = projectPolicy.bindings?.filter((binding: IamBinding) => {
                 if (!binding.role) return false;
                 const role = binding.role.toLowerCase();
-                // We care about project-level owner/editor/viewer, or any discovery engine specific role
+                // Include standard owner/editor/viewer, discoveryengine roles, and custom project/org roles
                 return role.includes('roles/owner') || 
                        role.includes('roles/editor') || 
                        role.includes('roles/viewer') || 
-                       role.includes('roles/discoveryengine.');
+                       role.includes('roles/discoveryengine.') ||
+                       role.startsWith('projects/') ||
+                       role.startsWith('organizations/');
             }) || [];
             
             for (const location of locationsToScan) {
@@ -213,8 +215,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                                             });
                                         }
 
-                                        // Keep track of added standard combinations to prevent massive duplication 
-                                        // if a user has both a project role and a specific role
+                                        // Deduplicate on full member + permissionType + inheritance scope so user: vs group: and direct vs inherited are preserved
                                         const seenUserRoles = new Set<string>();
 
                                         for (const binding of allBindings) {
@@ -232,14 +233,13 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                                             
                                             for (const member of members) {
                                                 const displayMember = member.replace(/^(user:|serviceAccount:|group:|domain:)/, '');
-                                                
-                                                // Append (Inherited) to the role conceptually, or just dedup
-                                                const dedupKey = `${displayMember}-${permissionType}`;
+                                                const scopeSuffix = binding.isInherited ? 'inherited' : 'explicit';
+                                                const dedupKey = `${member}-${permissionType}-${scopeSuffix}`;
                                                 
                                                 if (!seenUserRoles.has(dedupKey)) {
                                                     seenUserRoles.add(dedupKey);
                                                     rows.push({
-                                                        id: `${location}-${agent.name}-${member}-${role}-${binding.isInherited ? 'inherited' : 'explicit'}`,
+                                                        id: `${location}-${agent.name}-${member}-${role}-${scopeSuffix}`,
                                                         location: location,
                                                         appName: appName,
                                                         agentName: agent.displayName,

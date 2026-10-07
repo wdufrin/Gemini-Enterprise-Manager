@@ -85,11 +85,29 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
         assistantId: "",
       } as any;
 
-      const res = await api.listUserLicenses(config);
-      const licenses = res.userLicenses || [];
-      setUserLicenses(licenses);
+      const configShortId = licenseConfigName.split("/").pop() || "";
+      const [res, statsRes] = await Promise.all([
+        api.listUserLicenses(config),
+        api.listLicenseConfigsUsageStats(config).catch(() => ({ licenseConfigUsageStats: [] })),
+      ]);
+      const allLicenses = res.userLicenses || [];
+      const matchingLicenses = allLicenses.filter(
+        (l) =>
+          l.licenseAssignmentState !== "UNASSIGNED" &&
+          (!l.licenseConfig ||
+            l.licenseConfig === licenseConfigName ||
+            (configShortId && l.licenseConfig.endsWith(`/${configShortId}`)))
+      );
+      setUserLicenses(matchingLicenses);
 
-      const used = licenses.length;
+      const statMatch = (statsRes.licenseConfigUsageStats || []).find(
+        (s: { licenseConfig?: string; usedLicenseCount?: number | string }) =>
+          s.licenseConfig === licenseConfigName ||
+          (configShortId && s.licenseConfig?.endsWith(`/${configShortId}`))
+      );
+      const used = statMatch?.usedLicenseCount !== undefined
+        ? Number(statMatch.usedLicenseCount) || 0
+        : matchingLicenses.length;
       const available = Math.max(0, allocatedCount - used);
 
       setUsageStats({ used, available });
@@ -101,7 +119,7 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
     } finally {
       setIsFetchingUsage(false);
     }
-  }, [project, location, allocatedCount]);
+  }, [project, location, allocatedCount, licenseConfigName]);
 
   React.useEffect(() => {
     if (isOpen && project !== "unknown") {

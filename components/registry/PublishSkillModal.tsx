@@ -173,14 +173,19 @@ ${description.trim()}`;
         payload.publisher = `projects/${config.projectId}/locations/${config.appLocation || 'global'}/publishers/${publisherNamespace.trim()}`;
       }
 
-      await api.createRegistrySkill(payload, config, sanitizedId);
+      const createdSkill = await api.createRegistrySkill(payload, config, sanitizedId);
 
       // If user selected active, poll until skill is ready and revision is ACTIVE
       if (targetState === 'TARGET_STATE_ACTIVE') {
-        const skillResourceName = payload.publisher
+        const fallbackResourceName = payload.publisher
           ? `projects/${config.projectId}/locations/${config.appLocation || 'global'}/skills/${sanitizedId}`
           : `projects/${config.projectId}/locations/${config.appLocation || 'global'}/skills/private-${sanitizedId}`;
+        const skillResourceName =
+          createdSkill?.name && createdSkill.name.includes('/skills/')
+            ? createdSkill.name
+            : fallbackResourceName;
 
+        let activated = false;
         for (let i = 0; i < 10; i++) {
           await new Promise((r) => setTimeout(r, 2500));
           try {
@@ -199,11 +204,19 @@ ${description.trim()}`;
                 ['default_revision', 'target_state'],
                 config
               );
+              activated = true;
               break;
             }
           } catch (pollErr) {
             console.warn('Waiting for initial revision ingestion...', pollErr);
           }
+        }
+
+        if (!activated) {
+          onSkillPublished();
+          throw new Error(
+            'Skill was created in Draft state, but initial revision ingestion did not complete within 25 seconds. You can activate it from the Skill Details modal once ingestion finishes.'
+          );
         }
       }
 

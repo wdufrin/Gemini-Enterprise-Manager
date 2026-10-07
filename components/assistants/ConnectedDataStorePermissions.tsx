@@ -262,6 +262,8 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
       );
 
       // Loop for each target member
+      let failedStepCount = 0;
+
       for (const member of members) {
         addLog(`\n======================================================`);
         addLog(`Syncing Permissions for Member: ${member}`);
@@ -273,7 +275,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
             wizardGrantProjectRole ? 'Granting' : 'Revoking'
           } project-level predefined role '${AGENTSPACE_RESTRICTED_USER_ROLE}' ---`
         );
-        await syncPolicyRMW(
+        const ok1a = await syncPolicyRMW(
           `Project '${projectId}'`,
           () => api.getProjectIamPolicy(projectId),
           (p) => api.setProjectIamPolicy(projectId, p),
@@ -283,11 +285,12 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
           isDryRun,
           addLog
         );
+        if (!ok1a) failedStepCount++;
 
         // Step 1b: Project-level Gemini Enterprise NotebookLM User role binding
         if (wizardGrantNotebookLmRole) {
           addLog(`--- Step 1b: Granting '${NOTEBOOK_LM_USER_ROLE}' on Project '${projectId}' ---`);
-          await syncPolicyRMW(
+          const ok1b = await syncPolicyRMW(
             `Project '${projectId}' (NotebookLM)`,
             () => api.getProjectIamPolicy(projectId),
             (p) => api.setProjectIamPolicy(projectId, p),
@@ -297,11 +300,12 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
             isDryRun,
             addLog
           );
+          if (!ok1b) failedStepCount++;
         }
 
         // Step 2: App Engine role binding
         addLog(`--- Step 2: ${wizardGrantEngineRole ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on App Engine '${appId}' ---`);
-        await syncPolicyRMW(
+        const ok2 = await syncPolicyRMW(
           `App Engine '${appId}'`,
           () => api.getEngineIamPolicy(engine.name, config),
           (p) => api.setEngineIamPolicy(engine.name, p, config),
@@ -311,12 +315,13 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
           isDryRun,
           addLog
         );
+        if (!ok2) failedStepCount++;
 
         // Step 3: DataConnectors and Entities
         for (const conn of connectorsToSync) {
           const shouldGrantConn = !!selectedResourcesForGrant[`connector:${conn.id}`];
           addLog(`--- Step 3: ${shouldGrantConn ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on DataConnector Collection '${conn.id}' ---`);
-          await syncPolicyRMW(
+          const okConn = await syncPolicyRMW(
             `DataConnector Collection '${conn.id}'`,
             () => api.getCollectionIamPolicy(conn.id, config),
             (p) => api.setCollectionIamPolicy(conn.id, p, config),
@@ -326,11 +331,12 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
             isDryRun,
             addLog
           );
+          if (!okConn) failedStepCount++;
 
           for (const ent of conn.entities) {
             const shouldGrantEnt = !!selectedResourcesForGrant[`entity:${ent.id}`];
             addLog(`  Sub-step: ${shouldGrantEnt ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on Entity DataStore '${ent.id}' under '${conn.id}'`);
-            await syncPolicyRMW(
+            const okEnt = await syncPolicyRMW(
               `Entity DataStore '${ent.id}'`,
               () => api.getDataStoreIamPolicy(ent.id, config),
               (p) => api.setDataStoreIamPolicy(ent.id, p, config),
@@ -340,6 +346,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
               isDryRun,
               addLog
             );
+            if (!okEnt) failedStepCount++;
           }
         }
 
@@ -347,7 +354,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         for (const ds of legacyDataStoresToSync) {
           const shouldGrantDs = !!selectedResourcesForGrant[`datastore:${ds.id}`];
           addLog(`--- Step 4: ${shouldGrantDs ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on Legacy DataStore '${ds.id}' ---`);
-          await syncPolicyRMW(
+          const okDs = await syncPolicyRMW(
             `Legacy DataStore '${ds.id}'`,
             () => api.getDataStoreIamPolicy(ds.id, config),
             (p) => api.setDataStoreIamPolicy(ds.id, p, config),
@@ -357,15 +364,22 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
             isDryRun,
             addLog
           );
+          if (!okDs) failedStepCount++;
         }
       }
 
-      addLog(`\n[COMPLETE ✓] All synchronization operations finished successfully!`);
-      setSuccessMessage(
-        isDryRun
-          ? 'Dry-run preview completed successfully without making changes.'
-          : `Successfully synchronized DataStore permissions for ${members.length} member(s)!`
-      );
+      if (failedStepCount > 0) {
+        const failMsg = `Synchronization finished with ${failedStepCount} failed policy operation(s). Check the execution log for details.`;
+        addLog(`\n[WARNING ⚠️] ${failMsg}`);
+        setError(failMsg);
+      } else {
+        addLog(`\n[COMPLETE ✓] All synchronization operations finished successfully!`);
+        setSuccessMessage(
+          isDryRun
+            ? 'Dry-run preview completed successfully without making changes.'
+            : `Successfully synchronized DataStore permissions for ${members.length} member(s)!`
+        );
+      }
 
       if (!isDryRun) {
         await refreshAll();

@@ -617,13 +617,22 @@ export const getDocument = async (name: string, config: Config) => {
 export const importDocuments = async (
   dataStoreName: string,
   gcsUris: string[],
-  bucket: string,
+  _bucket: string,
   config: Config,
+  dataSchema?: string,
 ): Promise<Operation> => {
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const firstUri = (gcsUris[0] || "").toLowerCase();
+  const inferredSchema =
+    dataSchema ||
+    (firstUri.endsWith(".csv")
+      ? "csv"
+      : firstUri.endsWith(".jsonl") || firstUri.endsWith(".ndjson")
+        ? "document"
+        : "content");
   const payload = {
     reconciliationMode: "INCREMENTAL",
-    gcsSource: { inputUris: gcsUris, dataSchema: "content" },
+    gcsSource: { inputUris: gcsUris, dataSchema: inferredSchema },
   };
   return gapiRequest<Operation>(
     `${baseUrl}/${DISCOVERY_API_BETA}/${dataStoreName}/branches/default_branch/documents:import`,

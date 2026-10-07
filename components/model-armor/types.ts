@@ -54,7 +54,12 @@ export const getTemplateFilters = (template: any) => {
     type: f.filterType,
     level: f.confidenceLevel,
   }));
-  const sdpActive = fc.sdpSettings?.basicConfig?.filterEnforcement === 'ENABLED';
+  const sdpActive =
+    fc.sdpSettings?.basicConfig?.filterEnforcement === 'ENABLED' ||
+    Boolean(
+      fc.sdpSettings?.advancedConfig?.inspectTemplate ||
+        fc.sdpSettings?.advancedConfig?.deidentifyTemplate
+    );
   const jailbreakActive = fc.piAndJailbreakFilterSettings?.filterEnforcement === 'ENABLED';
   const maliciousUrisActive = fc.maliciousUriFilterSettings?.filterEnforcement === 'ENABLED';
 

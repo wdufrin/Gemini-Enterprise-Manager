@@ -239,13 +239,13 @@ export const PrivateRoutingConfig: React.FC<PrivateRoutingConfigProps> = ({
               value={customDomain}
               onChange={(e) => setCustomDomain(e.target.value)}
               placeholder="gemini.mycompany.com"
-              aria-invalid={!isCustomDomainValid}
+              aria-invalid={Boolean(customDomain) && !isCustomDomainValid}
               className={`w-full bg-slate-800 border rounded-md px-3 py-1.5 text-xs text-white focus:outline-none ${
-                isCustomDomainValid ? 'border-slate-750' : 'border-red-500'
+                !customDomain || isCustomDomainValid ? 'border-slate-750' : 'border-red-500'
               }`}
               disabled={isDeploying}
             />
-            {!isCustomDomainValid && (
+            {Boolean(customDomain) && !isCustomDomainValid && (
               <p className="mt-1 text-xs text-red-400">
                 Enter a valid domain such as gemini.mycompany.com.
               </p>

@@ -19,11 +19,21 @@ import { getGapiClient } from "../gapiService";
 import { gapiRequest } from "./core";
 
 export const listBuckets = async (projectId: string): Promise<{ items?: GcsBucket[] }> => {
-  return gapiRequest<{ items?: GcsBucket[] }>(
-    `https://storage.googleapis.com/storage/v1/b?project=${projectId}`,
-    "GET",
-    projectId,
-  );
+  const allItems: GcsBucket[] = [];
+  let pageToken: string | undefined;
+  do {
+    const tokenParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "";
+    const res = await gapiRequest<{ items?: GcsBucket[]; nextPageToken?: string }>(
+      `https://storage.googleapis.com/storage/v1/b?project=${projectId}${tokenParam}`,
+      "GET",
+      projectId,
+    );
+    if (res?.items) {
+      allItems.push(...res.items);
+    }
+    pageToken = res?.nextPageToken;
+  } while (pageToken);
+  return { items: allItems };
 };
 
 export const listGcsObjects = async (
@@ -31,9 +41,21 @@ export const listGcsObjects = async (
   prefix?: string,
   projectId?: string,
 ): Promise<{ items?: GcsObject[] }> => {
-  let url = `https://storage.googleapis.com/storage/v1/b/${bucket}/o`;
-  if (prefix) url += `?prefix=${encodeURIComponent(prefix)}`;
-  return gapiRequest<{ items?: GcsObject[] }>(url, "GET", projectId);
+  const allItems: GcsObject[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params: string[] = [];
+    if (prefix) params.push(`prefix=${encodeURIComponent(prefix)}`);
+    if (pageToken) params.push(`pageToken=${encodeURIComponent(pageToken)}`);
+    const query = params.length > 0 ? `?${params.join("&")}` : "";
+    const url = `https://storage.googleapis.com/storage/v1/b/${bucket}/o${query}`;
+    const res = await gapiRequest<{ items?: GcsObject[]; nextPageToken?: string }>(url, "GET", projectId);
+    if (res?.items) {
+      allItems.push(...res.items);
+    }
+    pageToken = res?.nextPageToken;
+  } while (pageToken);
+  return { items: allItems };
 };
 
 export const getGcsObjectContent = async (
@@ -94,16 +116,28 @@ export const downloadGcsObject = async (
   bucketInfo: string,
   objectName: string,
   accessToken: string,
+  projectId?: string,
 ) => {
   const bucketArray = bucketInfo.split("/");
   const bucketName = bucketArray[bucketArray.length - 1]; // ensure we just have the name
   const url = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodeURIComponent(objectName)}?alt=media`;
 
+  let resolvedToken = accessToken;
+  if (!resolvedToken) {
+    const client = await getGapiClient();
+    resolvedToken = client.getToken()?.access_token || "";
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${resolvedToken}`,
+  };
+  if (projectId) {
+    headers["X-Goog-User-Project"] = projectId;
+  }
+
   const response = await fetch(url, {
     method: "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
+    headers,
   });
 
   if (!response.ok) {

@@ -185,9 +185,9 @@ export async function runAutomatedProbe(
         }
 
         if (authType === 'OAUTH') {
-          const hasClientId = !!actionParams.client_id;
-          const hasScopes = !!actionParams.scopes;
-          if (!hasClientId && !connectorState.name) {
+          const hasClientId = !!(actionParams.client_id || connectorState.params?.client_id);
+          const hasScopes = !!(actionParams.scopes || connectorState.params?.scopes);
+          if (!hasClientId) {
             return {
               status: 'warning',
               message: 'OAuth auth_type specified but Client ID is not configured.',

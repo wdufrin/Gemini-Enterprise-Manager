@@ -81,8 +81,20 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   const handleToggleActiveState = async () => {
     setIsUpdating(true);
     try {
-      const newState = skill.state === 'DISABLED' ? 'ENABLED' : 'DISABLED';
-      await api.updateAgent(skill, { state: newState }, config);
+      const isDisabled = skill.state === 'DISABLED';
+      if (isDisabled) {
+        if (typeof api.enableAgent === 'function') {
+          await api.enableAgent(skill.name, config);
+        } else {
+          await api.updateAgent(skill, { state: 'ENABLED' }, config);
+        }
+      } else {
+        if (typeof api.disableAgent === 'function') {
+          await api.disableAgent(skill.name, config);
+        } else {
+          await api.updateAgent(skill, { state: 'DISABLED' }, config);
+        }
+      }
       onSkillUpdated();
     } catch (err) {
       console.error('Failed to toggle active state:', err);

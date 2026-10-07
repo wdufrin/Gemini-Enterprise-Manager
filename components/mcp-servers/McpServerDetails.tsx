@@ -42,6 +42,13 @@ const McpServerDetails: React.FC<McpServerDetailsProps> = ({ service, config, on
     const [error, setError] = useState<string | null>(null);
     const [isJsonExpanded, setIsJsonExpanded] = useState(false);
     const [copySuccess, setCopySuccess] = useState<string | null>(null);
+    const [mcpEndpointUrl, setMcpEndpointUrl] = useState<string>(
+        service.uri ? `${service.uri.replace(/\/$/, '')}/mcp` : ''
+    );
+    const [mcpTools, setMcpTools] = useState<Array<{ name: string; description?: string; inputSchema?: unknown }>>([]);
+    const [isProbingMcp, setIsProbingMcp] = useState(false);
+    const [mcpProbeError, setMcpProbeError] = useState<string | null>(null);
+    const [hasProbedMcp, setHasProbedMcp] = useState(false);
 
     useEffect(() => {
         const fetchDetails = async () => {
@@ -58,6 +65,26 @@ const McpServerDetails: React.FC<McpServerDetailsProps> = ({ service, config, on
         };
         fetchDetails();
     }, [service.name, config]);
+
+    const handleProbeMcpTools = async (urlOverride?: string) => {
+        const targetUrl = (urlOverride ?? mcpEndpointUrl).trim();
+        if (!targetUrl) {
+            setMcpProbeError('Please enter an MCP endpoint URL to probe.');
+            return;
+        }
+        setIsProbingMcp(true);
+        setMcpProbeError(null);
+        setHasProbedMcp(true);
+        try {
+            const tools = await api.listMcpTools(config.projectId, targetUrl);
+            setMcpTools(tools || []);
+        } catch (err: any) {
+            setMcpTools([]);
+            setMcpProbeError(err?.message || 'Failed to list MCP tools from endpoint.');
+        } finally {
+            setIsProbingMcp(false);
+        }
+    };
     
     // Helper to extract A2A info
     const getA2aInfo = (svc: CloudRunService) => {
@@ -117,6 +144,60 @@ const McpServerDetails: React.FC<McpServerDetailsProps> = ({ service, config, on
 
         return (
             <>
+                <div className="mt-6 border-t border-gray-700 pt-6">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-lg font-semibold text-white">MCP Tools Inspector (`tools/list`)</h3>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-900 text-indigo-200 border border-indigo-700">JSON-RPC 2.0</span>
+                        </div>
+                    </div>
+                    <div className="bg-gray-900/60 border border-gray-700 rounded-lg p-4 space-y-3">
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                                type="text"
+                                value={mcpEndpointUrl}
+                                onChange={(e) => setMcpEndpointUrl(e.target.value)}
+                                placeholder="https://service-url.run.app/mcp"
+                                className="flex-1 bg-gray-800 border border-gray-600 rounded-md px-3 py-1.5 text-xs text-white font-mono focus:ring-blue-500 focus:border-blue-500"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => handleProbeMcpTools()}
+                                disabled={isProbingMcp || !mcpEndpointUrl.trim()}
+                                className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-600"
+                            >
+                                {isProbingMcp ? 'Probing MCP...' : 'Probe MCP Tools'}
+                            </button>
+                        </div>
+                        {mcpProbeError && (
+                            <div className="p-2.5 bg-red-900/30 border border-red-700/60 rounded text-xs text-red-300">
+                                {mcpProbeError}
+                            </div>
+                        )}
+                        {hasProbedMcp && !isProbingMcp && !mcpProbeError && (
+                            mcpTools.length > 0 ? (
+                                <div className="space-y-2">
+                                    <p className="text-xs text-green-400 font-semibold">
+                                        Discovered {mcpTools.length} MCP tool(s):
+                                    </p>
+                                    <ul className="divide-y divide-gray-700 border border-gray-700 rounded-md bg-gray-800/70 max-h-60 overflow-y-auto">
+                                        {mcpTools.map((tool) => (
+                                            <li key={tool.name} className="p-2.5 text-xs">
+                                                <div className="font-mono font-bold text-blue-300">{tool.name}</div>
+                                                {tool.description && (
+                                                    <div className="text-gray-300 mt-0.5">{tool.description}</div>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ) : (
+                                <p className="text-xs text-gray-400 italic">No tools returned by MCP server.</p>
+                            )
+                        )}
+                    </div>
+                </div>
+
                 {isA2a && (
                     <div className="mt-6 border-t border-gray-700 pt-6">
                         <div className="flex items-center justify-between mb-2">

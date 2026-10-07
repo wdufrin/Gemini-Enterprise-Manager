@@ -111,11 +111,21 @@ export const updateDatasetAccess = async (
 export const listBigQueryDatasets = async (
   projectId: string,
 ): Promise<{ datasets?: BigQueryDataset[]; nextPageToken?: string }> => {
-  return gapiRequest<{ datasets?: BigQueryDataset[]; nextPageToken?: string }>(
-    `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets`,
-    "GET",
-    projectId,
-  );
+  const allDatasets: BigQueryDataset[] = [];
+  let pageToken: string | undefined;
+  do {
+    const tokenParam = pageToken ? `?pageToken=${encodeURIComponent(pageToken)}` : "";
+    const res = await gapiRequest<{ datasets?: BigQueryDataset[]; nextPageToken?: string }>(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets${tokenParam}`,
+      "GET",
+      projectId,
+    );
+    if (res?.datasets) {
+      allDatasets.push(...res.datasets);
+    }
+    pageToken = res?.nextPageToken;
+  } while (pageToken);
+  return { datasets: allDatasets };
 };
 
 export const createBigQueryDataset = async (
@@ -140,11 +150,21 @@ export const listBigQueryTables = async (
   projectId: string,
   datasetId: string,
 ): Promise<{ tables?: BigQueryTable[]; nextPageToken?: string }> => {
-  return gapiRequest<{ tables?: BigQueryTable[]; nextPageToken?: string }>(
-    `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables?maxResults=1000`,
-    "GET",
-    projectId,
-  );
+  const allTables: BigQueryTable[] = [];
+  let pageToken: string | undefined;
+  do {
+    const tokenParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "";
+    const res = await gapiRequest<{ tables?: BigQueryTable[]; nextPageToken?: string }>(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables?maxResults=1000${tokenParam}`,
+      "GET",
+      projectId,
+    );
+    if (res?.tables) {
+      allTables.push(...res.tables);
+    }
+    pageToken = res?.nextPageToken;
+  } while (pageToken);
+  return { tables: allTables };
 };
 
 export const createBigQueryTable = async (

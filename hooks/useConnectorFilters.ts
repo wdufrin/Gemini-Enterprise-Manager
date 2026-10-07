@@ -198,8 +198,9 @@ export function useConnectorFilters({
     const incChanged = !areFilterMapsEqual(inclusionFilters, initialInclusionFilters);
     const excChanged = !areFilterMapsEqual(exclusionFilters, initialExclusionFilters);
     const sqlChanged = customSqlFilter.trim() !== initialCustomSqlFilter.trim();
-    return incChanged || excChanged || sqlChanged;
-  }, [inclusionFilters, exclusionFilters, customSqlFilter, initialInclusionFilters, initialExclusionFilters, initialCustomSqlFilter]);
+    const entityFiltersChanged = JSON.stringify(perEntityFilters) !== JSON.stringify(initialPerEntityFilters);
+    return incChanged || excChanged || sqlChanged || entityFiltersChanged;
+  }, [inclusionFilters, exclusionFilters, customSqlFilter, perEntityFilters, initialInclusionFilters, initialExclusionFilters, initialCustomSqlFilter, initialPerEntityFilters]);
 
   // Unconfigured suggested key definitions
   const unconfiguredDefinitions = useMemo<FilterKeyDefinition[]>(() => {

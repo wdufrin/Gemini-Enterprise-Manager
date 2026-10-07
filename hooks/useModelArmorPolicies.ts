@@ -107,9 +107,16 @@ export function useModelArmorPolicies(projectNumber: string, activeTab: 'logs' |
               const appLabel = `${engineState.displayName} (${loc.toUpperCase()} / Assistant: ${assistantId})`;
               for (const templateName of [armor.userPromptTemplate, armor.responseTemplate]) {
                 if (!templateName) continue;
-                newAssociations[templateName] = newAssociations[templateName] || [];
-                if (!newAssociations[templateName].includes(appLabel)) {
-                  newAssociations[templateName].push(appLabel);
+                const keys = [templateName];
+                const suffix = templateName.match(/locations\/[^/]+\/templates\/[^/]+$/)?.[0];
+                if (suffix && suffix !== templateName) {
+                  keys.push(suffix);
+                }
+                for (const key of keys) {
+                  newAssociations[key] = newAssociations[key] || [];
+                  if (!newAssociations[key].includes(appLabel)) {
+                    newAssociations[key].push(appLabel);
+                  }
                 }
               }
             }

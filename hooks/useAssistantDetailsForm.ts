@@ -301,6 +301,10 @@ export function useAssistantDetailsForm(
         }
       }
 
+      if (config.appId) {
+        await api.setEngineIamPolicy(config.appId, updatedPolicy, config);
+        setIsIamDirty(false);
+      }
       await api.setProjectIamPolicy(config.projectId, projectPolicy);
       setSuccess(
         dataStoreAccessControlEnabled
@@ -344,7 +348,11 @@ export function useAssistantDetailsForm(
 
       const origSys = assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '';
       const origStyle = assistant.styleAndFormattingInstructions || '';
-      if (formData.additionalSystemInstruction !== origSys || formData.additionalSystemInstruction !== origStyle) {
+      const origCombined =
+        origSys && origStyle && origSys.trim() !== origStyle.trim()
+          ? `${origSys}\n\n${origStyle}`
+          : origSys || origStyle || '';
+      if (formData.additionalSystemInstruction !== origCombined) {
         payload.generationConfig = {
           systemInstruction: {
             additionalSystemInstruction: formData.additionalSystemInstruction,
@@ -480,7 +488,11 @@ export function useAssistantDetailsForm(
 
     const origSys = assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '';
     const origStyle = assistant.styleAndFormattingInstructions || '';
-    if (formData.additionalSystemInstruction !== origSys || formData.additionalSystemInstruction !== origStyle) {
+    const origCombined =
+      origSys && origStyle && origSys.trim() !== origStyle.trim()
+        ? `${origSys}\n\n${origStyle}`
+        : origSys || origStyle || '';
+    if (formData.additionalSystemInstruction !== origCombined) {
       payload.generationConfig = {
         systemInstruction: {
           additionalSystemInstruction: formData.additionalSystemInstruction,
@@ -583,7 +595,9 @@ export function useAssistantDetailsForm(
     }
 
     if (enginePayload) {
-      const engineUrl = `${baseUrl}/v1alpha/projects/${config.projectId}/locations/global/collections/default_collection/engines/${config.appId}?updateMask=sessionConfig.sessionTtl`;
+      const engineLoc = config.appLocation || 'global';
+      const engineCol = config.collectionId || 'default_collection';
+      const engineUrl = `${baseUrl}/v1alpha/projects/${config.projectId}/locations/${engineLoc}/collections/${engineCol}/engines/${config.appId}?updateMask=sessionConfig.sessionTtl`;
       if (result) result += '\n';
       result += `# Update Engine (Chat Retention)\ncurl -X PATCH \\\n  "${engineUrl}" \\\n  -H "Authorization: Bearer \\$(gcloud auth print-access-token)" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Goog-User-Project: ${config.projectId}" \\\n  -d '${JSON.stringify(enginePayload, null, 2)}'`;
     }

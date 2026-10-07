@@ -414,6 +414,7 @@ export function useLicenseManagement(projectNumber: string) {
       cutoff.setDate(cutoff.getDate() - days);
 
       const toDelete = userLicenses.filter((l) => {
+        if (l.licenseAssignmentState === 'UNASSIGNED') return false;
         if (!l.lastLoginTime) {
           if (!includeNeverLoggedIn) return false;
           if (l.createTime) {
@@ -434,9 +435,14 @@ export function useLicenseManagement(projectNumber: string) {
         }
 
         const principalSet = new Set(principals);
-        const filterFn = (prev: UserLicense[]) => prev.filter((l) => !principalSet.has(l.userPrincipal));
-        setUserLicenses(filterFn);
-        await updateCachedUserLicenses(projectNumber, apiConfig.userStoreId, filterFn);
+        const updateFn = (prev: UserLicense[]) =>
+          prev.map((l) =>
+            principalSet.has(l.userPrincipal)
+              ? { ...l, licenseAssignmentState: 'UNASSIGNED' }
+              : l
+          );
+        setUserLicenses(updateFn);
+        await updateCachedUserLicenses(projectNumber, apiConfig.userStoreId, updateFn);
       }
 
       setIsPruneModalOpen(false);

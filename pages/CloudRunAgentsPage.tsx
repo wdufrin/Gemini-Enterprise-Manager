@@ -163,8 +163,25 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
 
         try {
             const envVars = service.template?.containers?.[0]?.env || [];
-            const envString = JSON.stringify(envVars.reduce((acc: any, curr) => {
-                acc[curr.name] = curr.value || 'SECRET';
+            const SAFE_ENV_KEYS = new Set([
+                'MODEL',
+                'AGENT_DISPLAY_NAME',
+                'AGENT_DESCRIPTION',
+                'PROVIDER_ORGANIZATION',
+                'AGENT_URL',
+                'GOOGLE_GENAI_USE_VERTEXAI',
+                'GOOGLE_CLOUD_PROJECT',
+                'GOOGLE_CLOUD_LOCATION',
+                'PORT',
+            ]);
+            const envString = JSON.stringify(envVars.reduce((acc: Record<string, string>, curr) => {
+                if (!curr.value) {
+                    acc[curr.name] = 'SECRET_REF';
+                } else if (SAFE_ENV_KEYS.has(curr.name.toUpperCase()) && !/key|secret|token|password|credential/i.test(curr.name)) {
+                    acc[curr.name] = curr.value;
+                } else {
+                    acc[curr.name] = '[REDACTED]';
+                }
                 return acc;
             }, {}));
 
@@ -207,7 +224,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
             setAnalysisCache(prev => ({ ...prev, [service.name]: result }));
         } catch (err: any) {
             console.error(`Analysis failed for ${service.name}:`, err);
-            // Don't set global error to avoid blocking UI, just log or maybe set local error state if needed
+            setAnalysisError(err?.message || `AI analysis failed for ${service.name.split('/').pop()}.`);
         } finally {
             setAnalyzingServices(prev => {
                 const next = new Set(prev);
@@ -293,6 +310,17 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
             let url = selectedService.uri;
             let payload: any = { prompt: prompt };
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+            try {
+                const gapiClient = (window as any).gapi?.client;
+                const token = gapiClient?.getToken?.()?.access_token;
+                const parsedHost = new URL(url).hostname.toLowerCase();
+                if (token && (parsedHost.endsWith('.run.app') || parsedHost.endsWith('.googleapis.com'))) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+            } catch {
+                // Proceed without auth header if URL parsing or gapi token lookup fails
+            }
 
             // Prefer AI analysis if available, else heuristic
             const isA2a = currentAnalysis ? currentAnalysis.isA2a : heuristicAnalysis?.isA2a;

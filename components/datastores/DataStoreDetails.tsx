@@ -232,8 +232,26 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
         if (currentOperation.error) {
           throw new Error(`Import failed: ${currentOperation.error.message || `Code ${currentOperation.error.code}`}`);
         }
-        
-        addUploadLog("  - Import operation completed successfully!");
+
+        const failureCount = Number((currentOperation.metadata as any)?.failureCount || 0);
+        const successCount = Number((currentOperation.metadata as any)?.successCount || 0);
+        const errorSamples = ((currentOperation.response as any)?.errorSamples || []) as Array<{ message?: string; code?: number }>;
+
+        if (failureCount > 0) {
+          addUploadLog(`  - WARNING: Import finished with ${failureCount} failed document(s) and ${successCount} succeeded.`);
+          for (const sample of errorSamples.slice(0, 5)) {
+            if (sample?.message) {
+              addUploadLog(`    • Error Sample: ${sample.message}`);
+            }
+          }
+          if (successCount === 0) {
+            throw new Error(
+              `Document import failed for all ${failureCount} item(s). ${errorSamples[0]?.message || 'Check schema and file format.'}`
+            );
+          }
+        } else {
+          addUploadLog("  - Import operation completed successfully!");
+        }
         addUploadLog("Refreshing document list...");
         await fetchDocuments();
         

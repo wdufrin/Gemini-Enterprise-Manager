@@ -78,30 +78,35 @@ export const fetchBuildLogs = async (
     const build = await getCloudBuild(projectId, buildId);
 
     // Strategy 1: Attempt direct log access via Cloud Logging (works if Cloud Logging is enabled)
-    const filter = `resource.type="build" AND resource.labels.build_id="${buildId}"`;
-    const res = await gapiRequest<{ entries?: LogEntry[] }>(
-      `https://logging.googleapis.com/v2/entries:list`,
-      "POST",
-      projectId,
-      undefined,
-      {
-        resourceNames: [`projects/${projectId}`],
-        filter: filter,
-        orderBy: "timestamp asc",
-        pageSize: 1000,
-      },
-    );
+    let logs: string[] = [];
+    try {
+      const filter = `resource.type="build" AND resource.labels.build_id="${buildId}"`;
+      const res = await gapiRequest<{ entries?: LogEntry[] }>(
+        `https://logging.googleapis.com/v2/entries:list`,
+        "POST",
+        projectId,
+        undefined,
+        {
+          resourceNames: [`projects/${projectId}`],
+          filter: filter,
+          orderBy: "timestamp asc",
+          pageSize: 1000,
+        },
+      );
 
-    let logs = (res.entries || []).map(
-      (e: LogEntry) =>
-        e.textPayload || JSON.stringify(e.jsonPayload || e.protoPayload),
-    );
+      logs = (res.entries || []).map(
+        (e: LogEntry) =>
+          e.textPayload || JSON.stringify(e.jsonPayload || e.protoPayload),
+      );
 
-    if (logs.length > 0) {
-      return logs;
+      if (logs.length > 0) {
+        return logs;
+      }
+    } catch (loggingErr) {
+      console.warn("Cloud Logging fetch failed, falling back to GCS logsBucket:", loggingErr);
     }
 
-    // Strategy 2: If Cloud Logging returns nothing, fallback to the Legacy GCS bucket
+    // Strategy 2: If Cloud Logging returns nothing or fails, fallback to the Legacy GCS bucket
     if (build.logsBucket) {
       const bucketName = build.logsBucket.replace("gs://", "");
       const objectName = `log-${buildId}.txt`;

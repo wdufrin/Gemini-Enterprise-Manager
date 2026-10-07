@@ -59,6 +59,7 @@ const PruneLicensesModal: React.FC<PruneLicensesModalProps> = ({
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
     return userLicenses.filter(l => {
+      if (l.licenseAssignmentState === 'UNASSIGNED') return false;
       if (!l.lastLoginTime) {
         if (!includeNeverLoggedIn) return false;
         if (l.createTime) {

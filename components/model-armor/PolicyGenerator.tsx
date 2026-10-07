@@ -154,9 +154,9 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
     };
   }, [config]);
 
-  const templateResourceName = `projects/${projectId}/locations/global/templates/${policyName}`;
-
   const selectedEngine = selectedEngineIndex >= 0 ? engines[selectedEngineIndex] ?? null : null;
+  const templateLocation = selectedEngine?.location || 'global';
+  const templateResourceName = `projects/${projectId}/locations/${templateLocation}/templates/${policyName}`;
 
   const targetAssistant = useMemo(() => {
     if (!selectedEngine || selectedEngine.status !== 'ok') return null;
@@ -186,7 +186,7 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
   -H "Content-Type: application/json" \\
   -d '${JSON.stringify(generatedJson)}' \\
-  "https://modelarmor.googleapis.com/v1/projects/${projectId}/locations/global/templates?templateId=${policyName}"`;
+  "https://modelarmor.googleapis.com/v1/projects/${projectId}/locations/${templateLocation}/templates?templateId=${policyName}"`;
 
   const attachCommand = useMemo(() => {
     if (!selectedEngine) return '';
@@ -239,7 +239,7 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
     }
     setIsCreating(true);
     try {
-      const created = await api.createModelArmorTemplate(projectId, 'global', policyName.trim(), generatedJson);
+      const created = await api.createModelArmorTemplate(projectId, templateLocation, policyName.trim(), generatedJson);
       const createdName = (created as { name?: string } | null)?.name;
       setCreateResult(
         createdName

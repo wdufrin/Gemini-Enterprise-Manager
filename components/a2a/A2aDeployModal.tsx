@@ -255,6 +255,7 @@ This function is deployed using Google Cloud Build.
             const errMsg = err instanceof Error ? err.message : 'Deployment failed';
             setError(errMsg);
             addLog(`Error: ${errMsg}`);
+        } finally {
             setIsDeploying(false);
         }
     };

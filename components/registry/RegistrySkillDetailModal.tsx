@@ -142,17 +142,25 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
         targetConfig.appId = engineId || '';
       }
 
+      const agentResourceName = `projects/${targetConfig.projectId}/locations/${targetConfig.appLocation}/collections/${targetConfig.collectionId || 'default_collection'}/engines/${targetConfig.appId}/assistants/${targetConfig.assistantId || 'default_assistant'}/agents/${sanitizedAgentId}`;
+      let deployedAgent: Agent;
       try {
-        await api.createAgent(payload, targetConfig, sanitizedAgentId, true);
+        deployedAgent = await api.createAgent(payload, targetConfig, sanitizedAgentId, true);
       } catch (createErr: unknown) {
         const errMsg = toErrorMessage(createErr);
         const isConflict = errMsg.includes('already exists') || (typeof createErr === 'object' && createErr !== null && 'status' in createErr && (createErr as { status: unknown }).status === 409);
         if (isConflict) {
-          const agentResourceName = `projects/${targetConfig.projectId}/locations/${targetConfig.appLocation}/collections/${targetConfig.collectionId || 'default_collection'}/engines/${targetConfig.appId}/assistants/${targetConfig.assistantId || 'default_assistant'}/agents/${sanitizedAgentId}`;
-          await api.updateAgent({ name: agentResourceName, id: sanitizedAgentId, displayName: skill.displayName || skill.name }, payload, targetConfig);
+          deployedAgent = await api.updateAgent({ name: agentResourceName, id: sanitizedAgentId, displayName: skill.displayName || skill.name }, payload, targetConfig);
         } else {
           throw createErr;
         }
+      }
+
+      if (typeof api.promoteSkillToOrg === 'function') {
+        await api.promoteSkillToOrg(
+          deployedAgent?.name ? deployedAgent : { name: agentResourceName, displayName: skill.displayName || sanitizedAgentId },
+          targetConfig
+        );
       }
 
       setDeploySuccess(true);

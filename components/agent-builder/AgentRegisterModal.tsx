@@ -156,19 +156,36 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
         description,
       };
 
-      if (builderTab === 'adk' && regDetails.reasoningEngine.trim()) {
+      if (builderTab === 'adk') {
+        if (!regDetails.reasoningEngine.trim()) {
+          throw new Error('Agent Engine (Reasoning Engine) resource name is required to register an ADK agent.');
+        }
         payload.adkAgentDefinition = {
           provisionedReasoningEngine: {
             reasoningEngine: regDetails.reasoningEngine.trim(),
           },
         };
-      } else if (regDetails.agentUrl.trim()) {
+      } else {
+        if (!regDetails.agentUrl.trim()) {
+          throw new Error('A2A Endpoint URL is required to register an A2A agent.');
+        }
         const url = regDetails.agentUrl.trim();
+        const invokeUrl = url.endsWith('/invoke') ? url : `${url.replace(/\/$/, '')}/invoke`;
         const card = {
           protocolVersion: '0.3.0',
-          url: url.endsWith('/invoke') ? url : `${url.replace(/\/$/, '')}/invoke`,
+          url: invokeUrl,
+          provider: {
+            organization: effectiveProjectId,
+            url,
+          },
           name: displayName,
           description,
+          capabilities: {
+            streaming: true,
+          },
+          defaultInputModes: ['text/plain'],
+          defaultOutputModes: ['text/plain'],
+          skills: [{ description: description || 'Chat', examples: ['Hello'], id: 'chat', name: 'Chat', tags: ['chat'] }],
           version: '1.0.0',
         };
         payload.a2aAgentDefinition = {

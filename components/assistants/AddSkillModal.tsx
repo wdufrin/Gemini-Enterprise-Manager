@@ -73,6 +73,15 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.name.toLowerCase().endsWith('.zip')) {
+      setError('Binary .zip archives cannot be uploaded inline as text. Please stage the .zip package in Cloud Storage and use the "Cloud Storage (GCS)" tab instead, or upload a SKILL.md / .json / .txt file.');
+      setUploadedFileName('');
+      setUploadedFileContent('');
+      e.target.value = '';
+      return;
+    }
+
+    setError(null);
     setUploadedFileName(file.name);
     const reader = new FileReader();
     reader.onload = (event) => {

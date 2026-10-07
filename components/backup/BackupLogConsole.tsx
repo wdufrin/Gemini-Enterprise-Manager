@@ -29,7 +29,7 @@ export const BackupLogConsole: React.FC<BackupLogConsoleProps> = ({
   error,
   logs,
 }) => {
-  if (!isLoading && logs.length === 0) return null;
+  if (!isLoading && logs.length === 0 && !error) return null;
 
   return (
     <div className="bg-gray-800 p-4 rounded-lg shadow-md mt-6">

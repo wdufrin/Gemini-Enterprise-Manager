@@ -225,23 +225,36 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
       };
     } else if (agentType === 'a2a') {
       const a2aUrl = formData.a2aUrl || '';
+      let existingCard: Record<string, unknown> = {};
+      if (agentToEdit?.a2aAgentDefinition?.jsonAgentCard) {
+        try {
+          existingCard = JSON.parse(agentToEdit.a2aAgentDefinition.jsonAgentCard) || {};
+        } catch {
+          existingCard = {};
+        }
+      }
+      const existingProvider = (existingCard.provider as Record<string, unknown> | undefined) || {};
+      const existingCapabilities = (existingCard.capabilities as Record<string, unknown> | undefined) || {};
       const cardObject = {
         protocolVersion: '0.3.0',
-        url: a2aUrl,
-        provider: {
-          organization: formData.a2aOrg,
-          url: formData.a2aUrl,
-        },
-        name: formData.displayName,
-        description: formData.description,
-        capabilities: {
-          streaming: a2aStreaming,
-          ...(a2aExtensions.length > 0 ? { extensions: a2aExtensions } : {}),
-        },
         defaultInputModes: ['text/plain'],
         defaultOutputModes: ['text/plain'],
         skills: [{ description: 'Chat', examples: ['Hello'], id: 'chat', name: 'Chat', tags: ['chat'] }],
         version: '1.0.0',
+        ...existingCard,
+        url: a2aUrl,
+        provider: {
+          ...existingProvider,
+          organization: formData.a2aOrg,
+          url: (existingProvider.url as string | undefined) || formData.a2aUrl,
+        },
+        name: formData.displayName,
+        description: formData.description,
+        capabilities: {
+          ...existingCapabilities,
+          streaming: a2aStreaming,
+          ...(a2aExtensions.length > 0 ? { extensions: a2aExtensions } : {}),
+        },
       };
       agentDefinitionPayload = {
         a2aAgentDefinition: {
@@ -461,11 +474,13 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
 
   const handleLoadServices = async () => {
     setIsLoadingServices(true);
+    setError(null);
     try {
       const res = await api.listCloudRunServices(config, cloudRunRegion);
       setCloudRunServices(res.services || []);
-    } catch (e) {
+    } catch (e: unknown) {
       console.error(e);
+      setError(toErrorMessage(e) || `Failed to load Cloud Run services in ${cloudRunRegion}.`);
     } finally {
       setIsLoadingServices(false);
     }
@@ -556,23 +571,36 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
       }
 
       const a2aUrl = formData.a2aUrl || '';
+      let existingCard: Record<string, unknown> = {};
+      if (agentToEdit?.a2aAgentDefinition?.jsonAgentCard) {
+        try {
+          existingCard = JSON.parse(agentToEdit.a2aAgentDefinition.jsonAgentCard) || {};
+        } catch {
+          existingCard = {};
+        }
+      }
+      const existingProvider = (existingCard.provider as Record<string, unknown> | undefined) || {};
+      const existingCapabilities = (existingCard.capabilities as Record<string, unknown> | undefined) || {};
       const cardObject = {
         protocolVersion: '0.3.0',
-        url: a2aUrl,
-        provider: {
-          organization: formData.a2aOrg,
-          url: formData.a2aUrl,
-        },
-        name: formData.displayName,
-        description: formData.description,
-        capabilities: {
-          streaming: a2aStreaming,
-          ...(a2aExtensions.length > 0 ? { extensions: a2aExtensions } : {}),
-        },
         defaultInputModes: ['text/plain'],
         defaultOutputModes: ['text/plain'],
         skills: [{ description: 'Chat', examples: ['Hello'], id: 'chat', name: 'Chat', tags: ['chat'] }],
         version: '1.0.0',
+        ...existingCard,
+        url: a2aUrl,
+        provider: {
+          ...existingProvider,
+          organization: formData.a2aOrg,
+          url: (existingProvider.url as string | undefined) || formData.a2aUrl,
+        },
+        name: formData.displayName,
+        description: formData.description,
+        capabilities: {
+          ...existingCapabilities,
+          streaming: a2aStreaming,
+          ...(a2aExtensions.length > 0 ? { extensions: a2aExtensions } : {}),
+        },
       };
       agentDefinitionPayload = {
         a2aAgentDefinition: {

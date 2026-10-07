@@ -550,14 +550,23 @@ export async function runConfigAudit(
     const tgtLicenses = tgtLicenseStats?.licenseConfigUsageStats || [];
 
     if (srcLicenses.length > 0 || tgtLicenses.length > 0) {
+      type LicenseStatLike = {
+        usedLicenseCount?: number | string;
+        assignedCount?: number | string;
+        activeCount?: number | string;
+      };
+      const extractSeatCount = (l: LicenseStatLike) =>
+        Number(l.usedLicenseCount ?? l.assignedCount ?? l.activeCount) || 0;
+
       const srcTotalUsed = srcLicenses.reduce(
-        (acc: number, l: { usedLicenseCount?: number | string }) => acc + (Number(l.usedLicenseCount) || 0),
+        (acc: number, l: LicenseStatLike) => acc + extractSeatCount(l),
         0
       );
       const tgtTotalUsed = tgtLicenses.reduce(
-        (acc: number, l: { usedLicenseCount?: number | string }) => acc + (Number(l.usedLicenseCount) || 0),
+        (acc: number, l: LicenseStatLike) => acc + extractSeatCount(l),
         0
       );
+      const isMissingTargetSeats = srcTotalUsed > 0 && tgtTotalUsed === 0;
 
       items.push({
         id: 'license-stats-active',
@@ -565,9 +574,12 @@ export async function runConfigAudit(
         name: 'Active License Seats',
         sourceValue: `${srcTotalUsed} Assigned Users`,
         targetValue: `${tgtTotalUsed} Assigned Users`,
-        status: 'INFO',
-        severity: 'OK',
+        status: isMissingTargetSeats ? 'DRIFT' : 'INFO',
+        severity: isMissingTargetSeats ? 'WARNING' : 'OK',
         details: `Source has ${srcTotalUsed} active assigned user seats. Destination currently has ${tgtTotalUsed} seats allocated.`,
+        remediation: isMissingTargetSeats
+          ? `Allocate at least ${srcTotalUsed} Gemini Enterprise license seats in the destination project before user cutover.`
+          : undefined,
       });
     }
   } catch (err: unknown) {

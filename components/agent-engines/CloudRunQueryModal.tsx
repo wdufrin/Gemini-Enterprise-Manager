@@ -67,23 +67,29 @@ const CloudRunCurlModal: React.FC<{ isOpen: boolean; onClose: () => void; servic
 
     const getCurlCommand = (userMessage: string) => {
         const cleanPrompt = userMessage.replace(/'/g, "'\\''");
+        const baseUri = (service.uri || '').replace(/\/$/, '');
         if (isA2a) {
             return `curl -X POST \\
-  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  -H "Authorization: Bearer $(gcloud auth print-identity-token)" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "message": {
-      "role": "user",
-      "parts": [{"text": "${cleanPrompt}"}]
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "message/send",
+    "params": {
+      "message": {
+        "role": "user",
+        "parts": [{"text": "${cleanPrompt}"}]
+      }
     }
   }' \\
-  "${service.uri}/message"`;
+  "${baseUri}/invoke"`;
         }
         return `curl -X POST \\
-  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  -H "Authorization: Bearer $(gcloud auth print-identity-token)" \\
   -H "Content-Type: application/json" \\
   -d '{"prompt": "${cleanPrompt}"}' \\
-  "${service.uri}"`;
+  "${baseUri}"`;
     };
 
     return (
@@ -191,8 +197,12 @@ const CloudRunQueryModal: React.FC<CloudRunQueryModalProps> = ({ isOpen, onClose
             if (isA2a) {
                 // Use A2A invocation (JSON-RPC)
                 const result = await api.invokeA2aAgent(service.uri, userMessage.content, accessToken);
-                // A2A result structure: { message: { role: "agent", parts: [{ text: "..." }] } }
-                responseText = result?.message?.parts?.[0]?.text || JSON.stringify(result);
+                // A2A JSON-RPC result structure: { jsonrpc: "2.0", result: { message: { role: "agent", parts: [{ text: "..." }] } } }
+                responseText =
+                    result?.result?.message?.parts?.[0]?.text ||
+                    result?.result?.status?.message?.parts?.[0]?.text ||
+                    result?.message?.parts?.[0]?.text ||
+                    JSON.stringify(result);
             } else {
                 // Generic Agent invocation (Simple POST)
                 const response = await fetch(service.uri, {

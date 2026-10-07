@@ -250,7 +250,9 @@ export function useBYOMCPConfig({
     // 1. Action Params
     if (actionParamsChanged || !hasAnyChange) {
       masks.push('action_config.action_params');
-      const actionParamsPayload: Record<string, unknown> = {};
+      const actionParamsPayload: Record<string, unknown> = {
+        ...(connector?.actionConfig?.actionParams || {}),
+      };
 
       if (mcpServerDescription.trim()) {
         actionParamsPayload.mcp_server_description = mcpServerDescription.trim();

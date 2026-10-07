@@ -489,8 +489,9 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
       }
       await api.updateAgent(agent, payload, apiConfig);
       fetchAgents();
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("Failed to update agent name", e);
+      setError(`Failed to rename agent '${agent.displayName}': ${toErrorMessage(e)}`);
       throw e;
     }
   };

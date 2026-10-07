@@ -187,6 +187,7 @@ const GitHubDeployModal: React.FC<GitHubDeployModalProps> = ({ isOpen, onClose, 
             setStep(3);
         } catch (e: unknown) {
             setError(toErrorMessage(e) || 'An error occurred during GitHub deployment.');
+            setStep(1.5);
         } finally {
             setIsProcessing(false);
         }

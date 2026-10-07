@@ -344,6 +344,11 @@ export function useOperationalDashboardState({
                 setViewRows((prev) => ({ ...prev, [viewId]: rows }));
             } catch (err) {
                 console.warn(`[OperationalAnalytics] Could not fetch rows for ${viewId}:`, err);
+                setBrokenViews((prev) => {
+                    const next = new Map(prev);
+                    next.set(viewId, toErrorMessage(err));
+                    return next;
+                });
                 setViewRows((prev) => ({ ...prev, [viewId]: [] }));
             } finally {
                 setRowsLoading((prev) => ({ ...prev, [viewId]: false }));

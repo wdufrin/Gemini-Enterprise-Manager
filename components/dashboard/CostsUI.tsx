@@ -90,12 +90,16 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             let totalLicenses = 0;
             if (selectedConfig.licenseConfigDistributions) {
                 if (locName) {
-                    // Filter specifically for the selected location in the current project
+                    // Filter specifically for the selected location in the current project (matching either projectId/projectNumber or location suffix)
                     const targetKey = `projects/${projectNumber}/locations/${locName}`;
-                    Object.entries(selectedConfig.licenseConfigDistributions).forEach(([key, val]: [string, string | number]) => {
-                        if (key.includes(targetKey)) {
-                            totalLicenses += Number(val) || 0;
-                        }
+                    const locSuffix = `/locations/${locName}`;
+                    const entries = Object.entries(selectedConfig.licenseConfigDistributions);
+                    const exactMatches = entries.filter(([key]) => key.includes(targetKey));
+                    const matchedEntries = exactMatches.length > 0
+                        ? exactMatches
+                        : entries.filter(([key]) => key.endsWith(locSuffix) || key.includes(`${locSuffix}/`));
+                    matchedEntries.forEach(([, val]: [string, string | number]) => {
+                        totalLicenses += Number(val) || 0;
                     });
                 } else {
                     Object.values(selectedConfig.licenseConfigDistributions).forEach((val: string | number) => {
@@ -103,9 +107,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     });
                 }
             }
-            if (totalLicenses > 0) {
-                 setLicenses(totalLicenses);
-            }
+            setLicenses(totalLicenses > 0 ? totalLicenses : '');
         }
     }, [projectNumber]);
 
@@ -155,9 +157,11 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             } else {
                  setEdition('Standard');
             }
-            if (selectedLicense.allocatedCount !== undefined && selectedLicense.allocatedCount > 0) {
-                 setLicenses(selectedLicense.allocatedCount);
-            }
+            setLicenses(
+                selectedLicense.allocatedCount !== undefined && selectedLicense.allocatedCount > 0
+                    ? selectedLicense.allocatedCount
+                    : ''
+            );
         }
     };
 
@@ -194,7 +198,9 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 const hydratedLicenses: HydratedProjectLicense[] = [];
                 for (const license of discoveredLicenses) {
                      try {
-                          const config: Config = { projectId: projectNumber, appLocation: 'global', collectionId: '', appId: '', assistantId: '' };
+                          const locMatch = license.name.match(/\/locations\/([^/]+)\//);
+                          const licenseLoc = locMatch ? locMatch[1] : 'global';
+                          const config: Config = { projectId: projectNumber, appLocation: licenseLoc, collectionId: '', appId: '', assistantId: '' };
                           const res = await api.getLicenseConfig(license.name, config);
                           hydratedLicenses.push({
                               ...license,
@@ -202,13 +208,13 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                               subscriptionTier: res.subscriptionTier || 'GEMINI_ENTERPRISE',
                               displayName: license.name.split('/').pop()
                           });
-                     } catch (_e: unknown) {
-                          // Fallback
+                     } catch (hydrateErr: unknown) {
+                          console.warn(`Failed to hydrate license config ${license.name}:`, hydrateErr);
                           hydratedLicenses.push({
                               ...license,
-                              allocatedCount: 0,
-                              subscriptionTier: 'GEMINI_ENTERPRISE',
-                              displayName: license.name.split('/').pop()
+                              allocatedCount: undefined,
+                              subscriptionTier: undefined,
+                              displayName: `${license.name.split('/').pop()} (details unavailable)`
                           });
                      }
                 }
@@ -318,8 +324,9 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 // Fetch all discovery engine usage metrics individually using Promise.allSettled
                 // Note: The monitoring API strictly limits TimeSeries queries to a single metric.type per request.
                 const metricEntries = Object.entries(currentMap);
+                const locationFilter = selectedLocation ? ` AND resource.labels.location="${selectedLocation}"` : '';
                 const promises = metricEntries.map(([key, suffix]) => {
-                    const filter = `metric.type="discoveryengine.googleapis.com/quota/${suffix}/usage" AND resource.type="discoveryengine.googleapis.com/Location"`;
+                    const filter = `metric.type="discoveryengine.googleapis.com/quota/${suffix}/usage" AND resource.type="discoveryengine.googleapis.com/Location"${locationFilter}`;
                     return api.getCloudMonitoringMetrics(projectNumber, filter, startTime, endTime).then(res => ({ key, res }));
                 });
                 
@@ -386,7 +393,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             }
         };
         fetchMetrics();
-    }, [projectNumber, edition]);
+    }, [projectNumber, edition, selectedLocation]);
 
     const QuotaCard: React.FC<QuotaCardProps> = ({ title, value, usage, unit, tooltip }) => {
         const isUnavailable = usage === undefined || usage === null;

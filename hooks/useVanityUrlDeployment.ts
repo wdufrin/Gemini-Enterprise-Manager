@@ -138,19 +138,24 @@ export function useVanityUrlDeployment(
         const networks = (netRes.items || []).map((n: any) => n.name);
         setNetworksList(networks);
 
+        let targetNetwork = 'default';
         if (networks.includes('default')) {
           setSelectedNetworkOption('default');
           setVpcNetwork('default');
+          targetNetwork = 'default';
         } else if (networks.length > 0) {
           setSelectedNetworkOption(networks[0]);
           setVpcNetwork(networks[0]);
+          targetNetwork = networks[0];
         } else {
           setSelectedNetworkOption('custom');
         }
 
         const activeRegion = config.appLocation === 'global' ? 'us-central1' : config.appLocation;
         const subRes = await api.listVpcSubnets(projectId, activeRegion).catch(() => ({ items: [] }));
-        const subnets = (subRes.items || []).map((s: any) => s.name);
+        const subnets = (subRes.items || [])
+          .filter((s: any) => !s.network || String(s.network).endsWith(`/networks/${targetNetwork}`) || s.network === targetNetwork)
+          .map((s: any) => s.name);
         setSubnetsList(subnets);
 
         if (subnets.includes('default')) {

@@ -168,11 +168,11 @@ const AgentList: React.FC<AgentListProps> = ({
     setIsSaving(true);
     try {
       await onUpdateAgentName(agent, editName);
+      setEditingId(null);
     } catch {
-      // Error handled by parent
+      // Error surfaced by parent; keep inline editor open so user does not lose input
     } finally {
       setIsSaving(false);
-      setEditingId(null);
     }
   };
 

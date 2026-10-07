@@ -149,11 +149,18 @@ export function useArchitectureScanner(projectNumber: string): UseArchitectureSc
       addNode({ id: projectNodeId, type: 'Project', label: `Project (${projectNumber})`, data: { name: projectNodeId } });
 
       addLog('Fetching all Authorizations and Agent Engines...');
-      const [authResponse, allReasoningEngines] = await Promise.all([
-        api.listAuthorizations(apiConfig).catch((e) => {
-          addLog(`WARNING: Could not fetch authorizations: ${e.message}`);
-          return { authorizations: [] };
-        }),
+      const [allAuthorizations, allReasoningEngines] = await Promise.all([
+        Promise.all(
+          ALL_DISCOVERY_LOCATIONS.map((loc) =>
+            api
+              .listAuthorizations({ ...apiConfig, appLocation: loc })
+              .then((res) => res.authorizations || [])
+              .catch((e) => {
+                addLog(`WARNING: Could not fetch authorizations in ${loc}: ${e.message}`);
+                return [];
+              })
+          )
+        ).then((results) => results.flat()),
         Promise.all(
           ALL_REASONING_ENGINE_LOCATIONS.map((loc) =>
             api
@@ -167,7 +174,7 @@ export function useArchitectureScanner(projectNumber: string): UseArchitectureSc
         ).then((results) => results.flat()),
       ]);
 
-      const authorizations = authResponse.authorizations || [];
+      const authorizations = allAuthorizations;
       authorizations.forEach((auth) =>
         addNode({ id: auth.name, type: 'Authorization', label: auth.name.split('/').pop()!, data: auth })
       );
@@ -327,6 +334,10 @@ export function useArchitectureScanner(projectNumber: string): UseArchitectureSc
               }
 
               for (const agent of agents) {
+                if (signal.aborted) {
+                  addLog('Architecture scan cancelled.');
+                  return;
+                }
                 addNode({ id: agent.name, type: 'Agent', label: agent.displayName, data: agent });
                 addEdge(assistant.name, agent.name);
 
@@ -431,15 +442,23 @@ export function useArchitectureScanner(projectNumber: string): UseArchitectureSc
         }
       }
 
+      if (signal.aborted) {
+        addLog('Architecture scan cancelled.');
+        return;
+      }
+
       setNodes(newNodes);
       setEdges(newEdges);
       addLog('Scan complete. Rendering graph...');
     } catch (err: unknown) {
+      if (signal.aborted) return;
       const message = toErrorMessage(err) || 'An unknown error occurred';
       setError(message);
       addLog(`FATAL ERROR: ${message}`);
     } finally {
-      setIsLoading(false);
+      if (abortRef.current?.signal === signal) {
+        setIsLoading(false);
+      }
     }
   }, [projectNumber]);
 

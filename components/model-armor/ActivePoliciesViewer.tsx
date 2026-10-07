@@ -98,7 +98,11 @@ export const ActivePoliciesViewer: React.FC<ActivePoliciesViewerProps> = ({
                 const templateId = temp.name.split('/').pop();
                 const location = temp.name.split('/')[3];
                 const filters = getTemplateFilters(temp);
-                const apps = associations[temp.name] || [];
+                const templateSuffix = temp.name.match(/locations\/[^/]+\/templates\/[^/]+$/)?.[0];
+                const apps =
+                  associations[temp.name] ||
+                  (templateSuffix ? associations[templateSuffix] : undefined) ||
+                  [];
 
                 return (
                   <tr key={temp.name} className="hover:bg-gray-800/20 transition-colors">

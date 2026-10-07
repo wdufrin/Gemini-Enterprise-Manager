@@ -325,9 +325,10 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       }
     }
 
-    if (failures.length > 0) {
-      setError(`Failed to delete some authorizations:\n${failures.join('\n')}`);
-    }
+    const deleteErrorMsg =
+      failures.length > 0
+        ? `Failed to delete some authorizations:\n${failures.join('\n')}`
+        : null;
 
     if (wasSingleDelete && singleDeleteTargetId) {
       setSingleDeleteTargetId(null);
@@ -341,15 +342,23 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       setSelectedIds(new Set());
     }
     setIsDeleting(false);
-    fetchData(); // Refresh list and usage map
+    await fetchData(); // Refresh list and usage map
+    if (deleteErrorMsg) {
+      setError(deleteErrorMsg);
+    }
   };
 
   const handleEdit = async (authId: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      // Find the full auth object from the list to get the correct name (including location)
-      const auth = authorizations.find(a => a.name.endsWith(`/${authId}`));
+      // Prefer matching full resource name or the active region first to prevent cross-region ID collisions
+      const auth =
+        authorizations.find(
+          a =>
+            a.name === authId ||
+            (a.name.includes(`/locations/${region}/`) && a.name.endsWith(`/${authId}`))
+        ) || authorizations.find(a => a.name.endsWith(`/${authId}`));
       if (!auth) {
         throw new Error(`Authorization with ID ${authId} not found in the current list.`);
       }
@@ -447,7 +456,10 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
           <label className="block text-sm font-medium text-gray-400 mb-1">Region</label>
           <select
             value={region}
-            onChange={(e) => setRegion(e.target.value)}
+            onChange={(e) => {
+              setRegion(e.target.value);
+              setSelectedIds(new Set());
+            }}
             className="block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-sm text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
           >
             <option value="global">Global</option>
