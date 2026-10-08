@@ -2036,8 +2036,12 @@
           "s/4hana"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/s4hana",
       "sections": [
         {
@@ -2130,92 +2134,6 @@
       ]
     },
     {
-      "vendorId": "SAP_HANA",
-      "vendorDisplayName": "SAP HANA Database",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "sap_hana",
-          "saphana",
-          "sap-hana"
-        ],
-        "nameSubstrings": [
-          "sap_hana",
-          "sap-hana",
-          "saphana",
-          "sap hana"
-        ]
-      },
-      "supportsDataModeToggle": false,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-third-party-data-source",
-      "sections": [
-        {
-          "id": "saphana_auth_network",
-          "title": "SAP HANA Database Credentials & SQL Port Connectivity",
-          "stepNumber": 1,
-          "description": "Verify SAP HANA SQL port (30015 / 30013), PSC or public endpoint, and database user privileges.",
-          "items": [
-            {
-              "id": "saphana_select_priv",
-              "label": "Database User Granted SELECT Privilege on Target Schemas",
-              "subLabel": "Ensure the SAP HANA database user has SELECT privilege on all tables and views configured for ingestion over ports 30015 / 30013.",
-              "codeSnippet": "GRANT SELECT ON SCHEMA <SCHEMA> TO <USER>",
-              "badge": "Required"
-            },
-            {
-              "id": "saphana_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for SAP HANA."
-              }
-            },
-            {
-              "id": "saphana_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "SAP HANA data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates SAP HANA connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "saphana_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted SAP HANA connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "saphana_tables_sync",
-          "title": "SAP HANA Table & View Ingestion",
-          "stepNumber": 2,
-          "description": "Verify primary key columns and incremental sync watermarks on indexed SAP HANA tables.",
-          "items": [
-            {
-              "id": "saphana_table_keys",
-              "label": "Target Tables & Primary Keys Configured",
-              "subLabel": "Verify schema and table names in the SAP HANA data store configuration.",
-              "badge": "Required"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "FINNHUB",
       "vendorDisplayName": "Finnhub Financial Market Data",
       "category": "Enterprise Platforms",
@@ -2227,8 +2145,11 @@
           "finnhub"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "INGESTION"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/finnhub",
       "sections": [
         {
@@ -2312,8 +2233,12 @@
           "service_m8"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/servicem8",
       "sections": [
         {
@@ -2415,8 +2340,12 @@
           "risk-analytics"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/d_b_risk_analytics",
       "sections": [
         {
@@ -2502,89 +2431,6 @@
       ]
     },
     {
-      "vendorId": "MARKETO",
-      "vendorDisplayName": "Adobe Marketo Engage",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "marketo",
-          "adobe_marketo"
-        ],
-        "nameSubstrings": [
-          "marketo",
-          "adobe-marketo"
-        ]
-      },
-      "supportsDataModeToggle": false,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-third-party-data-source",
-      "sections": [
-        {
-          "id": "marketo_auth",
-          "title": "Marketo LaunchPoint Custom Service & API Role",
-          "stepNumber": 1,
-          "description": "Configure a Marketo API-only user, custom role, and LaunchPoint custom service.",
-          "items": [
-            {
-              "id": "marketo_launchpoint_service",
-              "label": "LaunchPoint Custom Service Client ID & Secret Configured",
-              "subLabel": "Create an API-only role with Read-Only Assets/Lead/Campaign permissions and a LaunchPoint custom service in Marketo Admin.",
-              "badge": "Required"
-            },
-            {
-              "id": "marketo_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Marketo."
-              }
-            },
-            {
-              "id": "marketo_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Marketo data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Marketo connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "marketo_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Marketo connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "marketo_entities",
-          "title": "Marketo Indexed Entities",
-          "stepNumber": 2,
-          "description": "Verify Marketo marketing entities selected for ingestion.",
-          "items": [
-            {
-              "id": "marketo_entities_list",
-              "label": "Activities, Campaigns, Companies, Leads, Opportunities & Programs Selected",
-              "subLabel": "Ensure required Marketo entities are enabled in the Data Store configuration.",
-              "codeSnippet": "Activities, Campaigns, Companies, Leads, Opportunities, Programs",
-              "badge": "Required"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "ZOHO_BOOKS",
       "vendorDisplayName": "Zoho Books",
       "category": "Enterprise Platforms",
@@ -2599,9 +2445,13 @@
           "zohobooks"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zoho-books",
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zohobooks",
       "sections": [
         {
           "id": "zoho_books_auth_access",
@@ -2614,7 +2464,7 @@
               "label": "Google-Managed OAuth & End-User Account Authorization",
               "subLabel": "Zoho Books uses Google-managed OAuth 2.0. Ensure an active Zoho Books account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zoho-books"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zohobooks"
             },
             {
               "id": "zoho_books_iam_service_agent",
@@ -2707,9 +2557,13 @@
           "zohodesk"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zoho-desk",
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zohodesk",
       "sections": [
         {
           "id": "zoho_desk_auth_access",
@@ -2722,7 +2576,7 @@
               "label": "Google-Managed OAuth & End-User Account Authorization",
               "subLabel": "Zoho Desk uses Google-managed OAuth 2.0. Ensure an active Zoho Desk account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zoho-desk"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zohodesk"
             },
             {
               "id": "zoho_desk_iam_service_agent",
@@ -2815,9 +2669,13 @@
           "zohoprojects"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zoho-projects",
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zohoprojects",
       "sections": [
         {
           "id": "zoho_projects_auth_access",
@@ -2830,7 +2688,7 @@
               "label": "Google-Managed OAuth & End-User Account Authorization",
               "subLabel": "Zoho Projects uses Google-managed OAuth 2.0. Ensure an active Zoho Projects account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zoho-projects"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zohoprojects"
             },
             {
               "id": "zoho_projects_iam_service_agent",
@@ -2923,8 +2781,12 @@
           "zoom_info"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zoominfo",
       "sections": [
         {
@@ -3028,8 +2890,12 @@
           "clay"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/clay",
       "sections": [
         {
@@ -3133,8 +2999,12 @@
           "streak"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/streak",
       "sections": [
         {
@@ -3241,8 +3111,12 @@
           "windsor"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/windsor-ai",
       "sections": [
         {
@@ -3335,38 +3209,41 @@
       ]
     },
     {
-      "vendorId": "ACTIVECAMPAIGN",
-      "vendorDisplayName": "ActiveCampaign",
+      "vendorId": "COURTLISTENER",
+      "vendorDisplayName": "CourtListener Legal Opinions & Precedents",
       "category": "Enterprise Platforms",
       "detectionPatterns": {
         "dataSources": [
-          "activecampaign",
-          "active_campaign"
+          "courtlistener",
+          "court_listener"
         ],
         "nameSubstrings": [
-          "activecampaign",
-          "active_campaign"
+          "courtlistener",
+          "court_listener"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/activecampaign",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/courtlistener",
       "sections": [
         {
-          "id": "activecampaign_auth_access",
-          "title": "ActiveCampaign Google-Managed OAuth & Health",
+          "id": "courtlistener_auth_access",
+          "title": "CourtListener Legal Opinions & Precedents Google-Managed OAuth & Health",
           "stepNumber": 1,
-          "description": "Verify ActiveCampaign Google-managed OAuth setup, IAM permissions, and connector health.",
+          "description": "Verify CourtListener Legal Opinions & Precedents Google-managed OAuth setup, IAM permissions, and connector health.",
           "items": [
             {
-              "id": "activecampaign_google_managed_oauth",
+              "id": "courtlistener_google_managed_oauth",
               "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "ActiveCampaign uses Google-managed OAuth 2.0. Ensure an active ActiveCampaign account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "subLabel": "CourtListener Legal Opinions & Precedents uses Google-managed OAuth 2.0. Ensure an active CourtListener Legal Opinions & Precedents account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/activecampaign"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/courtlistener"
             },
             {
-              "id": "activecampaign_iam_service_agent",
+              "id": "courtlistener_iam_service_agent",
               "label": "Discovery Engine Service Agent Role",
               "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
               "badge": "Automated",
@@ -3376,48 +3253,48 @@
                   "discoveryengine.dataStores.get",
                   "discoveryengine.collections.get"
                 ],
-                "description": "Checks Discovery Engine service agent role bindings for ActiveCampaign."
+                "description": "Checks Discovery Engine service agent role bindings for CourtListener Legal Opinions & Precedents."
               }
             },
             {
-              "id": "activecampaign_connector_health",
+              "id": "courtlistener_connector_health",
               "label": "Connector State Health",
-              "subLabel": "ActiveCampaign data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "subLabel": "CourtListener Legal Opinions & Precedents data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
               "badge": "Automated",
               "automatedProbe": {
                 "type": "CONNECTOR_STATUS",
-                "description": "Validates ActiveCampaign connector state and latest operation error logs."
+                "description": "Validates CourtListener Legal Opinions & Precedents connector state and latest operation error logs."
               }
             },
             {
-              "id": "activecampaign_oauth_validity",
+              "id": "courtlistener_oauth_validity",
               "label": "Connector Endpoint & Auth State Check",
               "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
               "badge": "Automated",
               "automatedProbe": {
                 "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted ActiveCampaign connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+                "description": "Verifies non-redacted CourtListener Legal Opinions & Precedents connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
               }
             }
           ]
         },
         {
-          "id": "activecampaign_entities_read",
-          "title": "ActiveCampaign Searchable Entities & Federated Scope (Read)",
+          "id": "courtlistener_entities_read",
+          "title": "CourtListener Legal Opinions & Precedents Searchable Entities & Federated Scope (Read)",
           "stepNumber": 2,
-          "description": "Confirm ActiveCampaign searchable entities and rate limit configurations for live federated search.",
+          "description": "Confirm CourtListener Legal Opinions & Precedents searchable entities and rate limit configurations for live federated search.",
           "items": [
             {
-              "id": "activecampaign_searchable_entities",
-              "label": "Searchable Entities Enabled (Contact, Deal, Campaign, Automation, Account, List, Tag)",
-              "subLabel": "Verify that the required ActiveCampaign searchable entities (Contact, Deal, Campaign, Automation, Account, List, Tag) are enabled in the Data section of the data store.",
-              "codeSnippet": "Contact, Deal, Campaign, Automation, Account, List, Tag",
+              "id": "courtlistener_searchable_entities",
+              "label": "Searchable Entities Enabled (CourtListener Data)",
+              "subLabel": "Verify that the required CourtListener Legal Opinions & Precedents searchable entities (CourtListener Data) are enabled in the Data section of the data store.",
+              "codeSnippet": "CourtListener Data",
               "badge": "Required"
             },
             {
-              "id": "activecampaign_rate_limit_qps",
+              "id": "courtlistener_rate_limit_qps",
               "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your ActiveCampaign tenant API quota.",
+              "subLabel": "Verify per-data-store QPS limit aligns with your CourtListener Legal Opinions & Precedents tenant API quota.",
               "badge": "Recommended"
             }
           ]
@@ -3425,36 +3302,42 @@
       ]
     },
     {
-      "vendorId": "AIERA",
-      "vendorDisplayName": "Aiera Financial Event Intelligence",
+      "vendorId": "FISCAL_AI",
+      "vendorDisplayName": "Fiscal.ai Financial & Company Intelligence",
       "category": "Enterprise Platforms",
       "detectionPatterns": {
         "dataSources": [
-          "aiera"
+          "fiscal_ai",
+          "fiscalai"
         ],
         "nameSubstrings": [
-          "aiera"
+          "fiscal-ai",
+          "fiscal_ai",
+          "fiscalai"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/aiera",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/fiscal-ai",
       "sections": [
         {
-          "id": "aiera_auth_access",
-          "title": "Aiera Financial Event Intelligence Google-Managed OAuth & Health",
+          "id": "fiscal_ai_auth_access",
+          "title": "Fiscal.ai Financial & Company Intelligence Google-Managed OAuth & Health",
           "stepNumber": 1,
-          "description": "Verify Aiera Financial Event Intelligence Google-managed OAuth setup, IAM permissions, and connector health.",
+          "description": "Verify Fiscal.ai Financial & Company Intelligence Google-managed OAuth setup, IAM permissions, and connector health.",
           "items": [
             {
-              "id": "aiera_google_managed_oauth",
+              "id": "fiscal_ai_google_managed_oauth",
               "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Aiera Financial Event Intelligence uses Google-managed OAuth 2.0. Ensure an active Aiera Financial Event Intelligence account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "subLabel": "Fiscal.ai Financial & Company Intelligence uses Google-managed OAuth 2.0. Ensure an active Fiscal.ai Financial & Company Intelligence account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/aiera"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/fiscal-ai"
             },
             {
-              "id": "aiera_iam_service_agent",
+              "id": "fiscal_ai_iam_service_agent",
               "label": "Discovery Engine Service Agent Role",
               "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
               "badge": "Automated",
@@ -3464,48 +3347,48 @@
                   "discoveryengine.dataStores.get",
                   "discoveryengine.collections.get"
                 ],
-                "description": "Checks Discovery Engine service agent role bindings for Aiera Financial Event Intelligence."
+                "description": "Checks Discovery Engine service agent role bindings for Fiscal.ai Financial & Company Intelligence."
               }
             },
             {
-              "id": "aiera_connector_health",
+              "id": "fiscal_ai_connector_health",
               "label": "Connector State Health",
-              "subLabel": "Aiera Financial Event Intelligence data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "subLabel": "Fiscal.ai Financial & Company Intelligence data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
               "badge": "Automated",
               "automatedProbe": {
                 "type": "CONNECTOR_STATUS",
-                "description": "Validates Aiera Financial Event Intelligence connector state and latest operation error logs."
+                "description": "Validates Fiscal.ai Financial & Company Intelligence connector state and latest operation error logs."
               }
             },
             {
-              "id": "aiera_oauth_validity",
+              "id": "fiscal_ai_oauth_validity",
               "label": "Connector Endpoint & Auth State Check",
               "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
               "badge": "Automated",
               "automatedProbe": {
                 "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Aiera Financial Event Intelligence connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+                "description": "Verifies non-redacted Fiscal.ai Financial & Company Intelligence connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
               }
             }
           ]
         },
         {
-          "id": "aiera_entities_read",
-          "title": "Aiera Financial Event Intelligence Searchable Entities & Federated Scope (Read)",
+          "id": "fiscal_ai_entities_read",
+          "title": "Fiscal.ai Financial & Company Intelligence Searchable Entities & Federated Scope (Read)",
           "stepNumber": 2,
-          "description": "Confirm Aiera Financial Event Intelligence searchable entities and rate limit configurations for live federated search.",
+          "description": "Confirm Fiscal.ai Financial & Company Intelligence searchable entities and rate limit configurations for live federated search.",
           "items": [
             {
-              "id": "aiera_searchable_entities",
-              "label": "Searchable Entities Enabled (Event, Transcript, Filing, EquityWatchlist, FinancialSummary)",
-              "subLabel": "Verify that the required Aiera Financial Event Intelligence searchable entities (Event, Transcript, Filing, EquityWatchlist, FinancialSummary) are enabled in the Data section of the data store.",
-              "codeSnippet": "Event, Transcript, Filing, EquityWatchlist, FinancialSummary",
+              "id": "fiscal_ai_searchable_entities",
+              "label": "Searchable Entities Enabled (Companies)",
+              "subLabel": "Verify that the required Fiscal.ai Financial & Company Intelligence searchable entities (Companies) are enabled in the Data section of the data store.",
+              "codeSnippet": "Companies",
               "badge": "Required"
             },
             {
-              "id": "aiera_rate_limit_qps",
+              "id": "fiscal_ai_rate_limit_qps",
               "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Aiera Financial Event Intelligence tenant API quota.",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Fiscal.ai Financial & Company Intelligence tenant API quota.",
               "badge": "Recommended"
             }
           ]
@@ -3513,38 +3396,41 @@
       ]
     },
     {
-      "vendorId": "ALPHASENSE",
-      "vendorDisplayName": "AlphaSense Market Intelligence",
+      "vendorId": "GONG",
+      "vendorDisplayName": "Gong Revenue Intelligence",
       "category": "Enterprise Platforms",
       "detectionPatterns": {
         "dataSources": [
-          "alphasense",
-          "alpha_sense"
+          "gong",
+          "gong_io"
         ],
         "nameSubstrings": [
-          "alphasense",
-          "alpha_sense"
+          "gong",
+          "gong_io"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/alphasense",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/gong",
       "sections": [
         {
-          "id": "alphasense_auth_access",
-          "title": "AlphaSense Market Intelligence Google-Managed OAuth & Health",
+          "id": "gong_auth_access",
+          "title": "Gong Revenue Intelligence Google-Managed OAuth & Health",
           "stepNumber": 1,
-          "description": "Verify AlphaSense Market Intelligence Google-managed OAuth setup, IAM permissions, and connector health.",
+          "description": "Verify Gong Revenue Intelligence Google-managed OAuth setup, IAM permissions, and connector health.",
           "items": [
             {
-              "id": "alphasense_google_managed_oauth",
+              "id": "gong_google_managed_oauth",
               "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "AlphaSense Market Intelligence uses Google-managed OAuth 2.0. Ensure an active AlphaSense Market Intelligence account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "subLabel": "Gong Revenue Intelligence uses Google-managed OAuth 2.0. Ensure an active Gong Revenue Intelligence account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/alphasense"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/gong"
             },
             {
-              "id": "alphasense_iam_service_agent",
+              "id": "gong_iam_service_agent",
               "label": "Discovery Engine Service Agent Role",
               "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
               "badge": "Automated",
@@ -3554,48 +3440,335 @@
                   "discoveryengine.dataStores.get",
                   "discoveryengine.collections.get"
                 ],
-                "description": "Checks Discovery Engine service agent role bindings for AlphaSense Market Intelligence."
+                "description": "Checks Discovery Engine service agent role bindings for Gong Revenue Intelligence."
               }
             },
             {
-              "id": "alphasense_connector_health",
+              "id": "gong_connector_health",
               "label": "Connector State Health",
-              "subLabel": "AlphaSense Market Intelligence data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "subLabel": "Gong Revenue Intelligence data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
               "badge": "Automated",
               "automatedProbe": {
                 "type": "CONNECTOR_STATUS",
-                "description": "Validates AlphaSense Market Intelligence connector state and latest operation error logs."
+                "description": "Validates Gong Revenue Intelligence connector state and latest operation error logs."
               }
             },
             {
-              "id": "alphasense_oauth_validity",
+              "id": "gong_oauth_validity",
               "label": "Connector Endpoint & Auth State Check",
               "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
               "badge": "Automated",
               "automatedProbe": {
                 "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted AlphaSense Market Intelligence connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+                "description": "Verifies non-redacted Gong Revenue Intelligence connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
               }
             }
           ]
         },
         {
-          "id": "alphasense_entities_read",
-          "title": "AlphaSense Market Intelligence Searchable Entities & Federated Scope (Read)",
+          "id": "gong_entities_read",
+          "title": "Gong Revenue Intelligence Searchable Entities & Federated Scope (Read)",
           "stepNumber": 2,
-          "description": "Confirm AlphaSense Market Intelligence searchable entities and rate limit configurations for live federated search.",
+          "description": "Confirm Gong Revenue Intelligence searchable entities and rate limit configurations for live federated search.",
           "items": [
             {
-              "id": "alphasense_searchable_entities",
-              "label": "Searchable Entities Enabled (ResearchReport, EarningsTranscript, SECFiling, News)",
-              "subLabel": "Verify that the required AlphaSense Market Intelligence searchable entities (ResearchReport, EarningsTranscript, SECFiling, News) are enabled in the Data section of the data store.",
-              "codeSnippet": "ResearchReport, EarningsTranscript, SECFiling, News",
+              "id": "gong_searchable_entities",
+              "label": "Searchable Entities Enabled (Account, Deal)",
+              "subLabel": "Verify that the required Gong Revenue Intelligence searchable entities (Account, Deal) are enabled in the Data section of the data store.",
+              "codeSnippet": "Account, Deal",
               "badge": "Required"
             },
             {
-              "id": "alphasense_rate_limit_qps",
+              "id": "gong_rate_limit_qps",
               "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your AlphaSense Market Intelligence tenant API quota.",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Gong Revenue Intelligence tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "LEGALZOOM",
+      "vendorDisplayName": "LegalZoom Legal Knowledge",
+      "category": "Enterprise Platforms",
+      "detectionPatterns": {
+        "dataSources": [
+          "legalzoom",
+          "legal_zoom"
+        ],
+        "nameSubstrings": [
+          "legalzoom",
+          "legal_zoom"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/legalzoom",
+      "sections": [
+        {
+          "id": "legalzoom_auth_access",
+          "title": "LegalZoom Legal Knowledge Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify LegalZoom Legal Knowledge Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "legalzoom_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "LegalZoom Legal Knowledge uses Google-managed OAuth 2.0. Ensure an active LegalZoom Legal Knowledge account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/legalzoom"
+            },
+            {
+              "id": "legalzoom_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for LegalZoom Legal Knowledge."
+              }
+            },
+            {
+              "id": "legalzoom_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "LegalZoom Legal Knowledge data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates LegalZoom Legal Knowledge connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "legalzoom_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted LegalZoom Legal Knowledge connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "legalzoom_entities_read",
+          "title": "LegalZoom Legal Knowledge Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm LegalZoom Legal Knowledge searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "legalzoom_searchable_entities",
+              "label": "Searchable Entities Enabled (Articles)",
+              "subLabel": "Verify that the required LegalZoom Legal Knowledge searchable entities (Articles) are enabled in the Data section of the data store.",
+              "codeSnippet": "Articles",
+              "badge": "Required"
+            },
+            {
+              "id": "legalzoom_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your LegalZoom Legal Knowledge tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "MAILERLITE",
+      "vendorDisplayName": "MailerLite Email Marketing",
+      "category": "Enterprise Platforms",
+      "detectionPatterns": {
+        "dataSources": [
+          "mailerlite",
+          "mailer_lite"
+        ],
+        "nameSubstrings": [
+          "mailerlite",
+          "mailer_lite"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/mailerlite",
+      "sections": [
+        {
+          "id": "mailerlite_auth_access",
+          "title": "MailerLite Email Marketing Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify MailerLite Email Marketing Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "mailerlite_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "MailerLite Email Marketing uses Google-managed OAuth 2.0. Ensure an active MailerLite Email Marketing account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/mailerlite"
+            },
+            {
+              "id": "mailerlite_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for MailerLite Email Marketing."
+              }
+            },
+            {
+              "id": "mailerlite_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "MailerLite Email Marketing data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates MailerLite Email Marketing connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "mailerlite_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted MailerLite Email Marketing connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "mailerlite_entities_read",
+          "title": "MailerLite Email Marketing Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm MailerLite Email Marketing searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "mailerlite_searchable_entities",
+              "label": "Searchable Entities Enabled (Subscribers)",
+              "subLabel": "Verify that the required MailerLite Email Marketing searchable entities (Subscribers) are enabled in the Data section of the data store.",
+              "codeSnippet": "Subscribers",
+              "badge": "Required"
+            },
+            {
+              "id": "mailerlite_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your MailerLite Email Marketing tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "MERCURY",
+      "vendorDisplayName": "Mercury Banking & Treasury",
+      "category": "Enterprise Platforms",
+      "detectionPatterns": {
+        "dataSources": [
+          "mercury_mcp",
+          "mercury"
+        ],
+        "nameSubstrings": [
+          "mercury",
+          "mercury_mcp",
+          "mercury-mcp"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/mercury-mcp",
+      "sections": [
+        {
+          "id": "mercury_auth_access",
+          "title": "Mercury Banking & Treasury Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Mercury Banking & Treasury Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "mercury_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Mercury Banking & Treasury uses Google-managed OAuth 2.0. Ensure an active Mercury Banking & Treasury account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/mercury-mcp"
+            },
+            {
+              "id": "mercury_unused_auth_param",
+              "label": "Unused Authorization Parameter Set (unused)",
+              "subLabel": "In the Google Cloud console during Mercury Banking & Treasury data store creation, enter 'unused' in the Unused Authorization Parameters field as required by the connector schema.",
+              "codeSnippet": "unused",
+              "badge": "Required"
+            },
+            {
+              "id": "mercury_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Mercury Banking & Treasury."
+              }
+            },
+            {
+              "id": "mercury_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Mercury Banking & Treasury data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Mercury Banking & Treasury connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "mercury_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Mercury Banking & Treasury connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "mercury_entities_read",
+          "title": "Mercury Banking & Treasury Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Mercury Banking & Treasury searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "mercury_searchable_entities",
+              "label": "Searchable Entities Enabled (Accounts)",
+              "subLabel": "Verify that the required Mercury Banking & Treasury searchable entities (Accounts) are enabled in the Data section of the data store.",
+              "codeSnippet": "Accounts",
+              "badge": "Required"
+            },
+            {
+              "id": "mercury_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Mercury Banking & Treasury tenant API quota.",
               "badge": "Recommended"
             }
           ]
@@ -3614,8 +3787,11 @@
           "attio"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/attio",
       "sections": [
         {
@@ -3691,96 +3867,6 @@
       ]
     },
     {
-      "vendorId": "BLUE_J",
-      "vendorDisplayName": "Blue J Tax Research",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "blue_j",
-          "bluej"
-        ],
-        "nameSubstrings": [
-          "blue_j",
-          "bluej"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/blue-j",
-      "sections": [
-        {
-          "id": "blue_j_auth_access",
-          "title": "Blue J Tax Research Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Blue J Tax Research Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "blue_j_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Blue J Tax Research uses Google-managed OAuth 2.0. Ensure an active Blue J Tax Research account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/blue-j"
-            },
-            {
-              "id": "blue_j_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Blue J Tax Research."
-              }
-            },
-            {
-              "id": "blue_j_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Blue J Tax Research data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Blue J Tax Research connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "blue_j_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Blue J Tax Research connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "blue_j_entities_read",
-          "title": "Blue J Tax Research Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Blue J Tax Research searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "blue_j_searchable_entities",
-              "label": "Searchable Entities Enabled (TaxResearch, CaseLaw, TaxAuthority)",
-              "subLabel": "Verify that the required Blue J Tax Research searchable entities (TaxResearch, CaseLaw, TaxAuthority) are enabled in the Data section of the data store.",
-              "codeSnippet": "TaxResearch, CaseLaw, TaxAuthority",
-              "badge": "Required"
-            },
-            {
-              "id": "blue_j_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Blue J Tax Research tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "CAMPFIRE",
       "vendorDisplayName": "Campfire ERP & Accounting",
       "category": "Enterprise Platforms",
@@ -3792,8 +3878,11 @@
           "campfire"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/campfire",
       "sections": [
         {
@@ -3869,96 +3958,6 @@
       ]
     },
     {
-      "vendorId": "CLOSE",
-      "vendorDisplayName": "Close CRM",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "close",
-          "close_crm"
-        ],
-        "nameSubstrings": [
-          "close",
-          "close_crm"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/close",
-      "sections": [
-        {
-          "id": "close_auth_access",
-          "title": "Close CRM Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Close CRM Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "close_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Close CRM uses Google-managed OAuth 2.0. Ensure an active Close CRM account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/close"
-            },
-            {
-              "id": "close_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Close CRM."
-              }
-            },
-            {
-              "id": "close_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Close CRM data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Close CRM connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "close_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Close CRM connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "close_entities_read",
-          "title": "Close CRM Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Close CRM searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "close_searchable_entities",
-              "label": "Searchable Entities Enabled (Lead, Contact, Opportunity, Task, Activity)",
-              "subLabel": "Verify that the required Close CRM searchable entities (Lead, Contact, Opportunity, Task, Activity) are enabled in the Data section of the data store.",
-              "codeSnippet": "Lead, Contact, Opportunity, Task, Activity",
-              "badge": "Required"
-            },
-            {
-              "id": "close_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Close CRM tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "COINDESK",
       "vendorDisplayName": "CoinDesk Digital Asset Data",
       "category": "Enterprise Platforms",
@@ -3972,8 +3971,11 @@
           "coin_desk"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/coindesk",
       "sections": [
         {
@@ -4060,8 +4062,11 @@
           "crossbeam"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/crossbeam",
       "sections": [
         {
@@ -4137,96 +4142,6 @@
       ]
     },
     {
-      "vendorId": "CUSTOMER_IO",
-      "vendorDisplayName": "Customer.io",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "customer_io",
-          "customerio"
-        ],
-        "nameSubstrings": [
-          "customer_io",
-          "customerio"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/customer-io",
-      "sections": [
-        {
-          "id": "customer_io_auth_access",
-          "title": "Customer.io Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Customer.io Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "customer_io_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Customer.io uses Google-managed OAuth 2.0. Ensure an active Customer.io account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/customer-io"
-            },
-            {
-              "id": "customer_io_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Customer.io."
-              }
-            },
-            {
-              "id": "customer_io_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Customer.io data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Customer.io connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "customer_io_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Customer.io connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "customer_io_entities_read",
-          "title": "Customer.io Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Customer.io searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "customer_io_searchable_entities",
-              "label": "Searchable Entities Enabled (Customer, Segment, Campaign, Newsletter, MessageDelivery)",
-              "subLabel": "Verify that the required Customer.io searchable entities (Customer, Segment, Campaign, Newsletter, MessageDelivery) are enabled in the Data section of the data store.",
-              "codeSnippet": "Customer, Segment, Campaign, Newsletter, MessageDelivery",
-              "badge": "Required"
-            },
-            {
-              "id": "customer_io_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Customer.io tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "DB_COMMERCIAL_GRAPH",
       "vendorDisplayName": "D&B Commercial Graph (Dun & Bradstreet)",
       "category": "Enterprise Platforms",
@@ -4240,9 +4155,12 @@
           "db_commercial_graph"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/d-b-commercial-graph",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/d-and-b-commercial-graph",
       "sections": [
         {
           "id": "db_commercial_graph_auth_access",
@@ -4255,7 +4173,7 @@
               "label": "Google-Managed OAuth & End-User Account Authorization",
               "subLabel": "D&B Commercial Graph (Dun & Bradstreet) uses Google-managed OAuth 2.0. Ensure an active D&B Commercial Graph (Dun & Bradstreet) account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/d-b-commercial-graph"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/d-and-b-commercial-graph"
             },
             {
               "id": "db_commercial_graph_iam_service_agent",
@@ -4330,9 +4248,12 @@
           "db_finance_analytics"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/d-b-finance-analytics",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/d_b_finance_analytics",
       "sections": [
         {
           "id": "db_finance_analytics_auth_access",
@@ -4345,7 +4266,7 @@
               "label": "Google-Managed OAuth & End-User Account Authorization",
               "subLabel": "D&B Finance Analytics (Dun & Bradstreet) uses Google-managed OAuth 2.0. Ensure an active D&B Finance Analytics (Dun & Bradstreet) account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/d-b-finance-analytics"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/d_b_finance_analytics"
             },
             {
               "id": "db_finance_analytics_iam_service_agent",
@@ -4418,8 +4339,11 @@
           "daloopa"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/daloopa",
       "sections": [
         {
@@ -4501,16 +4425,21 @@
       "detectionPatterns": {
         "dataSources": [
           "factset",
-          "fact_set"
+          "fact_set",
+          "factset_ai_ready_data"
         ],
         "nameSubstrings": [
           "factset",
-          "fact_set"
+          "fact_set",
+          "factset_ai_ready_data"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/factset",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/factset_ai_ready_data",
       "sections": [
         {
           "id": "factset_auth_access",
@@ -4523,7 +4452,7 @@
               "label": "Google-Managed OAuth & End-User Account Authorization",
               "subLabel": "FactSet Financial Data & Analytics uses Google-managed OAuth 2.0. Ensure an active FactSet Financial Data & Analytics account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/factset"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/factset_ai_ready_data"
             },
             {
               "id": "factset_iam_service_agent",
@@ -4585,96 +4514,6 @@
       ]
     },
     {
-      "vendorId": "FISCALNOTE",
-      "vendorDisplayName": "FiscalNote Policy & Legislative Intelligence",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "fiscalnote",
-          "fiscal_note"
-        ],
-        "nameSubstrings": [
-          "fiscalnote",
-          "fiscal_note"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/fiscalnote",
-      "sections": [
-        {
-          "id": "fiscalnote_auth_access",
-          "title": "FiscalNote Policy & Legislative Intelligence Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify FiscalNote Policy & Legislative Intelligence Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "fiscalnote_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "FiscalNote Policy & Legislative Intelligence uses Google-managed OAuth 2.0. Ensure an active FiscalNote Policy & Legislative Intelligence account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/fiscalnote"
-            },
-            {
-              "id": "fiscalnote_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for FiscalNote Policy & Legislative Intelligence."
-              }
-            },
-            {
-              "id": "fiscalnote_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "FiscalNote Policy & Legislative Intelligence data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates FiscalNote Policy & Legislative Intelligence connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "fiscalnote_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted FiscalNote Policy & Legislative Intelligence connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "fiscalnote_entities_read",
-          "title": "FiscalNote Policy & Legislative Intelligence Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm FiscalNote Policy & Legislative Intelligence searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "fiscalnote_searchable_entities",
-              "label": "Searchable Entities Enabled (Bill, Regulation, Legislator, Committee, PolicyAlert)",
-              "subLabel": "Verify that the required FiscalNote Policy & Legislative Intelligence searchable entities (Bill, Regulation, Legislator, Committee, PolicyAlert) are enabled in the Data section of the data store.",
-              "codeSnippet": "Bill, Regulation, Legislator, Committee, PolicyAlert",
-              "badge": "Required"
-            },
-            {
-              "id": "fiscalnote_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your FiscalNote Policy & Legislative Intelligence tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "FULLSTORY",
       "vendorDisplayName": "Fullstory Digital Experience Intelligence",
       "category": "Enterprise Platforms",
@@ -4688,8 +4527,11 @@
           "full_story"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/fullstory",
       "sections": [
         {
@@ -4765,360 +4607,6 @@
       ]
     },
     {
-      "vendorId": "HARMONIC",
-      "vendorDisplayName": "Harmonic Startup & Company Intelligence",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "harmonic",
-          "harmonic_ai"
-        ],
-        "nameSubstrings": [
-          "harmonic",
-          "harmonic_ai"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/harmonic",
-      "sections": [
-        {
-          "id": "harmonic_auth_access",
-          "title": "Harmonic Startup & Company Intelligence Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Harmonic Startup & Company Intelligence Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "harmonic_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Harmonic Startup & Company Intelligence uses Google-managed OAuth 2.0. Ensure an active Harmonic Startup & Company Intelligence account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/harmonic"
-            },
-            {
-              "id": "harmonic_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Harmonic Startup & Company Intelligence."
-              }
-            },
-            {
-              "id": "harmonic_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Harmonic Startup & Company Intelligence data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Harmonic Startup & Company Intelligence connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "harmonic_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Harmonic Startup & Company Intelligence connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "harmonic_entities_read",
-          "title": "Harmonic Startup & Company Intelligence Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Harmonic Startup & Company Intelligence searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "harmonic_searchable_entities",
-              "label": "Searchable Entities Enabled (Company, Founder, FundingRound, Investor, TractionMetric)",
-              "subLabel": "Verify that the required Harmonic Startup & Company Intelligence searchable entities (Company, Founder, FundingRound, Investor, TractionMetric) are enabled in the Data section of the data store.",
-              "codeSnippet": "Company, Founder, FundingRound, Investor, TractionMetric",
-              "badge": "Required"
-            },
-            {
-              "id": "harmonic_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Harmonic Startup & Company Intelligence tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "HIGHSPOT",
-      "vendorDisplayName": "Highspot Sales Enablement",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "highspot"
-        ],
-        "nameSubstrings": [
-          "highspot"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/highspot",
-      "sections": [
-        {
-          "id": "highspot_auth_access",
-          "title": "Highspot Sales Enablement Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Highspot Sales Enablement Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "highspot_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Highspot Sales Enablement uses Google-managed OAuth 2.0. Ensure an active Highspot Sales Enablement account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/highspot"
-            },
-            {
-              "id": "highspot_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Highspot Sales Enablement."
-              }
-            },
-            {
-              "id": "highspot_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Highspot Sales Enablement data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Highspot Sales Enablement connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "highspot_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Highspot Sales Enablement connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "highspot_entities_read",
-          "title": "Highspot Sales Enablement Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Highspot Sales Enablement searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "highspot_searchable_entities",
-              "label": "Searchable Entities Enabled (Spot, Item, Pitch, Playbook, ContentAnalytics)",
-              "subLabel": "Verify that the required Highspot Sales Enablement searchable entities (Spot, Item, Pitch, Playbook, ContentAnalytics) are enabled in the Data section of the data store.",
-              "codeSnippet": "Spot, Item, Pitch, Playbook, ContentAnalytics",
-              "badge": "Required"
-            },
-            {
-              "id": "highspot_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Highspot Sales Enablement tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "INDEED",
-      "vendorDisplayName": "Indeed Talent & Job Intelligence",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "indeed"
-        ],
-        "nameSubstrings": [
-          "indeed"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/indeed",
-      "sections": [
-        {
-          "id": "indeed_auth_access",
-          "title": "Indeed Talent & Job Intelligence Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Indeed Talent & Job Intelligence Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "indeed_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Indeed Talent & Job Intelligence uses Google-managed OAuth 2.0. Ensure an active Indeed Talent & Job Intelligence account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/indeed"
-            },
-            {
-              "id": "indeed_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Indeed Talent & Job Intelligence."
-              }
-            },
-            {
-              "id": "indeed_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Indeed Talent & Job Intelligence data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Indeed Talent & Job Intelligence connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "indeed_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Indeed Talent & Job Intelligence connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "indeed_entities_read",
-          "title": "Indeed Talent & Job Intelligence Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Indeed Talent & Job Intelligence searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "indeed_searchable_entities",
-              "label": "Searchable Entities Enabled (JobPosting, CompanyProfile, SalaryInsight)",
-              "subLabel": "Verify that the required Indeed Talent & Job Intelligence searchable entities (JobPosting, CompanyProfile, SalaryInsight) are enabled in the Data section of the data store.",
-              "codeSnippet": "JobPosting, CompanyProfile, SalaryInsight",
-              "badge": "Required"
-            },
-            {
-              "id": "indeed_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Indeed Talent & Job Intelligence tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "KETCH",
-      "vendorDisplayName": "Ketch Data Privacy & Consent",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "ketch"
-        ],
-        "nameSubstrings": [
-          "ketch"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ketch",
-      "sections": [
-        {
-          "id": "ketch_auth_access",
-          "title": "Ketch Data Privacy & Consent Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Ketch Data Privacy & Consent Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "ketch_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Ketch Data Privacy & Consent uses Google-managed OAuth 2.0. Ensure an active Ketch Data Privacy & Consent account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ketch"
-            },
-            {
-              "id": "ketch_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Ketch Data Privacy & Consent."
-              }
-            },
-            {
-              "id": "ketch_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Ketch Data Privacy & Consent data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Ketch Data Privacy & Consent connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "ketch_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Ketch Data Privacy & Consent connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "ketch_entities_read",
-          "title": "Ketch Data Privacy & Consent Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Ketch Data Privacy & Consent searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "ketch_searchable_entities",
-              "label": "Searchable Entities Enabled (ConsentPolicy, DataSubjectRequest, PrivacyRight, Jurisdiction)",
-              "subLabel": "Verify that the required Ketch Data Privacy & Consent searchable entities (ConsentPolicy, DataSubjectRequest, PrivacyRight, Jurisdiction) are enabled in the Data section of the data store.",
-              "codeSnippet": "ConsentPolicy, DataSubjectRequest, PrivacyRight, Jurisdiction",
-              "badge": "Required"
-            },
-            {
-              "id": "ketch_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Ketch Data Privacy & Consent tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "MOODYS",
       "vendorDisplayName": "Moody's Credit & Risk Intelligence",
       "category": "Enterprise Platforms",
@@ -5132,9 +4620,12 @@
           "moody_s"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/moodys",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/moody_s",
       "sections": [
         {
           "id": "moodys_auth_access",
@@ -5147,7 +4638,7 @@
               "label": "Google-Managed OAuth & End-User Account Authorization",
               "subLabel": "Moody's Credit & Risk Intelligence uses Google-managed OAuth 2.0. Ensure an active Moody's Credit & Risk Intelligence account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/moodys"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/moody_s"
             },
             {
               "id": "moodys_iam_service_agent",
@@ -5220,8 +4711,11 @@
           "msci"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/msci",
       "sections": [
         {
@@ -5297,376 +4791,25 @@
       ]
     },
     {
-      "vendorId": "MT_NEWSWIRES",
-      "vendorDisplayName": "MT Newswires Real-Time Financial News",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "mt_newswires",
-          "mtnewswires"
-        ],
-        "nameSubstrings": [
-          "mt_newswires",
-          "mtnewswires"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/mt-newswires",
-      "sections": [
-        {
-          "id": "mt_newswires_auth_access",
-          "title": "MT Newswires Real-Time Financial News Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify MT Newswires Real-Time Financial News Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "mt_newswires_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "MT Newswires Real-Time Financial News uses Google-managed OAuth 2.0. Ensure an active MT Newswires Real-Time Financial News account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/mt-newswires"
-            },
-            {
-              "id": "mt_newswires_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for MT Newswires Real-Time Financial News."
-              }
-            },
-            {
-              "id": "mt_newswires_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "MT Newswires Real-Time Financial News data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates MT Newswires Real-Time Financial News connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "mt_newswires_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted MT Newswires Real-Time Financial News connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "mt_newswires_entities_read",
-          "title": "MT Newswires Real-Time Financial News Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm MT Newswires Real-Time Financial News searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "mt_newswires_searchable_entities",
-              "label": "Searchable Entities Enabled (MarketNewsArticle, EquityBrief, EconomicRelease)",
-              "subLabel": "Verify that the required MT Newswires Real-Time Financial News searchable entities (MarketNewsArticle, EquityBrief, EconomicRelease) are enabled in the Data section of the data store.",
-              "codeSnippet": "MarketNewsArticle, EquityBrief, EconomicRelease",
-              "badge": "Required"
-            },
-            {
-              "id": "mt_newswires_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your MT Newswires Real-Time Financial News tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "NEWSGUARD",
-      "vendorDisplayName": "NewsGuard Source Reliability Ratings",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "newsguard",
-          "news_guard"
-        ],
-        "nameSubstrings": [
-          "newsguard",
-          "news_guard"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/newsguard",
-      "sections": [
-        {
-          "id": "newsguard_auth_access",
-          "title": "NewsGuard Source Reliability Ratings Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify NewsGuard Source Reliability Ratings Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "newsguard_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "NewsGuard Source Reliability Ratings uses Google-managed OAuth 2.0. Ensure an active NewsGuard Source Reliability Ratings account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/newsguard"
-            },
-            {
-              "id": "newsguard_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for NewsGuard Source Reliability Ratings."
-              }
-            },
-            {
-              "id": "newsguard_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "NewsGuard Source Reliability Ratings data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates NewsGuard Source Reliability Ratings connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "newsguard_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted NewsGuard Source Reliability Ratings connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "newsguard_entities_read",
-          "title": "NewsGuard Source Reliability Ratings Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm NewsGuard Source Reliability Ratings searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "newsguard_searchable_entities",
-              "label": "Searchable Entities Enabled (ReliabilityRating, NutritionLabel, MisinformationFingerprint)",
-              "subLabel": "Verify that the required NewsGuard Source Reliability Ratings searchable entities (ReliabilityRating, NutritionLabel, MisinformationFingerprint) are enabled in the Data section of the data store.",
-              "codeSnippet": "ReliabilityRating, NutritionLabel, MisinformationFingerprint",
-              "badge": "Required"
-            },
-            {
-              "id": "newsguard_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your NewsGuard Source Reliability Ratings tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "OPENPRISE",
-      "vendorDisplayName": "Openprise RevOps Data Automation",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "openprise"
-        ],
-        "nameSubstrings": [
-          "openprise"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/openprise",
-      "sections": [
-        {
-          "id": "openprise_auth_access",
-          "title": "Openprise RevOps Data Automation Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Openprise RevOps Data Automation Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "openprise_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Openprise RevOps Data Automation uses Google-managed OAuth 2.0. Ensure an active Openprise RevOps Data Automation account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/openprise"
-            },
-            {
-              "id": "openprise_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Openprise RevOps Data Automation."
-              }
-            },
-            {
-              "id": "openprise_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Openprise RevOps Data Automation data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Openprise RevOps Data Automation connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "openprise_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Openprise RevOps Data Automation connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "openprise_entities_read",
-          "title": "Openprise RevOps Data Automation Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Openprise RevOps Data Automation searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "openprise_searchable_entities",
-              "label": "Searchable Entities Enabled (Bot, JobStatus, DataSource, TargetRecord)",
-              "subLabel": "Verify that the required Openprise RevOps Data Automation searchable entities (Bot, JobStatus, DataSource, TargetRecord) are enabled in the Data section of the data store.",
-              "codeSnippet": "Bot, JobStatus, DataSource, TargetRecord",
-              "badge": "Required"
-            },
-            {
-              "id": "openprise_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Openprise RevOps Data Automation tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "OUTREACH",
-      "vendorDisplayName": "Outreach Sales Execution",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "outreach"
-        ],
-        "nameSubstrings": [
-          "outreach"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/outreach",
-      "sections": [
-        {
-          "id": "outreach_auth_access",
-          "title": "Outreach Sales Execution Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Outreach Sales Execution Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "outreach_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Outreach Sales Execution uses Google-managed OAuth 2.0. Ensure an active Outreach Sales Execution account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/outreach"
-            },
-            {
-              "id": "outreach_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Outreach Sales Execution."
-              }
-            },
-            {
-              "id": "outreach_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Outreach Sales Execution data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Outreach Sales Execution connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "outreach_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Outreach Sales Execution connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "outreach_entities_read",
-          "title": "Outreach Sales Execution Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Outreach Sales Execution searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "outreach_searchable_entities",
-              "label": "Searchable Entities Enabled (Prospect, Account, Sequence, Opportunity, Task, CallSummary)",
-              "subLabel": "Verify that the required Outreach Sales Execution searchable entities (Prospect, Account, Sequence, Opportunity, Task, CallSummary) are enabled in the Data section of the data store.",
-              "codeSnippet": "Prospect, Account, Sequence, Opportunity, Task, CallSummary",
-              "badge": "Required"
-            },
-            {
-              "id": "outreach_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Outreach Sales Execution tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "PENDO",
       "vendorDisplayName": "Pendo Product Analytics",
       "category": "Enterprise Platforms",
       "detectionPatterns": {
         "dataSources": [
-          "pendo"
+          "pendo",
+          "pendo_mcp"
         ],
         "nameSubstrings": [
-          "pendo"
+          "pendo",
+          "pendo_mcp"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pendo",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pendo_mcp",
       "sections": [
         {
           "id": "pendo_auth_access",
@@ -5679,7 +4822,7 @@
               "label": "Google-Managed OAuth & End-User Account Authorization",
               "subLabel": "Pendo Product Analytics uses Google-managed OAuth 2.0. Ensure an active Pendo Product Analytics account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pendo"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pendo_mcp"
             },
             {
               "id": "pendo_iam_service_agent",
@@ -5754,8 +4897,11 @@
           "usepylon"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pylon",
       "sections": [
         {
@@ -5836,15 +4982,20 @@
       "category": "Enterprise Platforms",
       "detectionPatterns": {
         "dataSources": [
-          "ramp"
+          "ramp",
+          "ramp_mcp"
         ],
         "nameSubstrings": [
-          "ramp"
+          "ramp",
+          "ramp_mcp"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ramp",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ramp-mcp",
       "sections": [
         {
           "id": "ramp_auth_access",
@@ -5857,7 +5008,7 @@
               "label": "Google-Managed OAuth & End-User Account Authorization",
               "subLabel": "Ramp Corporate Cards & Spend Management uses Google-managed OAuth 2.0. Ensure an active Ramp Corporate Cards & Spend Management account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ramp"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ramp-mcp"
             },
             {
               "id": "ramp_iam_service_agent",
@@ -5919,94 +5070,6 @@
       ]
     },
     {
-      "vendorId": "RISKIFIED",
-      "vendorDisplayName": "Riskified eCommerce Fraud Prevention",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "riskified"
-        ],
-        "nameSubstrings": [
-          "riskified"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/riskified",
-      "sections": [
-        {
-          "id": "riskified_auth_access",
-          "title": "Riskified eCommerce Fraud Prevention Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Riskified eCommerce Fraud Prevention Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "riskified_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Riskified eCommerce Fraud Prevention uses Google-managed OAuth 2.0. Ensure an active Riskified eCommerce Fraud Prevention account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/riskified"
-            },
-            {
-              "id": "riskified_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Riskified eCommerce Fraud Prevention."
-              }
-            },
-            {
-              "id": "riskified_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Riskified eCommerce Fraud Prevention data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Riskified eCommerce Fraud Prevention connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "riskified_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Riskified eCommerce Fraud Prevention connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "riskified_entities_read",
-          "title": "Riskified eCommerce Fraud Prevention Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Riskified eCommerce Fraud Prevention searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "riskified_searchable_entities",
-              "label": "Searchable Entities Enabled (OrderDecision, ChargebackDispute, FraudRiskIndicator)",
-              "subLabel": "Verify that the required Riskified eCommerce Fraud Prevention searchable entities (OrderDecision, ChargebackDispute, FraudRiskIndicator) are enabled in the Data section of the data store.",
-              "codeSnippet": "OrderDecision, ChargebackDispute, FraudRiskIndicator",
-              "badge": "Required"
-            },
-            {
-              "id": "riskified_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Riskified eCommerce Fraud Prevention tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "SP_GLOBAL",
       "vendorDisplayName": "S&P Global Capital IQ & Market Intelligence",
       "category": "Enterprise Platforms",
@@ -6022,9 +5085,12 @@
           "spglobal"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/s-p-global",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/s_p_global",
       "sections": [
         {
           "id": "sp_global_auth_access",
@@ -6037,7 +5103,7 @@
               "label": "Google-Managed OAuth & End-User Account Authorization",
               "subLabel": "S&P Global Capital IQ & Market Intelligence uses Google-managed OAuth 2.0. Ensure an active S&P Global Capital IQ & Market Intelligence account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/s-p-global"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/s_p_global"
             },
             {
               "id": "sp_global_iam_service_agent",
@@ -6099,96 +5165,6 @@
       ]
     },
     {
-      "vendorId": "SIMILARWEB",
-      "vendorDisplayName": "Similarweb Digital Market Intelligence",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "similarweb",
-          "similar_web"
-        ],
-        "nameSubstrings": [
-          "similarweb",
-          "similar_web"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/similarweb",
-      "sections": [
-        {
-          "id": "similarweb_auth_access",
-          "title": "Similarweb Digital Market Intelligence Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Similarweb Digital Market Intelligence Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "similarweb_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Similarweb Digital Market Intelligence uses Google-managed OAuth 2.0. Ensure an active Similarweb Digital Market Intelligence account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/similarweb"
-            },
-            {
-              "id": "similarweb_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Similarweb Digital Market Intelligence."
-              }
-            },
-            {
-              "id": "similarweb_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Similarweb Digital Market Intelligence data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Similarweb Digital Market Intelligence connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "similarweb_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Similarweb Digital Market Intelligence connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "similarweb_entities_read",
-          "title": "Similarweb Digital Market Intelligence Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Similarweb Digital Market Intelligence searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "similarweb_searchable_entities",
-              "label": "Searchable Entities Enabled (WebsiteTraffic, EngagementMetric, KeywordCompetitor, AppRanking)",
-              "subLabel": "Verify that the required Similarweb Digital Market Intelligence searchable entities (WebsiteTraffic, EngagementMetric, KeywordCompetitor, AppRanking) are enabled in the Data section of the data store.",
-              "codeSnippet": "WebsiteTraffic, EngagementMetric, KeywordCompetitor, AppRanking",
-              "badge": "Required"
-            },
-            {
-              "id": "similarweb_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Similarweb Digital Market Intelligence tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "SUPERMETRICS",
       "vendorDisplayName": "Supermetrics Marketing Data",
       "category": "Enterprise Platforms",
@@ -6200,8 +5176,11 @@
           "supermetrics"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/supermetrics",
       "sections": [
         {
@@ -6277,96 +5256,6 @@
       ]
     },
     {
-      "vendorId": "TRANSUNION",
-      "vendorDisplayName": "TransUnion TruAudience Identity & Marketing",
-      "category": "Enterprise Platforms",
-      "detectionPatterns": {
-        "dataSources": [
-          "transunion",
-          "trans_union"
-        ],
-        "nameSubstrings": [
-          "transunion",
-          "trans_union"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/transunion",
-      "sections": [
-        {
-          "id": "transunion_auth_access",
-          "title": "TransUnion TruAudience Identity & Marketing Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify TransUnion TruAudience Identity & Marketing Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "transunion_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "TransUnion TruAudience Identity & Marketing uses Google-managed OAuth 2.0. Ensure an active TransUnion TruAudience Identity & Marketing account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/transunion"
-            },
-            {
-              "id": "transunion_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for TransUnion TruAudience Identity & Marketing."
-              }
-            },
-            {
-              "id": "transunion_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "TransUnion TruAudience Identity & Marketing data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates TransUnion TruAudience Identity & Marketing connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "transunion_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted TransUnion TruAudience Identity & Marketing connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "transunion_entities_read",
-          "title": "TransUnion TruAudience Identity & Marketing Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm TransUnion TruAudience Identity & Marketing searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "transunion_searchable_entities",
-              "label": "Searchable Entities Enabled (AudienceSegment, TaxonomyNode, IdentityInsight)",
-              "subLabel": "Verify that the required TransUnion TruAudience Identity & Marketing searchable entities (AudienceSegment, TaxonomyNode, IdentityInsight) are enabled in the Data section of the data store.",
-              "codeSnippet": "AudienceSegment, TaxonomyNode, IdentityInsight",
-              "badge": "Required"
-            },
-            {
-              "id": "transunion_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your TransUnion TruAudience Identity & Marketing tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "AIWYN_TAX",
       "vendorDisplayName": "Aiwyn Tax Research",
       "category": "Enterprise Platforms",
@@ -6380,9 +5269,12 @@
           "aiwyn"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/aiwyn-tax",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/aiwyn_tax",
       "sections": [
         {
           "id": "aiwyn_tax_auth_access",
@@ -6395,7 +5287,7 @@
               "label": "Public Federated MCP Data Store Provisioned",
               "subLabel": "Aiwyn Tax Research uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/aiwyn-tax"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/aiwyn_tax"
             },
             {
               "id": "aiwyn_tax_iam_service_agent",
@@ -6452,17 +5344,22 @@
       "category": "Enterprise Platforms",
       "detectionPatterns": {
         "dataSources": [
+          "crypto",
           "crypto_com",
           "cryptocom"
         ],
         "nameSubstrings": [
+          "crypto",
           "crypto_com",
           "cryptocom"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/crypto-com",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/crypto",
       "sections": [
         {
           "id": "crypto_com_auth_access",
@@ -6475,7 +5372,7 @@
               "label": "Public Federated MCP Data Store Provisioned",
               "subLabel": "Crypto.com Market Data uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/crypto-com"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/crypto"
             },
             {
               "id": "crypto_com_iam_service_agent",
@@ -6538,8 +5435,11 @@
           "dice"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/dice",
       "sections": [
         {
@@ -6616,8 +5516,11 @@
           "granted"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/granted",
       "sections": [
         {

@@ -125,15 +125,19 @@ describe('Dynamic Checklist: Vendor Detection', () => {
     expect(detectConnectorVendor({ connectorState: { dataSource: 'notebooklm' } })).toBe('NOTEBOOKLM');
     expect(detectConnectorVendor({ connectorState: { dataSource: 'knowledge_catalog' } })).toBe('KNOWLEDGE_CATALOG');
     expect(detectConnectorVendor({ connectorState: { dataSource: 'people_custom' } })).toBe('GCP_PEOPLE_CUSTOM');
-    expect(detectConnectorVendor({ connectorState: { dataSource: 'sharepoint_server' } })).toBe('SHAREPOINT_DC');
     expect(detectConnectorVendor({ connectorState: { dataSource: 'outlookopenapi' } })).toBe('OUTLOOK_OPENAPI');
     expect(detectConnectorVendor({ connectorState: { dataSource: 's4hana' } })).toBe('SAP_S4HANA');
-    expect(detectConnectorVendor({ connectorState: { dataSource: 'sap_hana' } })).toBe('SAP_HANA');
     expect(detectConnectorVendor({ connectorState: { dataSource: 'relativity' } })).toBe('RELATIVITY');
     expect(detectConnectorVendor({ connectorState: { dataSource: 'zoho_desk' } })).toBe('ZOHO_DESK');
     expect(detectConnectorVendor({ connectorState: { dataSource: 'zoho_books' } })).toBe('ZOHO_BOOKS');
     expect(detectConnectorVendor({ connectorState: { dataSource: 'zoho_projects' } })).toBe('ZOHO_PROJECTS');
     expect(detectConnectorVendor({ connectorState: { dataSource: 'supabase' } })).toBe('SUPABASE');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'atlan' } })).toBe('ATLAN');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'nexla' } })).toBe('NEXLA');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'vanta' } })).toBe('VANTA');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'gong' } })).toBe('GONG');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'cisco_workspaces' } })).toBe('CISCO_WORKSPACES');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'webex_meetings' } })).toBe('WEBEX_MEETINGS');
   });
 
   it('detects connectors by collection displayName when resource name is an opaque ID', () => {
@@ -174,9 +178,9 @@ describe('Dynamic Checklist: Registry Definitions', () => {
     expect(def.sections[0].items.some((i) => i.automatedProbe?.type === 'IAM_PERMISSION_CHECK')).toBe(true);
   });
 
-  it('contains all 165 official Gemini Enterprise vendors with authentic categories in getAllVendors()', () => {
+  it('contains all 156 official Gemini Enterprise vendors with authentic categories in getAllVendors()', () => {
     const vendors = getAllVendors();
-    expect(vendors.length).toBeGreaterThanOrEqual(165);
+    expect(vendors.length).toBe(156);
     expect(vendors.some((v) => v.id === 'GCP_PEOPLE')).toBe(true);
     expect(vendors.some((v) => v.id === 'BYO_MCP')).toBe(true);
     expect(vendors.some((v) => v.id === 'JIRA')).toBe(true);
@@ -194,6 +198,14 @@ describe('Dynamic Checklist: Registry Definitions', () => {
     expect(vendors.some((v) => v.id === 'SAP_S4HANA')).toBe(true);
     expect(vendors.some((v) => v.id === 'RELATIVITY')).toBe(true);
     expect(vendors.some((v) => v.id === 'SUPABASE')).toBe(true);
+    expect(vendors.some((v) => v.id === 'ATLAN')).toBe(true);
+    expect(vendors.some((v) => v.id === 'NEXLA')).toBe(true);
+    expect(vendors.some((v) => v.id === 'VANTA')).toBe(true);
+    expect(vendors.some((v) => v.id === 'GONG')).toBe(true);
+    expect(vendors.some((v) => v.id === 'CISCO_WORKSPACES')).toBe(true);
+    expect(vendors.some((v) => v.id === 'WEBEX_MEETINGS')).toBe(true);
+    // Explicitly ensure Website is NOT in the catalog (unsupported in Gemini Enterprise apps)
+    expect(vendors.some((v) => v.id === 'WEBSITE')).toBe(false);
 
     const validCategories = [
       'Google First-Party & MCP',
@@ -236,25 +248,24 @@ describe('Dynamic Checklist: Registry Definitions', () => {
       'NOTEBOOKLM',
       'KNOWLEDGE_CATALOG',
       'GCP_PEOPLE_CUSTOM',
-      'WEBSITE',
       'CUSTOM_CONNECTOR',
       'DYNAMICS365',
-      'SHAREPOINT_DC',
       'OUTLOOK_OPENAPI',
       'JIRA_DC',
       'CONFLUENCE_DC',
       'SOURCEGRAPH',
       'GRAFANA',
-      'OKTA',
       'SUPABASE',
       'LOVABLE',
       'HEX',
+      'ATLAN',
+      'GLOBALPING',
+      'NEXLA',
+      'VANTA',
       'SAP_S4HANA',
-      'SAP_HANA',
       'FINNHUB',
       'SERVICEM8',
       'DB_RISK_ANALYTICS',
-      'MARKETO',
       'ORACLE_NETSUITE',
       'ZOHO_CRM',
       'ZOHO_BOOKS',
@@ -262,10 +273,12 @@ describe('Dynamic Checklist: Registry Definitions', () => {
       'ZOHO_PROJECTS',
       'ZOOMINFO',
       'RELATIVITY',
-      'AEM',
-      'AODOCS',
-      'CODA',
-      'WORDPRESS',
+      'COURTLISTENER',
+      'FISCAL_AI',
+      'GONG',
+      'LEGALZOOM',
+      'MAILERLITE',
+      'MERCURY',
       'EGNYTE',
       'ADOBE_WORKFRONT',
       'DOCUSIGN',
@@ -274,6 +287,11 @@ describe('Dynamic Checklist: Registry Definitions', () => {
       'WRIKE',
       'TRELLO',
       'WORKDAY',
+      'CISCO_WORKSPACES',
+      'GURU',
+      'SURVEYMONKEY',
+      'WEBEX_MEETINGS',
+      'WIX',
     ];
     for (const vendorId of newVendors) {
       const def = getChecklistDefinition(vendorId);

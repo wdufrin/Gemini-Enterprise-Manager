@@ -62,6 +62,7 @@ export interface ConnectorChecklistDefinition {
   };
   supportsDataModeToggle: boolean;
   supportsActions?: boolean;
+  supportedModes?: ('INGESTION' | 'FEDERATED' | 'ACTIONS')[];
   documentationUrl?: string;
   sections: ChecklistSectionDefinition[];
   syncSource?: 'BUNDLED' | 'LIVE_KB' | 'CACHED';

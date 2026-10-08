@@ -43,7 +43,7 @@ const CATEGORY_ORDER = [
   'Universal Fallback',
 ];
 
-function detectInitialDataMode(connector: any): DataMode {
+function detectInitialDataMode(connector: any, vendorId?: string): DataMode {
   const cs = connector?.connectorState || connector || {};
   const connectorType = String(cs.connectorType || connector?.connectorType || '').toUpperCase();
   const modes: string[] = Array.isArray(cs.connectorModes) ? cs.connectorModes : [];
@@ -52,6 +52,16 @@ function detectInitialDataMode(connector: any): DataMode {
     (modes.includes('FEDERATED') && !modes.includes('DATA_INGESTION'))
   ) {
     return 'FEDERATED';
+  }
+  if (vendorId) {
+    const def = getChecklistDefinition(vendorId);
+    if (
+      Array.isArray(def?.supportedModes) &&
+      def.supportedModes.includes('FEDERATED') &&
+      !def.supportedModes.includes('INGESTION')
+    ) {
+      return 'FEDERATED';
+    }
   }
   return 'INGESTION';
 }
@@ -74,7 +84,10 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({
 }) => {
   // Intelligent vendor detection (supports GCP People, Drive, BYOMCP, SaaS connectors)
   const initialType = useMemo(() => detectConnectorVendor(connector), [connector]);
-  const initialDataMode = useMemo(() => detectInitialDataMode(connector), [connector]);
+  const initialDataMode = useMemo(
+    () => detectInitialDataMode(connector, initialType),
+    [connector, initialType]
+  );
   const initialActionsEnabled = useMemo(() => detectInitialActionsEnabled(connector), [connector]);
 
   const [activeType, setActiveType] = useState<string>(initialType);

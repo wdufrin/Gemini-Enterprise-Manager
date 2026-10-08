@@ -90,6 +90,14 @@
           "type": "boolean",
           "description": "True if the connector supports Gemini Enterprise Assistant Actions (write operations)."
         },
+        "supportedModes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["INGESTION", "FEDERATED", "ACTIONS"]
+          },
+          "description": "Explicitly supported operational modes for this connector in Gemini Enterprise."
+        },
         "documentationUrl": {
           "type": "string",
           "format": "uri",

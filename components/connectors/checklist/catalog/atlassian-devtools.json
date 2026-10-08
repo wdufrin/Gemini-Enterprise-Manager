@@ -1892,98 +1892,6 @@
       ]
     },
     {
-      "vendorId": "OKTA",
-      "vendorDisplayName": "Okta Identity & Directory",
-      "category": "Atlassian & DevTools",
-      "detectionPatterns": {
-        "dataSources": [
-          "okta",
-          "okta_directory",
-          "okta_idx"
-        ],
-        "nameSubstrings": [
-          "okta",
-          "okta-directory",
-          "okta_directory"
-        ]
-      },
-      "supportsDataModeToggle": false,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-third-party-data-source",
-      "sections": [
-        {
-          "id": "okta_auth_access",
-          "title": "Okta OIDC Web App, API Token & Key Pair Setup",
-          "stepNumber": 1,
-          "description": "Configure an Okta OIDC Web Application integration, API Token, and Public/Private Key Pair.",
-          "items": [
-            {
-              "id": "okta_redirect_uri",
-              "label": "Okta OIDC Sign-In Redirect URI Configured",
-              "subLabel": "Add https://vertexaisearch.cloud.google.com/console/oauth/okta_oauth.html as a Sign-in redirect URI in the Okta OIDC Web App.",
-              "codeSnippet": "https://vertexaisearch.cloud.google.com/console/oauth/okta_oauth.html",
-              "badge": "Required"
-            },
-            {
-              "id": "okta_api_token_keypair",
-              "label": "Okta API Token & Key Pair Provisioned",
-              "subLabel": "Provide the Okta Client ID, Client Secret, API Token, and Public/Private Key Pair in the connector configuration.",
-              "badge": "Required"
-            },
-            {
-              "id": "okta_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Okta."
-              }
-            },
-            {
-              "id": "okta_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Okta data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Okta connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "okta_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Okta connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "okta_scopes_entities",
-          "title": "Okta API Scopes & Synced Entities",
-          "stepNumber": 2,
-          "description": "Verify Okta API scopes granted on the Okta API Scopes tab.",
-          "items": [
-            {
-              "id": "okta_api_scopes",
-              "label": "Okta Users, Groups & Apps Read Scopes Granted",
-              "subLabel": "Grant okta.users.read, okta.groups.read, okta.apps.read, okta.roles.read, okta.logs.read, and okta.Factors.read.",
-              "codeSnippet": "okta.users.read okta.groups.read okta.apps.read okta.roles.read okta.logs.read",
-              "badge": "Required"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "SUPABASE",
       "vendorDisplayName": "Supabase",
       "category": "Atlassian & DevTools",
@@ -1995,8 +1903,12 @@
           "supabase"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/supabase",
       "sections": [
         {
@@ -2100,8 +2012,12 @@
           "lovable"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/lovable",
       "sections": [
         {
@@ -2207,8 +2123,12 @@
           "hex_analytics"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/hex",
       "sections": [
         {
@@ -2301,36 +2221,49 @@
       ]
     },
     {
-      "vendorId": "ALATION",
-      "vendorDisplayName": "Alation Data Catalog",
+      "vendorId": "ATLAN",
+      "vendorDisplayName": "Atlan Data Catalog",
       "category": "Atlassian & DevTools",
       "detectionPatterns": {
         "dataSources": [
-          "alation"
+          "atlan_mcp",
+          "atlan"
         ],
         "nameSubstrings": [
-          "alation"
+          "atlan",
+          "atlan_mcp",
+          "atlan-mcp"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/alation",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/atlan-mcp",
       "sections": [
         {
-          "id": "alation_auth_access",
-          "title": "Alation Data Catalog Google-Managed OAuth & Health",
+          "id": "atlan_auth_access",
+          "title": "Atlan Data Catalog Google-Managed OAuth & Health",
           "stepNumber": 1,
-          "description": "Verify Alation Data Catalog Google-managed OAuth setup, IAM permissions, and connector health.",
+          "description": "Verify Atlan Data Catalog Google-managed OAuth setup, IAM permissions, and connector health.",
           "items": [
             {
-              "id": "alation_google_managed_oauth",
+              "id": "atlan_google_managed_oauth",
               "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Alation Data Catalog uses Google-managed OAuth 2.0. Ensure an active Alation Data Catalog account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "subLabel": "Atlan Data Catalog uses Google-managed OAuth 2.0. Ensure an active Atlan Data Catalog account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/alation"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/atlan-mcp"
             },
             {
-              "id": "alation_iam_service_agent",
+              "id": "atlan_unused_auth_param",
+              "label": "Unused Authorization Parameter Set (unused)",
+              "subLabel": "In the Google Cloud console during Atlan Data Catalog data store creation, enter 'unused' in the Unused Authorization Parameters field as required by the connector schema.",
+              "codeSnippet": "unused",
+              "badge": "Required"
+            },
+            {
+              "id": "atlan_iam_service_agent",
               "label": "Discovery Engine Service Agent Role",
               "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
               "badge": "Automated",
@@ -2340,48 +2273,331 @@
                   "discoveryengine.dataStores.get",
                   "discoveryengine.collections.get"
                 ],
-                "description": "Checks Discovery Engine service agent role bindings for Alation Data Catalog."
+                "description": "Checks Discovery Engine service agent role bindings for Atlan Data Catalog."
               }
             },
             {
-              "id": "alation_connector_health",
+              "id": "atlan_connector_health",
               "label": "Connector State Health",
-              "subLabel": "Alation Data Catalog data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "subLabel": "Atlan Data Catalog data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
               "badge": "Automated",
               "automatedProbe": {
                 "type": "CONNECTOR_STATUS",
-                "description": "Validates Alation Data Catalog connector state and latest operation error logs."
+                "description": "Validates Atlan Data Catalog connector state and latest operation error logs."
               }
             },
             {
-              "id": "alation_oauth_validity",
+              "id": "atlan_oauth_validity",
               "label": "Connector Endpoint & Auth State Check",
               "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
               "badge": "Automated",
               "automatedProbe": {
                 "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Alation Data Catalog connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+                "description": "Verifies non-redacted Atlan Data Catalog connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
               }
             }
           ]
         },
         {
-          "id": "alation_entities_read",
-          "title": "Alation Data Catalog Searchable Entities & Federated Scope (Read)",
+          "id": "atlan_entities_read",
+          "title": "Atlan Data Catalog Searchable Entities & Federated Scope (Read)",
           "stepNumber": 2,
-          "description": "Confirm Alation Data Catalog searchable entities and rate limit configurations for live federated search.",
+          "description": "Confirm Atlan Data Catalog searchable entities and rate limit configurations for live federated search.",
           "items": [
             {
-              "id": "alation_searchable_entities",
-              "label": "Searchable Entities Enabled (DataProduct, Table, Column, Query, GlossaryTerm, Document)",
-              "subLabel": "Verify that the required Alation Data Catalog searchable entities (DataProduct, Table, Column, Query, GlossaryTerm, Document) are enabled in the Data section of the data store.",
-              "codeSnippet": "DataProduct, Table, Column, Query, GlossaryTerm, Document",
+              "id": "atlan_searchable_entities",
+              "label": "Searchable Entities Enabled (Asset)",
+              "subLabel": "Verify that the required Atlan Data Catalog searchable entities (Asset) are enabled in the Data section of the data store.",
+              "codeSnippet": "Asset",
               "badge": "Required"
             },
             {
-              "id": "alation_rate_limit_qps",
+              "id": "atlan_rate_limit_qps",
               "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Alation Data Catalog tenant API quota.",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Atlan Data Catalog tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GLOBALPING",
+      "vendorDisplayName": "Globalping Network Diagnostics",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "globalping"
+        ],
+        "nameSubstrings": [
+          "globalping"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/globalping",
+      "sections": [
+        {
+          "id": "globalping_auth_access",
+          "title": "Globalping Network Diagnostics Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Globalping Network Diagnostics Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "globalping_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Globalping Network Diagnostics uses Google-managed OAuth 2.0. Ensure an active Globalping Network Diagnostics account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/globalping"
+            },
+            {
+              "id": "globalping_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Globalping Network Diagnostics."
+              }
+            },
+            {
+              "id": "globalping_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Globalping Network Diagnostics data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Globalping Network Diagnostics connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "globalping_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Globalping Network Diagnostics connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "globalping_entities_read",
+          "title": "Globalping Network Diagnostics Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Globalping Network Diagnostics searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "globalping_searchable_entities",
+              "label": "Searchable Entities Enabled (Measurements)",
+              "subLabel": "Verify that the required Globalping Network Diagnostics searchable entities (Measurements) are enabled in the Data section of the data store.",
+              "codeSnippet": "Measurements",
+              "badge": "Required"
+            },
+            {
+              "id": "globalping_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Globalping Network Diagnostics tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "NEXLA",
+      "vendorDisplayName": "Nexla Data Integration & MCP Studio",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "nexla_mcp_studio",
+          "nexla"
+        ],
+        "nameSubstrings": [
+          "nexla",
+          "nexla_mcp_studio",
+          "nexla-mcp-studio"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/nexla-mcp-studio",
+      "sections": [
+        {
+          "id": "nexla_auth_access",
+          "title": "Nexla Data Integration & MCP Studio Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Nexla Data Integration & MCP Studio Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "nexla_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Nexla Data Integration & MCP Studio uses Google-managed OAuth 2.0. Ensure an active Nexla Data Integration & MCP Studio account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/nexla-mcp-studio"
+            },
+            {
+              "id": "nexla_unused_auth_param",
+              "label": "Unused Authorization Parameter Set (unused)",
+              "subLabel": "In the Google Cloud console during Nexla Data Integration & MCP Studio data store creation, enter 'unused' in the Unused Authorization Parameters field as required by the connector schema.",
+              "codeSnippet": "unused",
+              "badge": "Required"
+            },
+            {
+              "id": "nexla_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Nexla Data Integration & MCP Studio."
+              }
+            },
+            {
+              "id": "nexla_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Nexla Data Integration & MCP Studio data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Nexla Data Integration & MCP Studio connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "nexla_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Nexla Data Integration & MCP Studio connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "nexla_entities_read",
+          "title": "Nexla Data Integration & MCP Studio Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Nexla Data Integration & MCP Studio searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "nexla_searchable_entities",
+              "label": "Searchable Entities Enabled (Nexla Data)",
+              "subLabel": "Verify that the required Nexla Data Integration & MCP Studio searchable entities (Nexla Data) are enabled in the Data section of the data store.",
+              "codeSnippet": "Nexla Data",
+              "badge": "Required"
+            },
+            {
+              "id": "nexla_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Nexla Data Integration & MCP Studio tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "VANTA",
+      "vendorDisplayName": "Vanta Trust & Compliance Management",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "vanta"
+        ],
+        "nameSubstrings": [
+          "vanta"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/vanta",
+      "sections": [
+        {
+          "id": "vanta_auth_access",
+          "title": "Vanta Trust & Compliance Management Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Vanta Trust & Compliance Management Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "vanta_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Vanta Trust & Compliance Management uses Google-managed OAuth 2.0. Ensure an active Vanta Trust & Compliance Management account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/vanta"
+            },
+            {
+              "id": "vanta_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Vanta Trust & Compliance Management."
+              }
+            },
+            {
+              "id": "vanta_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Vanta Trust & Compliance Management data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Vanta Trust & Compliance Management connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "vanta_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Vanta Trust & Compliance Management connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "vanta_entities_read",
+          "title": "Vanta Trust & Compliance Management Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Vanta Trust & Compliance Management searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "vanta_searchable_entities",
+              "label": "Searchable Entities Enabled (Policies)",
+              "subLabel": "Verify that the required Vanta Trust & Compliance Management searchable entities (Policies) are enabled in the Data section of the data store.",
+              "codeSnippet": "Policies",
+              "badge": "Required"
+            },
+            {
+              "id": "vanta_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Vanta Trust & Compliance Management tenant API quota.",
               "badge": "Recommended"
             }
           ]
@@ -2400,8 +2616,11 @@
           "starburst"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/starburst",
       "sections": [
         {
@@ -2490,9 +2709,12 @@
           "omni"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/omni-analytics",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/omni_analytics",
       "sections": [
         {
           "id": "omni_analytics_auth_access",
@@ -2505,7 +2727,7 @@
               "label": "Google-Managed OAuth & End-User Account Authorization",
               "subLabel": "Omni Analytics uses Google-managed OAuth 2.0. Ensure an active Omni Analytics account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/omni-analytics"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/omni_analytics"
             },
             {
               "id": "omni_analytics_iam_service_agent",
@@ -2567,96 +2789,6 @@
       ]
     },
     {
-      "vendorId": "THOUGHTSPOT",
-      "vendorDisplayName": "ThoughtSpot",
-      "category": "Atlassian & DevTools",
-      "detectionPatterns": {
-        "dataSources": [
-          "thoughtspot",
-          "thought_spot"
-        ],
-        "nameSubstrings": [
-          "thoughtspot",
-          "thought_spot"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/thoughtspot",
-      "sections": [
-        {
-          "id": "thoughtspot_auth_access",
-          "title": "ThoughtSpot Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify ThoughtSpot Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "thoughtspot_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "ThoughtSpot uses Google-managed OAuth 2.0. Ensure an active ThoughtSpot account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/thoughtspot"
-            },
-            {
-              "id": "thoughtspot_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for ThoughtSpot."
-              }
-            },
-            {
-              "id": "thoughtspot_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "ThoughtSpot data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates ThoughtSpot connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "thoughtspot_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted ThoughtSpot connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "thoughtspot_entities_read",
-          "title": "ThoughtSpot Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm ThoughtSpot searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "thoughtspot_searchable_entities",
-              "label": "Searchable Entities Enabled (Liveboard, Answer, DataSource, Metric)",
-              "subLabel": "Verify that the required ThoughtSpot searchable entities (Liveboard, Answer, DataSource, Metric) are enabled in the Data section of the data store.",
-              "codeSnippet": "Liveboard, Answer, DataSource, Metric",
-              "badge": "Required"
-            },
-            {
-              "id": "thoughtspot_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your ThoughtSpot tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "APOLLO_GRAPHOS",
       "vendorDisplayName": "Apollo GraphOS",
       "category": "Atlassian & DevTools",
@@ -2670,8 +2802,11 @@
           "apollographos"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/apollo-graphos",
       "sections": [
         {
@@ -2748,8 +2883,11 @@
           "aws_marketplace"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/aws-marketplace",
       "sections": [
         {
@@ -2828,8 +2966,11 @@
           "hugging_face"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/huggingface",
       "sections": [
         {
@@ -2908,9 +3049,12 @@
           "timescale_pg_aiguide"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pg-aiguide",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pg_aiguide",
       "sections": [
         {
           "id": "pg_aiguide_auth_access",
@@ -2923,7 +3067,7 @@
               "label": "Public Federated MCP Data Store Provisioned",
               "subLabel": "Timescale pg-aiguide (PostgreSQL) uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pg-aiguide"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pg_aiguide"
             },
             {
               "id": "pg_aiguide_iam_service_agent",
@@ -2988,9 +3132,12 @@
           "twilio"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/twilio-docs",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/twilio_docs",
       "sections": [
         {
           "id": "twilio_docs_auth_access",
@@ -3003,7 +3150,7 @@
               "label": "Public Federated MCP Data Store Provisioned",
               "subLabel": "Twilio Documentation uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/twilio-docs"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/twilio_docs"
             },
             {
               "id": "twilio_docs_iam_service_agent",

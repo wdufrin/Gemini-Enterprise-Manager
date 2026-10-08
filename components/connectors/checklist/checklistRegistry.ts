@@ -219,21 +219,6 @@ export function detectConnectorVendor(connector: any): string {
   }
 
   if (
-    dataSource.includes('sharepoint_server') ||
-    dataSource.includes('sharepoint_dc') ||
-    dataSource.includes('sharepoint-dc') ||
-    dataSource.includes('sharepoint_onprem') ||
-    nameString.includes('sharepoint_server') ||
-    nameString.includes('sharepoint_dc') ||
-    nameString.includes('sharepoint-dc') ||
-    nameString.includes('sharepoint_onprem') ||
-    nameString.includes('sharepoint data center') ||
-    nameString.includes('sharepoint on-premises')
-  ) {
-    return 'SHAREPOINT_DC';
-  }
-
-  if (
     dataSource.includes('outlookopenapi') ||
     dataSource.includes('outlook_openapi') ||
     nameString.includes('outlookopenapi') ||
@@ -292,7 +277,6 @@ export function detectConnectorVendor(connector: any): string {
     'ONEDRIVE',
     'JIRA_DC',
     'CONFLUENCE_DC',
-    'SHAREPOINT_DC',
     'OUTLOOK_OPENAPI',
     'SAP_S4HANA',
     'ZOHO_BOOKS',

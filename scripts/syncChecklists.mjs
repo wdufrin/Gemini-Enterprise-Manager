@@ -189,9 +189,16 @@ function generateMarkdownCatalog(allConnectors) {
   ];
 
   for (const c of allConnectors) {
-    const modes = ['Ingestion'];
-    if (c.supportsDataModeToggle) modes.push('Federated');
-    if (c.supportsActions) modes.push('Actions');
+    let modes;
+    if (Array.isArray(c.supportedModes) && c.supportedModes.length > 0) {
+      modes = c.supportedModes.map((m) =>
+        m === 'INGESTION' ? 'Ingestion' : m === 'FEDERATED' ? 'Federated' : 'Actions'
+      );
+    } else {
+      modes = ['Ingestion'];
+      if (c.supportsDataModeToggle) modes.push('Federated');
+      if (c.supportsActions) modes.push('Actions');
+    }
     const ds = (c.detectionPatterns?.dataSources || []).slice(0, 4).map((d) => `\`${d}\``).join(', ') || 'Fallback';
     lines.push(
       `| \`${c.vendorId}\` | **${c.vendorDisplayName}** | ${c.category} | \`${c.sourceFile}\` | ${ds} | ${modes.join(', ')} | ${c.totalItems} | ${c.probeCount} | [Docs](${c.documentationUrl}) |`

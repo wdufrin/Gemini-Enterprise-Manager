@@ -1492,8 +1492,11 @@
           "compute engine"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/google-compute-engine",
       "sections": [
         {
@@ -1593,8 +1596,12 @@
           "google stitch"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/googlestitch",
       "sections": [
         {
@@ -1709,8 +1716,12 @@
           "looker-mcp"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-looker",
       "sections": [
         {
@@ -1826,6 +1837,9 @@
       },
       "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "INGESTION"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-groups",
       "sections": [
         {
@@ -1905,8 +1919,11 @@
           "notebook lm"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-notebooklm",
       "sections": [
         {
@@ -1989,8 +2006,11 @@
           "universal-catalog"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-knowledge-catalog",
       "sections": [
         {
@@ -2075,6 +2095,9 @@
       },
       "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "INGESTION"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-people-custom",
       "sections": [
         {
@@ -2133,83 +2156,6 @@
       ]
     },
     {
-      "vendorId": "WEBSITE",
-      "vendorDisplayName": "Website Search (Public & Advanced Indexing)",
-      "category": "Google First-Party & MCP",
-      "detectionPatterns": {
-        "dataSources": [
-          "website",
-          "web_crawler",
-          "public_website",
-          "site_search"
-        ],
-        "nameSubstrings": [
-          "website",
-          "web-search",
-          "web_crawler",
-          "site-search"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/create-data-store",
-      "sections": [
-        {
-          "id": "website_domain_setup",
-          "title": "URL Patterns & Google Search Console Domain Verification",
-          "stepNumber": 1,
-          "description": "Verify included/excluded URL patterns and domain ownership for Advanced Website Indexing.",
-          "items": [
-            {
-              "id": "website_domain_verified",
-              "label": "Domain Ownership Verified in Google Search Console",
-              "subLabel": "For Advanced Website Indexing, verify domain ownership in Google Search Console before enabling document crawling.",
-              "badge": "Required"
-            },
-            {
-              "id": "website_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Website Data Store."
-              }
-            },
-            {
-              "id": "website_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Website Data Store data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Website Data Store connector state and latest operation error logs."
-              }
-            }
-          ]
-        },
-        {
-          "id": "website_crawler_config",
-          "title": "Sitemap & Robots.txt Crawler Allowlisting",
-          "stepNumber": 2,
-          "description": "Ensure Google-CloudVertexBot can crawl target pages and sitemaps.",
-          "items": [
-            {
-              "id": "website_robots_txt",
-              "label": "Google-CloudVertexBot Allowlisted in robots.txt",
-              "subLabel": "Ensure robots.txt permits User-agent: Google-CloudVertexBot and Googlebot on included URL paths.",
-              "codeSnippet": "User-agent: Google-CloudVertexBot\nAllow: /",
-              "badge": "Required"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "CUSTOM_CONNECTOR",
       "vendorDisplayName": "Custom Data Source Connector (REST API & Identity Mapping)",
       "category": "Google First-Party & MCP",
@@ -2228,6 +2174,9 @@
       },
       "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "INGESTION"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/custom-connector",
       "sections": [
         {

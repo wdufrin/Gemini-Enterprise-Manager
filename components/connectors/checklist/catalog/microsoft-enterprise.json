@@ -1484,100 +1484,6 @@
       ]
     },
     {
-      "vendorId": "SHAREPOINT_DC",
-      "vendorDisplayName": "Microsoft SharePoint On-Premises (Data Center)",
-      "category": "Microsoft 365 & Identity",
-      "detectionPatterns": {
-        "dataSources": [
-          "sharepoint_server",
-          "sharepoint_dc",
-          "sharepoint_onprem",
-          "ms_sharepoint_dc"
-        ],
-        "nameSubstrings": [
-          "sharepoint-dc",
-          "sharepoint_dc",
-          "sharepoint_server",
-          "sharepoint-onprem",
-          "sharepoint data center"
-        ]
-      },
-      "supportsDataModeToggle": false,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-third-party-data-source",
-      "sections": [
-        {
-          "id": "sp_dc_auth_network",
-          "title": "SharePoint On-Premises Network & Active Directory Auth",
-          "stepNumber": 1,
-          "description": "Verify Private Service Connect (PSC) or public SSL endpoint and Active Directory service account permissions.",
-          "items": [
-            {
-              "id": "sp_dc_ad_visitor_group",
-              "label": "Active Directory User Added to <SiteName> Visitors Group",
-              "subLabel": "Ensure the AD user account used for Basic Authentication belongs to the <SiteName> visitors SharePoint group across target site collections.",
-              "badge": "Required"
-            },
-            {
-              "id": "sp_dc_psc_attachment",
-              "label": "Private Service Connect (PSC) or Public Domain Configured",
-              "subLabel": "Configure a PSC service attachment (with static IP/domain mapping) or public HTTPS endpoint for SharePoint Server.",
-              "badge": "Required"
-            },
-            {
-              "id": "sp_dc_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for SharePoint On-Premises."
-              }
-            },
-            {
-              "id": "sp_dc_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "SharePoint On-Premises data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates SharePoint On-Premises connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "sp_dc_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted SharePoint On-Premises connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "sp_dc_entities",
-          "title": "SharePoint On-Premises Indexed Entities",
-          "stepNumber": 2,
-          "description": "Verify SharePoint Server entities selected for ingestion.",
-          "items": [
-            {
-              "id": "sp_dc_entities_list",
-              "label": "Site, Page, ListItem, Attachment & File Entities Selected",
-              "subLabel": "Confirm Site, Page, ListItem, Attachment, File, Folder, and Event entities are enabled for indexing.",
-              "codeSnippet": "Site, Page, ListItem, Attachment, File, Folder, Event",
-              "badge": "Required"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "OUTLOOK_OPENAPI",
       "vendorDisplayName": "Microsoft Outlook (OpenAPI Federated & Actions)",
       "category": "Microsoft 365 & Identity",
@@ -1593,9 +1499,13 @@
           "outlook_openapi"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/outlookopenapi",
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ms-outlook",
       "sections": [
         {
           "id": "outlook_oa_auth",
@@ -1695,8 +1605,11 @@
           "ms-learn"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/microsoft-learn",
       "sections": [
         {

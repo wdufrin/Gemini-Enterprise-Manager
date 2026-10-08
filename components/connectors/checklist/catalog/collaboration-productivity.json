@@ -1043,7 +1043,7 @@
           "smart_sheet"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/smartsheet",
       "sections": [
@@ -1155,6 +1155,10 @@
             }
           ]
         }
+      ],
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
       ]
     },
     {
@@ -1598,7 +1602,7 @@
           "imanage"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/imanage-platform",
       "sections": [
@@ -1689,6 +1693,9 @@
             }
           ]
         }
+      ],
+      "supportedModes": [
+        "FEDERATED"
       ]
     },
     {
@@ -1814,7 +1821,7 @@
           "wrike"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/wrike/set-up-data-store",
       "sections": [
@@ -1897,6 +1904,10 @@
             }
           ]
         }
+      ],
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
       ]
     },
     {
@@ -1914,8 +1925,11 @@
           "relativity_one"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "INGESTION"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/relativity",
       "sections": [
         {
@@ -1975,352 +1989,15 @@
         },
         {
           "id": "relativity_entities",
-          "title": "Relativity Legal Document Search (Read)",
+          "title": "Relativity Legal Document Ingestion (Read)",
           "stepNumber": 2,
           "description": "Verify Document entity selection and workspace permissions.",
           "items": [
             {
               "id": "relativity_doc_entity",
-              "label": "Document Entity Enabled for Federated Search",
-              "subLabel": "Select Document in the Data Store configuration to query Relativity eDiscovery workspaces.",
+              "label": "Document Entity Enabled for Indexing",
+              "subLabel": "Select Document in the Data Store configuration to index Relativity eDiscovery workspaces.",
               "codeSnippet": "Document",
-              "badge": "Required"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "AEM",
-      "vendorDisplayName": "Adobe Experience Manager (AEM)",
-      "category": "Collaboration & Storage",
-      "detectionPatterns": {
-        "dataSources": [
-          "adobe_experience_manager",
-          "aem",
-          "adobe_aem"
-        ],
-        "nameSubstrings": [
-          "adobe-experience-manager",
-          "adobe_experience_manager",
-          "aem"
-        ]
-      },
-      "supportsDataModeToggle": false,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-third-party-data-source",
-      "sections": [
-        {
-          "id": "aem_auth",
-          "title": "Adobe Experience Manager Service Credentials & Instance URL",
-          "stepNumber": 1,
-          "description": "Configure Adobe Developer Console technical account credentials and AEM Instance URL.",
-          "items": [
-            {
-              "id": "aem_service_credentials",
-              "label": "AEM Service Credentials & Instance URL Configured",
-              "subLabel": "Provide the AEM Instance URL and technical account service credentials with read permissions on DAM assets and sites.",
-              "badge": "Required"
-            },
-            {
-              "id": "aem_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Adobe Experience Manager."
-              }
-            },
-            {
-              "id": "aem_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Adobe Experience Manager data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Adobe Experience Manager connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "aem_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Adobe Experience Manager connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "aem_entities",
-          "title": "AEM Assets & Pages Ingestion",
-          "stepNumber": 2,
-          "description": "Verify AEM content paths and asset metadata indexing.",
-          "items": [
-            {
-              "id": "aem_assets_pages",
-              "label": "AEM DAM Assets & Content Pages Enabled",
-              "subLabel": "Confirm target content paths (/content/dam, /content/sites) are accessible for indexing.",
-              "badge": "Required"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "AODOCS",
-      "vendorDisplayName": "AODocs Document Management",
-      "category": "Collaboration & Storage",
-      "detectionPatterns": {
-        "dataSources": [
-          "aodocs",
-          "ao_docs"
-        ],
-        "nameSubstrings": [
-          "aodocs",
-          "ao-docs",
-          "ao_docs"
-        ]
-      },
-      "supportsDataModeToggle": false,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-third-party-data-source",
-      "sections": [
-        {
-          "id": "aodocs_auth",
-          "title": "AODocs Allowlisted GCP OAuth Client & Google Drive API",
-          "stepNumber": 1,
-          "description": "Configure a GCP OAuth 2.0 Web Client allowlisted by AODocs Support and enable the Google Drive API.",
-          "items": [
-            {
-              "id": "aodocs_oauth_allowlisted",
-              "label": "GCP OAuth 2.0 Client ID Allowlisted by AODocs Support",
-              "subLabel": "Create a GCP OAuth 2.0 Web Client with redirect URI https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html and have AODocs allowlist the Client ID.",
-              "codeSnippet": "https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html",
-              "badge": "Required"
-            },
-            {
-              "id": "aodocs_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for AODocs."
-              }
-            },
-            {
-              "id": "aodocs_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "AODocs data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates AODocs connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "aodocs_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted AODocs connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "aodocs_libraries",
-          "title": "AODocs Libraries & Document Classes",
-          "stepNumber": 2,
-          "description": "Verify AODocs libraries and document ACL synchronization.",
-          "items": [
-            {
-              "id": "aodocs_library_sync",
-              "label": "AODocs Libraries & Document Classes Selected",
-              "subLabel": "Ensure the connector account has library reader access across target AODocs libraries.",
-              "badge": "Required"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "CODA",
-      "vendorDisplayName": "Coda",
-      "category": "Collaboration & Storage",
-      "detectionPatterns": {
-        "dataSources": [
-          "coda",
-          "coda_io"
-        ],
-        "nameSubstrings": [
-          "coda",
-          "coda-io",
-          "coda_io"
-        ]
-      },
-      "supportsDataModeToggle": false,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-third-party-data-source",
-      "sections": [
-        {
-          "id": "coda_auth",
-          "title": "Coda API Token & Google Workspace Identity Setup",
-          "stepNumber": 1,
-          "description": "Generate a Coda API token with read access to workspace docs and tables.",
-          "items": [
-            {
-              "id": "coda_api_token",
-              "label": "Coda API Token Configured",
-              "subLabel": "Generate an API token in Coda Account Settings and provide it in the Coda data store configuration.",
-              "badge": "Required"
-            },
-            {
-              "id": "coda_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Coda."
-              }
-            },
-            {
-              "id": "coda_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Coda data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Coda connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "coda_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Coda connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "coda_entities",
-          "title": "Coda Docs, Pages & Tables Ingestion",
-          "stepNumber": 2,
-          "description": "Verify Coda entities selected for ingestion.",
-          "items": [
-            {
-              "id": "coda_entities_list",
-              "label": "Docs, Pages, Tables, Rows, Columns, Formulas & Controls Selected",
-              "subLabel": "Confirm Coda entities are enabled in the Data Store configuration.",
-              "codeSnippet": "Docs, Pages, Tables, Rows, Columns, Formulas, Controls",
-              "badge": "Required"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "WORDPRESS",
-      "vendorDisplayName": "WordPress",
-      "category": "Collaboration & Storage",
-      "detectionPatterns": {
-        "dataSources": [
-          "wordpress",
-          "word_press",
-          "wp"
-        ],
-        "nameSubstrings": [
-          "wordpress",
-          "word-press",
-          "word_press"
-        ]
-      },
-      "supportsDataModeToggle": false,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-third-party-data-source",
-      "sections": [
-        {
-          "id": "wp_auth",
-          "title": "WordPress Site URL & Application Password Setup",
-          "stepNumber": 1,
-          "description": "Configure WordPress site URL, administrator/editor username, and application password.",
-          "items": [
-            {
-              "id": "wp_credentials",
-              "label": "WordPress Site URL, Username & Application Password Configured",
-              "subLabel": "Provide the WordPress HTTPS site URL and credentials with read access to REST API endpoints (/wp-json/wp/v2/).",
-              "badge": "Required"
-            },
-            {
-              "id": "wp_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for WordPress."
-              }
-            },
-            {
-              "id": "wp_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "WordPress data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates WordPress connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "wp_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted WordPress connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "wp_entities",
-          "title": "WordPress Posts, Pages & Media Entities",
-          "stepNumber": 2,
-          "description": "Verify WordPress content types selected for ingestion.",
-          "items": [
-            {
-              "id": "wp_entities_list",
-              "label": "Posts, Pages, Comments, Categories, Media, Tags & Users Selected",
-              "subLabel": "Confirm WordPress entities are enabled in the Data Store configuration.",
-              "codeSnippet": "Posts, Pages, Comments, Categories, Media, Tags, Users",
               "badge": "Required"
             }
           ]
@@ -2341,8 +2018,12 @@
           "air_ops"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/airops",
       "sections": [
         {
@@ -2446,8 +2127,12 @@
           "bitly"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/bitly",
       "sections": [
         {
@@ -2551,8 +2236,12 @@
           "descript"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/descript",
       "sections": [
         {
@@ -2656,8 +2345,12 @@
           "egnyte"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/egnyte",
       "sections": [
         {
@@ -2761,8 +2454,12 @@
           "gamma"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/gamma",
       "sections": [
         {
@@ -2855,36 +2552,48 @@
       ]
     },
     {
-      "vendorId": "BENCHLING",
-      "vendorDisplayName": "Benchling R&D Cloud",
+      "vendorId": "CISCO_WORKSPACES",
+      "vendorDisplayName": "Cisco Workspaces",
       "category": "Collaboration & Storage",
       "detectionPatterns": {
         "dataSources": [
-          "benchling"
+          "cisco_workspaces",
+          "cisco"
         ],
         "nameSubstrings": [
-          "benchling"
+          "cisco-workspaces",
+          "cisco_workspaces"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/benchling",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/cisco-workspaces",
       "sections": [
         {
-          "id": "benchling_auth_access",
-          "title": "Benchling R&D Cloud Google-Managed OAuth & Health",
+          "id": "cisco_workspaces_auth_access",
+          "title": "Cisco Workspaces Google-Managed OAuth & Health",
           "stepNumber": 1,
-          "description": "Verify Benchling R&D Cloud Google-managed OAuth setup, IAM permissions, and connector health.",
+          "description": "Verify Cisco Workspaces Google-managed OAuth setup, IAM permissions, and connector health.",
           "items": [
             {
-              "id": "benchling_google_managed_oauth",
+              "id": "cisco_workspaces_google_managed_oauth",
               "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Benchling R&D Cloud uses Google-managed OAuth 2.0. Ensure an active Benchling R&D Cloud account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "subLabel": "Cisco Workspaces uses Google-managed OAuth 2.0. Ensure an active Cisco Workspaces account is authorized by end users at query time in the Gemini Enterprise web app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/benchling"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/cisco-workspaces"
             },
             {
-              "id": "benchling_iam_service_agent",
+              "id": "cisco_workspaces_unused_auth_param",
+              "label": "Unused Authorization Parameter Set (unused)",
+              "subLabel": "In the Google Cloud console during Cisco Workspaces data store creation, enter 'unused' in the Unused Authorization Parameters field as required by the connector schema.",
+              "codeSnippet": "unused",
+              "badge": "Required"
+            },
+            {
+              "id": "cisco_workspaces_iam_service_agent",
               "label": "Discovery Engine Service Agent Role",
               "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
               "badge": "Automated",
@@ -2894,48 +2603,419 @@
                   "discoveryengine.dataStores.get",
                   "discoveryengine.collections.get"
                 ],
-                "description": "Checks Discovery Engine service agent role bindings for Benchling R&D Cloud."
+                "description": "Checks Discovery Engine service agent role bindings for Cisco Workspaces."
               }
             },
             {
-              "id": "benchling_connector_health",
+              "id": "cisco_workspaces_connector_health",
               "label": "Connector State Health",
-              "subLabel": "Benchling R&D Cloud data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "subLabel": "Cisco Workspaces data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
               "badge": "Automated",
               "automatedProbe": {
                 "type": "CONNECTOR_STATUS",
-                "description": "Validates Benchling R&D Cloud connector state and latest operation error logs."
+                "description": "Validates Cisco Workspaces connector state and latest operation error logs."
               }
             },
             {
-              "id": "benchling_oauth_validity",
+              "id": "cisco_workspaces_oauth_validity",
               "label": "Connector Endpoint & Auth State Check",
               "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
               "badge": "Automated",
               "automatedProbe": {
                 "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Benchling R&D Cloud connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+                "description": "Verifies non-redacted Cisco Workspaces connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
               }
             }
           ]
         },
         {
-          "id": "benchling_entities_read",
-          "title": "Benchling R&D Cloud Searchable Entities & Federated Scope (Read)",
+          "id": "cisco_workspaces_entities_read",
+          "title": "Cisco Workspaces Searchable Entities & Federated Scope (Read)",
           "stepNumber": 2,
-          "description": "Confirm Benchling R&D Cloud searchable entities and rate limit configurations for live federated search.",
+          "description": "Confirm Cisco Workspaces searchable entities and rate limit configurations for live federated search.",
           "items": [
             {
-              "id": "benchling_searchable_entities",
-              "label": "Searchable Entities Enabled (DNA/RNASequence, AminoAcid, AssayResult, NotebookEntry, Project, WorkflowTask, InventoryItem)",
-              "subLabel": "Verify that the required Benchling R&D Cloud searchable entities (DNA/RNASequence, AminoAcid, AssayResult, NotebookEntry, Project, WorkflowTask, InventoryItem) are enabled in the Data section of the data store.",
-              "codeSnippet": "DNA/RNASequence, AminoAcid, AssayResult, NotebookEntry, Project, WorkflowTask, InventoryItem",
+              "id": "cisco_workspaces_searchable_entities",
+              "label": "Searchable Entities Enabled (Workspaces)",
+              "subLabel": "Verify that the required Cisco Workspaces searchable entities (Workspaces) are enabled in the Data section of the data store.",
+              "codeSnippet": "Workspaces",
               "badge": "Required"
             },
             {
-              "id": "benchling_rate_limit_qps",
+              "id": "cisco_workspaces_rate_limit_qps",
               "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Benchling R&D Cloud tenant API quota.",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Cisco Workspaces tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GURU",
+      "vendorDisplayName": "Guru Enterprise Knowledge Wiki",
+      "category": "Collaboration & Storage",
+      "detectionPatterns": {
+        "dataSources": [
+          "guru",
+          "getguru"
+        ],
+        "nameSubstrings": [
+          "guru",
+          "getguru"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/guru",
+      "sections": [
+        {
+          "id": "guru_auth_access",
+          "title": "Guru Enterprise Knowledge Wiki Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Guru Enterprise Knowledge Wiki Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "guru_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Guru Enterprise Knowledge Wiki uses Google-managed OAuth 2.0. Ensure an active Guru Enterprise Knowledge Wiki account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/guru"
+            },
+            {
+              "id": "guru_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Guru Enterprise Knowledge Wiki."
+              }
+            },
+            {
+              "id": "guru_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Guru Enterprise Knowledge Wiki data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Guru Enterprise Knowledge Wiki connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "guru_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Guru Enterprise Knowledge Wiki connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "guru_entities_read",
+          "title": "Guru Enterprise Knowledge Wiki Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Guru Enterprise Knowledge Wiki searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "guru_searchable_entities",
+              "label": "Searchable Entities Enabled (Cards)",
+              "subLabel": "Verify that the required Guru Enterprise Knowledge Wiki searchable entities (Cards) are enabled in the Data section of the data store.",
+              "codeSnippet": "Cards",
+              "badge": "Required"
+            },
+            {
+              "id": "guru_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Guru Enterprise Knowledge Wiki tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "SURVEYMONKEY",
+      "vendorDisplayName": "SurveyMonkey",
+      "category": "Productivity & Tasks",
+      "detectionPatterns": {
+        "dataSources": [
+          "surveymonkey",
+          "survey_monkey"
+        ],
+        "nameSubstrings": [
+          "surveymonkey",
+          "survey_monkey"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/surveymonkey",
+      "sections": [
+        {
+          "id": "surveymonkey_auth_access",
+          "title": "SurveyMonkey Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify SurveyMonkey Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "surveymonkey_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "SurveyMonkey uses Google-managed OAuth 2.0. Ensure an active SurveyMonkey account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/surveymonkey"
+            },
+            {
+              "id": "surveymonkey_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for SurveyMonkey."
+              }
+            },
+            {
+              "id": "surveymonkey_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "SurveyMonkey data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates SurveyMonkey connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "surveymonkey_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted SurveyMonkey connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "surveymonkey_entities_read",
+          "title": "SurveyMonkey Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm SurveyMonkey searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "surveymonkey_searchable_entities",
+              "label": "Searchable Entities Enabled (Surveys)",
+              "subLabel": "Verify that the required SurveyMonkey searchable entities (Surveys) are enabled in the Data section of the data store.",
+              "codeSnippet": "Surveys",
+              "badge": "Required"
+            },
+            {
+              "id": "surveymonkey_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your SurveyMonkey tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "WEBEX_MEETINGS",
+      "vendorDisplayName": "Cisco Webex Meetings",
+      "category": "Collaboration & Storage",
+      "detectionPatterns": {
+        "dataSources": [
+          "webex_meetings",
+          "webex"
+        ],
+        "nameSubstrings": [
+          "webex-meetings",
+          "webex_meetings",
+          "webex"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/webex-meetings",
+      "sections": [
+        {
+          "id": "webex_meetings_auth_access",
+          "title": "Cisco Webex Meetings Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Cisco Webex Meetings Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "webex_meetings_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Cisco Webex Meetings uses Google-managed OAuth 2.0. Ensure an active Cisco Webex Meetings account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/webex-meetings"
+            },
+            {
+              "id": "webex_meetings_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Cisco Webex Meetings."
+              }
+            },
+            {
+              "id": "webex_meetings_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Cisco Webex Meetings data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Cisco Webex Meetings connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "webex_meetings_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Cisco Webex Meetings connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "webex_meetings_entities_read",
+          "title": "Cisco Webex Meetings Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Cisco Webex Meetings searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "webex_meetings_searchable_entities",
+              "label": "Searchable Entities Enabled (Meetings)",
+              "subLabel": "Verify that the required Cisco Webex Meetings searchable entities (Meetings) are enabled in the Data section of the data store.",
+              "codeSnippet": "Meetings",
+              "badge": "Required"
+            },
+            {
+              "id": "webex_meetings_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Cisco Webex Meetings tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "WIX",
+      "vendorDisplayName": "Wix Website & Business Platform",
+      "category": "Productivity & Tasks",
+      "detectionPatterns": {
+        "dataSources": [
+          "wix"
+        ],
+        "nameSubstrings": [
+          "wix"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/wix",
+      "sections": [
+        {
+          "id": "wix_auth_access",
+          "title": "Wix Website & Business Platform Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Wix Website & Business Platform Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "wix_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Wix Website & Business Platform uses Google-managed OAuth 2.0. Ensure an active Wix Website & Business Platform account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/wix"
+            },
+            {
+              "id": "wix_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Wix Website & Business Platform."
+              }
+            },
+            {
+              "id": "wix_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Wix Website & Business Platform data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Wix Website & Business Platform connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "wix_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Wix Website & Business Platform connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "wix_entities_read",
+          "title": "Wix Website & Business Platform Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Wix Website & Business Platform searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "wix_searchable_entities",
+              "label": "Searchable Entities Enabled (Sites)",
+              "subLabel": "Verify that the required Wix Website & Business Platform searchable entities (Sites) are enabled in the Data section of the data store.",
+              "codeSnippet": "Sites",
+              "badge": "Required"
+            },
+            {
+              "id": "wix_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Wix Website & Business Platform tenant API quota.",
               "badge": "Recommended"
             }
           ]
@@ -2954,8 +3034,11 @@
           "calendly"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/calendly",
       "sections": [
         {
@@ -3031,94 +3114,6 @@
       ]
     },
     {
-      "vendorId": "CARTO",
-      "vendorDisplayName": "CARTO Spatial Analytics",
-      "category": "Productivity & Tasks",
-      "detectionPatterns": {
-        "dataSources": [
-          "carto"
-        ],
-        "nameSubstrings": [
-          "carto"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/carto",
-      "sections": [
-        {
-          "id": "carto_auth_access",
-          "title": "CARTO Spatial Analytics Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify CARTO Spatial Analytics Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "carto_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "CARTO Spatial Analytics uses Google-managed OAuth 2.0. Ensure an active CARTO Spatial Analytics account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/carto"
-            },
-            {
-              "id": "carto_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for CARTO Spatial Analytics."
-              }
-            },
-            {
-              "id": "carto_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "CARTO Spatial Analytics data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates CARTO Spatial Analytics connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "carto_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted CARTO Spatial Analytics connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "carto_entities_read",
-          "title": "CARTO Spatial Analytics Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm CARTO Spatial Analytics searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "carto_searchable_entities",
-              "label": "Searchable Entities Enabled (SpatialTable, Tileset, GeocodingWorkflow, Map)",
-              "subLabel": "Verify that the required CARTO Spatial Analytics searchable entities (SpatialTable, Tileset, GeocodingWorkflow, Map) are enabled in the Data section of the data store.",
-              "codeSnippet": "SpatialTable, Tileset, GeocodingWorkflow, Map",
-              "badge": "Required"
-            },
-            {
-              "id": "carto_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your CARTO Spatial Analytics tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "COHESITY",
       "vendorDisplayName": "Cohesity Data Cloud",
       "category": "Collaboration & Storage",
@@ -3130,8 +3125,11 @@
           "cohesity"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/cohesity",
       "sections": [
         {
@@ -3207,96 +3205,6 @@
       ]
     },
     {
-      "vendorId": "FELLOW_AI",
-      "vendorDisplayName": "Fellow.ai Meeting Management",
-      "category": "Productivity & Tasks",
-      "detectionPatterns": {
-        "dataSources": [
-          "fellow_ai",
-          "fellow"
-        ],
-        "nameSubstrings": [
-          "fellow_ai",
-          "fellow"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/fellow-ai",
-      "sections": [
-        {
-          "id": "fellow_ai_auth_access",
-          "title": "Fellow.ai Meeting Management Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Fellow.ai Meeting Management Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "fellow_ai_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Fellow.ai Meeting Management uses Google-managed OAuth 2.0. Ensure an active Fellow.ai Meeting Management account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/fellow-ai"
-            },
-            {
-              "id": "fellow_ai_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Fellow.ai Meeting Management."
-              }
-            },
-            {
-              "id": "fellow_ai_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Fellow.ai Meeting Management data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Fellow.ai Meeting Management connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "fellow_ai_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Fellow.ai Meeting Management connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "fellow_ai_entities_read",
-          "title": "Fellow.ai Meeting Management Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Fellow.ai Meeting Management searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "fellow_ai_searchable_entities",
-              "label": "Searchable Entities Enabled (MeetingNote, ActionItem, RecordingTranscript, Stream)",
-              "subLabel": "Verify that the required Fellow.ai Meeting Management searchable entities (MeetingNote, ActionItem, RecordingTranscript, Stream) are enabled in the Data section of the data store.",
-              "codeSnippet": "MeetingNote, ActionItem, RecordingTranscript, Stream",
-              "badge": "Required"
-            },
-            {
-              "id": "fellow_ai_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Fellow.ai Meeting Management tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "FIBERY",
       "vendorDisplayName": "Fibery Workspace & Product Management",
       "category": "Productivity & Tasks",
@@ -3308,8 +3216,11 @@
           "fibery"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/fibery",
       "sections": [
         {
@@ -3385,186 +3296,6 @@
       ]
     },
     {
-      "vendorId": "FIREFLIES",
-      "vendorDisplayName": "Fireflies.ai Meeting Notetaker",
-      "category": "Productivity & Tasks",
-      "detectionPatterns": {
-        "dataSources": [
-          "fireflies",
-          "fireflies_ai"
-        ],
-        "nameSubstrings": [
-          "fireflies",
-          "fireflies_ai"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/fireflies",
-      "sections": [
-        {
-          "id": "fireflies_auth_access",
-          "title": "Fireflies.ai Meeting Notetaker Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Fireflies.ai Meeting Notetaker Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "fireflies_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Fireflies.ai Meeting Notetaker uses Google-managed OAuth 2.0. Ensure an active Fireflies.ai Meeting Notetaker account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/fireflies"
-            },
-            {
-              "id": "fireflies_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Fireflies.ai Meeting Notetaker."
-              }
-            },
-            {
-              "id": "fireflies_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Fireflies.ai Meeting Notetaker data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Fireflies.ai Meeting Notetaker connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "fireflies_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Fireflies.ai Meeting Notetaker connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "fireflies_entities_read",
-          "title": "Fireflies.ai Meeting Notetaker Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Fireflies.ai Meeting Notetaker searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "fireflies_searchable_entities",
-              "label": "Searchable Entities Enabled (MeetingTranscript, Summary, ActionItem, Soundbite)",
-              "subLabel": "Verify that the required Fireflies.ai Meeting Notetaker searchable entities (MeetingTranscript, Summary, ActionItem, Soundbite) are enabled in the Data section of the data store.",
-              "codeSnippet": "MeetingTranscript, Summary, ActionItem, Soundbite",
-              "badge": "Required"
-            },
-            {
-              "id": "fireflies_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Fireflies.ai Meeting Notetaker tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "LISTEN_LABS",
-      "vendorDisplayName": "Listen Labs AI Customer Research",
-      "category": "Productivity & Tasks",
-      "detectionPatterns": {
-        "dataSources": [
-          "listen_labs",
-          "listenlabs"
-        ],
-        "nameSubstrings": [
-          "listen_labs",
-          "listenlabs"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/listen-labs",
-      "sections": [
-        {
-          "id": "listen_labs_auth_access",
-          "title": "Listen Labs AI Customer Research Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Listen Labs AI Customer Research Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "listen_labs_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Listen Labs AI Customer Research uses Google-managed OAuth 2.0. Ensure an active Listen Labs AI Customer Research account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/listen-labs"
-            },
-            {
-              "id": "listen_labs_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Listen Labs AI Customer Research."
-              }
-            },
-            {
-              "id": "listen_labs_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Listen Labs AI Customer Research data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Listen Labs AI Customer Research connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "listen_labs_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Listen Labs AI Customer Research connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "listen_labs_entities_read",
-          "title": "Listen Labs AI Customer Research Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Listen Labs AI Customer Research searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "listen_labs_searchable_entities",
-              "label": "Searchable Entities Enabled (Study, CustomerInterview, Insight, HighlightReel, Theme)",
-              "subLabel": "Verify that the required Listen Labs AI Customer Research searchable entities (Study, CustomerInterview, Insight, HighlightReel, Theme) are enabled in the Data section of the data store.",
-              "codeSnippet": "Study, CustomerInterview, Insight, HighlightReel, Theme",
-              "badge": "Required"
-            },
-            {
-              "id": "listen_labs_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Listen Labs AI Customer Research tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "MIDPAGE",
       "vendorDisplayName": "Midpage Legal Research",
       "category": "Collaboration & Storage",
@@ -3576,8 +3307,11 @@
           "midpage"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/midpage",
       "sections": [
         {
@@ -3666,8 +3400,11 @@
           "net_documents"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/netdocuments",
       "sections": [
         {
@@ -3743,94 +3480,6 @@
       ]
     },
     {
-      "vendorId": "PHONIC",
-      "vendorDisplayName": "Phonic Voice & Survey Research",
-      "category": "Productivity & Tasks",
-      "detectionPatterns": {
-        "dataSources": [
-          "phonic"
-        ],
-        "nameSubstrings": [
-          "phonic"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/phonic",
-      "sections": [
-        {
-          "id": "phonic_auth_access",
-          "title": "Phonic Voice & Survey Research Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Phonic Voice & Survey Research Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "phonic_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Phonic Voice & Survey Research uses Google-managed OAuth 2.0. Ensure an active Phonic Voice & Survey Research account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/phonic"
-            },
-            {
-              "id": "phonic_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Phonic Voice & Survey Research."
-              }
-            },
-            {
-              "id": "phonic_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Phonic Voice & Survey Research data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Phonic Voice & Survey Research connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "phonic_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Phonic Voice & Survey Research connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "phonic_entities_read",
-          "title": "Phonic Voice & Survey Research Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Phonic Voice & Survey Research searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "phonic_searchable_entities",
-              "label": "Searchable Entities Enabled (VoiceSurvey, AudioResponse, Transcript, Question)",
-              "subLabel": "Verify that the required Phonic Voice & Survey Research searchable entities (VoiceSurvey, AudioResponse, Transcript, Question) are enabled in the Data section of the data store.",
-              "codeSnippet": "VoiceSurvey, AudioResponse, Transcript, Question",
-              "badge": "Required"
-            },
-            {
-              "id": "phonic_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Phonic Voice & Survey Research tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "SANITY",
       "vendorDisplayName": "Sanity Composable Content Cloud",
       "category": "Collaboration & Storage",
@@ -3844,8 +3493,11 @@
           "sanity_io"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/sanity",
       "sections": [
         {
@@ -3921,184 +3573,6 @@
       ]
     },
     {
-      "vendorId": "SCHOLAR_GATEWAY",
-      "vendorDisplayName": "Scholar Gateway Academic Research",
-      "category": "Collaboration & Storage",
-      "detectionPatterns": {
-        "dataSources": [
-          "scholar_gateway",
-          "scholargateway"
-        ],
-        "nameSubstrings": [
-          "scholar_gateway",
-          "scholargateway"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/scholar-gateway",
-      "sections": [
-        {
-          "id": "scholar_gateway_auth_access",
-          "title": "Scholar Gateway Academic Research Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Scholar Gateway Academic Research Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "scholar_gateway_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Scholar Gateway Academic Research uses Google-managed OAuth 2.0. Ensure an active Scholar Gateway Academic Research account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/scholar-gateway"
-            },
-            {
-              "id": "scholar_gateway_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Scholar Gateway Academic Research."
-              }
-            },
-            {
-              "id": "scholar_gateway_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Scholar Gateway Academic Research data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Scholar Gateway Academic Research connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "scholar_gateway_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Scholar Gateway Academic Research connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "scholar_gateway_entities_read",
-          "title": "Scholar Gateway Academic Research Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Scholar Gateway Academic Research searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "scholar_gateway_searchable_entities",
-              "label": "Searchable Entities Enabled (PeerReviewedArticle, DOI, Abstract, Citation)",
-              "subLabel": "Verify that the required Scholar Gateway Academic Research searchable entities (PeerReviewedArticle, DOI, Abstract, Citation) are enabled in the Data section of the data store.",
-              "codeSnippet": "PeerReviewedArticle, DOI, Abstract, Citation",
-              "badge": "Required"
-            },
-            {
-              "id": "scholar_gateway_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Scholar Gateway Academic Research tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "vendorId": "SLITE",
-      "vendorDisplayName": "Slite Knowledge Base",
-      "category": "Collaboration & Storage",
-      "detectionPatterns": {
-        "dataSources": [
-          "slite"
-        ],
-        "nameSubstrings": [
-          "slite"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/slite",
-      "sections": [
-        {
-          "id": "slite_auth_access",
-          "title": "Slite Knowledge Base Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Slite Knowledge Base Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "slite_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Slite Knowledge Base uses Google-managed OAuth 2.0. Ensure an active Slite Knowledge Base account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/slite"
-            },
-            {
-              "id": "slite_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Slite Knowledge Base."
-              }
-            },
-            {
-              "id": "slite_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Slite Knowledge Base data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Slite Knowledge Base connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "slite_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Slite Knowledge Base connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "slite_entities_read",
-          "title": "Slite Knowledge Base Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Slite Knowledge Base searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "slite_searchable_entities",
-              "label": "Searchable Entities Enabled (Note, Channel, Collection,VerifiedAnswer)",
-              "subLabel": "Verify that the required Slite Knowledge Base searchable entities (Note, Channel, Collection,VerifiedAnswer) are enabled in the Data section of the data store.",
-              "codeSnippet": "Note, Channel, Collection,VerifiedAnswer",
-              "badge": "Required"
-            },
-            {
-              "id": "slite_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Slite Knowledge Base tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "SOLVE_INTELLIGENCE",
       "vendorDisplayName": "Solve Intelligence Patent & IP Platform",
       "category": "Collaboration & Storage",
@@ -4110,8 +3584,11 @@
           "solve_intelligence"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/solve-intelligence",
       "sections": [
         {
@@ -4200,8 +3677,11 @@
           "superhuman"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/superhuman-mail",
       "sections": [
         {
@@ -4288,8 +3768,11 @@
           "tavily"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/tavily",
       "sections": [
         {
@@ -4365,94 +3848,6 @@
       ]
     },
     {
-      "vendorId": "TYPEFORM",
-      "vendorDisplayName": "Typeform Forms & Surveys",
-      "category": "Productivity & Tasks",
-      "detectionPatterns": {
-        "dataSources": [
-          "typeform"
-        ],
-        "nameSubstrings": [
-          "typeform"
-        ]
-      },
-      "supportsDataModeToggle": true,
-      "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/typeform",
-      "sections": [
-        {
-          "id": "typeform_auth_access",
-          "title": "Typeform Forms & Surveys Google-Managed OAuth & Health",
-          "stepNumber": 1,
-          "description": "Verify Typeform Forms & Surveys Google-managed OAuth setup, IAM permissions, and connector health.",
-          "items": [
-            {
-              "id": "typeform_google_managed_oauth",
-              "label": "Google-Managed OAuth & End-User Account Authorization",
-              "subLabel": "Typeform Forms & Surveys uses Google-managed OAuth 2.0. Ensure an active Typeform Forms & Surveys account is authorized by end users at query time in the Gemini Enterprise web app.",
-              "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/typeform"
-            },
-            {
-              "id": "typeform_iam_service_agent",
-              "label": "Discovery Engine Service Agent Role",
-              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "IAM_PERMISSION_CHECK",
-                "requiredPermissions": [
-                  "discoveryengine.dataStores.get",
-                  "discoveryengine.collections.get"
-                ],
-                "description": "Checks Discovery Engine service agent role bindings for Typeform Forms & Surveys."
-              }
-            },
-            {
-              "id": "typeform_connector_health",
-              "label": "Connector State Health",
-              "subLabel": "Typeform Forms & Surveys data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "CONNECTOR_STATUS",
-                "description": "Validates Typeform Forms & Surveys connector state and latest operation error logs."
-              }
-            },
-            {
-              "id": "typeform_oauth_validity",
-              "label": "Connector Endpoint & Auth State Check",
-              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
-              "badge": "Automated",
-              "automatedProbe": {
-                "type": "OAUTH_CONFIG_VALIDITY",
-                "description": "Verifies non-redacted Typeform Forms & Surveys connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
-              }
-            }
-          ]
-        },
-        {
-          "id": "typeform_entities_read",
-          "title": "Typeform Forms & Surveys Searchable Entities & Federated Scope (Read)",
-          "stepNumber": 2,
-          "description": "Confirm Typeform Forms & Surveys searchable entities and rate limit configurations for live federated search.",
-          "items": [
-            {
-              "id": "typeform_searchable_entities",
-              "label": "Searchable Entities Enabled (Workspace, Form, FormResponse, Webhook)",
-              "subLabel": "Verify that the required Typeform Forms & Surveys searchable entities (Workspace, Form, FormResponse, Webhook) are enabled in the Data section of the data store.",
-              "codeSnippet": "Workspace, Form, FormResponse, Webhook",
-              "badge": "Required"
-            },
-            {
-              "id": "typeform_rate_limit_qps",
-              "label": "Query Per Second (QPS) Rate Limit Reviewed",
-              "subLabel": "Verify per-data-store QPS limit aligns with your Typeform Forms & Surveys tenant API quota.",
-              "badge": "Recommended"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "vendorId": "ZAPIER",
       "vendorDisplayName": "Zapier Automation Platform",
       "category": "Productivity & Tasks",
@@ -4464,8 +3859,11 @@
           "zapier"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/zapier",
       "sections": [
         {
@@ -4554,8 +3952,11 @@
           "all_trails"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/alltrails",
       "sections": [
         {
@@ -4634,8 +4035,11 @@
           "autodesk"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/autodesk-product-help",
       "sections": [
         {
@@ -4712,8 +4116,11 @@
           "blockscout"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/blockscout",
       "sections": [
         {
@@ -4790,8 +4197,11 @@
           "courtroom5"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/courtroom5",
       "sections": [
         {
@@ -4868,8 +4278,11 @@
           "directbooker"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/directbooker",
       "sections": [
         {
@@ -4946,8 +4359,11 @@
           "excalidraw"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/excalidraw",
       "sections": [
         {
@@ -5026,8 +4442,11 @@
           "go_daddy"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/godaddy",
       "sections": [
         {
@@ -5104,8 +4523,11 @@
           "invideo"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/invideo",
       "sections": [
         {
@@ -5184,8 +4606,11 @@
           "kiwi"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/kiwi-com",
       "sections": [
         {
@@ -5264,8 +4689,11 @@
           "lastminute_com"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/lastminute",
       "sections": [
         {
@@ -5344,9 +4772,12 @@
           "mermaid"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/mermaid-chart",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/mermaid_chart",
       "sections": [
         {
           "id": "mermaid_chart_auth_access",
@@ -5359,7 +4790,7 @@
               "label": "Public Federated MCP Data Store Provisioned",
               "subLabel": "Mermaid Chart Diagramming uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/mermaid-chart"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/mermaid_chart"
             },
             {
               "id": "mermaid_chart_iam_service_agent",
@@ -5424,9 +4855,12 @@
           "opentargets"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
-      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/open-targets",
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/open_targets",
       "sections": [
         {
           "id": "open_targets_auth_access",
@@ -5439,7 +4873,7 @@
               "label": "Public Federated MCP Data Store Provisioned",
               "subLabel": "Open Targets Drug Discovery Platform uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
               "badge": "Required",
-              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/open-targets"
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/open_targets"
             },
             {
               "id": "open_targets_iam_service_agent",
@@ -5504,8 +4938,11 @@
           "panda_doc"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pandadoc",
       "sections": [
         {
@@ -5582,8 +5019,11 @@
           "squarespace"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/squarespace",
       "sections": [
         {
@@ -5662,8 +5102,11 @@
           "task_rabbit"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/taskrabbit",
       "sections": [
         {
@@ -5740,8 +5183,11 @@
           "trivago"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/trivago",
       "sections": [
         {
@@ -5818,8 +5264,11 @@
           "viator"
         ]
       },
-      "supportsDataModeToggle": true,
+      "supportsDataModeToggle": false,
       "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/viator",
       "sections": [
         {
