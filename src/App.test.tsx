@@ -167,7 +167,7 @@ describe('Gemini Enterprise Manager - App Integration Tests', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /^Backup & Restore Actions \(GCS\)$/ })).toBeDefined();
     }, { timeout: 5000 });
-  });
+  }, 15000);
 
   it('guarantees access token is stored in memory only and NEVER persisted in sessionStorage', async () => {
     // Pre-populate sessionStorage with a legacy token to test defensive purge

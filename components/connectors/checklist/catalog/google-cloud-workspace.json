@@ -1,0 +1,2290 @@
+{
+  "$schema": "./checklist.schema.json",
+  "catalogGroup": "Google First-Party & MCP",
+  "description": "Deterministic validation checklists and automated probes for Google Workspace, Google Cloud Data Cloud (BigQuery, GCS, AlloyDB, Cloud SQL, Spanner, Bigtable, Firestore), and Model Context Protocol (BYOMCP) connectors.",
+  "connectors": [
+    {
+      "vendorId": "GCP_PEOPLE",
+      "vendorDisplayName": "Google Cloud / Workspace People & Directory",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "gcp_people",
+          "google_people",
+          "people",
+          "workspace_directory"
+        ],
+        "nameSubstrings": [
+          "gcp-people",
+          "gcp_people",
+          "people",
+          "directory",
+          "google-workspace"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "Authentication & Service Account Configuration",
+          "stepNumber": 1,
+          "description": "Ensure the Discovery Engine service agent has Domain-Wide Delegation and required cloud roles.",
+          "items": [
+            {
+              "id": "people_dwd",
+              "label": "Domain-Wide Delegation (DWD) Provisioned",
+              "subLabel": "Service Account is authorized in Google Workspace Admin Console with API scopes.",
+              "badge": "Required",
+              "documentationUrl": "https://admin.google.com/ac/owl/domainwidedelegation"
+            },
+            {
+              "id": "people_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings on project."
+              }
+            },
+            {
+              "id": "people_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Connector status in Discovery Engine is ACTIVE with no failing sync runs.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates connector state and latest sync operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Google Workspace API Scopes",
+          "stepNumber": 2,
+          "description": "Verify OAuth scopes granted to the Domain-Wide Delegation service account.",
+          "items": [
+            {
+              "id": "scope_admin_directory_user_readonly",
+              "label": "User Directory Read Scope",
+              "subLabel": "Enables syncing employee profiles, job titles, departments, and reporting structures.",
+              "codeSnippet": "https://www.googleapis.com/auth/admin.directory.user.readonly",
+              "badge": "Required"
+            },
+            {
+              "id": "scope_admin_directory_group_readonly",
+              "label": "Group Directory Read Scope",
+              "subLabel": "Enables syncing group memberships for Access Control List (ACL) security trimming.",
+              "codeSnippet": "https://www.googleapis.com/auth/admin.directory.group.readonly",
+              "badge": "Required"
+            },
+            {
+              "id": "scope_cloud_identity_groups_readonly",
+              "label": "Cloud Identity Groups Read Scope",
+              "subLabel": "Required for advanced federated identity search and security groups.",
+              "codeSnippet": "https://www.googleapis.com/auth/cloud-identity.groups.readonly",
+              "badge": "Optional",
+              "appliesToMode": "FEDERATED"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GCP_DRIVE",
+      "vendorDisplayName": "Google Drive & Docs",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "drive",
+          "gdrive",
+          "google_drive"
+        ],
+        "nameSubstrings": [
+          "drive",
+          "gdrive",
+          "google-drive"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/google-drive",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "Authentication & Service Account",
+          "stepNumber": 1,
+          "description": "Service account authorization for Google Drive API ingestion and federated search.",
+          "items": [
+            {
+              "id": "drive_dwd",
+              "label": "Domain-Wide Delegation for Drive",
+              "subLabel": "Workspace Admin delegated Drive API scopes to Discovery Engine service account.",
+              "badge": "Required",
+              "documentationUrl": "https://admin.google.com/ac/owl/domainwidedelegation"
+            },
+            {
+              "id": "drive_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings on project."
+              }
+            },
+            {
+              "id": "drive_connector_health",
+              "label": "Connector Sync Health",
+              "subLabel": "Connector state is active with no sync operation errors.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates connector state."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes",
+          "title": "Drive API Scopes (Read)",
+          "stepNumber": 2,
+          "description": "Ensure Drive read-only scopes are configured.",
+          "items": [
+            {
+              "id": "scope_drive_readonly",
+              "label": "Drive Readonly Scope",
+              "subLabel": "Allows indexing files and documents across user MyDrive and Shared Drives.",
+              "codeSnippet": "https://www.googleapis.com/auth/drive.readonly",
+              "badge": "Required"
+            },
+            {
+              "id": "scope_drive_metadata_readonly",
+              "label": "Drive Metadata Readonly",
+              "subLabel": "Enables reading document metadata, permissions, and folder hierarchies.",
+              "codeSnippet": "https://www.googleapis.com/auth/drive.metadata.readonly",
+              "badge": "Required"
+            }
+          ]
+        },
+        {
+          "id": "drive_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 3,
+          "description": "Google Workspace API scopes allowing Gemini Assistant to create docs, draft emails, and schedule calendar meetings.",
+          "items": [
+            {
+              "id": "drive_scope_file",
+              "label": "Drive File Creation Scope",
+              "subLabel": "Allows the assistant to create, edit, and organize Google Docs, Sheets, and Slides.",
+              "codeSnippet": "https://www.googleapis.com/auth/drive.file",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "gmail_scope_send",
+              "label": "Gmail Send Scope",
+              "subLabel": "Allows the assistant to compose and send emails on user behalf.",
+              "codeSnippet": "https://www.googleapis.com/auth/gmail.send",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "calendar_scope_events",
+              "label": "Calendar Events Scope",
+              "subLabel": "Allows the assistant to create, reschedule, and delete calendar meetings.",
+              "codeSnippet": "https://www.googleapis.com/auth/calendar.events",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GMAIL",
+      "vendorDisplayName": "Gmail / Google Mail",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "gmail",
+          "google_mail",
+          "mail"
+        ],
+        "nameSubstrings": [
+          "gmail",
+          "google-mail",
+          "google_mail",
+          "mail"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/gmail",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "Authentication & Service Account Configuration",
+          "stepNumber": 1,
+          "description": "Verify Google Workspace Domain-Wide Delegation and Discovery Engine Service Agent permissions.",
+          "items": [
+            {
+              "id": "gmail_dwd",
+              "label": "Domain-Wide Delegation (DWD) Configured",
+              "subLabel": "Service Account authorized in Google Workspace Admin Console with Gmail API scopes.",
+              "badge": "Required",
+              "documentationUrl": "https://admin.google.com/ac/owl/domainwidedelegation"
+            },
+            {
+              "id": "gmail_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings on project."
+              }
+            },
+            {
+              "id": "gmail_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Connector status in Discovery Engine is ACTIVE with healthy sync logs.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates connector state and recent crawl operations."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Gmail API Scopes (Read)",
+          "stepNumber": 2,
+          "description": "Ensure read-only and metadata scopes are authorized for indexing emails and threads.",
+          "items": [
+            {
+              "id": "gmail_scope_readonly",
+              "label": "Gmail Readonly Scope",
+              "subLabel": "Allows indexing email messages, attachments, threads, and labels.",
+              "codeSnippet": "https://www.googleapis.com/auth/gmail.readonly",
+              "badge": "Required"
+            },
+            {
+              "id": "gmail_scope_metadata",
+              "label": "Gmail Metadata Readonly",
+              "subLabel": "Enables reading message headers, sender, date, and subject metadata.",
+              "codeSnippet": "https://www.googleapis.com/auth/gmail.metadata",
+              "badge": "Required"
+            }
+          ]
+        },
+        {
+          "id": "actions_permissions",
+          "title": "Assistant Actions & Email Dispatch (Write)",
+          "stepNumber": 3,
+          "description": "Write permissions required when enabling Gemini Assistant actions to draft or send emails.",
+          "items": [
+            {
+              "id": "gmail_scope_send",
+              "label": "Gmail Send Scope",
+              "subLabel": "Allows the assistant to dispatch emails on behalf of the authenticated user after confirmation.",
+              "codeSnippet": "https://www.googleapis.com/auth/gmail.send",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "gmail_scope_compose",
+              "label": "Gmail Compose Scope",
+              "subLabel": "Allows the assistant to create drafts in Gmail without sending immediately.",
+              "codeSnippet": "https://www.googleapis.com/auth/gmail.compose",
+              "badge": "Optional",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GCAL",
+      "vendorDisplayName": "Google Calendar",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "gcal",
+          "google_calendar",
+          "calendar"
+        ],
+        "nameSubstrings": [
+          "gcal",
+          "google-calendar",
+          "google_calendar"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/gcal",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "Authentication & Domain-Wide Delegation",
+          "stepNumber": 1,
+          "description": "Authorize service account with Domain-Wide Delegation in Google Workspace Admin Console.",
+          "items": [
+            {
+              "id": "gcal_dwd",
+              "label": "Domain-Wide Delegation Configured",
+              "subLabel": "Service account client ID registered in Google Workspace Admin Console.",
+              "badge": "Required",
+              "documentationUrl": "https://admin.google.com/ac/owl/domainwidedelegation"
+            },
+            {
+              "id": "gcal_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings."
+              }
+            },
+            {
+              "id": "gcal_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Connector status is ACTIVE with successful calendar sync.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates connector status and latest sync logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Google Calendar API Scopes",
+          "stepNumber": 2,
+          "description": "Verify OAuth scopes for calendar events and metadata.",
+          "items": [
+            {
+              "id": "scope_gcal_readonly",
+              "label": "Calendar Readonly Scope",
+              "subLabel": "Grants read access to user calendar entries and event details.",
+              "codeSnippet": "https://www.googleapis.com/auth/calendar.readonly",
+              "badge": "Required"
+            },
+            {
+              "id": "scope_gcal_events_readonly",
+              "label": "Calendar Events Readonly Scope",
+              "subLabel": "Grants read access to event attendee statuses and invitations.",
+              "codeSnippet": "https://www.googleapis.com/auth/calendar.events.readonly",
+              "badge": "Required"
+            }
+          ]
+        },
+        {
+          "id": "action_capabilities",
+          "title": "Google Calendar Action Capabilities",
+          "stepNumber": 3,
+          "description": "Configure event scheduling and modification scopes.",
+          "items": [
+            {
+              "id": "gcal_action_events",
+              "label": "Calendar Events Management",
+              "subLabel": "Allows Gemini to schedule meetings or reschedule appointments.",
+              "codeSnippet": "https://www.googleapis.com/auth/calendar.events",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GCHAT",
+      "vendorDisplayName": "Google Chat",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "gchat",
+          "google_chat",
+          "chat"
+        ],
+        "nameSubstrings": [
+          "gchat",
+          "google-chat",
+          "google_chat"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/gchat",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "Google Chat App & Service Agent",
+          "stepNumber": 1,
+          "description": "Configure Chat app status in Google Workspace Marketplace SDK and service agent roles.",
+          "items": [
+            {
+              "id": "gchat_app_status",
+              "label": "Google Chat App Active",
+              "subLabel": "Chat App configured in Google Cloud Console & Workspace Marketplace SDK.",
+              "badge": "Required",
+              "documentationUrl": "https://console.cloud.google.com/apis/api/chat.googleapis.com"
+            },
+            {
+              "id": "gchat_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings."
+              }
+            },
+            {
+              "id": "gchat_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Connector status is ACTIVE with successful chat spaces crawl.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates connector status and latest sync logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Google Chat API Scopes",
+          "stepNumber": 2,
+          "description": "Verify OAuth scopes for chat spaces, messages, and memberships.",
+          "items": [
+            {
+              "id": "scope_gchat_spaces_readonly",
+              "label": "Chat Spaces Readonly Scope",
+              "subLabel": "Indexes accessible chat spaces and space membership metadata.",
+              "codeSnippet": "https://www.googleapis.com/auth/chat.spaces.readonly",
+              "badge": "Required"
+            },
+            {
+              "id": "scope_gchat_messages_readonly",
+              "label": "Chat Messages Readonly Scope",
+              "subLabel": "Indexes chat messages, threads, and attachments.",
+              "codeSnippet": "https://www.googleapis.com/auth/chat.messages.readonly",
+              "badge": "Required"
+            },
+            {
+              "id": "scope_gchat_memberships_readonly",
+              "label": "Chat Memberships Readonly Scope",
+              "subLabel": "Indexes user permissions for message security trimming.",
+              "codeSnippet": "https://www.googleapis.com/auth/chat.memberships.readonly",
+              "badge": "Required"
+            }
+          ]
+        },
+        {
+          "id": "action_capabilities",
+          "title": "Google Chat Action Capabilities",
+          "stepNumber": 3,
+          "description": "Configure message posting scopes for agent notifications.",
+          "items": [
+            {
+              "id": "gchat_action_messages_create",
+              "label": "Post Messages Scope",
+              "subLabel": "Allows Gemini to send messages or alerts to a Google Chat space.",
+              "codeSnippet": "https://www.googleapis.com/auth/chat.messages.create",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GSITES",
+      "vendorDisplayName": "Google Sites",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "gsites",
+          "google_sites",
+          "sites"
+        ],
+        "nameSubstrings": [
+          "gsites",
+          "google-sites",
+          "google_sites"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/gsites",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "Authentication & Domain-Wide Delegation",
+          "stepNumber": 1,
+          "description": "Authorize Discovery Engine service account with Domain-Wide Delegation for Google Sites.",
+          "items": [
+            {
+              "id": "gsites_dwd",
+              "label": "Domain-Wide Delegation (DWD) Configured",
+              "subLabel": "Service account authorized in Google Workspace Admin Console for Drive and Sites scopes.",
+              "badge": "Required",
+              "documentationUrl": "https://admin.google.com/ac/owl/domainwidedelegation"
+            },
+            {
+              "id": "gsites_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings on project."
+              }
+            },
+            {
+              "id": "gsites_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Connector status in Discovery Engine is ACTIVE with no failing sync operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates connector state and latest sync operation logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Google Sites & Drive API Scopes",
+          "stepNumber": 2,
+          "description": "Verify read-only scopes required to discover and index published Google Sites pages and embedded Drive assets.",
+          "items": [
+            {
+              "id": "gsites_scope_drive_readonly",
+              "label": "Google Drive Readonly Scope",
+              "subLabel": "Required to access new Google Sites content stored in Google Drive and Shared Drives.",
+              "codeSnippet": "https://www.googleapis.com/auth/drive.readonly",
+              "badge": "Required"
+            },
+            {
+              "id": "gsites_scope_drive_metadata_readonly",
+              "label": "Google Drive Metadata Readonly Scope",
+              "subLabel": "Enables reading site sharing permissions, ACLs, and parent folder structures.",
+              "codeSnippet": "https://www.googleapis.com/auth/drive.metadata.readonly",
+              "badge": "Required"
+            },
+            {
+              "id": "gsites_published_visibility",
+              "label": "Published Site Sharing & Domain ACLs",
+              "subLabel": "Target Google Sites are published and shared with domain users or groups for ACL security trimming.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "BIGQUERY",
+      "vendorDisplayName": "Google BigQuery",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "bigquery",
+          "big_query",
+          "gcp_bigquery",
+          "bq"
+        ],
+        "nameSubstrings": [
+          "bigquery",
+          "big-query",
+          "big_query",
+          "bq-"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-bigquery",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "GCP IAM & Service Agent Roles",
+          "stepNumber": 1,
+          "description": "Ensure the Discovery Engine service agent has required dataset and job permissions.",
+          "items": [
+            {
+              "id": "bq_service_agent_viewer",
+              "label": "BigQuery Data Viewer Role",
+              "subLabel": "Discovery Engine Service Agent must have roles/bigquery.dataViewer on the dataset.",
+              "badge": "Required",
+              "codeSnippet": "roles/bigquery.dataViewer",
+              "documentationUrl": "https://cloud.google.com/bigquery/docs/access-control"
+            },
+            {
+              "id": "bq_service_agent_user",
+              "label": "BigQuery Job User Role",
+              "subLabel": "Discovery Engine Service Agent must have roles/bigquery.jobUser on the host GCP project.",
+              "badge": "Required",
+              "codeSnippet": "roles/bigquery.jobUser"
+            },
+            {
+              "id": "bq_region_alignment",
+              "label": "Regional Location Match",
+              "subLabel": "BigQuery dataset location must match Discovery Engine data store location (e.g. US or EU).",
+              "badge": "Required"
+            },
+            {
+              "id": "bq_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings."
+              }
+            },
+            {
+              "id": "bq_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Connector status is ACTIVE with successful table crawl.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates connector status and latest sync operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Table Schema & Indexing Configuration",
+          "stepNumber": 2,
+          "description": "Verify table schema mapping and partitioning configurations.",
+          "items": [
+            {
+              "id": "bq_text_column",
+              "label": "Text or URI Column Defined",
+              "subLabel": "Target table or view has designated content columns or Cloud Storage URI references.",
+              "badge": "Required"
+            },
+            {
+              "id": "bq_incremental_field",
+              "label": "Partitioning or Timestamp Column",
+              "subLabel": "Updated timestamp column (e.g. update_time) configured for incremental sync runs.",
+              "badge": "Recommended"
+            },
+            {
+              "id": "bq_acl_column",
+              "label": "Access Control / User Column",
+              "subLabel": "Authorized user or group column mapped for document-level ACL trimming.",
+              "badge": "Optional"
+            }
+          ]
+        },
+        {
+          "id": "action_capabilities",
+          "title": "BigQuery Action Capabilities & Write Permissions",
+          "stepNumber": 3,
+          "description": "Configure write permissions for agent SQL execution and table mutations.",
+          "items": [
+            {
+              "id": "bq_action_editor",
+              "label": "BigQuery Data Editor Role",
+              "subLabel": "Discovery Engine Service Agent granted roles/bigquery.dataEditor to write or update records via actions.",
+              "codeSnippet": "roles/bigquery.dataEditor",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GCS",
+      "vendorDisplayName": "Google Cloud Storage",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "gcs",
+          "cloud_storage",
+          "google_cloud_storage",
+          "storage"
+        ],
+        "nameSubstrings": [
+          "gcs",
+          "cloud-storage",
+          "cloud_storage"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-cloud-storage",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "Storage IAM & Bucket Configuration",
+          "stepNumber": 1,
+          "description": "Verify GCS bucket permissions, region alignment, and service agent roles.",
+          "items": [
+            {
+              "id": "gcs_service_agent_viewer",
+              "label": "Storage Object Viewer Role",
+              "subLabel": "Discovery Engine Service Agent must have roles/storage.objectViewer on the target GCS bucket.",
+              "badge": "Required",
+              "codeSnippet": "roles/storage.objectViewer",
+              "documentationUrl": "https://cloud.google.com/storage/docs/access-control/iam-roles"
+            },
+            {
+              "id": "gcs_bucket_location",
+              "label": "Bucket Region Alignment",
+              "subLabel": "Bucket region matches Discovery Engine data store location.",
+              "badge": "Required"
+            },
+            {
+              "id": "gcs_uniform_access",
+              "label": "Uniform Bucket-Level Access",
+              "subLabel": "Bucket has uniform bucket-level access enabled for consistent IAM governance.",
+              "badge": "Recommended"
+            },
+            {
+              "id": "gcs_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings."
+              }
+            },
+            {
+              "id": "gcs_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Connector status is ACTIVE with successful object crawl.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates connector status and latest sync logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Document Ingestion & File Formats",
+          "stepNumber": 2,
+          "description": "Verify supported file formats and incremental ingestion triggers.",
+          "items": [
+            {
+              "id": "gcs_supported_formats",
+              "label": "Supported Document MIME Types",
+              "subLabel": "Bucket contains valid PDF, HTML, TXT, DOCX, PPTX, XLSX, or JSONL files.",
+              "badge": "Required"
+            },
+            {
+              "id": "gcs_metadata_schema",
+              "label": "Structured Metadata File (metadata.jsonl)",
+              "subLabel": "Optional metadata.jsonl with ACLs, custom properties, and categories.",
+              "badge": "Optional"
+            },
+            {
+              "id": "gcs_pubsub_notifications",
+              "label": "Pub/Sub Object Change Notifications",
+              "subLabel": "Enables instant incremental indexing upon object creation or modification.",
+              "badge": "Recommended"
+            }
+          ]
+        },
+        {
+          "id": "action_capabilities",
+          "title": "Cloud Storage Action Capabilities & Write Roles",
+          "stepNumber": 3,
+          "description": "Configure upload permissions for Gemini Enterprise agent actions.",
+          "items": [
+            {
+              "id": "gcs_action_creator",
+              "label": "Storage Object Creator Role",
+              "subLabel": "Allows Gemini to upload generated artifacts or report exports directly to GCS.",
+              "codeSnippet": "roles/storage.objectCreator",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "ALLOYDB",
+      "vendorDisplayName": "Google Cloud AlloyDB",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "alloydb",
+          "alloy_db",
+          "gcp_alloydb"
+        ],
+        "nameSubstrings": [
+          "alloydb",
+          "alloy-db",
+          "alloy_db"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-alloydb",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "AlloyDB IAM & Service Agent Configuration",
+          "stepNumber": 1,
+          "description": "Verify IAM roles, VPC-SC / Org Policy constraints, and Discovery Engine Service Agent permissions.",
+          "items": [
+            {
+              "id": "alloydb_org_policy",
+              "label": "Allowed Data Sources Org Policy Constraint",
+              "subLabel": "If organization policy enforcement is active, add 'alloydb' to discoveryengine.managed.allowedDataSources.",
+              "codeSnippet": "discoveryengine.managed.allowedDataSources: alloydb",
+              "badge": "Recommended"
+            },
+            {
+              "id": "alloydb_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings on project."
+              }
+            },
+            {
+              "id": "alloydb_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Connector status in Discovery Engine is ACTIVE with healthy sync or federated state.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates AlloyDB connector status and latest operation logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Cluster, Database & Mode Permissions (Read)",
+          "stepNumber": 2,
+          "description": "Configure IAM roles for Federated Query (in-place MCP query) or Data Ingestion mode.",
+          "items": [
+            {
+              "id": "alloydb_federated_viewer_client",
+              "label": "Cloud AlloyDB Viewer & Client Roles (Federated)",
+              "subLabel": "Grant roles/alloydb.viewer and roles/alloydb.client (or roles/alloydb.databaseUser) to querying users.",
+              "codeSnippet": "roles/alloydb.viewer roles/alloydb.client",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "alloydb_federated_mcp_tool_user",
+              "label": "MCP Tool User Role (Federated)",
+              "subLabel": "Grant roles/mcp.toolUser in the AlloyDB host project so Gemini Enterprise can invoke AlloyDB MCP tools.",
+              "codeSnippet": "roles/mcp.toolUser",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "alloydb_ingestion_admin_sa",
+              "label": "Cross-Project Service Agent AlloyDB Admin (Ingestion)",
+              "subLabel": "Grant roles/alloydb.admin on the source AlloyDB project to service-PROJECT_NUMBER@gcp-sa-discoveryengine.iam.gserviceaccount.com.",
+              "codeSnippet": "roles/alloydb.admin",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "alloydb_ingestion_table_identifiers",
+              "label": "Target Cluster, Database & Table Identifiers",
+              "subLabel": "Project ID, Location ID, Cluster ID, Database ID, and Table ID specified for ingestion.",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            }
+          ]
+        },
+        {
+          "id": "action_capabilities",
+          "title": "AlloyDB Action Capabilities & Write Roles",
+          "stepNumber": 3,
+          "description": "IAM permissions required when enabling SQL writes, cluster management, or backup actions.",
+          "items": [
+            {
+              "id": "alloydb_action_admin",
+              "label": "Cloud AlloyDB Admin Role for Actions",
+              "subLabel": "Grant roles/alloydb.admin to users executing SQL write statements or cluster/instance management actions.",
+              "codeSnippet": "roles/alloydb.admin",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "CLOUD_SQL",
+      "vendorDisplayName": "Google Cloud SQL",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "cloud_sql",
+          "cloudsql",
+          "gcp_cloud_sql"
+        ],
+        "nameSubstrings": [
+          "cloudsql",
+          "cloud-sql",
+          "cloud_sql"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-cloud-sql",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "Cloud SQL Instance & Service Agent Configuration",
+          "stepNumber": 1,
+          "description": "Verify Cloud SQL Data API enablement, Org Policy constraints, and Discovery Engine Service Agent permissions.",
+          "items": [
+            {
+              "id": "cloudsql_data_api_enabled",
+              "label": "Cloud SQL Data API Enabled (Federated)",
+              "subLabel": "Enable Data API on the target Cloud SQL instance (--data-api-access=ALLOW_DATA_API).",
+              "codeSnippet": "gcloud sql instances patch INSTANCE_NAME --data-api-access=ALLOW_DATA_API",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "cloudsql_org_policy",
+              "label": "Allowed Data Sources Org Policy Constraint",
+              "subLabel": "If organization policy enforcement is active, add 'cloudsql' to discoveryengine.managed.allowedDataSources.",
+              "codeSnippet": "discoveryengine.managed.allowedDataSources: cloudsql",
+              "badge": "Recommended"
+            },
+            {
+              "id": "cloudsql_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings on project."
+              }
+            },
+            {
+              "id": "cloudsql_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Connector status in Discovery Engine is ACTIVE with healthy sync or federated state.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Cloud SQL connector status and latest operation logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Instance, Database & Staging Permissions (Read)",
+          "stepNumber": 2,
+          "description": "Configure IAM roles for Federated Query or Cloud Storage staged Data Ingestion.",
+          "items": [
+            {
+              "id": "cloudsql_federated_viewer_client",
+              "label": "Cloud SQL Viewer & Client Roles (Federated)",
+              "subLabel": "Grant roles/cloudsql.viewer and roles/cloudsql.client (or roles/cloudsql.instanceUser) to querying users.",
+              "codeSnippet": "roles/cloudsql.viewer roles/cloudsql.client",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "cloudsql_federated_mcp_tool_user",
+              "label": "MCP Tool User Role (Federated)",
+              "subLabel": "Grant roles/mcp.toolUser in the Cloud SQL host project to invoke Cloud SQL MCP tools.",
+              "codeSnippet": "roles/mcp.toolUser",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "cloudsql_ingestion_staging_bucket",
+              "label": "Staging GCS Bucket Storage Admin Role (Ingestion)",
+              "subLabel": "Grant roles/storage.admin on the intermediate staging GCS bucket to the Cloud SQL instance service account.",
+              "codeSnippet": "roles/storage.admin",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "cloudsql_ingestion_cross_project_viewer",
+              "label": "Cross-Project Cloud SQL Viewer Role (Ingestion)",
+              "subLabel": "Grant roles/cloudsql.viewer on source project to service-PROJECT_NUMBER@gcp-sa-discoveryengine.iam.gserviceaccount.com.",
+              "codeSnippet": "roles/cloudsql.viewer",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            }
+          ]
+        },
+        {
+          "id": "action_capabilities",
+          "title": "Cloud SQL Action Capabilities & Write Roles",
+          "stepNumber": 3,
+          "description": "IAM permissions required when enabling SQL writes or instance management actions.",
+          "items": [
+            {
+              "id": "cloudsql_action_editor_admin",
+              "label": "Cloud SQL Editor or Admin Role",
+              "subLabel": "Grant roles/cloudsql.editor or roles/cloudsql.admin to users performing write or administrative actions.",
+              "codeSnippet": "roles/cloudsql.editor roles/cloudsql.admin",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "SPANNER",
+      "vendorDisplayName": "Google Cloud Spanner",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "spanner",
+          "cloud_spanner",
+          "gcp_spanner"
+        ],
+        "nameSubstrings": [
+          "spanner"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-spanner",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "Spanner IAM & Service Agent Configuration",
+          "stepNumber": 1,
+          "description": "Verify Spanner instance/database IAM bindings, Org Policy constraints, and Discovery Engine Service Agent permissions.",
+          "items": [
+            {
+              "id": "spanner_org_policy",
+              "label": "Allowed Data Sources Org Policy Constraint",
+              "subLabel": "If organization policy enforcement is active, add 'spanner' to discoveryengine.managed.allowedDataSources.",
+              "codeSnippet": "discoveryengine.managed.allowedDataSources: spanner",
+              "badge": "Recommended"
+            },
+            {
+              "id": "spanner_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings on project."
+              }
+            },
+            {
+              "id": "spanner_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Connector status in Discovery Engine is ACTIVE with healthy sync or federated state.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Spanner connector status and latest operation logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Spanner Database & Data Boost Permissions (Read)",
+          "stepNumber": 2,
+          "description": "Configure IAM roles for Federated Query or Data Ingestion (with optional Spanner Data Boost).",
+          "items": [
+            {
+              "id": "spanner_database_reader",
+              "label": "Cloud Spanner Database Reader Role",
+              "subLabel": "Grant roles/spanner.databaseReader to querying users (Federated) or Discovery Engine Service Agent (Ingestion).",
+              "codeSnippet": "roles/spanner.databaseReader",
+              "badge": "Required"
+            },
+            {
+              "id": "spanner_federated_mcp_tool_user",
+              "label": "MCP Tool User Role (Federated)",
+              "subLabel": "Grant roles/mcp.toolUser in the Spanner project to invoke Spanner MCP tools.",
+              "codeSnippet": "roles/mcp.toolUser",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "spanner_ingestion_databoost",
+              "label": "Spanner Data Boost Permission (Ingestion Optional)",
+              "subLabel": "If Data Boost is enabled for ingestion, grant spanner.databases.useDataBoost or roles/spanner.databaseAdmin to the service agent.",
+              "codeSnippet": "spanner.databases.useDataBoost",
+              "badge": "Optional",
+              "appliesToMode": "INGESTION"
+            }
+          ]
+        },
+        {
+          "id": "action_capabilities",
+          "title": "Spanner Action Capabilities & Write Roles",
+          "stepNumber": 3,
+          "description": "IAM permissions required when enabling Spanner DML writes or DDL schema actions.",
+          "items": [
+            {
+              "id": "spanner_action_user_admin",
+              "label": "Cloud Spanner Database User or Admin Role",
+              "subLabel": "Grant roles/spanner.databaseUser or roles/spanner.databaseAdmin to users executing write or DDL actions.",
+              "codeSnippet": "roles/spanner.databaseUser roles/spanner.databaseAdmin",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "BIGTABLE",
+      "vendorDisplayName": "Google Cloud Bigtable",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "bigtable",
+          "cloud_bigtable",
+          "gcp_bigtable"
+        ],
+        "nameSubstrings": [
+          "bigtable",
+          "big-table"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-bigtable",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "Bigtable IAM & Service Agent Configuration",
+          "stepNumber": 1,
+          "description": "Ensure the Discovery Engine service agent has Bigtable Reader permissions on the source project.",
+          "items": [
+            {
+              "id": "bigtable_reader_role",
+              "label": "Bigtable Reader Role Granted to Service Agent",
+              "subLabel": "Grant roles/bigtable.reader on the Bigtable project to service-PROJECT_NUMBER@gcp-sa-discoveryengine.iam.gserviceaccount.com.",
+              "codeSnippet": "roles/bigtable.reader",
+              "badge": "Required"
+            },
+            {
+              "id": "bigtable_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings on project."
+              }
+            },
+            {
+              "id": "bigtable_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Data store import activity is completed with no failing ingestion operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Bigtable connector status and import operation logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Column Families & Ingestion Mapping",
+          "stepNumber": 2,
+          "description": "Verify Bigtable instance, table, column families, and document ID reconciliation settings.",
+          "items": [
+            {
+              "id": "bigtable_instance_table_ids",
+              "label": "Bigtable Project, Instance & Table IDs",
+              "subLabel": "Valid projectId, instanceId, and tableId specified in bigtableSource.",
+              "badge": "Required"
+            },
+            {
+              "id": "bigtable_column_families_mapping",
+              "label": "Column Families, Qualifiers & Encoding Configured",
+              "subLabel": "Specify bigtableOptions.families keys, column qualifiers, data types, and encoding (e.g. TEXT / UTF-8).",
+              "badge": "Required"
+            },
+            {
+              "id": "bigtable_id_reconciliation",
+              "label": "Document ID Field & Reconciliation Mode",
+              "subLabel": "Configure idField (or autoGenerateIds with FULL reconciliationMode) for consistent document indexing.",
+              "codeSnippet": "reconciliationMode: INCREMENTAL | FULL",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "FIRESTORE",
+      "vendorDisplayName": "Google Cloud Firestore",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "firestore",
+          "cloud_firestore",
+          "gcp_firestore"
+        ],
+        "nameSubstrings": [
+          "firestore"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-firestore",
+      "sections": [
+        {
+          "id": "auth_access",
+          "title": "Firestore IAM & Service Agent Configuration",
+          "stepNumber": 1,
+          "description": "Ensure the Discovery Engine service agent has Cloud Datastore Import Export Admin access on the Firestore project.",
+          "items": [
+            {
+              "id": "firestore_import_export_admin",
+              "label": "Cloud Datastore Import Export Admin Role",
+              "subLabel": "Grant roles/datastore.importExportAdmin on the Firestore project to service-PROJECT_NUMBER@gcp-sa-discoveryengine.iam.gserviceaccount.com.",
+              "codeSnippet": "roles/datastore.importExportAdmin",
+              "badge": "Required"
+            },
+            {
+              "id": "firestore_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings on project."
+              }
+            },
+            {
+              "id": "firestore_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Firestore import operation is active/completed with no sync errors.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Firestore connector status and import operation logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "scopes_permissions",
+          "title": "Firestore Database & Collection Configuration",
+          "stepNumber": 2,
+          "description": "Verify target Firestore database ID, collection ID, and reconciliation settings.",
+          "items": [
+            {
+              "id": "firestore_database_collection",
+              "label": "Project, Database & Collection IDs Configured",
+              "subLabel": "Valid projectId, databaseId (e.g. (default)), and collectionId specified in firestoreSource.",
+              "badge": "Required"
+            },
+            {
+              "id": "firestore_reconciliation_mode",
+              "label": "Reconciliation Mode & Document ID Mapping",
+              "subLabel": "Configure reconciliationMode (INCREMENTAL or FULL) and idField / autoGenerateIds.",
+              "codeSnippet": "reconciliationMode: INCREMENTAL | FULL",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "BYO_MCP",
+      "vendorDisplayName": "Model Context Protocol (BYOMCP)",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "custom_mcp"
+        ],
+        "nameSubstrings": [
+          "mcp",
+          "byomcp",
+          "custom_mcp",
+          "onemcp"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": true,
+      "documentationUrl": "https://modelcontextprotocol.io/",
+      "sections": [
+        {
+          "id": "mcp_endpoint",
+          "title": "MCP Server Endpoint Reachability & Health",
+          "stepNumber": 1,
+          "description": "Ensure the MCP server instance URI is reachable, authorized, and tools are dynamically discoverable.",
+          "items": [
+            {
+              "id": "mcp_instance_uri",
+              "label": "Valid MCP Instance URI",
+              "subLabel": "HTTPS endpoint configured in connector params (e.g. Cloud Run service).",
+              "badge": "Required"
+            },
+            {
+              "id": "mcp_probe_connectivity",
+              "label": "Live MCP Tool Discovery & Ping",
+              "subLabel": "Pings the MCP instance URI and verifies JSON-RPC tools/list response.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "MCP_CONNECTIVITY",
+                "description": "Connects to MCP endpoint and queries tools/list via JSON-RPC."
+              }
+            },
+            {
+              "id": "mcp_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings on project."
+              }
+            },
+            {
+              "id": "mcp_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Connector status in Discovery Engine is ACTIVE with no configuration errors.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates BYOMCP connector state in Discovery Engine."
+              }
+            },
+            {
+              "id": "mcp_oauth_config",
+              "label": "BYO-MCP Auth Endpoints & Config Check",
+              "subLabel": "Verifies non-redacted auth_type, auth_uri, and token_uri in actionParams (note: client_id and client_secret are write-only and redacted by GCP on read).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Checks non-redacted BYO-MCP OAuth endpoints (auth_uri, token_uri) and auth state in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "mcp_instructions",
+          "title": "Agent Guidelines & Instructions",
+          "stepNumber": 2,
+          "description": "Verify system prompts and formatting instructions for Gemini agents.",
+          "items": [
+            {
+              "id": "mcp_agent_instructions",
+              "label": "Agent Instructions Provided",
+              "subLabel": "System instructions guiding Gemini on how and when to invoke MCP server tools.",
+              "badge": "Recommended"
+            },
+            {
+              "id": "mcp_server_description",
+              "label": "Server Description Defined",
+              "subLabel": "Clear summary of server domain and capabilities for reasoning engines.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GOOGLE_COMPUTE_ENGINE",
+      "vendorDisplayName": "Google Compute Engine (GCE)",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "google_compute_engine",
+          "compute_engine",
+          "gce"
+        ],
+        "nameSubstrings": [
+          "google-compute-engine",
+          "google_compute_engine",
+          "compute-engine",
+          "compute engine"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/google-compute-engine",
+      "sections": [
+        {
+          "id": "gce_auth_access",
+          "title": "GCP OAuth 2.0 Web Client & Compute Engine API Setup",
+          "stepNumber": 1,
+          "description": "Configure a Google Cloud OAuth 2.0 Web Application credential and enable the Compute Engine API.",
+          "items": [
+            {
+              "id": "gce_api_enabled",
+              "label": "Google Compute Engine API Enabled",
+              "subLabel": "Enable compute.googleapis.com in the target Google Cloud project.",
+              "codeSnippet": "compute.googleapis.com",
+              "badge": "Required"
+            },
+            {
+              "id": "gce_oauth_redirect",
+              "label": "OAuth 2.0 Web Client Redirect URI Configured",
+              "subLabel": "Create an OAuth 2.0 Web Application client in Google Auth Platform > Clients and register the Vertex AI Search redirect URI.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required"
+            },
+            {
+              "id": "gce_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Google Compute Engine."
+              }
+            },
+            {
+              "id": "gce_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Google Compute Engine data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Google Compute Engine connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "gce_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Google Compute Engine connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "gce_scopes_read",
+          "title": "Compute Engine OAuth Scopes & Searchable Entities (Read)",
+          "stepNumber": 2,
+          "description": "Ensure the OAuth consent screen and end-user IAM permissions grant Compute Engine read access.",
+          "items": [
+            {
+              "id": "gce_scope_compute",
+              "label": "Compute Engine API OAuth Scope",
+              "subLabel": "Add https://www.googleapis.com/auth/compute to Google Auth Platform > Data Access scopes for federated instance search.",
+              "codeSnippet": "https://www.googleapis.com/auth/compute",
+              "badge": "Required"
+            },
+            {
+              "id": "gce_entity_instances",
+              "label": "VM Instances Entity Selected",
+              "subLabel": "Verify Instances is selected in the Data Store configuration to query VM metadata, zones, and statuses.",
+              "codeSnippet": "Instances",
+              "badge": "Required"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GOOGLE_STITCH",
+      "vendorDisplayName": "Google Stitch",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "googlestitch",
+          "google_stitch",
+          "stitch"
+        ],
+        "nameSubstrings": [
+          "googlestitch",
+          "google-stitch",
+          "google_stitch",
+          "google stitch"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/googlestitch",
+      "sections": [
+        {
+          "id": "stitch_auth_access",
+          "title": "Google Stitch API & OAuth 2.0 Web Client Setup",
+          "stepNumber": 1,
+          "description": "Enable the Google Stitch API and configure an OAuth 2.0 Web Application client.",
+          "items": [
+            {
+              "id": "stitch_api_enabled",
+              "label": "Google Stitch API Enabled",
+              "subLabel": "Enable the Google Stitch API in the Google Cloud console API Library.",
+              "badge": "Required"
+            },
+            {
+              "id": "stitch_oauth_redirect",
+              "label": "OAuth 2.0 Redirect URI Registered",
+              "subLabel": "Register https://vertexaisearch.cloud.google.com/oauth-redirect in the Google Cloud OAuth 2.0 Web Client.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required"
+            },
+            {
+              "id": "stitch_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Google Stitch."
+              }
+            },
+            {
+              "id": "stitch_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Google Stitch data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Google Stitch connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "stitch_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Google Stitch connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "stitch_scopes_read",
+          "title": "Google Stitch Scopes & Searchable Entities (Read)",
+          "stepNumber": 2,
+          "description": "Verify the AIDA OAuth scope and DesignSystems, Projects, and Screens entities.",
+          "items": [
+            {
+              "id": "stitch_scope_aida",
+              "label": "Google Stitch AIDA OAuth Scope",
+              "subLabel": "Configure https://www.googleapis.com/auth/aida in Google Auth Platform > Data Access.",
+              "codeSnippet": "https://www.googleapis.com/auth/aida",
+              "badge": "Required"
+            },
+            {
+              "id": "stitch_entities",
+              "label": "DesignSystems, Projects & Screens Entities Enabled",
+              "subLabel": "Verify DesignSystems, Projects, and Screens are selected for federated search.",
+              "codeSnippet": "DesignSystems, Projects, Screens",
+              "badge": "Required"
+            }
+          ]
+        },
+        {
+          "id": "stitch_actions_section",
+          "title": "Google Stitch Assistant Actions (Write)",
+          "stepNumber": 3,
+          "description": "Permissions allowing Gemini Assistant to create and edit UI projects, screens, and design systems.",
+          "items": [
+            {
+              "id": "stitch_write_actions",
+              "label": "Stitch Design & Screen Actions Enabled",
+              "subLabel": "Enable Create project, Create design system, Update design system, Apply design system, and Edit screens in the Actions tab.",
+              "codeSnippet": "Create project, Create design system, Update design system, Apply design system, Edit screens",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "LOOKER",
+      "vendorDisplayName": "Looker (Conversational Analytics & MCP)",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "looker",
+          "looker_mcp",
+          "google_looker"
+        ],
+        "nameSubstrings": [
+          "looker",
+          "looker_mcp",
+          "looker-mcp"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-looker",
+      "sections": [
+        {
+          "id": "looker_auth_access",
+          "title": "Looker OAuth Client Registration & Instance Setup",
+          "stepNumber": 1,
+          "description": "Register a custom OAuth client app in Looker API Explorer and configure the Looker instance URL.",
+          "items": [
+            {
+              "id": "looker_oauth_client_registered",
+              "label": "Looker OAuth Client Registered via API Explorer",
+              "subLabel": "Run register_oauth_client_app in Looker API Explorer with redirect_uri https://vertexaisearch.cloud.google.com/oauth-redirect and provide client_guid and Client Secret.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required"
+            },
+            {
+              "id": "looker_instance_url",
+              "label": "Looker Instance URL Configured",
+              "subLabel": "Provide the base Looker instance URL (without trailing path segments) in the connector configuration.",
+              "badge": "Required"
+            },
+            {
+              "id": "looker_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Looker."
+              }
+            },
+            {
+              "id": "looker_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Looker data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Looker connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "looker_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Looker connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "looker_entities_read",
+          "title": "Looker Explores, Dashboards & Assistant Tool Activation",
+          "stepNumber": 2,
+          "description": "Verify Looker Explores, Models, Dashboards, and Looks access and Assistant Tool binding.",
+          "items": [
+            {
+              "id": "looker_assistant_tool_enabled",
+              "label": "Looker Tool Enabled in Gemini Enterprise Assistant",
+              "subLabel": "In Agents > Gemini Enterprise Assistant > Tools, enable the Looker connector tool so users can query Explores and Dashboards.",
+              "badge": "Required"
+            },
+            {
+              "id": "looker_entities",
+              "label": "Explores, Models, Dashboards & Looks Accessible",
+              "subLabel": "Ensure end users have Looker model/explore permissions to query Explores, Dashboards, and Looks.",
+              "codeSnippet": "Explore, Model, Dashboard, Look",
+              "badge": "Required"
+            }
+          ]
+        },
+        {
+          "id": "looker_actions_section",
+          "title": "Looker Conversational Analytics Actions",
+          "stepNumber": 3,
+          "description": "Enable Looker MCP actions to run queries and generate visualizations from Looker Explores.",
+          "items": [
+            {
+              "id": "looker_mcp_actions",
+              "label": "Looker Query & Visualization Actions Enabled",
+              "subLabel": "Allow Gemini Assistant to execute Looker queries, inspect Explore fields, and build saved Looks/Dashboards.",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GOOGLE_GROUPS",
+      "vendorDisplayName": "Google Groups",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "google_groups",
+          "groups",
+          "workspace_groups"
+        ],
+        "nameSubstrings": [
+          "google-groups",
+          "google_groups",
+          "google groups",
+          "workspace-groups"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-groups",
+      "sections": [
+        {
+          "id": "ggroups_auth_access",
+          "title": "Google Workspace Identity & Customer ID Setup",
+          "stepNumber": 1,
+          "description": "Configure Google Workspace Customer ID, smart features, and Discovery Engine service agent permissions.",
+          "items": [
+            {
+              "id": "ggroups_customer_id",
+              "label": "Google Workspace Customer ID Configured",
+              "subLabel": "Provide the Google Workspace Customer ID (e.g., C01234567) from Google Admin Console > Account > Account settings.",
+              "badge": "Required"
+            },
+            {
+              "id": "ggroups_smart_features",
+              "label": "Google Workspace Smart Features Enabled",
+              "subLabel": "Ensure smart features and personalization in Google Workspace are turned on in Google Admin Console.",
+              "badge": "Required"
+            },
+            {
+              "id": "ggroups_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Google Groups."
+              }
+            },
+            {
+              "id": "ggroups_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Google Groups data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Google Groups connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "ggroups_sync_config",
+          "title": "Google Groups Ingestion & ACL Trimming",
+          "stepNumber": 2,
+          "description": "Verify Google Groups conversation history indexing and group membership ACLs.",
+          "items": [
+            {
+              "id": "ggroups_collab_inbox",
+              "label": "Google Groups for Business / Collaborative Inbox Active",
+              "subLabel": "Ensure target Google Groups have conversation history enabled so topics and posts can be indexed.",
+              "badge": "Required"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "NOTEBOOKLM",
+      "vendorDisplayName": "NotebookLM Enterprise",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "notebooklm",
+          "notebook_lm",
+          "notebooklm_enterprise"
+        ],
+        "nameSubstrings": [
+          "notebooklm",
+          "notebook-lm",
+          "notebook_lm",
+          "notebook lm"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-notebooklm",
+      "sections": [
+        {
+          "id": "notebooklm_auth_access",
+          "title": "NotebookLM Enterprise Federated Search Configuration",
+          "stepNumber": 1,
+          "description": "Verify NotebookLM Enterprise project/multi-region alignment and federatedSearchConfig.notebooklmConfig.",
+          "items": [
+            {
+              "id": "notebooklm_same_region",
+              "label": "Project & Multi-Region Location Match (us / eu / global)",
+              "subLabel": "NotebookLM Enterprise and the Gemini Enterprise app must reside in the same GCP project and matching multi-region.",
+              "badge": "Required"
+            },
+            {
+              "id": "notebooklm_iam_roles",
+              "label": "Cloud NotebookLM User Role Assigned (roles/notebooklm.user)",
+              "subLabel": "End users querying NotebookLM sources must hold roles/notebooklm.user or roles/discoveryengine.user.",
+              "codeSnippet": "roles/notebooklm.user",
+              "badge": "Required"
+            },
+            {
+              "id": "notebooklm_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for NotebookLM Enterprise."
+              }
+            },
+            {
+              "id": "notebooklm_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "NotebookLM Enterprise data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates NotebookLM Enterprise connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "notebooklm_federated_config",
+          "title": "Assistant Grounding & Notebook Access",
+          "stepNumber": 2,
+          "description": "Confirm federatedSearchConfig.notebooklmConfig is enabled on the Gemini Enterprise Assistant.",
+          "items": [
+            {
+              "id": "notebooklm_config_enabled",
+              "label": "federatedSearchConfig.notebooklmConfig Enabled on Assistant",
+              "subLabel": "Enable NotebookLM Enterprise grounding on the default_assistant resource to search user-owned and shared notebooks.",
+              "codeSnippet": "federatedSearchConfig.notebooklmConfig",
+              "badge": "Required"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "KNOWLEDGE_CATALOG",
+      "vendorDisplayName": "Dataplex Knowledge Catalog (Universal Catalog)",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "knowledge_catalog",
+          "knowledge-catalog",
+          "dataplex",
+          "dataplex_catalog"
+        ],
+        "nameSubstrings": [
+          "knowledge-catalog",
+          "knowledge_catalog",
+          "dataplex",
+          "universal-catalog"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-knowledge-catalog",
+      "sections": [
+        {
+          "id": "kcatalog_auth_access",
+          "title": "Dataplex Universal Catalog IAM & Service Agent Setup",
+          "stepNumber": 1,
+          "description": "Verify Dataplex Universal Catalog and BigQuery metadata viewer permissions for semantic lookup.",
+          "items": [
+            {
+              "id": "kcatalog_dataplex_role",
+              "label": "Dataplex Catalog Reader Role (roles/dataplex.catalogViewer)",
+              "subLabel": "Grant roles/dataplex.dataDomainEntryReader or roles/dataplex.catalogViewer to end users querying catalog metadata.",
+              "codeSnippet": "roles/dataplex.catalogViewer",
+              "badge": "Required"
+            },
+            {
+              "id": "kcatalog_bq_metadata_role",
+              "label": "BigQuery Metadata Viewer Role (roles/bigquery.metadataViewer)",
+              "subLabel": "Grant roles/bigquery.metadataViewer so users can discover table schemas, glossary terms, and Golden Queries.",
+              "codeSnippet": "roles/bigquery.metadataViewer",
+              "badge": "Required"
+            },
+            {
+              "id": "kcatalog_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Dataplex Knowledge Catalog."
+              }
+            },
+            {
+              "id": "kcatalog_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Dataplex Knowledge Catalog data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Dataplex Knowledge Catalog connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "kcatalog_semantic_config",
+          "title": "Golden Queries & Data Steward Metadata",
+          "stepNumber": 2,
+          "description": "Verify Dataplex aspects, business glossary terms, and Golden Queries.",
+          "items": [
+            {
+              "id": "kcatalog_golden_queries",
+              "label": "Dataplex Aspects & Golden Queries Published",
+              "subLabel": "Attach Golden Queries, column descriptions, and Data Steward contacts to catalog entries for natural language discovery.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GCP_PEOPLE_CUSTOM",
+      "vendorDisplayName": "Custom People & Employee Directory (BigQuery / GCS)",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "people_custom",
+          "custom_people",
+          "people_bq",
+          "people_gcs"
+        ],
+        "nameSubstrings": [
+          "people-custom",
+          "people_custom",
+          "custom-people",
+          "custom_people"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-people-custom",
+      "sections": [
+        {
+          "id": "people_custom_auth",
+          "title": "Custom People Data Source & Knowledge Graph Prerequisite",
+          "stepNumber": 1,
+          "description": "Verify Knowledge Graph enablement and BigQuery/GCS service agent read permissions.",
+          "items": [
+            {
+              "id": "people_custom_kg_enabled",
+              "label": "Enterprise Knowledge Graph Enabled",
+              "subLabel": "Ensure the Enterprise Knowledge Graph is enabled in the target GCP project and region (global/us/eu).",
+              "badge": "Required"
+            },
+            {
+              "id": "people_custom_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Custom People Connector."
+              }
+            },
+            {
+              "id": "people_custom_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Custom People Connector data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Custom People Connector connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "people_custom_schema",
+          "title": "Employee Profile Schema (core_person)",
+          "stepNumber": 2,
+          "description": "Verify JSONL / BigQuery table fields conform to the Gemini Enterprise people schema.",
+          "items": [
+            {
+              "id": "people_custom_required_fields",
+              "label": "Required Profile Fields Present (id, user_principal, name, emails)",
+              "subLabel": "Ensure every employee record includes id, user_principal, name, and emails, plus optional job_title, department, and manager.",
+              "codeSnippet": "id, user_principal, name, emails, job_title, department, manager",
+              "badge": "Required"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "WEBSITE",
+      "vendorDisplayName": "Website Search (Public & Advanced Indexing)",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "website",
+          "web_crawler",
+          "public_website",
+          "site_search"
+        ],
+        "nameSubstrings": [
+          "website",
+          "web-search",
+          "web_crawler",
+          "site-search"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/create-data-store",
+      "sections": [
+        {
+          "id": "website_domain_setup",
+          "title": "URL Patterns & Google Search Console Domain Verification",
+          "stepNumber": 1,
+          "description": "Verify included/excluded URL patterns and domain ownership for Advanced Website Indexing.",
+          "items": [
+            {
+              "id": "website_domain_verified",
+              "label": "Domain Ownership Verified in Google Search Console",
+              "subLabel": "For Advanced Website Indexing, verify domain ownership in Google Search Console before enabling document crawling.",
+              "badge": "Required"
+            },
+            {
+              "id": "website_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Website Data Store."
+              }
+            },
+            {
+              "id": "website_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Website Data Store data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Website Data Store connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "website_crawler_config",
+          "title": "Sitemap & Robots.txt Crawler Allowlisting",
+          "stepNumber": 2,
+          "description": "Ensure Google-CloudVertexBot can crawl target pages and sitemaps.",
+          "items": [
+            {
+              "id": "website_robots_txt",
+              "label": "Google-CloudVertexBot Allowlisted in robots.txt",
+              "subLabel": "Ensure robots.txt permits User-agent: Google-CloudVertexBot and Googlebot on included URL paths.",
+              "codeSnippet": "User-agent: Google-CloudVertexBot\nAllow: /",
+              "badge": "Required"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "CUSTOM_CONNECTOR",
+      "vendorDisplayName": "Custom Data Source Connector (REST API & Identity Mapping)",
+      "category": "Google First-Party & MCP",
+      "detectionPatterns": {
+        "dataSources": [
+          "custom_connector",
+          "custom_data_source",
+          "identity_mapping_store"
+        ],
+        "nameSubstrings": [
+          "custom-connector",
+          "custom_connector",
+          "identity-mapping",
+          "identity_mapping"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/custom-connector",
+      "sections": [
+        {
+          "id": "custom_conn_setup",
+          "title": "Discovery Engine REST Ingestion & Identity Mapping Store",
+          "stepNumber": 1,
+          "description": "Validate custom ingestion pipeline IAM roles, User Store, and Identity Mapping Store bindings.",
+          "items": [
+            {
+              "id": "custom_conn_identity_mapping",
+              "label": "Identity Mapping Store Bound to Data Store",
+              "subLabel": "Create an identityMappingStore, bind it to the Data Store before document ingestion, and load external_identity mappings via :importIdentityMappings.",
+              "codeSnippet": "external_identity:my_group_1",
+              "badge": "Required"
+            },
+            {
+              "id": "custom_conn_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Custom Connector."
+              }
+            },
+            {
+              "id": "custom_conn_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Custom Connector data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Custom Connector connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "custom_conn_acl_schema",
+          "title": "Document ACL Info & Incremental Sync",
+          "stepNumber": 2,
+          "description": "Ensure imported documents populate aclInfo.readers with external_identity principals.",
+          "items": [
+            {
+              "id": "custom_conn_documents_import",
+              "label": "Document aclInfo.readers Populated on documents:import",
+              "subLabel": "Include aclInfo.readers with userId or groupId (prefixed with external_identity:) on every imported document.",
+              "codeSnippet": "aclInfo.readers[].principals[].groupId",
+              "badge": "Required"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

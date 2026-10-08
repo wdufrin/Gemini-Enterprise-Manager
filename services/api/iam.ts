@@ -32,6 +32,14 @@ const ROLE_PERMISSION_PREFIX_MAP: Record<string, string[]> = {
     "discoveryengine.collections.get",
     "bigquery.tables.get",
     "bigquery.datasets.get",
+    "storage.objects.get",
+    "storage.objects.list",
+    "storage.buckets.get",
+    "alloydb.instances.get",
+    "cloudsql.instances.get",
+    "spanner.databases.get",
+    "bigtable.tables.get",
+    "datastore.entities.get",
   ],
   "roles/discoveryengine.serviceAgent": ["discoveryengine.", "bigquery."],
   "roles/discoveryengine.admin": ["discoveryengine."],
@@ -50,6 +58,45 @@ const ROLE_PERMISSION_PREFIX_MAP: Record<string, string[]> = {
   ],
   "roles/bigquery.jobUser": ["bigquery.jobs.create"],
   "roles/bigquery.user": ["bigquery.jobs.create", "bigquery.datasets.get", "bigquery.tables.list"],
+  "roles/storage.admin": ["storage."],
+  "roles/storage.objectAdmin": ["storage.objects.", "storage.buckets.get"],
+  "roles/storage.objectCreator": ["storage.objects.create"],
+  "roles/storage.objectViewer": ["storage.objects.get", "storage.objects.list", "storage.buckets.get"],
+  "roles/alloydb.admin": ["alloydb."],
+  "roles/alloydb.client": ["alloydb."],
+  "roles/alloydb.viewer": ["alloydb.instances.get", "alloydb.instances.list", "alloydb.clusters.get"],
+  "roles/alloydb.databaseUser": ["alloydb.instances.get", "alloydb.databases."],
+  "roles/cloudsql.admin": ["cloudsql."],
+  "roles/cloudsql.client": ["cloudsql."],
+  "roles/cloudsql.viewer": ["cloudsql.instances.get", "cloudsql.instances.list"],
+  "roles/cloudsql.instanceUser": ["cloudsql.instances.get", "cloudsql.instances.login"],
+  "roles/spanner.admin": ["spanner."],
+  "roles/spanner.databaseUser": ["spanner.databases.", "spanner.instances.get"],
+  "roles/spanner.databaseReader": [
+    "spanner.databases.get",
+    "spanner.databases.read",
+    "spanner.databases.select",
+    "spanner.databases.beginReadOnlyTransaction",
+    "spanner.sessions.",
+  ],
+  "roles/spanner.viewer": ["spanner.databases.get", "spanner.instances.get"],
+  "roles/bigtable.admin": ["bigtable."],
+  "roles/bigtable.user": ["bigtable.tables.", "bigtable.instances.get", "bigtable.clusters.get"],
+  "roles/bigtable.reader": [
+    "bigtable.tables.get",
+    "bigtable.tables.readRows",
+    "bigtable.tables.list",
+    "bigtable.instances.get",
+  ],
+  "roles/bigtable.viewer": ["bigtable.tables.get", "bigtable.tables.list", "bigtable.instances.get"],
+  "roles/datastore.owner": ["datastore."],
+  "roles/datastore.importExportAdmin": ["datastore."],
+  "roles/datastore.user": ["datastore.entities.", "datastore.databases.get", "datastore.indexes."],
+  "roles/datastore.viewer": [
+    "datastore.entities.get",
+    "datastore.entities.list",
+    "datastore.databases.get",
+  ],
 };
 
 const roleGrantsRequirement = (boundRoles: Set<string>, requirement: string): boolean => {
@@ -116,8 +163,20 @@ export const checkServiceAccountPermissions = async (
           boundRoles.add(binding.role);
         }
       }
-      const missing = permissions.filter((req) => !roleGrantsRequirement(boundRoles, req));
-      return { hasAll: missing.length === 0, missing };
+      if (boundRoles.size > 0 || hasRoleIdentifiers) {
+        if (
+          !hasRoleIdentifiers &&
+          boundRoles.size > 0 &&
+          (saEmail === "discoveryengine-service-agent" ||
+            resolvedSaEmail.endsWith("@gcp-sa-discoveryengine.iam.gserviceaccount.com"))
+        ) {
+          boundRoles.add("roles/discoveryengine.serviceAgent");
+        }
+        const missing = permissions.filter((req) => !roleGrantsRequirement(boundRoles, req));
+        return { hasAll: missing.length === 0, missing };
+      }
+      // If boundRoles is empty for a Google-managed service agent (implicit grant not in top-level policy.bindings)
+      // and raw permissions were requested, fall through to projects:testIamPermissions below.
     } catch (err) {
       if (hasRoleIdentifiers) {
         throw err;

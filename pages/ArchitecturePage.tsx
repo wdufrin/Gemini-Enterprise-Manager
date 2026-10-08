@@ -256,7 +256,7 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
     }, [nodes]);
 
     return (
-        <div className="space-y-6 flex flex-col h-full">
+        <div className="space-y-6 flex flex-col min-h-full">
             {isInfoModalOpen && (
                 <CurlInfoModal infoKey="ArchitectureScan" onClose={() => setIsInfoModalOpen(false)} />
             )}
@@ -264,17 +264,17 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
             {/* Top Bar Config */}
             <div className="bg-gray-800 p-4 rounded-lg shadow-md shrink-0">
                 <div className="flex flex-col md:flex-row gap-4 items-end">
-                    <div className="flex-1 w-full">
+                    <div className="flex-1 w-full min-w-0">
                         <div className="mb-1">
                             <label className="block text-sm font-medium text-gray-400">Project ID / Number</label>
                         </div>
                         <ProjectInput value={projectNumber} onChange={setProjectNumber} />
                     </div>
-                    <div className="flex items-end gap-2 w-full md:w-auto">
+                    <div className="flex items-end gap-2 w-full md:w-auto shrink-0">
                         <button
                             onClick={handleScanClick}
                             disabled={isLoading || !projectNumber}
-                            className="flex-1 md:w-auto px-6 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 h-[42px] flex items-center justify-center whitespace-nowrap"
+                            className="flex-1 md:w-auto px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 h-[38px] flex items-center justify-center whitespace-nowrap"
                         >
                             {isLoading ? (
                                 <>
@@ -286,7 +286,7 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                         {isLoading && onCancelScan && (
                             <button
                                 onClick={onCancelScan}
-                                className="px-4 py-2 bg-red-600/90 hover:bg-red-600 text-white text-sm font-semibold rounded-md h-[42px] flex items-center justify-center whitespace-nowrap transition-colors"
+                                className="px-4 py-2 bg-red-600/90 hover:bg-red-600 text-white text-sm font-semibold rounded-md h-[38px] flex items-center justify-center whitespace-nowrap transition-colors"
                                 title="Cancel ongoing architecture scan"
                             >
                                 Cancel Scan
@@ -294,7 +294,7 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                         )}
                         <button
                             onClick={() => setIsInfoModalOpen(true)}
-                            className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 hover:text-white h-[42px]"
+                            className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 hover:text-white h-[38px] shrink-0"
                             title="Show API commands for scanning"
                         >
                             <InfoIcon />
@@ -339,7 +339,7 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
             <div className={isFullScreen ? "fixed inset-0 z-50 bg-gray-900 flex" : "flex-1 bg-gray-800 rounded-lg shadow-md overflow-hidden min-h-[500px] flex relative"}>
                 
                 {/* Graph Controls Overlay */}
-                <div className="absolute top-4 right-4 z-10 flex gap-2">
+                <div className="absolute top-4 right-4 z-10 flex flex-wrap justify-end gap-2 max-w-[calc(100%-2rem)]">
                     {/* View Mode Toggle: Graph vs Accessible Table */}
                     {nodes.length > 0 && !isLoading && (
                         <div className="flex rounded-md bg-gray-800/90 backdrop-blur-sm border border-gray-600 p-0.5 shadow-lg">
@@ -385,7 +385,7 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                             placeholder="Filter resources..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="bg-gray-800/80 backdrop-blur-sm border border-gray-600 rounded-md px-3 py-1.5 text-sm text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 w-64 shadow-lg"
+                            className="bg-gray-800/80 backdrop-blur-sm border border-gray-600 rounded-md px-3 py-1.5 text-sm text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 w-44 sm:w-64 shadow-lg"
                         />
                         {searchQuery && (
                             <button 

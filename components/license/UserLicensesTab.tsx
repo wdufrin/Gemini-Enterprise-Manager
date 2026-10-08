@@ -153,7 +153,7 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
   return (
     <>
       {/* Stats & Actions Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="bg-gray-800 p-6 rounded-lg shadow-md flex flex-col justify-center items-center border border-gray-700">
           <h3 className="text-gray-400 text-sm uppercase font-bold tracking-wider mb-1">Total Licenses Used</h3>
           {isLicensesLoading && userLicenses.length === 0 ? (
@@ -163,7 +163,7 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
           )}
         </div>
 
-        <div className="bg-gray-800 p-6 rounded-lg shadow-md md:col-span-2 flex flex-col justify-between">
+        <div className="bg-gray-800 p-6 rounded-lg shadow-md xl:col-span-2 flex flex-col justify-between min-w-0">
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-1">
               <h2 className="text-lg font-semibold text-white">Manage User Licenses</h2>
@@ -191,12 +191,12 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
               )}
             </div>
             <p className="text-gray-400 text-sm mb-4">View, filter, and manage the list of assigned licenses.</p>
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex flex-wrap gap-2.5">
               <select
                 aria-label="Target License"
                 value={bulkActionConfig}
                 onChange={(e) => setBulkActionConfig(e.target.value)}
-                className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white flex-grow h-[38px] min-w-0"
+                className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white flex-1 min-w-[220px] h-[38px]"
               >
                 <option value="" disabled>
                   Select Target License...

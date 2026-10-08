@@ -84,7 +84,7 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
       <th 
         scope="col" 
         aria-sort={sortAria}
-        className={`px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider ${className}`}
+        className={`px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${className}`}
       >
         <button
           type="button"
@@ -106,15 +106,15 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
 
   return (
     <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
-      <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+      <div className="p-4 border-b border-gray-700 flex flex-wrap justify-between items-center gap-3">
         <h2 className="text-xl font-bold text-white">Data Stores</h2>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
           {selectedDataStores.size > 0 && (
             <>
-              <span className="text-sm text-gray-300">{selectedDataStores.size} selected</span>
+              <span className="text-sm text-gray-300 whitespace-nowrap">{selectedDataStores.size} selected</span>
               <button
                 onClick={onDeleteSelected}
-                className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700"
+                className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700 whitespace-nowrap shrink-0"
               >
                 Delete Selected
               </button>
@@ -122,7 +122,7 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
           )}
            <button
                 onClick={onCreateNew}
-                className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700"
+                className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 whitespace-nowrap shrink-0"
             >
                 Create New
             </button>
@@ -135,7 +135,7 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
           <table className="min-w-full divide-y divide-gray-700">
             <thead className="bg-gray-700/50">
               <tr>
-                <th scope="col" className="px-6 py-3 w-10">
+                <th scope="col" className="px-4 py-3 w-10">
                   <input
                       type="checkbox"
                       checked={isAllSelected}
@@ -147,7 +147,7 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
                 <SortableHeader label="Display Name" sortKey="displayName" />
                 <SortableHeader label="Data Store ID" sortKey="name" />
                 <SortableHeader label="Solution Types" sortKey="solutionTypes" />
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
+                <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-gray-800 divide-y divide-gray-700">
@@ -158,7 +158,7 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
 
                 return (
                   <tr key={store.name} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                         <input
                             type="checkbox"
                             checked={isSelected}
@@ -167,10 +167,10 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
                             className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
                         />
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{store.displayName}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{storeId}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{store.solutionTypes?.join(', ')}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-white max-w-[200px] xl:max-w-[280px] truncate" title={store.displayName}>{store.displayName}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-400 font-mono max-w-[180px] xl:max-w-[240px] truncate" title={storeId}>{storeId}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{store.solutionTypes?.join(', ')}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium space-x-3">
                         <button
                             onClick={() => onSelectDataStore(store)}
                             className="font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500"

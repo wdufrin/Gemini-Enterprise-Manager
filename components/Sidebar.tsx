@@ -55,27 +55,24 @@ const NavItem: React.FC<{
         >
           <span className="w-5 h-5 flex-shrink-0">{icon}</span>
         </button>
-        {/* Hover Tooltip */}
-        <div className="absolute left-full ml-3 px-2 py-1 bg-gray-850 text-xs text-gray-200 rounded border border-gray-700 shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 z-50 whitespace-nowrap">
-          {page}
-        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center w-full group mb-1">
+    <div className="flex items-center w-full min-w-0 group mb-1">
       <button
         type="button"
         onClick={() => setCurrentPage(page)}
-        className={`flex items-center flex-grow pl-4 pr-2 py-2 text-sm font-medium rounded-l-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
+        title={page}
+        className={`flex items-center flex-1 min-w-0 pl-3 xl:pl-4 pr-2 py-2 text-sm font-medium rounded-l-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
           isCurrent
             ? 'bg-blue-600 text-white'
             : 'text-gray-400 hover:bg-gray-700 hover:text-white'
         }`}
       >
         <span className="w-5 h-5 flex-shrink-0">{icon}</span>
-        <span className="ml-3 truncate">{page}</span>
+        <span className="ml-2.5 xl:ml-3 truncate">{page}</span>
       </button>
       <button
         type="button"
@@ -84,7 +81,7 @@ const NavItem: React.FC<{
           onShowInfo(page);
         }}
         aria-label={`Show API commands for ${page}`}
-        className={`px-2 py-2 h-full rounded-r-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
+        className={`shrink-0 px-2 py-2 h-full rounded-r-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
           isCurrent
             ? 'bg-purple-600 text-purple-200 hover:bg-purple-500 hover:text-white'
             : 'text-gray-500 hover:bg-gray-700 hover:text-white'
@@ -152,26 +149,26 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
   ];
 
   return (
-    <aside className={`${isCollapsed ? 'w-16' : 'w-64'} bg-gray-900 border-r border-gray-800 flex flex-col h-screen overflow-hidden transition-all duration-300 ease-in-out shrink-0`}>
+    <aside className={`${isCollapsed ? 'w-16' : 'w-56 xl:w-64'} bg-gray-900 border-r border-gray-800 flex flex-col h-screen overflow-hidden transition-all duration-300 ease-in-out shrink-0`}>
       {/* Header */}
-      <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'p-4'} bg-gray-900 border-b border-gray-800 shrink-0 h-16 transition-all duration-300`}>
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'px-3.5 py-3 xl:p-4'} bg-gray-900 border-b border-gray-800 shrink-0 h-14 xl:h-16 transition-all duration-300`}>
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 xl:h-8 xl:w-8 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
         </svg>
         {!isCollapsed && (
-          <div className="flex flex-col ml-3 justify-center animate-fadeIn">
-            <span className="text-lg font-bold text-gray-100 tracking-tight leading-none">Gemini Enterprise</span>
-            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.1007.363</span>
+          <div className="flex flex-col ml-2.5 xl:ml-3 min-w-0 justify-center animate-fadeIn">
+            <span className="text-base xl:text-lg font-bold text-gray-100 tracking-tight leading-none truncate">Gemini Enterprise</span>
+            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.1008.364</span>
           </div>
         )}
       </div>
       
       {/* Scrollable Navigation */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-6">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar p-2.5 space-y-4">
         {navCategories.map((group, index) => (
           <div key={index} className="space-y-1">
             {!isCollapsed && (
-              <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 animate-fadeIn">
+              <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5 animate-fadeIn truncate">
                 {group.title}
               </h3>
             )}

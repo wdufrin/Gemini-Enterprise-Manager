@@ -72,13 +72,13 @@ const ProjectInput: React.FC<ProjectInputProps> = ({ value, onChange }) => {
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Project ID or Number"
-                className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full"
+                className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 h-[38px] text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full min-w-0"
             />
              <button
                 type="button"
                 onClick={handleResolve}
                 disabled={isLoading}
-                className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500 shrink-0 h-[34px] flex items-center justify-center w-[60px]"
+                className="px-3.5 py-1.5 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500 shrink-0 h-[38px] flex items-center justify-center w-[60px]"
             >
                 {isLoading ? (
                     <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>

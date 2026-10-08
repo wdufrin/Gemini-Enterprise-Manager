@@ -55,17 +55,17 @@ export const ConnectorConfigHeader: React.FC<ConnectorConfigHeaderProps> = ({
           url={`https://console.cloud.google.com/gemini-enterprise/data-stores?project=${projectNumber}`}
         />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-400 mb-1">
+      <div className="flex flex-col lg:flex-row lg:items-end gap-3 xl:gap-4">
+        <div className="flex-1 min-w-[220px]">
+          <label className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">
             Project ID / Number
           </label>
           <ProjectInput value={projectNumber} onChange={setProjectNumber} />
         </div>
-        <div>
+        <div className="w-full sm:w-36 shrink-0">
           <label
             htmlFor="appLocation"
-            className="block text-sm font-medium text-gray-400 mb-1"
+            className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap"
           >
             Location
           </label>
@@ -74,17 +74,17 @@ export const ConnectorConfigHeader: React.FC<ConnectorConfigHeaderProps> = ({
             name="appLocation"
             value={appLocation}
             onChange={onLocationChange}
-            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] focus:ring-blue-500"
+            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 w-full h-[38px] focus:ring-blue-500"
           >
             <option value="global">global</option>
             <option value="us">us</option>
             <option value="eu">eu</option>
           </select>
         </div>
-        <div>
+        <div className="w-full sm:w-44 shrink-0">
           <label
             htmlFor="scanDuration"
-            className="block text-sm font-medium text-gray-400 mb-1"
+            className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap"
           >
             Log Scan Duration (Hours)
           </label>
@@ -98,16 +98,16 @@ export const ConnectorConfigHeader: React.FC<ConnectorConfigHeaderProps> = ({
                 val === "" ? "" : Math.max(1, parseInt(val, 10) || 1)
               );
             }}
-            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] focus:ring-blue-500"
+            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 w-full h-[38px] focus:ring-blue-500"
             min="1"
           />
         </div>
-        <div className="flex items-end space-x-2">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={onScanCollections}
             disabled={isLoading || !projectNumber}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 h-[42px]"
+            className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 min-h-[38px] h-auto whitespace-nowrap shrink-0 flex items-center justify-center"
           >
             {isLoading ? "Scanning..." : "Scan Collections"}
           </button>
@@ -115,11 +115,11 @@ export const ConnectorConfigHeader: React.FC<ConnectorConfigHeaderProps> = ({
             type="button"
             onClick={onBulkDiagnostics}
             disabled={collectionsCount === 0 || isBulkScanning}
-            className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-700 disabled:text-gray-500 h-[42px] flex items-center"
+            className="px-4 py-1.5 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-700 disabled:text-gray-500 min-h-[38px] h-auto whitespace-nowrap shrink-0 flex items-center justify-center"
           >
             {isBulkScanning && (
               <svg
-                className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                className="animate-spin -ml-1 mr-2 h-4 w-4 text-white shrink-0"
                 fill="none"
                 viewBox="0 0 24 24"
               >

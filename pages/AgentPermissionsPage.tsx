@@ -306,16 +306,16 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
         <div className="flex flex-col h-full gap-6 w-full min-w-0 max-w-full">
             <div className="bg-gray-800 p-4 rounded-lg shadow-md shrink-0">
                 <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div>
+                <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+                    <div className="flex-1 min-w-0">
                         <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
                         <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} />
                     </div>
-                    <div className="flex items-end">
+                    <div className="flex items-end shrink-0">
                         <button
                             onClick={fetchPermissions}
                             disabled={isLoading}
-                            className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 h-[42px]"
+                            className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 min-h-[38px] h-auto whitespace-nowrap shrink-0"
                         >
                             {isLoading ? 'Loading...' : 'Refetch All Locations'}
                         </button>

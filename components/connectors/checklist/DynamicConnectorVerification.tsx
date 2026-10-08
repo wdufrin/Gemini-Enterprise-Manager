@@ -14,14 +14,19 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Config, DataConnector } from '../../../types';
 import {
   ConnectorChecklistDefinition,
   ChecklistProbeConfig,
+  ProbeExecutionResult,
 } from './types';
 import { useChecklistState } from './useChecklistState';
-import { runAutomatedProbe } from './probeRunner';
+import {
+  runAutomatedProbe,
+  runProbeSyncOrAsync,
+  extractDiagnosticSignals,
+} from './probeRunner';
 
 interface DynamicConnectorVerificationProps {
   connector: Partial<DataConnector> | Record<string, unknown>;
@@ -43,8 +48,12 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
   const connectorName =
     (connector as { name?: string })?.name ||
     (connector as { connectorState?: { name?: string } })?.connectorState?.name ||
+    (connector as { collectionDisplayName?: string })?.collectionDisplayName ||
+    (connector as { title?: string })?.title ||
+    config?.collectionId ||
     'unknown_connector';
-  const { state, toggleItem, recordProbeResult, resetChecklist } = useChecklistState(connectorName);
+  const { state, toggleItem, recordProbeResult, recordProbeResults, resetChecklist } =
+    useChecklistState(connectorName);
 
   const [activeDef, setActiveDef] = useState<ConnectorChecklistDefinition>(checklistDef);
   const [enableActions, setEnableActions] = useState<boolean>(actionsEnabled ?? false);
@@ -62,6 +71,7 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
   const [runningProbes, setRunningProbes] = useState<Record<string, boolean>>({});
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
   const [copiedAudit, setCopiedAudit] = useState(false);
+  const [copiedConfigJson, setCopiedConfigJson] = useState(false);
 
   // Check if checklist contains action items
   const hasActionItems = activeDef.sections.some((s) =>
@@ -70,25 +80,141 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
   const supportsActions = activeDef.supportsActions ?? hasActionItems;
 
   // Filter items based on dataMode and actions toggle
-  const visibleSections = activeDef.sections
-    .map((section) => ({
-      ...section,
-      items: section.items.filter((item) => {
-        if (item.isActionRequirement || item.appliesToMode === 'ACTIONS') {
-          return enableActions;
-        }
-        return !item.appliesToMode || item.appliesToMode === 'ALL' || item.appliesToMode === dataMode;
-      }),
-    }))
-    .filter((section) => section.items.length > 0);
+  const visibleSections = useMemo(
+    () =>
+      activeDef.sections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter((item) => {
+            if (item.isActionRequirement || item.appliesToMode === 'ACTIONS') {
+              return enableActions;
+            }
+            return (
+              !item.appliesToMode ||
+              item.appliesToMode === 'ALL' ||
+              item.appliesToMode === dataMode
+            );
+          }),
+        }))
+        .filter((section) => section.items.length > 0),
+    [activeDef, dataMode, enableActions]
+  );
 
-  const allVisibleItems = visibleSections.flatMap((s) => s.items);
-  const requiredItems = allVisibleItems.filter((i) => i.badge === 'Required' || i.badge === 'Automated');
+  const allVisibleItems = useMemo(
+    () => visibleSections.flatMap((s) => s.items),
+    [visibleSections]
+  );
+  const automatedItems = useMemo(
+    () => allVisibleItems.filter((i) => Boolean(i.automatedProbe)),
+    [allVisibleItems]
+  );
+  const manualItems = useMemo(
+    () => allVisibleItems.filter((i) => !i.automatedProbe),
+    [allVisibleItems]
+  );
+
+  const requiredItems = allVisibleItems.filter(
+    (i) => i.badge === 'Required' || i.badge === 'Automated'
+  );
   const checkedCount = allVisibleItems.filter((i) => state.checkedItems[i.id]).length;
   const totalCount = allVisibleItems.length;
-  const isFullyReady = requiredItems.length > 0 && requiredItems.every((i) => state.checkedItems[i.id]);
+
+  const passedAutomatedCount = automatedItems.filter(
+    (i) => state.probeResults?.[i.id]?.status === 'pass' || state.checkedItems[i.id]
+  ).length;
+  const failedAutomatedCount = automatedItems.filter(
+    (i) => state.probeResults?.[i.id]?.status === 'fail'
+  ).length;
+  const warningAutomatedCount = automatedItems.filter(
+    (i) => state.probeResults?.[i.id]?.status === 'warning'
+  ).length;
+  const checkedManualCount = manualItems.filter((i) => state.checkedItems[i.id]).length;
+
+  const isFullyReady =
+    requiredItems.length > 0 &&
+    failedAutomatedCount === 0 &&
+    requiredItems.every((i) => state.checkedItems[i.id]);
   const progressPercent = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 100;
 
+  const connectorObj = connector as Record<string, any> | undefined;
+  const connectorStateObj = (connectorObj?.connectorState || connectorObj || {}) as Record<
+    string,
+    any
+  >;
+  const diagnosticSignals = useMemo(() => extractDiagnosticSignals(connector), [connector]);
+
+  const hasLiveConnectorSignal = Boolean(
+    connectorStateObj?.state ||
+      connectorStateObj?.dataSource ||
+      connectorStateObj?.params ||
+      connectorStateObj?.latestRun ||
+      connectorStateObj?.errorConfig ||
+      diagnosticSignals.hasAnyDiagnosticsEnvelope
+  );
+
+  // Auto-execute & hydrate automated probes when live connector state or diagnostic signals are present
+  const diagnosticFingerprint = JSON.stringify({
+    vendorId: activeDef.vendorId,
+    connectorName,
+    dataMode,
+    enableActions,
+    projectId: config?.projectId || '',
+    state: connectorStateObj?.state || '',
+    dataSource: connectorStateObj?.dataSource || '',
+    latestRunErr: connectorStateObj?.latestRun?.error?.message || '',
+    errorConfigErr: connectorStateObj?.errorConfig?.error?.message || '',
+    opsCount: Array.isArray(connectorObj?.rawOperations) ? connectorObj.rawOperations.length : 0,
+    hardFailures: diagnosticSignals.hardOpFailures.length,
+    logsCount: Array.isArray(connectorObj?.recentLogs) ? connectorObj.recentLogs.length : 0,
+  });
+
+  useEffect(() => {
+    if (!hasLiveConnectorSignal || automatedItems.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const syncBatch: Record<string, ProbeExecutionResult> = {};
+    const pendingAsync: Array<{ id: string; promise: Promise<ProbeExecutionResult> }> = [];
+
+    for (const item of automatedItems) {
+      if (!item.automatedProbe) continue;
+      const resOrPromise = runProbeSyncOrAsync(item.automatedProbe, connector, config);
+      if (resOrPromise && typeof (resOrPromise as Promise<ProbeExecutionResult>).then === 'function') {
+        pendingAsync.push({
+          id: item.id,
+          promise: resOrPromise as Promise<ProbeExecutionResult>,
+        });
+      } else {
+        syncBatch[item.id] = resOrPromise as ProbeExecutionResult;
+      }
+    }
+
+    if (Object.keys(syncBatch).length > 0) {
+      recordProbeResults(syncBatch);
+    }
+
+    if (pendingAsync.length > 0) {
+      void Promise.all(
+        pendingAsync.map(async ({ id, promise }) => ({
+          id,
+          res: await promise,
+        }))
+      ).then((resolved) => {
+        if (cancelled) return;
+        const asyncBatch: Record<string, ProbeExecutionResult> = {};
+        for (const { id, res } of resolved) {
+          asyncBatch[id] = res;
+        }
+        recordProbeResults(asyncBatch);
+      });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagnosticFingerprint, hasLiveConnectorSignal]);
 
   const handleRunSingleProbe = async (itemId: string, probe: ChecklistProbeConfig) => {
     setRunningProbes((prev) => ({ ...prev, [itemId]: true }));
@@ -101,7 +227,6 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
   };
 
   const handleRunAllProbes = async () => {
-    const automatedItems = allVisibleItems.filter((item) => item.automatedProbe);
     for (const item of automatedItems) {
       if (item.automatedProbe) {
         await handleRunSingleProbe(item.id, item.automatedProbe);
@@ -115,6 +240,12 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
     setTimeout(() => setCopiedSnippet(null), 2000);
   };
 
+  const handleExportConfigJson = () => {
+    navigator.clipboard.writeText(JSON.stringify(activeDef, null, 2));
+    setCopiedConfigJson(true);
+    setTimeout(() => setCopiedConfigJson(false), 2500);
+  };
+
   const handleExportAuditReport = () => {
     const lines = [
       `# Connector Validation & Readiness Audit Sign-Off`,
@@ -124,6 +255,8 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
       `**Assistant Actions Mode**: ${enableActions ? 'ENABLED (Write & Execution Scopes Active)' : 'DISABLED (Read-Only Search Scopes)'}`,
       `**Audit Timestamp**: ${new Date().toISOString()}`,
       `**Status**: ${isFullyReady ? (enableActions ? 'VERIFIED_READY (Indexing & Actions)' : 'VERIFIED_READY') : 'READINESS_PENDING'} (${checkedCount}/${totalCount} items verified)`,
+      `**Automated GCP API Probes**: ${passedAutomatedCount}/${automatedItems.length} passed`,
+      `**Manual 3rd-Party Vendor Attestations**: ${checkedManualCount}/${manualItems.length} attested`,
       '',
       `## Verification Breakdown`,
     ];
@@ -134,8 +267,9 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
         const isChecked = !!state.checkedItems[item.id];
         const probe = state.probeResults?.[item.id];
         const actionTag = item.isActionRequirement ? ' [Action / Write Scope]' : '';
+        const trackTag = item.automatedProbe ? '[GCP API Probe]' : '[Manual Vendor Attestation]';
         lines.push(
-          `- [${isChecked ? 'x' : ' '}] **${item.label}** (${item.badge || 'Standard'})${actionTag}${
+          `- [${isChecked ? 'x' : ' '}] **${item.label}** (${item.badge || 'Standard'}) ${trackTag}${actionTag}${
             probe ? ` [Automated Probe: ${probe.status.toUpperCase()} - ${probe.message}]` : ''
           }`
         );
@@ -162,14 +296,18 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
                 className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                   isFullyReady
                     ? 'bg-green-950 text-green-300 border border-green-800'
-                    : 'bg-yellow-950/60 text-yellow-300 border border-yellow-800/60'
+                    : failedAutomatedCount > 0
+                      ? 'bg-red-950/80 text-red-300 border border-red-800'
+                      : 'bg-yellow-950/60 text-yellow-300 border border-yellow-800/60'
                 }`}
               >
                 {isFullyReady
                   ? enableActions
                     ? 'Ready (Indexing & Actions)'
                     : 'Ready for Indexing'
-                  : 'Readiness Pending'}
+                  : failedAutomatedCount > 0
+                    ? `${failedAutomatedCount} Probe Failure(s) Detected`
+                    : 'Readiness Pending'}
               </span>
 
               {/* Verified Baseline Documentation Badge */}
@@ -187,7 +325,7 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {allVisibleItems.some((i) => i.automatedProbe) && (
+            {automatedItems.length > 0 && (
               <button
                 type="button"
                 onClick={handleRunAllProbes}
@@ -199,6 +337,18 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
                 Run Automated Probes
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={handleExportConfigJson}
+              className="px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-medium rounded border border-gray-600 transition-colors flex items-center gap-1"
+              title="Copy deterministic checklist JSON config definition for this connector"
+            >
+              <svg className="w-3.5 h-3.5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+              {copiedConfigJson ? 'Copied JSON!' : 'Config JSON'}
+            </button>
 
             <button
               type="button"
@@ -227,11 +377,117 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
         <div className="w-full bg-gray-900 rounded-full h-2 overflow-hidden border border-gray-700/60">
           <div
             className={`h-full transition-all duration-300 ${
-              isFullyReady ? 'bg-green-500' : progressPercent > 50 ? 'bg-blue-500' : 'bg-yellow-500'
+              isFullyReady
+                ? 'bg-green-500'
+                : failedAutomatedCount > 0
+                  ? 'bg-red-500'
+                  : progressPercent > 50
+                    ? 'bg-blue-500'
+                    : 'bg-yellow-500'
             }`}
             style={{ width: `${progressPercent}%` }}
           />
         </div>
+
+        {/* Dual-Track Readiness Breakdown: Automated GCP API Probes vs. Manual Vendor Portal Attestations */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+          <div
+            data-testid="automated-probes-summary"
+            className={`p-2.5 rounded-md border text-xs ${
+              failedAutomatedCount > 0
+                ? 'bg-red-950/25 border-red-800/60 text-red-200'
+                : warningAutomatedCount > 0
+                  ? 'bg-yellow-950/25 border-yellow-800/60 text-yellow-200'
+                  : 'bg-purple-950/25 border-purple-800/50 text-purple-200'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-purple-400" />
+                Automated Google Cloud API Probes
+              </span>
+              <span className="font-mono font-bold text-[11px]">
+                {passedAutomatedCount}/{automatedItems.length} Passed
+                {failedAutomatedCount > 0 ? ` (${failedAutomatedCount} Failed)` : ''}
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1">
+              Auto-verified via Discovery Engine connector state, LRO sync operations, Cloud Logging, IAM policy, and non-redacted config parameters.
+            </p>
+          </div>
+
+          <div
+            data-testid="manual-attestation-summary"
+            className="p-2.5 rounded-md border bg-blue-950/20 border-blue-800/50 text-blue-200 text-xs"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-400" />
+                Manual 3rd-Party Vendor Attestations
+              </span>
+              <span className="font-mono font-bold text-[11px]">
+                {checkedManualCount}/{manualItems.length} Attested
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1">
+              External vendor portal settings (OAuth scopes, Table ACLs, Admin Consent) &amp; write-only secrets (
+              <code className="text-[10px] text-gray-300">client_id</code>,{' '}
+              <code className="text-[10px] text-gray-300">client_secret</code>) redacted by GCP on GET.
+            </p>
+          </div>
+        </div>
+
+        {/* Live Diagnostic Signals Banner when LRO Operations or Cloud Logging entries are attached */}
+        {diagnosticSignals.hasAnyDiagnosticsEnvelope && (
+          <div
+            data-testid="checklist-live-diagnostics-banner"
+            className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded bg-gray-900/90 border border-gray-700/80 text-[11px] text-gray-300"
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-teal-300 uppercase tracking-wider text-[10px]">
+                Unified Diagnostic Signals:
+              </span>
+              <span>
+                State:{' '}
+                <strong className="text-white">{connectorStateObj?.state || 'ACTIVE'}</strong>
+              </span>
+              <span className="text-gray-600">|</span>
+              <span>
+                LRO Sync Ops:{' '}
+                <strong
+                  className={
+                    diagnosticSignals.hardOpFailures.length > 0
+                      ? 'text-red-400'
+                      : diagnosticSignals.partialOpWarnings.length > 0
+                        ? 'text-yellow-400'
+                        : 'text-green-400'
+                  }
+                >
+                  {diagnosticSignals.hardOpFailures.length > 0
+                    ? `${diagnosticSignals.hardOpFailures.length} Failed`
+                    : diagnosticSignals.partialOpWarnings.length > 0
+                      ? `${diagnosticSignals.partialOpWarnings.length} Warning(s)`
+                      : 'Healthy'}
+                </strong>
+              </span>
+              <span className="text-gray-600">|</span>
+              <span>
+                Cloud Logging:{' '}
+                <strong
+                  className={
+                    diagnosticSignals.unresolvedLogs.length > 0
+                      ? 'text-yellow-400'
+                      : 'text-green-400'
+                  }
+                >
+                  {diagnosticSignals.unresolvedLogs.length > 0
+                    ? `${diagnosticSignals.unresolvedLogs.length} Error Entry(s)`
+                    : '0 Unresolved Errors'}
+                </strong>
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Connection Capability & Actions Mode Toggle */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-gray-700/60 text-xs">
@@ -296,31 +552,53 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
               const isChecked = !!state.checkedItems[item.id];
               const probeResult = state.probeResults?.[item.id];
               const isRunning = !!runningProbes[item.id];
+              const isFailedAutomated = Boolean(
+                item.automatedProbe && probeResult?.status === 'fail'
+              );
 
               return (
                 <div
                   key={item.id}
                   className={`p-3 rounded-lg border transition-all ${
-                    isChecked
-                      ? 'bg-blue-950/20 border-blue-500/40 text-blue-100'
-                      : 'bg-gray-900/50 text-gray-300 border-gray-700/80 hover:border-gray-600'
+                    isFailedAutomated
+                      ? 'bg-red-950/20 border-red-600/50 text-red-100'
+                      : isChecked
+                        ? 'bg-blue-950/20 border-blue-500/40 text-blue-100'
+                        : 'bg-gray-900/50 text-gray-300 border-gray-700/80 hover:border-gray-600'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div
                       onClick={() => toggleItem(item.id)}
-                      className="flex items-start gap-3 flex-1 cursor-pointer select-none"
+                      title={
+                        isFailedAutomated
+                          ? 'Automated probe failed — resolve the underlying issue and click Test Probe to verify.'
+                          : undefined
+                      }
+                      className={`flex items-start gap-3 flex-1 select-none ${
+                        isFailedAutomated ? 'cursor-not-allowed' : 'cursor-pointer'
+                      }`}
                     >
                       {/* Checkbox box */}
                       <div
                         className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                          isChecked ? 'bg-blue-500 border-blue-500' : 'border-gray-500 bg-transparent'
+                          isFailedAutomated
+                            ? 'border-red-500 bg-red-950/60'
+                            : isChecked
+                              ? 'bg-blue-500 border-blue-500'
+                              : 'border-gray-500 bg-transparent'
                         }`}
                       >
-                        {isChecked && (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        {isFailedAutomated ? (
+                          <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
                           </svg>
+                        ) : (
+                          isChecked && (
+                            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )
                         )}
                       </div>
 
@@ -342,6 +620,18 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
                               }`}
                             >
                               {item.badge}
+                            </span>
+                          )}
+                          {/* Verification Track Badge: Automated GCP API vs Manual Vendor Portal */}
+                          {item.automatedProbe ? (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-purple-950/60 text-purple-200 border border-purple-700/60">
+                              {probeResult?.verificationSource === 'DIAGNOSTICS_SIGNALS'
+                                ? 'GCP API + Live Logs/LRO'
+                                : 'GCP API Probe'}
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-gray-800 text-gray-300 border border-gray-700">
+                              Manual Vendor Portal
                             </span>
                           )}
                           {item.isActionRequirement && (
@@ -426,7 +716,7 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
                   {/* Automated Probe Result Banner */}
                   {probeResult && (
                     <div
-                      className={`mt-2.5 ml-7 p-2 rounded text-xs flex items-start gap-2 ${
+                      className={`mt-2.5 ml-7 p-2.5 rounded text-xs space-y-1.5 ${
                         probeResult.status === 'pass'
                           ? 'bg-green-950/40 text-green-300 border border-green-800/60'
                           : probeResult.status === 'warning'
@@ -434,25 +724,39 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
                           : 'bg-red-950/40 text-red-300 border border-red-800/60'
                       }`}
                     >
-                      {probeResult.status === 'pass' ? (
-                        <svg className="w-4 h-4 text-green-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : probeResult.status === 'warning' ? (
-                        <svg className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                      ) : (
-                        <svg className="w-4 h-4 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <span className="font-semibold uppercase tracking-wider text-[10px] mr-1.5">
-                          {probeResult.status}:
-                        </span>
-                        <span>{probeResult.message}</span>
+                      <div className="flex items-start gap-2">
+                        {probeResult.status === 'pass' ? (
+                          <svg className="w-4 h-4 text-green-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : probeResult.status === 'warning' ? (
+                          <svg className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-4 h-4 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <span className="font-semibold uppercase tracking-wider text-[10px] mr-1.5">
+                            {probeResult.status}:
+                          </span>
+                          <span>{probeResult.message}</span>
+                        </div>
                       </div>
+
+                      {probeResult.remediation && probeResult.status !== 'pass' && (
+                        <div
+                          data-testid={`probe-remediation-${item.id}`}
+                          className="pl-6 pt-1 border-t border-current/20 text-[11px] text-gray-200"
+                        >
+                          <span className="font-semibold uppercase tracking-wider text-[10px] mr-1.5 text-amber-300">
+                            Actionable Fix:
+                          </span>
+                          <span>{probeResult.remediation}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -464,3 +768,4 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
     </div>
   );
 };
+

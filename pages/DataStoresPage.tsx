@@ -467,30 +467,30 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
               <h2 className="text-lg font-semibold text-white">Configuration</h2>
               <CloudConsoleButton url={`https://console.cloud.google.com/gen-app-builder/data-stores?project=${projectNumber}`} />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
-                <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-300 font-mono h-[38px] flex items-center">
-                  {projectNumber || <span className="text-gray-500 italic">Not set (configure on Agents page)</span>}
+            <div className="flex flex-col lg:flex-row lg:items-end gap-3 xl:gap-4">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Project ID / Number</label>
+                <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-300 font-mono h-[38px] flex items-center min-w-0 overflow-hidden">
+                  <span className="truncate">{projectNumber || <span className="text-gray-500 italic">Not set (configure on Agents page)</span>}</span>
                 </div>
               </div>
-              <div>
-                <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1">Location</label>
-                <select name="appLocation" value={config.appLocation} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[38px]">
+              <div className="w-full sm:w-40 shrink-0">
+                <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Location</label>
+                <select name="appLocation" value={config.appLocation} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[38px]">
                   <option value="global">global</option>
                   <option value="us">us</option>
                   <option value="eu">eu</option>
                 </select>
               </div>
-              <div>
-                <label htmlFor="collectionId" className="block text-sm font-medium text-gray-400 mb-1">Collection ID</label>
+              <div className="flex-1 min-w-[200px]">
+                <label htmlFor="collectionId" className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Collection ID</label>
                 {collectionOptions.length > 1 ? (
                   <select
                     id="collectionId"
                     name="collectionId"
                     value={config.collectionId}
                     onChange={handleConfigChange}
-                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[38px]"
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[38px]"
                   >
                     {collectionOptions.map((id) => {
                       const colObj = availableCollections.find(c => (c.name.split('/').pop() || c.name) === id);
@@ -502,22 +502,24 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
                     })}
                   </select>
                 ) : (
-                  <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-300 font-mono h-[38px] flex items-center justify-between">
-                    <span>{config.collectionId || 'default_collection'}</span>
+                  <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-300 font-mono h-[38px] flex items-center justify-between min-w-0 overflow-hidden">
+                    <span className="truncate">{config.collectionId || 'default_collection'}</span>
                     {isLoadingCollections && <Spinner className="h-3.5 w-3.5 border-2 ml-2 shrink-0" />}
                   </div>
                 )}
               </div>
+              {viewMode === 'list' && (
+                <div className="shrink-0">
+                  <button 
+                    onClick={() => fetchDataStores(pageToken)} 
+                    disabled={isLoading}
+                    className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 min-h-[38px] whitespace-nowrap shrink-0 flex items-center justify-center"
+                  >
+                    {isLoading ? 'Loading...' : 'Fetch Data Stores'}
+                  </button>
+                </div>
+              )}
             </div>
-            {viewMode === 'list' && (
-              <button 
-                onClick={() => fetchDataStores(pageToken)} 
-                disabled={isLoading}
-                className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500"
-              >
-                {isLoading ? 'Loading...' : 'Fetch Data Stores'}
-              </button>
-            )}
           </div>
           {renderContent()}
 

@@ -116,10 +116,10 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   }, [skills, selectedPublisher, selectedStatus, searchQuery]);
 
   return (
-    <div className="space-y-6 animate-fade-in p-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header Banner */}
       <div className="bg-gray-800 rounded-lg p-5 border border-gray-700 shadow-md">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <div className="p-3 bg-purple-900/40 text-purple-400 border border-purple-700/50 rounded-xl shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -127,7 +127,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
               </svg>
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-xl font-bold text-gray-100">Enterprise Skills Registry</h2>
                 <span className="px-2 py-0.5 text-xs font-semibold bg-purple-900/60 text-purple-300 rounded border border-purple-700 font-mono">
                   agentregistry.googleapis.com
@@ -139,9 +139,9 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-end md:self-center">
+          <div className="flex flex-wrap items-center gap-2 self-end xl:self-center shrink-0">
             {/* Region Selector */}
-            <div className="flex items-center bg-gray-900 border border-gray-700 rounded-lg px-2 py-1">
+            <div className="flex items-center bg-gray-900 border border-gray-700 rounded-lg px-2 py-1 shrink-0">
               <span className="text-[11px] text-gray-400 font-semibold mr-1.5">Region:</span>
               <select
                 value={selectedLocation}
@@ -157,7 +157,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
             <button
               onClick={fetchSkills}
               disabled={isLoading}
-              className="p-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors"
+              className="p-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors shrink-0"
               title="Refresh Registry"
             >
               <svg className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -166,7 +166,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
             </button>
             <button
               onClick={() => setIsCurlModalOpen(true)}
-              className="p-2 bg-gray-700 hover:bg-gray-600 text-purple-300 hover:text-purple-200 rounded-lg transition-colors border border-purple-500/30"
+              className="p-2 bg-gray-700 hover:bg-gray-600 text-purple-300 hover:text-purple-200 rounded-lg transition-colors border border-purple-500/30 shrink-0"
               title="View REST API (cURL) Reference for agentregistry.googleapis.com"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -175,9 +175,9 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
             </button>
             <button
               onClick={() => setIsPublishModalOpen(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow transition-colors"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow transition-colors whitespace-nowrap shrink-0"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               <span>+ Publish Enterprise Skill</span>

@@ -1,0 +1,1765 @@
+{
+  "$schema": "./checklist.schema.json",
+  "catalogGroup": "Microsoft 365 & Identity",
+  "description": "Deterministic validation checklists, Microsoft Graph / SharePoint / Dataverse OAuth scopes, redirect URIs, and automated probes for Microsoft 365 and Entra ID connectors in Gemini Enterprise.",
+  "connectors": [
+    {
+      "vendorId": "SHAREPOINT",
+      "vendorDisplayName": "Microsoft SharePoint Online",
+      "category": "Microsoft 365 & Identity",
+      "detectionPatterns": {
+        "dataSources": [
+          "sharepoint",
+          "ms_sharepoint",
+          "ms-sharepoint",
+          "sharepoint_online"
+        ],
+        "nameSubstrings": [
+          "sharepoint",
+          "share-point",
+          "ms-sharepoint",
+          "spo"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ms-sharepoint/third-party-config",
+      "sections": [
+        {
+          "id": "azure_app",
+          "title": "Microsoft Entra ID (Azure AD) App Registration & Credentials",
+          "stepNumber": 1,
+          "description": "Ensure you have a single-tenant Microsoft Entra ID registered application ('Accounts in this organizational directory only'), valid OAuth credentials, and exact Web redirect URIs.",
+          "items": [
+            {
+              "id": "sp_tenant",
+              "label": "Tenant ID (tenant_id)",
+              "subLabel": "Your Microsoft 365 Directory (tenant) ID from the Microsoft Entra Admin Center Overview page.",
+              "codeSnippet": "tenant_id",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "sp_client_id",
+              "label": "Application (Client) ID (client_id)",
+              "subLabel": "Application (client) ID from Entra App Registration configured for 'Accounts in this organizational directory only' (Single tenant).",
+              "codeSnippet": "client_id",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "sp_secret",
+              "label": "Client Secret (client_secret)",
+              "subLabel": "Unexpired client secret Value copied from Certificates & secrets > Client secrets.",
+              "codeSnippet": "client_secret",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "sp_instance_uri",
+              "label": "SharePoint Instance URI",
+              "subLabel": "Format: https://<DOMAIN>.sharepoint.com for all first-level sites or https://<DOMAIN>.sharepoint.com/sites/<WEBSITE> for a single site.",
+              "codeSnippet": "https://<domain>.sharepoint.com",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "uri_console",
+              "label": "Data Store Redirect URI (Platform: Web)",
+              "subLabel": "Add this exact Web redirect URI in the Authentication section of your App Registration for data store setup.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/console/oauth/sharepoint_oauth.html",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "uri_oauth",
+              "label": "Federated & Actions OAuth Redirect URI (Platform: Web)",
+              "subLabel": "Add this exact Web redirect URI in the Authentication section for Federated Search and Assistant Actions.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "sp_fed_cred",
+              "label": "Federated Credential for Data Ingestion (Optional)",
+              "subLabel": "If using Federated credentials in Data Ingestion mode, add an 'Other issuer' credential with Issuer https://accounts.google.com and the Subject identifier from Google Cloud Console.",
+              "codeSnippet": "https://accounts.google.com",
+              "badge": "Optional",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "sp_admin_consent",
+              "label": "Tenant-Wide Admin Consent Granted",
+              "subLabel": "Microsoft Entra Global Administrator must click 'Grant admin consent for [Organization]' (and 'Consent on behalf of your organization' on first login) to prevent 'Need admin approval' blocks.",
+              "badge": "Required",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/grant-admin-consent?pivots=portal"
+            },
+            {
+              "id": "sp_iam_service_agent",
+              "label": "Discovery Engine Service Agent IAM Role",
+              "subLabel": "Verifies Discovery Engine service agent permissions on the host Google Cloud project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent IAM bindings on the project."
+              }
+            },
+            {
+              "id": "sp_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "sp_connector_status",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Discovery Engine connector status is ACTIVE with no failing crawl operations.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Validates SharePoint connector operational state and sync logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "graph_permissions",
+          "title": "Microsoft Graph & SharePoint Read Scopes",
+          "stepNumber": 2,
+          "description": "Configure API permissions in Microsoft Graph and Microsoft SharePoint based on whether you use Data Ingestion or Federated Search.",
+          "items": [
+            {
+              "id": "graph_group_read",
+              "label": "GroupMember.Read.All (Microsoft Graph - Application)",
+              "subLabel": "Allows the connector to read memberships and basic group properties for all groups without a signed-in user for ACL security trimming.",
+              "codeSnippet": "GroupMember.Read.All",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "graph_user_read",
+              "label": "User.Read.All or User.ReadBasic.All (Microsoft Graph - Application)",
+              "subLabel": "Allows the connector to read user profiles across the organization for identity mapping.",
+              "codeSnippet": "User.Read.All",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "graph_user_read_del",
+              "label": "User.Read (Microsoft Graph - Delegated)",
+              "subLabel": "Allows reading the profile and basic company information of signed-in users.",
+              "codeSnippet": "User.Read",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "graph_sites_full",
+              "label": "Sites.FullControl.All or Sites.Selected (Microsoft Graph - Application)",
+              "subLabel": "Select one Site Control option in Microsoft Graph: Sites.FullControl.All (all site collections) or Sites.Selected (specific site subset).",
+              "codeSnippet": "Sites.FullControl.All | Sites.Selected",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "sp_sites_full_app",
+              "label": "Sites.FullControl.All or Sites.Selected (SharePoint API - Application)",
+              "subLabel": "Required when using Federated Credentials for Data Ingestion: grant Sites.FullControl.All or Sites.Selected under Microsoft SharePoint Application permissions.",
+              "codeSnippet": "Sites.FullControl.All | Sites.Selected",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "sp_allsites_full_del",
+              "label": "AllSites.FullControl, AllSites.Read, Sites.Search.All, or Sites.Selected (SharePoint API - Delegated)",
+              "subLabel": "Required when using OAuth 2.0 refresh token for Data Ingestion: grant AllSites.FullControl (or AllSites.Read / Sites.Search.All / Sites.Selected) under Microsoft SharePoint Delegated permissions.",
+              "codeSnippet": "AllSites.FullControl | AllSites.Read | Sites.Search.All | Sites.Selected",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "sp_sites_selected_grant",
+              "label": "Grant fullcontrol to Selected Sites (When Using Sites.Selected)",
+              "subLabel": "Warning: When using Sites.Selected, you must explicitly grant 'fullControl' via PnP PowerShell (Grant-PnPAzureADAppSitePermission) or Graph API POST /sites/{siteId}/permissions, and specify a single site instance URL or precise siteName filters.",
+              "codeSnippet": "Grant-PnPAzureADAppSitePermission -AppId <CLIENT_ID> -DisplayName <DISPLAY_NAME> -Permissions FullControl -Site <SITE_URL>",
+              "badge": "Optional",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "sp_search_all",
+              "label": "Sites.Search.All (SharePoint API - Delegated)",
+              "subLabel": "Allows running search queries and reading basic site info on behalf of the signed-in user. Note: No Microsoft Graph API permissions are required for basic Federated Search.",
+              "codeSnippet": "Sites.Search.All",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "sp_allsites_read",
+              "label": "AllSites.Read or Sites.Selected (SharePoint API - Delegated)",
+              "subLabel": "Select one Site Access option in Microsoft SharePoint Delegated permissions: AllSites.Read (all site collections) or Sites.Selected (specific site collections).",
+              "codeSnippet": "AllSites.Read | Sites.Selected",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "sp_fed_admin_consent",
+              "label": "Admin Consent Granted for Federated Delegated Scopes",
+              "subLabel": "Entra ID Global Administrator has granted tenant-wide admin consent for Sites.Search.All and AllSites.Read / Sites.Selected.",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            }
+          ]
+        },
+        {
+          "id": "sp_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 3,
+          "description": "Delegated Microsoft Graph and SharePoint permissions required for creating, updating, uploading, or deleting content in SharePoint via Gemini Assistant.",
+          "items": [
+            {
+              "id": "sp_action_redirect_uri",
+              "label": "Actions Redirect URI Allowlisted",
+              "subLabel": "Actions always use https://vertexaisearch.cloud.google.com/oauth-redirect in Entra App Registration Authentication.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "act_graph_files_rwa",
+              "label": "Files.ReadWrite.All & Files.ReadWrite (Microsoft Graph - Delegated)",
+              "subLabel": "Allows the connector to read (download), create (upload), update, and delete the signed-in user's files and all files the user can access.",
+              "codeSnippet": "Files.ReadWrite.All Files.ReadWrite",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "act_graph_sites_rw",
+              "label": "Sites.ReadWrite.All (Microsoft Graph - Delegated)",
+              "subLabel": "Allows the connector to edit or delete documents and list items in all site collections on behalf of the signed-in user.",
+              "codeSnippet": "Sites.ReadWrite.All",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "act_graph_sites_mng",
+              "label": "Sites.Manage.All (Microsoft Graph - Delegated)",
+              "subLabel": "Allows the connector to create or delete document libraries and lists in all site collections on behalf of the user.",
+              "codeSnippet": "Sites.Manage.All",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "act_sp_allsites_write",
+              "label": "AllSites.Write (SharePoint API - Delegated)",
+              "subLabel": "Allows the connector to create, read, update, delete, upload, and download documents and list items in all site collections on behalf of the signed-in user.",
+              "codeSnippet": "AllSites.Write",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "sp_action_admin_consent",
+              "label": "Admin Consent for Write Permissions",
+              "subLabel": "Global Administrator must grant tenant-wide consent for Files.ReadWrite.All, Sites.ReadWrite.All, Sites.Manage.All, and AllSites.Write.",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "ONEDRIVE",
+      "vendorDisplayName": "Microsoft OneDrive for Business",
+      "category": "Microsoft 365 & Identity",
+      "detectionPatterns": {
+        "dataSources": [
+          "onedrive",
+          "ms_onedrive",
+          "ms-onedrive",
+          "onedrive_for_business"
+        ],
+        "nameSubstrings": [
+          "onedrive",
+          "one-drive",
+          "ms-onedrive"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ms-onedrive/third-party-config",
+      "sections": [
+        {
+          "id": "azure_app",
+          "title": "Microsoft Entra ID App Registration & Credentials",
+          "stepNumber": 1,
+          "description": "Register a single-tenant application in Microsoft Entra Admin Center ('Accounts in this organizational directory only') and configure OAuth 2.0 redirect URIs.",
+          "items": [
+            {
+              "id": "od_tenant",
+              "label": "Tenant ID (tenant_id)",
+              "subLabel": "Your Microsoft 365 Directory (tenant) ID from the Microsoft Entra Admin Center Overview page.",
+              "codeSnippet": "tenant_id",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "od_client_id",
+              "label": "Application (Client) ID (client_id)",
+              "subLabel": "Application (client) ID from your Entra ID App Registration.",
+              "codeSnippet": "client_id",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "od_secret",
+              "label": "Client Secret (client_secret)",
+              "subLabel": "A valid client secret Value from Certificates & secrets > New client secret.",
+              "codeSnippet": "client_secret",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "od_uri_console",
+              "label": "Data Store Console Redirect URI (Platform: Web)",
+              "subLabel": "Add the console OAuth redirect URI (onedrive_oauth.html and/or default_oauth.html) under Web platform in Authentication.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/console/oauth/onedrive_oauth.html",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "od_uri_oauth",
+              "label": "Federated & Actions OAuth Redirect URI (Platform: Web)",
+              "subLabel": "Add https://vertexaisearch.cloud.google.com/oauth-redirect under Web platform in Authentication.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "od_fed_cred",
+              "label": "Federated Credential for Data Ingestion (Optional)",
+              "subLabel": "If using Federated credentials for Data Ingestion, add a credential with Issuer https://accounts.google.com and the Google Cloud Subject identifier.",
+              "codeSnippet": "https://accounts.google.com",
+              "badge": "Optional",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "od_admin_consent",
+              "label": "Tenant-Wide Admin Consent Granted",
+              "subLabel": "Global Administrator granted tenant-wide admin consent in Entra ID so users do not hit 'Need admin approval' screens.",
+              "badge": "Required",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/grant-admin-consent?pivots=portal"
+            },
+            {
+              "id": "od_iam_service_agent",
+              "label": "Discovery Engine Service Agent IAM Role",
+              "subLabel": "Verifies Discovery Engine service agent permissions on the host Google Cloud project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent IAM role bindings."
+              }
+            },
+            {
+              "id": "od_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "od_connector_status",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Discovery Engine connector status is ACTIVE with no failing sync operations.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Validates OneDrive connector status and latest crawl logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "graph_permissions",
+          "title": "Microsoft Graph Read Scopes (Ingestion vs. Federated)",
+          "stepNumber": 2,
+          "description": "Grant Microsoft Graph permissions according to your selected connection mode.",
+          "items": [
+            {
+              "id": "perm_files_read",
+              "label": "Files.Read.All (Application)",
+              "subLabel": "Allows the data store to read and synchronize files across user OneDrive for Business accounts without a signed-in user.",
+              "codeSnippet": "Files.Read.All",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "perm_sites_read",
+              "label": "Sites.Read.All, Sites.FullControl.All, or Sites.Selected (Application)",
+              "subLabel": "Allows the data store to read documents and site collections hosting OneDrive drives.",
+              "codeSnippet": "Sites.Read.All | Sites.FullControl.All | Sites.Selected",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "perm_user_read",
+              "label": "User.Read.All (Application) & User.ReadBasic.All (Delegated)",
+              "subLabel": "Allows reading user profiles and resolving user drive locations across the organization.",
+              "codeSnippet": "User.Read.All",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "perm_group_read",
+              "label": "GroupMember.Read.All & Group.Read.All (Application)",
+              "subLabel": "Allows reading group properties and memberships for Access Control List (ACL) security trimming.",
+              "codeSnippet": "GroupMember.Read.All Group.Read.All",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "perm_user_offline_ingest",
+              "label": "User.Read & offline_access (Delegated)",
+              "subLabel": "Allows reading the signed-in user's profile and maintaining refresh tokens during OAuth setup.",
+              "codeSnippet": "User.Read offline_access",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "od_fed_files_read",
+              "label": "Files.Read.All (Delegated)",
+              "subLabel": "Allows Federated Search to read all OneDrive files that the signed-in user can access.",
+              "codeSnippet": "Files.Read.All",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "od_fed_sites_read",
+              "label": "Sites.Read.All (Delegated)",
+              "subLabel": "Allows Federated Search to read documents and list items in all site collections that the user can access.",
+              "codeSnippet": "Sites.Read.All",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "od_fed_user_read",
+              "label": "User.Read.All & offline_access (Delegated)",
+              "subLabel": "Allows resolving user drive locations for content discovery and refreshing delegated tokens.",
+              "codeSnippet": "User.Read.All offline_access",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            }
+          ]
+        },
+        {
+          "id": "on_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 3,
+          "description": "Delegated Microsoft Graph permissions allowing Gemini Assistant to upload, copy, move, rename, share, and update files and folders in OneDrive.",
+          "items": [
+            {
+              "id": "on_action_redirect_uri",
+              "label": "Actions Redirect URI Allowlisted",
+              "subLabel": "Actions always use https://vertexaisearch.cloud.google.com/oauth-redirect.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "on_scope_files_readwrite",
+              "label": "Files.ReadWrite.All & Files.ReadWrite (Delegated)",
+              "subLabel": "Required for reading, uploading, updating, deleting, copying, moving, renaming, and sharing files across drives the user can access.",
+              "codeSnippet": "Files.ReadWrite.All Files.ReadWrite",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "on_scope_files_appfolder",
+              "label": "Files.ReadWrite.AppFolder (Delegated)",
+              "subLabel": "Allows reading, creating, updating, and deleting files in the application's dedicated OneDrive folder.",
+              "codeSnippet": "Files.ReadWrite.AppFolder",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "on_scope_sites_readwrite",
+              "label": "Sites.ReadWrite.All (Delegated)",
+              "subLabel": "Allows editing or updating documents and list items across SharePoint-backed OneDrive drives.",
+              "codeSnippet": "Sites.ReadWrite.All",
+              "badge": "Recommended",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "OUTLOOK",
+      "vendorDisplayName": "Microsoft Outlook & Exchange",
+      "category": "Microsoft 365 & Identity",
+      "detectionPatterns": {
+        "dataSources": [
+          "outlook",
+          "ms_outlook",
+          "ms-outlook",
+          "exchange"
+        ],
+        "nameSubstrings": [
+          "outlook",
+          "ms-outlook",
+          "exchange"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ms-outlook/third-party-config",
+      "sections": [
+        {
+          "id": "azure_app",
+          "title": "App Registration & OAuth 2.0",
+          "stepNumber": 1,
+          "description": "Register an application in Microsoft Entra admin center with 'Accounts in this organizational directory only' selected.",
+          "items": [
+            {
+              "id": "ol_tenant",
+              "label": "Tenant ID (tenant_id)",
+              "subLabel": "Your Microsoft 365 Directory (tenant) ID from the Microsoft Entra Admin Center Overview page.",
+              "codeSnippet": "tenant_id",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "ol_client_id",
+              "label": "Application (Client) ID (client_id)",
+              "subLabel": "Application (Client) ID from your Entra App Registration.",
+              "codeSnippet": "client_id",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "ol_secret",
+              "label": "Client Secret (client_secret)",
+              "subLabel": "A valid client secret Value from Certificates & secrets.",
+              "codeSnippet": "client_secret",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "ol_uri_console",
+              "label": "Data Source Console Redirect URI (Platform: Web)",
+              "subLabel": "Add https://vertexaisearch.cloud.google.com/console/oauth/outlook_oauth.html (and default_oauth.html) in Authentication.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/console/oauth/outlook_oauth.html",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "ol_uri_oauth",
+              "label": "Federated & Actions OAuth Redirect URI (Platform: Web)",
+              "subLabel": "Add https://vertexaisearch.cloud.google.com/oauth-redirect in the Authentication section of your App Registration.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "ol_fed_cred",
+              "label": "Federated Credential (Optional - Ingestion)",
+              "subLabel": "If using Federated credentials for Data Ingestion, add a credential with Issuer https://accounts.google.com and the Subject identifier generated during data store creation.",
+              "codeSnippet": "https://accounts.google.com",
+              "badge": "Optional",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "ol_exchange_rest_enabled",
+              "label": "Exchange Online Mailbox REST API Enabled",
+              "subLabel": "Warning: Mailboxes must be hosted in Exchange Online (or have REST API enabled in hybrid Exchange deployments) to prevent MailboxNotEnabledForRESTAPI errors.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "ol_iam_service_agent",
+              "label": "Discovery Engine Service Agent IAM Role",
+              "subLabel": "Verifies Discovery Engine service agent permissions on the host Google Cloud project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent IAM role bindings."
+              }
+            },
+            {
+              "id": "ol_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "ol_connector_status",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Discovery Engine connector status is ACTIVE with no failing sync operations.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Validates Outlook connector status and latest crawl logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "graph_permissions",
+          "title": "Permissions (Microsoft Graph - Ingestion vs. Federated)",
+          "stepNumber": 2,
+          "description": "Configure Microsoft Graph Application permissions for Data Ingestion or Delegated permissions for Federated Search.",
+          "items": [
+            {
+              "id": "ol_ingest_mail",
+              "label": "Mail.Read (Application)",
+              "subLabel": "Allows the data store to read mail and message bodies in all mailboxes.",
+              "codeSnippet": "Mail.Read",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "ol_ingest_mail_basic_all",
+              "label": "Mail.ReadBasic.All & Mail.ReadBasic (Application)",
+              "subLabel": "Allows reading basic mail properties across all mailboxes.",
+              "codeSnippet": "Mail.ReadBasic.All Mail.ReadBasic",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "ol_ingest_cal",
+              "label": "Calendars.Read & Calendars.ReadBasic.All (Application)",
+              "subLabel": "Allows reading events and basic calendar properties of all calendars.",
+              "codeSnippet": "Calendars.Read Calendars.ReadBasic.All",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "ol_ingest_contacts",
+              "label": "Contacts.Read (Application)",
+              "subLabel": "Allows reading all contacts in all mailboxes.",
+              "codeSnippet": "Contacts.Read",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "ol_ingest_user",
+              "label": "User.Read.All, User.ReadBasic.All (Application) & User.Read (Delegated)",
+              "subLabel": "Allows reading full and basic user profiles across the organization and the signed-in user's profile.",
+              "codeSnippet": "User.Read.All User.ReadBasic.All User.Read",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "ol_ingest_group",
+              "label": "GroupMember.Read.All (Application)",
+              "subLabel": "Allows resolving group memberships for mailbox and calendar ACL trimming.",
+              "codeSnippet": "GroupMember.Read.All",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "ol_fed_mail",
+              "label": "Mail.Read & Mail.Read.Shared (Delegated)",
+              "subLabel": "Allows reading the signed-in user's mailbox and mail from shared mailboxes.",
+              "codeSnippet": "Mail.Read Mail.Read.Shared",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "ol_fed_cal",
+              "label": "Calendars.Read (Delegated)",
+              "subLabel": "Allows reading the signed-in user's calendar events.",
+              "codeSnippet": "Calendars.Read",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "ol_fed_contacts",
+              "label": "Contacts.Read (Delegated)",
+              "subLabel": "Allows reading the signed-in user's contacts.",
+              "codeSnippet": "Contacts.Read",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "ol_fed_user",
+              "label": "User.Read & User.ReadBasic.All (Delegated)",
+              "subLabel": "Allows reading the signed-in user profile and looking up basic profiles of other users in the organization (prevents HTTP 403 Authorization_RequestDenied on user-lookup tools).",
+              "codeSnippet": "User.Read User.ReadBasic.All",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            }
+          ]
+        },
+        {
+          "id": "outlook_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 3,
+          "description": "Delegated Microsoft Graph write permissions allowing Gemini Assistant to send mail, manage drafts/attachments, schedule calendar events, and manage tasks/workbooks.",
+          "items": [
+            {
+              "id": "outlook_action_redirect_uri",
+              "label": "Actions Redirect URI Allowlisted",
+              "subLabel": "Actions always use https://vertexaisearch.cloud.google.com/oauth-redirect.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "ol_act_mail",
+              "label": "Mail.Send (Delegated)",
+              "subLabel": "Allows the assistant to compose and send mail as users in the organization.",
+              "codeSnippet": "Mail.Send",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "outlook_scope_mail_write",
+              "label": "Mail.ReadWrite (Delegated)",
+              "subLabel": "Required for Add attachments, Create message, Update message, and Move mail actions.",
+              "codeSnippet": "Mail.ReadWrite",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "ol_act_cal",
+              "label": "Calendars.ReadWrite (Delegated)",
+              "subLabel": "Allows creating, reading, updating, and deleting events in user calendars.",
+              "codeSnippet": "Calendars.ReadWrite",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "ol_act_contacts",
+              "label": "Contacts.ReadWrite (Delegated)",
+              "subLabel": "Allows creating, reading, updating, and deleting user contacts.",
+              "codeSnippet": "Contacts.ReadWrite",
+              "badge": "Optional",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "ol_act_tasks",
+              "label": "Tasks.Read & Tasks.ReadWrite (Delegated)",
+              "subLabel": "Required for Outlook to-do list and task tools (prevents HTTP 403 notAllowed on task operations).",
+              "codeSnippet": "Tasks.Read Tasks.ReadWrite",
+              "badge": "Optional",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "ol_act_files",
+              "label": "Files.ReadWrite.All & Files.Read.All (Delegated - File Productivity)",
+              "subLabel": "Warning: Files.ReadWrite.All is required for all Excel workbook content operations (worksheets, tables, rows) and creating Word/PowerPoint documents; Files.Read.All alone returns HTTP 403 accessDenied on Excel content endpoints.",
+              "codeSnippet": "Files.ReadWrite.All Files.Read.All",
+              "badge": "Optional",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "outlook_action_admin_consent",
+              "label": "Tenant Admin Consent for Write Permissions",
+              "subLabel": "Microsoft Entra Global Admin must click 'Grant admin consent' for Mail.Send, Mail.ReadWrite, and Calendars.ReadWrite.",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "TEAMS",
+      "vendorDisplayName": "Microsoft Teams",
+      "category": "Microsoft 365 & Identity",
+      "detectionPatterns": {
+        "dataSources": [
+          "teams",
+          "ms_teams",
+          "ms-teams",
+          "microsoft_teams"
+        ],
+        "nameSubstrings": [
+          "teams",
+          "ms-teams"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ms-teams/ms-teams-config",
+      "sections": [
+        {
+          "id": "azure_app",
+          "title": "App Registration & OAuth 2.0",
+          "stepNumber": 1,
+          "description": "Register an application in Microsoft Entra admin center with 'Accounts in the organizational directory only' selected for Supported account types.",
+          "items": [
+            {
+              "id": "tm_tenant",
+              "label": "Tenant ID (tenant_id)",
+              "subLabel": "Your Microsoft 365 Directory (tenant) ID from the Microsoft Entra Admin Center Overview page.",
+              "codeSnippet": "tenant_id",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "tm_client_id",
+              "label": "Application (Client) ID (client_id)",
+              "subLabel": "Application (Client) ID from your Entra App Registration.",
+              "codeSnippet": "client_id",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "tm_secret",
+              "label": "Client Secret (client_secret)",
+              "subLabel": "A valid client secret Value from Certificates & secrets.",
+              "codeSnippet": "client_secret",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "tm_uri_console",
+              "label": "Data Store Console Redirect URI (Platform: Web)",
+              "subLabel": "Console OAuth callback URI for Teams data store creation.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/console/oauth/teams_oauth.html",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "tm_redirect_uri",
+              "label": "Federated & Actions Web Redirect URI (Platform: Web)",
+              "subLabel": "Required as the Web callback/redirect URL in Entra Authentication.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "tm_admin_consent_read",
+              "label": "Tenant-Wide Admin Consent Granted (✓ Status)",
+              "subLabel": "Ensure an Entra administrator grants consent for all permissions so the Status column displays 'Granted for [Tenant]' with a green tick mark (✓).",
+              "badge": "Required",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/grant-admin-consent?pivots=portal"
+            },
+            {
+              "id": "tm_iam_service_agent",
+              "label": "Discovery Engine Service Agent IAM Role",
+              "subLabel": "Verifies Discovery Engine service agent permissions on the host Google Cloud project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent IAM role bindings."
+              }
+            },
+            {
+              "id": "tm_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "tm_connector_status",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Discovery Engine connector status is ACTIVE with no failing sync operations.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Validates Teams connector status and latest crawl logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "graph_permissions",
+          "title": "Permissions (Microsoft Graph Read Scopes)",
+          "stepNumber": 2,
+          "description": "Configure Microsoft Graph permissions for reading Teams channels, messages, chats, rosters, and sensitivity labels.",
+          "items": [
+            {
+              "id": "perm_channel_readbasic_all",
+              "label": "Channel.ReadBasic.All & ChannelMember.Read.All",
+              "subLabel": "Allows the app to read the names, descriptions, and members of channels.",
+              "codeSnippet": "Channel.ReadBasic.All ChannelMember.Read.All",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "perm_channelmessage_read_all",
+              "label": "ChannelMessage.Read.All",
+              "subLabel": "Allows the app to read user channel messages across standard and private channels.",
+              "codeSnippet": "ChannelMessage.Read.All",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "perm_chat_read",
+              "label": "Chat.Read.All, Chat.Read, Chat.ReadBasic & ChatMessage.Read",
+              "subLabel": "Allows the app to read basic chat properties and all one-to-one and group chat messages.",
+              "codeSnippet": "Chat.Read.All Chat.Read Chat.ReadBasic ChatMessage.Read",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "perm_team_readbasic_all",
+              "label": "Team.ReadBasic.All & TeamMember.Read.All",
+              "subLabel": "Allows the app to read the names, descriptions, and members of teams.",
+              "codeSnippet": "Team.ReadBasic.All TeamMember.Read.All",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "tm_perm_user_read",
+              "label": "User.Read.All & User.Read",
+              "subLabel": "Allows the app to sign in and read all users' full profiles.",
+              "codeSnippet": "User.Read.All User.Read",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "tm_perm_group_read",
+              "label": "GroupMember.Read.All & Group.Read.All",
+              "subLabel": "Allows reading group memberships and Microsoft Purview sensitivity labels assigned to a team's parent Microsoft 365 group for Sensitive Data Protection (redaction).",
+              "codeSnippet": "GroupMember.Read.All Group.Read.All",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "perm_schedule_read",
+              "label": "Schedule.Read.All (Delegated)",
+              "subLabel": "Allows reading schedules, schedule groups, and shifts for teams.",
+              "codeSnippet": "Schedule.Read.All",
+              "badge": "Optional",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "perm_protected_api_note",
+              "label": "Microsoft Graph Protected API Approval (Data Ingestion)",
+              "subLabel": "Note: Bulk application-level ingestion of Teams messages using ChannelMessage.Read.All and Chat.Read.All Application scopes requires Microsoft Graph Protected API approval / metered billing configuration in Azure.",
+              "badge": "Recommended",
+              "appliesToMode": "INGESTION"
+            }
+          ]
+        },
+        {
+          "id": "teams_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 3,
+          "description": "Delegated Microsoft Graph permissions required for actions that post or update messages, channels, chats, and schedules in Microsoft Teams.",
+          "items": [
+            {
+              "id": "teams_action_redirect_uri",
+              "label": "Actions Redirect URI Allowlisted",
+              "subLabel": "Actions always use https://vertexaisearch.cloud.google.com/oauth-redirect.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "perm_channelmessage_send",
+              "label": "ChannelMessage.Send & ChannelMessage.ReadWrite (Delegated)",
+              "subLabel": "Allows the app to send messages in any channel and update channel messages.",
+              "codeSnippet": "ChannelMessage.Send ChannelMessage.ReadWrite",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "perm_chatmessage_send",
+              "label": "ChatMessage.Send (Delegated)",
+              "subLabel": "Allows the app to send direct and group chat messages in Microsoft Teams.",
+              "codeSnippet": "ChatMessage.Send",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "perm_chat_readwrite",
+              "label": "Chat.ReadWrite & Chat.Create (Delegated)",
+              "subLabel": "Allows creating new chats and reading/writing one-to-one and group chat threads.",
+              "codeSnippet": "Chat.ReadWrite Chat.Create",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "perm_channel_manage",
+              "label": "Channel.Create, ChannelMember.ReadWrite.All & ChannelSettings.ReadWrite.All (Delegated)",
+              "subLabel": "Allows creating channels, adding/removing channel members, and updating channel settings.",
+              "codeSnippet": "Channel.Create ChannelMember.ReadWrite.All ChannelSettings.ReadWrite.All",
+              "badge": "Optional",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "teams_scope_meetings_write",
+              "label": "Schedule.ReadWrite.All & OnlineMeetings.ReadWrite (Delegated)",
+              "subLabel": "Allows creating/updating team schedules, shifts, time-off entries, and scheduling Teams video meetings.",
+              "codeSnippet": "Schedule.ReadWrite.All OnlineMeetings.ReadWrite",
+              "badge": "Optional",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "teams_admin_consent",
+              "label": "Tenant Admin Consent Granted for Write Scopes",
+              "subLabel": "Microsoft Entra Global Admin has consented to Teams write permissions.",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "ENTRA_ID",
+      "vendorDisplayName": "Microsoft Entra ID (Azure AD Directory)",
+      "category": "Microsoft 365 & Identity",
+      "detectionPatterns": {
+        "dataSources": [
+          "entraid",
+          "entra_id",
+          "entra-id",
+          "azure_ad",
+          "azure_active_directory",
+          "aad"
+        ],
+        "nameSubstrings": [
+          "entra",
+          "entraid",
+          "entra-id",
+          "azure-ad",
+          "azure_ad",
+          "aad"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/entra-id/connect-entra-id",
+      "sections": [
+        {
+          "id": "entra_app_auth",
+          "title": "App Registration, Auth & Advanced Network Setup",
+          "stepNumber": 1,
+          "description": "Register a new single-tenant application in the Microsoft Entra Admin Center and configure the native client redirect URI.",
+          "items": [
+            {
+              "id": "entra_register",
+              "label": "Create New Single-Tenant Registration",
+              "subLabel": "Select 'Accounts in this organizational directory only' (Single tenant only - TENANT_NAME).",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "entra_redirect",
+              "label": "Redirect URI (Native Client)",
+              "subLabel": "Critical: Add a Web redirect URI pointing to https://login.microsoftonline.com/common/oauth2/nativeclient.",
+              "codeSnippet": "https://login.microsoftonline.com/common/oauth2/nativeclient",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "entra_ids",
+              "label": "Save Application (Client) ID & Directory (Tenant) ID",
+              "subLabel": "Copy Application (client) ID for 'Client ID' and Directory (tenant) ID for 'Azure Tenant'.",
+              "codeSnippet": "client_id / tenant_id",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "entra_secret",
+              "label": "Generate Client Secret",
+              "subLabel": "Certificates & secrets > New client secret. Save the secret Value immediately.",
+              "codeSnippet": "client_secret",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "adv_static_ip",
+              "label": "Static IP Allowlisting (Conditional Access)",
+              "subLabel": "Required if you use Conditional Access. Enable 'Static IP Addresses' in setup and add the connector's static IPs to Entra Named/Trusted Locations.",
+              "badge": "Optional",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-assignment-network"
+            },
+            {
+              "id": "adv_ext_props",
+              "label": "Extension Properties & Knowledge Graph",
+              "subLabel": "Enable 'Extension Properties' if you need custom AD schema attributes, and enable Knowledge Graph for people cards search.",
+              "badge": "Recommended",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "entra_iam_service_agent",
+              "label": "Discovery Engine Service Agent IAM Role",
+              "subLabel": "Verifies Discovery Engine service agent permissions on the host Google Cloud project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent IAM role bindings."
+              }
+            },
+            {
+              "id": "entra_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "entra_connector_status",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Discovery Engine connector status is ACTIVE and userprofiles entity count matches Entra ID.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Validates Entra ID connector state and sync run health."
+              }
+            }
+          ]
+        },
+        {
+          "id": "directory_read",
+          "title": "API Permissions (Microsoft Graph Directory Read Scopes)",
+          "stepNumber": 2,
+          "description": "Grant Microsoft Graph Application and Delegated permissions in the API Permissions tab and grant tenant-wide admin consent.",
+          "items": [
+            {
+              "id": "perm_user_read_all",
+              "label": "User.Read.All (Application) & User.Read (Delegated)",
+              "subLabel": "Minimum required permissions to read organization details during connection establishment and ingest all user profiles.",
+              "codeSnippet": "User.Read.All User.Read",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "perm_group_read_all",
+              "label": "Group.Read.All (Application)",
+              "subLabel": "Allows reading security groups, M365 groups, and group properties across the directory.",
+              "codeSnippet": "Group.Read.All",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "perm_groupmember_read_all",
+              "label": "GroupMember.Read.All (Application)",
+              "subLabel": "Allows reading group memberships across the directory.",
+              "codeSnippet": "GroupMember.Read.All",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "entra_directory_read_all",
+              "label": "Directory.Read.All (Application)",
+              "subLabel": "Allows reading directory data, users, groups, organizational hierarchy, and administrative units.",
+              "codeSnippet": "Directory.Read.All",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "perm_auditlog_read_all",
+              "label": "AuditLog.Read.All (Application)",
+              "subLabel": "Allows reading directory audit logs and sign-in activity metadata.",
+              "codeSnippet": "AuditLog.Read.All",
+              "badge": "Optional",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "perm_people_read",
+              "label": "People.Read.All (Application) & PeopleSettings.Read.All (Application & Delegated)",
+              "subLabel": "Optional: Required to ingest up to 15 custom profileCardAttributes (profile card properties) per user record.",
+              "codeSnippet": "People.Read.All PeopleSettings.Read.All",
+              "badge": "Optional",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "perm_consent",
+              "label": "Grant Admin Consent for Organization",
+              "subLabel": "Critical: Click 'Grant admin consent for [Org]' button in API permissions. Administrator consent is required for client credentials flow.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            }
+          ]
+        },
+        {
+          "id": "entra_actions_section",
+          "title": "Assistant Actions & Directory Write Scopes",
+          "stepNumber": 3,
+          "description": "Microsoft Graph write permissions required when enabling Assistant Actions for user and group management in Microsoft Entra ID.",
+          "items": [
+            {
+              "id": "entra_action_redirect_uri",
+              "label": "Actions Redirect URI Allowlisted",
+              "subLabel": "Actions always use https://vertexaisearch.cloud.google.com/oauth-redirect.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "entra_scope_user_rw",
+              "label": "User.ReadWrite.All",
+              "subLabel": "Allows the assistant to create and update user profiles in Microsoft Entra ID.",
+              "codeSnippet": "User.ReadWrite.All",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "entra_scope_group_rw",
+              "label": "Group.ReadWrite.All",
+              "subLabel": "Allows the assistant to create, update, and manage security and Microsoft 365 groups.",
+              "codeSnippet": "Group.ReadWrite.All",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "entra_scope_groupmember_rw",
+              "label": "GroupMember.ReadWrite.All",
+              "subLabel": "Allows the assistant to add and remove members from Entra ID groups.",
+              "codeSnippet": "GroupMember.ReadWrite.All",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "DYNAMICS365",
+      "vendorDisplayName": "Microsoft Dynamics 365",
+      "category": "Microsoft 365 & Identity",
+      "detectionPatterns": {
+        "dataSources": [
+          "dynamics365",
+          "dynamics_365",
+          "ms_dynamics",
+          "dynamics"
+        ],
+        "nameSubstrings": [
+          "dynamics365",
+          "dynamics-365",
+          "dynamics_365",
+          "dynamics"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/dynamics365",
+      "sections": [
+        {
+          "id": "dynamics_app_auth",
+          "title": "Entra App Registration, Federated Credentials & Application User",
+          "stepNumber": 1,
+          "description": "Register an OAuth 2.0 application in Microsoft Entra ID, configure federated credentials, and bind a Dataverse Application User.",
+          "items": [
+            {
+              "id": "dyn_instance_uri",
+              "label": "Dynamics 365 Instance URI",
+              "subLabel": "Your Dynamics 365 organization URL (e.g., https://myorg.crm.dynamics.com). Supported in global, us, and eu locations.",
+              "codeSnippet": "https://<org>.crm.dynamics.com",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "dyn_tenant_client",
+              "label": "Tenant ID & Application (Client) ID",
+              "subLabel": "Single-tenant Entra App Registration ('Accounts in this organizational directory only') Client ID and Tenant ID.",
+              "codeSnippet": "tenant_id / client_id",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "dyn_uri_console",
+              "label": "Data Store Console Redirect URI (Platform: Web)",
+              "subLabel": "Add https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html under Web platform in Entra Authentication.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "dyn_uri_oauth",
+              "label": "Federated & Actions OAuth Redirect URI (Platform: Web)",
+              "subLabel": "Add https://vertexaisearch.cloud.google.com/oauth-redirect under Web platform in Entra Authentication.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "dyn_fed_cred",
+              "label": "Federated Credential Configured",
+              "subLabel": "In Certificates & secrets > Federated credentials, select 'Other issuer', enter Issuer https://accounts.google.com, and paste the Subject identifier from Google Cloud Console.",
+              "codeSnippet": "https://accounts.google.com",
+              "badge": "Required",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/dynamics365/third-party-config"
+            },
+            {
+              "id": "dyn_app_user",
+              "label": "Power Platform / Dataverse Application User Setup",
+              "subLabel": "Ensure an Application User is registered in Power Platform Admin Center mapped to the Entra App Client ID with an assigned Dataverse Security Role.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "dyn_iam_service_agent",
+              "label": "Discovery Engine Editor & Service Agent IAM Roles",
+              "subLabel": "Verifies roles/discoveryengine.editor and Discovery Engine service agent permissions on the host Google Cloud project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine IAM role bindings on the project."
+              }
+            },
+            {
+              "id": "dyn_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "dyn_connector_status",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Discovery Engine connector status is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Validates Dynamics 365 connector operational state."
+              }
+            }
+          ]
+        },
+        {
+          "id": "dynamics_read_permissions",
+          "title": "Dynamics CRM API & Entity Read Privileges",
+          "stepNumber": 2,
+          "description": "Configure Dynamics CRM API permissions in Entra ID and verify Dataverse entity read privileges.",
+          "items": [
+            {
+              "id": "dyn_user_impersonation",
+              "label": "Dynamics CRM user_impersonation (Delegated)",
+              "subLabel": "In API permissions > Add permissions > Dynamics CRM, select Delegated permission 'user_impersonation' (Access Dynamics 365 as organization users).",
+              "codeSnippet": "user_impersonation",
+              "badge": "Required",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/dynamics365/third-party-config"
+            },
+            {
+              "id": "dyn_entity_read",
+              "label": "Dataverse Entity Read Privileges (Invoice, Sales Order, Quote, Account, Contact, Opportunity, Case)",
+              "subLabel": "Security role grants Read privileges on searchable Dynamics 365 entities (Invoice, Sales Order, Quote, Account, Contact, Lead, Opportunity, Incident).",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "dyn_admin_consent",
+              "label": "Tenant Admin Consent Granted",
+              "subLabel": "Entra ID Global Administrator granted tenant-wide admin consent for Dynamics CRM user_impersonation.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            }
+          ]
+        },
+        {
+          "id": "dynamics_actions_section",
+          "title": "Assistant Actions & Entity Write Privileges",
+          "stepNumber": 3,
+          "description": "Dataverse security role privileges and OAuth settings required for Gemini Assistant to create and update Dynamics 365 records.",
+          "items": [
+            {
+              "id": "dyn_action_redirect_uri",
+              "label": "Actions Redirect URI Allowlisted",
+              "subLabel": "Actions always use https://vertexaisearch.cloud.google.com/oauth-redirect.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "dyn_action_write_privs",
+              "label": "Dataverse Create, Write, Append & AppendTo Privileges",
+              "subLabel": "Security role grants Create, Write, Append, and AppendTo privileges on target CRM entities (Invoice, Sales Order, Quote, Account, Contact, Lead, Opportunity, Case).",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "dyn_action_single_ds_note",
+              "label": "Single Action Data Store Association",
+              "subLabel": "Limitation: When adding a Dynamics 365 data store to an app, associate only one data store with actions belonging to a single connector type.",
+              "badge": "Recommended",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "SHAREPOINT_DC",
+      "vendorDisplayName": "Microsoft SharePoint On-Premises (Data Center)",
+      "category": "Microsoft 365 & Identity",
+      "detectionPatterns": {
+        "dataSources": [
+          "sharepoint_server",
+          "sharepoint_dc",
+          "sharepoint_onprem",
+          "ms_sharepoint_dc"
+        ],
+        "nameSubstrings": [
+          "sharepoint-dc",
+          "sharepoint_dc",
+          "sharepoint_server",
+          "sharepoint-onprem",
+          "sharepoint data center"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-third-party-data-source",
+      "sections": [
+        {
+          "id": "sp_dc_auth_network",
+          "title": "SharePoint On-Premises Network & Active Directory Auth",
+          "stepNumber": 1,
+          "description": "Verify Private Service Connect (PSC) or public SSL endpoint and Active Directory service account permissions.",
+          "items": [
+            {
+              "id": "sp_dc_ad_visitor_group",
+              "label": "Active Directory User Added to <SiteName> Visitors Group",
+              "subLabel": "Ensure the AD user account used for Basic Authentication belongs to the <SiteName> visitors SharePoint group across target site collections.",
+              "badge": "Required"
+            },
+            {
+              "id": "sp_dc_psc_attachment",
+              "label": "Private Service Connect (PSC) or Public Domain Configured",
+              "subLabel": "Configure a PSC service attachment (with static IP/domain mapping) or public HTTPS endpoint for SharePoint Server.",
+              "badge": "Required"
+            },
+            {
+              "id": "sp_dc_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for SharePoint On-Premises."
+              }
+            },
+            {
+              "id": "sp_dc_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "SharePoint On-Premises data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates SharePoint On-Premises connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "sp_dc_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted SharePoint On-Premises connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_dc_entities",
+          "title": "SharePoint On-Premises Indexed Entities",
+          "stepNumber": 2,
+          "description": "Verify SharePoint Server entities selected for ingestion.",
+          "items": [
+            {
+              "id": "sp_dc_entities_list",
+              "label": "Site, Page, ListItem, Attachment & File Entities Selected",
+              "subLabel": "Confirm Site, Page, ListItem, Attachment, File, Folder, and Event entities are enabled for indexing.",
+              "codeSnippet": "Site, Page, ListItem, Attachment, File, Folder, Event",
+              "badge": "Required"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "OUTLOOK_OPENAPI",
+      "vendorDisplayName": "Microsoft Outlook (OpenAPI Federated & Actions)",
+      "category": "Microsoft 365 & Identity",
+      "detectionPatterns": {
+        "dataSources": [
+          "outlookopenapi",
+          "outlook_openapi",
+          "ms_outlook_openapi"
+        ],
+        "nameSubstrings": [
+          "outlookopenapi",
+          "outlook-openapi",
+          "outlook_openapi"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/outlookopenapi",
+      "sections": [
+        {
+          "id": "outlook_oa_auth",
+          "title": "Microsoft Entra OAuth 2.0 & Redirect URI Setup",
+          "stepNumber": 1,
+          "description": "Configure Microsoft Entra App Registration and OAuth 2.0 credentials for Outlook OpenAPI.",
+          "items": [
+            {
+              "id": "outlook_oa_redirect_uri",
+              "label": "Entra App Redirect URI Registered",
+              "subLabel": "Register https://vertexaisearch.cloud.google.com/oauth-redirect as a Web Redirect URI in Microsoft Entra ID.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required"
+            },
+            {
+              "id": "outlook_oa_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Microsoft Outlook OpenAPI."
+              }
+            },
+            {
+              "id": "outlook_oa_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Microsoft Outlook OpenAPI data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Microsoft Outlook OpenAPI connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "outlook_oa_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Microsoft Outlook OpenAPI connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "outlook_oa_scopes_read",
+          "title": "Microsoft Graph Read Scopes (Messages, Events, Contacts)",
+          "stepNumber": 2,
+          "description": "Verify Microsoft Graph delegated read permissions for Outlook mail, calendar, and contacts.",
+          "items": [
+            {
+              "id": "outlook_oa_read_scopes",
+              "label": "Mail.Read, Calendars.Read & Contacts.Read Scopes Granted",
+              "subLabel": "Grant Microsoft Graph delegated permissions for searching Messages, Events, and Contacts.",
+              "codeSnippet": "User.Read Mail.Read Calendars.Read Contacts.Read offline_access",
+              "badge": "Required"
+            }
+          ]
+        },
+        {
+          "id": "outlook_oa_actions",
+          "title": "Outlook OpenAPI Assistant Actions (Write)",
+          "stepNumber": 3,
+          "description": "Permissions for sending emails, managing drafts, and scheduling calendar events.",
+          "items": [
+            {
+              "id": "outlook_oa_write_scopes",
+              "label": "Mail.Send, Mail.ReadWrite, Calendars.ReadWrite & Contacts.ReadWrite Scopes",
+              "subLabel": "Required to Send mail, Reply to mail, Forward mail, Create draft, Create event, Update event, and Create contact.",
+              "codeSnippet": "Mail.Send Mail.ReadWrite Calendars.ReadWrite Contacts.ReadWrite",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "MICROSOFT_LEARN",
+      "vendorDisplayName": "Microsoft Learn Documentation",
+      "category": "Microsoft 365 & Identity",
+      "detectionPatterns": {
+        "dataSources": [
+          "microsoft_learn",
+          "ms_learn"
+        ],
+        "nameSubstrings": [
+          "microsoft-learn",
+          "microsoft_learn",
+          "ms-learn"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/microsoft-learn",
+      "sections": [
+        {
+          "id": "microsoft_learn_auth_access",
+          "title": "Microsoft Learn Documentation Federated MCP Setup & Health",
+          "stepNumber": 1,
+          "description": "Verify Microsoft Learn Documentation federated data store provisioning and Discovery Engine health.",
+          "items": [
+            {
+              "id": "microsoft_learn_public_mcp_setup",
+              "label": "Public Federated MCP Data Store Provisioned",
+              "subLabel": "Microsoft Learn Documentation uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/microsoft-learn"
+            },
+            {
+              "id": "microsoft_learn_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Microsoft Learn Documentation."
+              }
+            },
+            {
+              "id": "microsoft_learn_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Microsoft Learn Documentation data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Microsoft Learn Documentation connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "microsoft_learn_entities_read",
+          "title": "Microsoft Learn Documentation Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Microsoft Learn Documentation searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "microsoft_learn_searchable_entities",
+              "label": "Searchable Entities Enabled (Document, CodeSample)",
+              "subLabel": "Verify that the required Microsoft Learn Documentation searchable entities (Document, CodeSample) are enabled in the Data section of the data store.",
+              "codeSnippet": "Document, CodeSample",
+              "badge": "Required"
+            },
+            {
+              "id": "microsoft_learn_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Microsoft Learn Documentation tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

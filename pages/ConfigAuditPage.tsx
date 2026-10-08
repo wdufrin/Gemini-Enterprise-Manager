@@ -170,16 +170,16 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
   }, [auditSummary]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 bg-gray-900 text-gray-100 min-h-screen">
+    <div className="space-y-6 text-gray-100">
       {/* Header Banner */}
       <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-gray-800 pb-5">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold text-white tracking-tight">App Configuration Audit</h1>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-900/80 text-blue-300 border border-blue-700/50">
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-900/80 text-blue-300 border border-blue-700/50 whitespace-nowrap">
               Read-Only Parity Check
             </span>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-900/80 text-emerald-300 border border-emerald-700/50">
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-900/80 text-emerald-300 border border-emerald-700/50 whitespace-nowrap">
               Zero Mutations
             </span>
           </div>
@@ -189,23 +189,23 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
         </div>
 
         {auditSummary && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               onClick={handleDownloadMarkdown}
-              className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium rounded-lg border border-gray-700 flex items-center gap-1.5 transition-colors shadow-sm"
+              className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium rounded-lg border border-gray-700 flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap shrink-0"
               title="Download Executive Markdown Report"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               Export Report (.md)
             </button>
             <button
               onClick={handleDownloadJson}
-              className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium rounded-lg border border-gray-700 flex items-center gap-1.5 transition-colors shadow-sm"
+              className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium rounded-lg border border-gray-700 flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap shrink-0"
               title="Download JSON Summary"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
               Export JSON
@@ -253,7 +253,7 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
         <button
           onClick={handleRunAudit}
           disabled={isAuditing || !sourceEnv.project.trim() || !targetEnv.project.trim()}
-          className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-medium text-sm rounded-lg shadow-md transition-all flex items-center justify-center gap-2"
+          className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-medium text-sm rounded-lg shadow-md transition-all flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
         >
           {isAuditing ? (
             <>

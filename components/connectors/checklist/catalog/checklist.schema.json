@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gemini-enterprise-manager.local/schemas/connector-checklist-catalog.schema.json",
+  "title": "Gemini Enterprise Connector Validation Checklist Catalog",
+  "description": "Deterministic, human-editable configuration schema for Gemini Enterprise connector validation checklists and automated probes (No LLM generation).",
+  "type": "object",
+  "required": ["$schema", "catalogGroup", "description", "connectors"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "catalogGroup": {
+      "type": "string",
+      "description": "Logical domain grouping for this checklist catalog file."
+    },
+    "description": {
+      "type": "string",
+      "description": "Overview of the connectors maintained in this catalog file."
+    },
+    "connectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/ConnectorChecklistDefinition"
+      }
+    }
+  },
+  "$defs": {
+    "ConnectorChecklistDefinition": {
+      "type": "object",
+      "required": [
+        "vendorId",
+        "vendorDisplayName",
+        "category",
+        "detectionPatterns",
+        "supportsDataModeToggle",
+        "supportsActions",
+        "documentationUrl",
+        "sections"
+      ],
+      "properties": {
+        "vendorId": {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$",
+          "description": "Unique uppercase identifier for the connector vendor (e.g., SERVICENOW, SHAREPOINT, JIRA)."
+        },
+        "vendorDisplayName": {
+          "type": "string",
+          "minLength": 2,
+          "description": "Human-readable vendor title shown in the verification selector."
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Google First-Party & MCP",
+            "Enterprise Platforms",
+            "Microsoft 365 & Identity",
+            "Atlassian & DevTools",
+            "Collaboration & Storage",
+            "Productivity & Tasks",
+            "Universal Fallback"
+          ]
+        },
+        "detectionPatterns": {
+          "type": "object",
+          "required": ["dataSources", "nameSubstrings"],
+          "properties": {
+            "dataSources": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Discovery Engine dataConnector.dataSource identifiers (e.g., servicenow, ms-sharepoint, jira_cloud)."
+            },
+            "nameSubstrings": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Substrings matched against collection/connector display names and IDs."
+            },
+            "typeSubstrings": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        },
+        "supportsDataModeToggle": {
+          "type": "boolean",
+          "description": "True if the connector supports both Data Ingestion and Federated Search modes."
+        },
+        "supportsActions": {
+          "type": "boolean",
+          "description": "True if the connector supports Gemini Enterprise Assistant Actions (write operations)."
+        },
+        "documentationUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "Official Google Cloud Gemini Enterprise documentation URL for this connector."
+        },
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/ChecklistSectionDefinition"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ChecklistSectionDefinition": {
+      "type": "object",
+      "required": ["id", "title", "stepNumber", "items"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "stepNumber": { "type": "integer", "minimum": 1 },
+        "description": { "type": "string" },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/ChecklistItemDefinition"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ChecklistItemDefinition": {
+      "type": "object",
+      "required": ["id", "label", "badge"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "subLabel": { "type": "string" },
+        "description": { "type": "string" },
+        "badge": {
+          "type": "string",
+          "enum": ["Required", "Optional", "Recommended", "Automated", "Live KB Verified"]
+        },
+        "appliesToMode": {
+          "type": "string",
+          "enum": ["ALL", "INGESTION", "FEDERATED", "ACTIONS"]
+        },
+        "documentationUrl": { "type": "string" },
+        "codeSnippet": { "type": "string" },
+        "isActionRequirement": { "type": "boolean" },
+        "automatedProbe": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "IAM_PERMISSION_CHECK",
+                "MCP_CONNECTIVITY",
+                "CONNECTOR_STATUS",
+                "OAUTH_CONFIG_VALIDITY"
+              ]
+            },
+            "requiredPermissions": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "description": { "type": "string" },
+            "expectedState": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

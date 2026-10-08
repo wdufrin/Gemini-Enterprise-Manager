@@ -39,23 +39,23 @@ const AccessTokenInput: React.FC<AccessTokenInputProps> = ({ accessToken, setAcc
 
   if (userProfile && onSignOut) {
     return (
-      <div className="flex items-center gap-4 bg-gray-700/50 px-3 py-1.5 rounded-full border border-gray-600">
-         <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5 xl:gap-3 bg-gray-700/50 px-3 py-1 rounded-full border border-gray-600 shrink-0">
+         <div className="flex items-center gap-2.5 min-w-0">
             {userProfile.picture ? (
-                <img src={userProfile.picture} alt="Avatar" className="w-8 h-8 rounded-full border border-gray-500" />
+                <img src={userProfile.picture} alt="Avatar" className="w-7 h-7 rounded-full border border-gray-500 shrink-0" />
             ) : (
-                <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">
+                <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
                 {(userProfile.name || userProfile.email || '?').charAt(0).toUpperCase()}
                 </div>
             )}
-            <div className="hidden md:block">
-                <p className="text-xs font-semibold text-white">{userProfile.name}</p>
-                <p className="text-[10px] text-gray-400">{userProfile.email}</p>
+            <div className="hidden md:block min-w-0 max-w-[140px] xl:max-w-[180px]">
+                <p className="text-xs font-semibold text-white truncate">{userProfile.name}</p>
+                <p className="text-[10px] text-gray-400 truncate">{userProfile.email}</p>
             </div>
          </div>
          <button 
             onClick={onSignOut}
-            className="text-xs text-red-400 hover:text-red-300 hover:underline font-medium ml-2"
+            className="text-xs text-red-400 hover:text-red-300 hover:underline font-medium ml-1 whitespace-nowrap shrink-0"
          >
             Sign Out
          </button>
@@ -65,16 +65,16 @@ const AccessTokenInput: React.FC<AccessTokenInputProps> = ({ accessToken, setAcc
 
   if (accessToken) {
     return (
-      <div className="flex items-center space-x-3 w-full md:w-auto">
-        <span className="flex items-center text-sm text-green-400">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
+      <div className="flex items-center space-x-2.5 w-full md:w-auto shrink-0">
+        <span className="flex items-center text-xs xl:text-sm text-green-400 whitespace-nowrap shrink-0">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 shrink-0" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
           </svg>
           Token Active
         </span>
         <button
           onClick={handleReset}
-          className="px-4 py-1.5 bg-yellow-600 text-white text-sm font-semibold rounded-md hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-yellow-500"
+          className="px-3 py-1.5 bg-yellow-600 text-white text-xs xl:text-sm font-semibold rounded-md hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-yellow-500 whitespace-nowrap shrink-0"
         >
           Reset Token
         </button>

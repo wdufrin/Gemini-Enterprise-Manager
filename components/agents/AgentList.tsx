@@ -188,7 +188,7 @@ const AgentList: React.FC<AgentListProps> = ({
       <th 
         scope="col" 
         aria-sort={sortAria}
-        className={`px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider ${className}`}
+        className={`px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${className}`}
       >
         <button 
           type="button"
@@ -219,12 +219,12 @@ const AgentList: React.FC<AgentListProps> = ({
         <div className="flex flex-wrap items-center gap-3">
           {selectedAgents.size > 0 && (
             <>
-              <span className="text-sm text-gray-300 font-medium">{selectedAgents.size} selected</span>
+              <span className="text-sm text-gray-300 font-medium whitespace-nowrap">{selectedAgents.size} selected</span>
               {onOpenBulkDatasources && (
                 <button
                   type="button"
                   onClick={onOpenBulkDatasources}
-                  className="px-3.5 py-2 bg-cyan-900/60 text-cyan-200 border border-cyan-600/60 text-sm font-semibold rounded-md hover:bg-cyan-800/70 flex items-center gap-2 transition-colors"
+                  className="px-3.5 py-2 bg-cyan-900/60 text-cyan-200 border border-cyan-600/60 text-sm font-semibold rounded-md hover:bg-cyan-800/70 flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
                   title="Bulk update or migrate Data Connectors and Data Stores for the selected agents"
                 >
                   <span>Bulk Update Selected ({selectedAgents.size})</span>
@@ -232,7 +232,7 @@ const AgentList: React.FC<AgentListProps> = ({
               )}
               <button
                 onClick={onDeleteSelected}
-                className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700"
+                className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700 whitespace-nowrap shrink-0"
               >
                 Delete Selected
               </button>
@@ -240,7 +240,7 @@ const AgentList: React.FC<AgentListProps> = ({
           )}
           <button
             onClick={onRegisterNew}
-            className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-green-500"
+            className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-green-500 whitespace-nowrap shrink-0"
           >
             Register New Agent
           </button>
@@ -261,7 +261,7 @@ const AgentList: React.FC<AgentListProps> = ({
             type="button"
             onClick={onRestoreDeepResearch}
             disabled={isRestoringDeepResearch}
-            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 text-white text-xs font-semibold rounded-md shrink-0 flex items-center gap-1.5 transition-colors"
+            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 text-white text-xs font-semibold rounded-md shrink-0 whitespace-nowrap flex items-center gap-1.5 transition-colors"
           >
             {isRestoringDeepResearch && (
               <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white"></div>
@@ -309,7 +309,7 @@ const AgentList: React.FC<AgentListProps> = ({
                     key={st}
                     type="button"
                     onClick={() => setStatusFilter(st)}
-                    className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                    className={`px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap ${
                       active ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'
                     }`}
                   >
@@ -354,7 +354,7 @@ const AgentList: React.FC<AgentListProps> = ({
                   setTypeFilter('ALL');
                   setScopeFilter('ALL');
                 }}
-                className="px-2.5 py-1.5 text-xs text-blue-400 hover:text-blue-300 font-medium"
+                className="px-2.5 py-1.5 text-xs text-blue-400 hover:text-blue-300 font-medium whitespace-nowrap"
               >
                 Reset Filters
               </button>
@@ -386,7 +386,7 @@ const AgentList: React.FC<AgentListProps> = ({
             <table className="min-w-full divide-y divide-gray-700">
                 <thead className="bg-gray-700/50">
                     <tr>
-                        <th scope="col" className="px-6 py-3 w-10">
+                        <th scope="col" className="px-3 xl:px-5 py-3 w-10">
                           <input
                               type="checkbox"
                               checked={isAllSelected}
@@ -398,13 +398,13 @@ const AgentList: React.FC<AgentListProps> = ({
                         </th>
                         <SortableHeader sortKey="displayName">Display Name</SortableHeader>
                         <SortableHeader sortKey="state">Status</SortableHeader>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                        <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                             Sharing & Owner
                         </th>
                         <SortableHeader sortKey="agentType">Agent Type</SortableHeader>
                         <SortableHeader sortKey="name">Agent ID</SortableHeader>
                         <SortableHeader sortKey="updateTime">Last Modified</SortableHeader>
-                        <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                        <th scope="col" className="px-3 xl:px-5 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                             Actions
                         </th>
                     </tr>
@@ -436,7 +436,7 @@ const AgentList: React.FC<AgentListProps> = ({
                                 ) : (
                                     <button
                                         onClick={() => onToggleAgentStatus(agent)}
-                                        className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${statusProps.colorClasses}`}
+                                        className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors whitespace-nowrap ${statusProps.colorClasses}`}
                                         disabled={isToggling || isDeleting}
                                     >
                                         {statusProps.text}
@@ -444,12 +444,12 @@ const AgentList: React.FC<AgentListProps> = ({
                                 )
                             );
                         } else {
-                            statusButton = <span className="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-500 text-black">Private</span>
+                            statusButton = <span className="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-500 text-black whitespace-nowrap">Private</span>
                         }
 
                         return (
                             <tr key={agent.name} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
-                                <td className="px-6 py-4">
+                                <td className="px-3 xl:px-5 py-3">
                                     <input
                                         type="checkbox"
                                         checked={isSelected}
@@ -460,9 +460,9 @@ const AgentList: React.FC<AgentListProps> = ({
                                         className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600 disabled:opacity-30 disabled:cursor-not-allowed"
                                     />
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
+                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm font-medium text-white">
                                     <div className="flex items-center">
-                                        <span className={`h-2.5 w-2.5 rounded-full mr-3 shrink-0 ${statusColorClass}`}></span>
+                                        <span className={`h-2.5 w-2.5 rounded-full mr-2.5 shrink-0 ${statusColorClass}`}></span>
                                         {editingId === agent.name ? (
                                             <form 
                                                 onSubmit={(e) => { e.preventDefault(); handleSaveName(agent); }}
@@ -487,13 +487,14 @@ const AgentList: React.FC<AgentListProps> = ({
                                                 <button
                                                     type="button"
                                                     onClick={() => onSelectAgent(agent)}
-                                                    className="text-left hover:text-blue-400 transition-colors"
+                                                    className="text-left hover:text-blue-400 transition-colors max-w-[180px] xl:max-w-[260px] truncate"
+                                                    title={agent.displayName}
                                                 >
                                                     {agent.displayName}
                                                 </button>
                                                 {isGoogleManaged && (
                                                     <span
-                                                        className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70"
+                                                        className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap shrink-0"
                                                         title="First-party Google-managed built-in agent (protected from deletion)."
                                                     >
                                                         Google Built-in
@@ -503,7 +504,7 @@ const AgentList: React.FC<AgentListProps> = ({
                                                     <button 
                                                         type="button"
                                                         onClick={() => handleEditClick(agent)}
-                                                        className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded p-0.5 transition-opacity"
+                                                        className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded p-0.5 transition-opacity shrink-0"
                                                         title="Edit Name"
                                                         aria-label={`Edit name for ${agent.displayName}`}
                                                     >
@@ -514,10 +515,10 @@ const AgentList: React.FC<AgentListProps> = ({
                                         )}
                                     </div>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm">
                                     {statusButton}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-xs">
+                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs">
                                     <div className="flex flex-col gap-1">
                                         {sharingScope === 'ALL_USERS' ? (
                                             <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 font-medium">
@@ -533,18 +534,18 @@ const AgentList: React.FC<AgentListProps> = ({
                                             </span>
                                         )}
                                         {ownerHint && (
-                                            <span className="text-[11px] text-gray-400 font-mono truncate max-w-[180px]" title={`Owner: ${ownerHint}`}>
+                                            <span className="text-[11px] text-gray-400 font-mono truncate max-w-[160px]" title={`Owner: ${ownerHint}`}>
                                                 {ownerHint}
                                             </span>
                                         )}
                                     </div>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{agent.agentType || 'N/A'}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{agentId}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400">{agent.agentType || 'N/A'}</td>
+                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400 font-mono max-w-[140px] xl:max-w-[200px] truncate" title={agentId}>{agentId}</td>
+                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400">
                                     {agent.updateTime ? new Date(agent.updateTime).toLocaleString() : 'N/A'}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
+                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-right text-sm font-medium space-x-2.5">
                                     {isDeleting ? (
                                         <span className="text-xs text-gray-400 italic">Deleting...</span>
                                     ) : (

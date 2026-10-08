@@ -32,9 +32,9 @@ interface DataStoreDetailsProps {
 }
 
 const DetailItem: React.FC<{ label: string; value: string | string[] | undefined | null }> = ({ label, value }) => (
-    <div className="py-2">
+    <div className="py-2 min-w-0">
         <dt className="text-sm font-medium text-gray-400">{label}</dt>
-        <dd className="mt-1 text-sm text-white font-mono bg-gray-700 p-2 rounded">
+        <dd className="mt-1 text-sm text-white font-mono bg-gray-700 p-2 rounded break-all">
             {Array.isArray(value) ? value.join(', ') : (value || 'Not set')}
         </dd>
     </div>
@@ -267,13 +267,13 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
 
     return (
         <div className="bg-gray-800 shadow-xl rounded-lg p-6">
-            <div className="flex justify-between items-start">
-                <div>
-                    <h2 className="text-2xl font-bold text-white">
+            <div className="flex justify-between items-start gap-4">
+                <div className="min-w-0">
+                    <h2 className="text-2xl font-bold text-white break-words">
                         {dataStore.displayName}
                     </h2>
                 </div>
-                <button onClick={onBack} className="text-gray-400 hover:text-white">&larr; Back to list</button>
+                <button onClick={onBack} className="text-gray-400 hover:text-white whitespace-nowrap shrink-0">&larr; Back to list</button>
             </div>
 
             <dl className="mt-6 border-t border-gray-700 pt-6 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">

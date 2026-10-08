@@ -400,19 +400,19 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
         const noLicenses = licenses === '';
         const percentage = !isUnavailable && value > 0 ? Math.min(100, Math.round((usage / value) * 100)) : 0;
         return (
-        <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700 flex flex-col justify-between">
+        <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700 flex flex-col justify-between min-w-0">
             <div className="flex items-start justify-between mb-2">
                 <h3 className="text-gray-300 text-sm font-semibold pr-2">{title}</h3>
                 {tooltip && <InfoTooltip text={tooltip} />}
             </div>
-            <div className="flex items-baseline gap-1 mt-auto">
+            <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 mt-auto">
                 {isUnavailable ? (
                     <span className="text-lg font-medium text-amber-400">Unavailable</span>
                 ) : (
-                    <span className="text-3xl font-bold text-blue-400">{usage.toLocaleString()}</span>
+                    <span className="text-2xl xl:text-3xl font-bold text-blue-400">{usage.toLocaleString()}</span>
                 )}
-                <span className="text-gray-500 text-sm font-medium">/ {noLicenses ? '-' : value.toLocaleString()}</span>
-                {unit && <span className="text-gray-400 text-sm ml-1">{unit}</span>}
+                <span className="text-gray-500 text-sm font-medium whitespace-nowrap">/ {noLicenses ? '-' : value.toLocaleString()}</span>
+                {unit && <span className="text-gray-400 text-xs xl:text-sm whitespace-nowrap">{unit}</span>}
             </div>
             {!isUnavailable && !noLicenses && (
                 <div className="mt-3 w-full bg-gray-700 rounded-full h-1.5 border border-gray-600">
@@ -431,7 +431,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
 
     return (
         <div className="space-y-6">
-            <div className="bg-gray-800 p-6 rounded-lg shadow-md border border-gray-700">
+            <div className="bg-gray-800 p-5 xl:p-6 rounded-lg shadow-md border border-gray-700">
                 <h2 className="text-lg font-semibold text-white mb-4">Quota Configuration</h2>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                     <p className="text-gray-400 text-sm max-w-2xl">
@@ -440,9 +440,9 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     </p>
                     <button 
                         onClick={() => setShowInstructions(!showInstructions)}
-                        className="text-sm bg-gray-700 hover:bg-gray-600 text-white py-1.5 px-3 rounded border border-gray-600 transition-colors flex items-center gap-2 whitespace-nowrap"
+                        className="text-sm bg-gray-700 hover:bg-gray-600 text-white py-1.5 px-3 rounded border border-gray-600 transition-colors flex items-center gap-2 whitespace-nowrap shrink-0"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         How to Check Usage in Console
@@ -471,17 +471,17 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Auto-Populate Controls */}
                     
                     {/* Project-Local Licenses Dropdown */}
                     {projectLicenses.length > 0 && (
                         <div>
-                            <label className="block text-sm font-medium text-green-400 mb-2">Project-Local Licenses (Auto-fill)</label>
+                            <label className="block text-sm font-medium text-green-400 mb-1.5">Project-Local Licenses (Auto-fill)</label>
                             <select 
                                 value={selectedProjectLicense} 
                                 onChange={(e) => handleProjectLicenseSelection(e.target.value)}
-                                className="w-full bg-green-900/20 border border-green-800 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 h-[42px] mb-4"
+                                className="w-full bg-green-900/20 border border-green-800 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 h-[38px]"
                                 disabled={isLoading}
                             >
                                 <option value="">Select Local License</option>
@@ -497,14 +497,14 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     {billingAccounts.length > 0 && (
                         <>
                             <div>
-                                <label className="block text-sm font-medium text-blue-400 mb-2">Auto-fill from Cloud Billing</label>
+                                <label className="block text-sm font-medium text-blue-400 mb-1.5">Auto-fill from Cloud Billing</label>
                                 <select 
                                     value={selectedBillingAccountId} 
                                     onChange={(e) => {
                                         setSelectedBillingAccountId(e.target.value);
                                         setSelectedConfigName(''); // Reset profile
                                     }}
-                                    className="w-full bg-blue-900/20 border border-blue-800 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[42px] mb-4"
+                                    className="w-full bg-blue-900/20 border border-blue-800 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]"
                                     disabled={isLoading}
                                 >
                                     <option value="">Select Billing Account</option>
@@ -517,11 +517,11 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             
                             {selectedBillingAccountId && (
                                 <div>
-                                    <label className="block text-sm font-medium text-blue-400 mb-2">Subscription Profile</label>
+                                    <label className="block text-sm font-medium text-blue-400 mb-1.5">Subscription Profile</label>
                                     <select 
                                         value={selectedConfigName} 
                                         onChange={(e) => handleConfigSelection(e.target.value, '')}
-                                        className="w-full bg-blue-900/20 border border-blue-800 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[42px] mb-4"
+                                        className="w-full bg-blue-900/20 border border-blue-800 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]"
                                         disabled={isLoading || licenseConfigs.length === 0}
                                     >
                                         <option value="">Select Profile (Optional)</option>
@@ -536,11 +536,11 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             
                             {selectedConfigName && (
                                 <div>
-                                    <label className="block text-sm font-medium text-blue-400 mb-2">Project Region (Auto-fill)</label>
+                                    <label className="block text-sm font-medium text-blue-400 mb-1.5">Project Region (Auto-fill)</label>
                                     <select 
                                         value={selectedLocation} 
                                         onChange={(e) => handleConfigSelection(selectedConfigName, e.target.value)}
-                                        className="w-full bg-blue-900/20 border border-blue-800 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[42px] mb-4"
+                                        className="w-full bg-blue-900/20 border border-blue-800 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]"
                                     >
                                         <option value="">All Regions (Total Pooled)</option>
                                         <option value="global">Global</option>
@@ -552,19 +552,19 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         </>
                     )}
 
-                    <div className="md:col-span-1 border-t border-gray-700 md:border-t-0 md:border-l pt-6 md:pt-0 pl-0 md:pl-6">
-                        <label className="block text-sm font-medium text-gray-400 mb-2">Gemini Enterprise Edition</label>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-1.5">Gemini Enterprise Edition</label>
                         <select 
                             value={edition} 
                             onChange={(e) => setEdition(e.target.value as 'Standard' | 'Plus')}
-                            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[42px] mb-4"
+                            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]"
                         >
                             <option value="Standard">Standard</option>
                             <option value="Plus">Plus</option>
                         </select>
                     </div>
-                    <div className="md:col-span-1 pt-0 md:pt-0 pr-0 md:pr-0 pl-0 md:pl-0">
-                        <label className="block text-sm font-medium text-gray-400 mb-2">Number of User Licenses</label>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-1.5">Number of User Licenses</label>
                         <input 
                             type="number" 
                             min="1"
@@ -573,7 +573,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                                 const val = e.target.value;
                                 setLicenses(val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
                             }}
-                            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[42px]"
+                            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]"
                         />
                     </div>
                 </div>

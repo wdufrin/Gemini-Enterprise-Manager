@@ -280,8 +280,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   ];
 
   return (
-    <div className="space-y-6 flex flex-col lg:h-full">
-      <div className="flex justify-between items-center shrink-0">
+    <div className="space-y-6 flex flex-col xl:h-full min-h-[760px]">
+      <div className="flex flex-wrap justify-between items-center gap-3 shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-white">ADK Prototyper & Code Studio</h1>
           <p className="text-xs text-gray-400 mt-0.5">
@@ -289,36 +289,38 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
             blueprints.
           </p>
         </div>
-        <div className="bg-gray-800 p-1 rounded-lg border border-gray-700">
-          <button
-            onClick={() => b.setBuilderTab('adk')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${b.builderTab === 'adk' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-          >
-            ADK Agent (Engine)
-          </button>
-          <button
-            onClick={() => b.setBuilderTab('a2a')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${b.builderTab === 'a2a' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-          >
-            A2A Function (Cloud Run)
-          </button>
-        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="bg-gray-800 p-1 rounded-lg border border-gray-700 flex items-center shrink-0">
+            <button
+              onClick={() => b.setBuilderTab('adk')}
+              className={`px-3.5 py-1.5 rounded-md text-xs xl:text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${b.builderTab === 'adk' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+            >
+              ADK Agent (Engine)
+            </button>
+            <button
+              onClick={() => b.setBuilderTab('a2a')}
+              className={`px-3.5 py-1.5 rounded-md text-xs xl:text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${b.builderTab === 'a2a' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+            >
+              A2A Function (Cloud Run)
+            </button>
+          </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={b.handleClearDraft}
-            className="px-3 py-1 bg-red-900/30 hover:bg-red-900/50 text-xs text-red-300 rounded border border-red-700/60 transition-colors"
-            title="Reset form to default state"
-          >
-            Clear Draft
-          </button>
-          <button
-            onClick={b.handleCheckBuildStatus}
-            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 rounded border border-gray-600 transition-colors"
-            title="Check for active builds if status window is missing"
-          >
-            Check Build Status
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={b.handleClearDraft}
+              className="px-3 py-1.5 bg-red-900/30 hover:bg-red-900/50 text-xs text-red-300 rounded border border-red-700/60 transition-colors whitespace-nowrap shrink-0"
+              title="Reset form to default state"
+            >
+              Clear Draft
+            </button>
+            <button
+              onClick={b.handleCheckBuildStatus}
+              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 rounded border border-gray-600 transition-colors whitespace-nowrap shrink-0"
+              title="Check for active builds if status window is missing"
+            >
+              Check Build Status
+            </button>
+          </div>
         </div>
       </div>
 
@@ -383,9 +385,9 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
       )}
 
       {/* Layout Container */}
-      <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
+      <div className="flex flex-col lg:flex-row gap-4 xl:gap-6 flex-1 min-h-0">
         {/* Left Column: Configuration (Box 1) */}
-        <div className="bg-gray-800 p-4 rounded-lg shadow-md lg:w-2/5 flex flex-col overflow-y-auto border border-gray-700">
+        <div className="bg-gray-800 p-4 rounded-lg shadow-md lg:w-5/12 xl:w-2/5 flex flex-col overflow-y-auto border border-gray-700 min-w-0">
           <div className="flex justify-between items-center mb-3 shrink-0">
             <h2 className="text-lg font-semibold text-white">1. Configure Agent</h2>
             <CloudConsoleButton

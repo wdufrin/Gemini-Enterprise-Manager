@@ -166,7 +166,7 @@ export const CodePreviewPane: React.FC<CodePreviewPaneProps> = ({
   };
 
   return (
-    <div className="flex-1 lg:w-3/5 flex flex-col min-h-0 bg-gray-800 rounded-lg shadow-md border border-gray-700 overflow-hidden">
+    <div className="flex-1 lg:w-7/12 xl:w-3/5 flex flex-col min-h-0 min-w-0 bg-gray-800 rounded-lg shadow-md border border-gray-700 overflow-hidden">
       {/* Explorer Header / Actions Toolbar */}
       <div className="p-3.5 border-b border-gray-700 flex flex-wrap items-center justify-between gap-3 bg-gray-850 shrink-0">
         <div>
@@ -191,7 +191,7 @@ export const CodePreviewPane: React.FC<CodePreviewPaneProps> = ({
                 builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess
               )
             }
-            className="px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 hover:text-white text-xs font-medium rounded border border-gray-600 flex items-center gap-1.5 transition-colors"
+            className="px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 hover:text-white text-xs font-medium rounded border border-gray-600 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
             title="Copy active file content to clipboard"
           >
             <span>📋</span>
@@ -202,7 +202,7 @@ export const CodePreviewPane: React.FC<CodePreviewPaneProps> = ({
             type="button"
             disabled={builderTab === 'adk' && !isValidAdkAgentName(adkConfig.name)}
             onClick={builderTab === 'adk' ? handleDownloadAdkZip : handleDownloadA2a}
-            className={`px-3 py-1.5 text-xs font-semibold rounded border flex items-center gap-1.5 transition-colors ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded border flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
               builderTab === 'adk' && !isValidAdkAgentName(adkConfig.name)
                 ? 'bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed'
                 : 'bg-gray-700 hover:bg-gray-600 text-white border-gray-600'
@@ -221,7 +221,7 @@ export const CodePreviewPane: React.FC<CodePreviewPaneProps> = ({
                 ? setIsAdkDeployModalOpen(true)
                 : setIsA2aDeployModalOpen(true)
             }
-            className={`px-3.5 py-1.5 text-xs font-bold rounded shadow flex items-center gap-1.5 transition-all ${
+            className={`px-3.5 py-1.5 text-xs font-bold rounded shadow flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0 ${
               builderTab === 'adk' && !isValidAdkAgentName(adkConfig.name)
                 ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                 : 'bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-500 hover:to-teal-400 text-white shadow-blue-900/30'
@@ -235,7 +235,7 @@ export const CodePreviewPane: React.FC<CodePreviewPaneProps> = ({
           <button
             type="button"
             onClick={() => setIsRegisterModalOpen(true)}
-            className="px-3.5 py-1.5 text-xs font-bold rounded shadow flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/30 transition-colors"
+            className="px-3.5 py-1.5 text-xs font-bold rounded shadow flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/30 transition-colors whitespace-nowrap shrink-0"
             title="Register in Gemini Enterprise Discovery Engine"
           >
             <span>🔗</span>
@@ -279,7 +279,7 @@ export const CodePreviewPane: React.FC<CodePreviewPaneProps> = ({
                   ? setAdkActiveTab(tab.id as any)
                   : setA2aActiveTab(tab.id as any)
               }
-              className={`px-3 py-2 text-xs font-mono font-medium rounded-t-md transition-colors flex items-center gap-1.5 border-t-2 ${
+              className={`px-3 py-2 text-xs font-mono font-medium rounded-t-md transition-colors flex items-center gap-1.5 border-t-2 whitespace-nowrap shrink-0 ${
                 isActive
                   ? 'bg-gray-950 text-blue-400 border-blue-500 shadow-inner'
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/60 border-transparent'

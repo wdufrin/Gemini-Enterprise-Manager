@@ -145,13 +145,33 @@ const extractCloudRunServiceName = (url: string): string | null => {
   }
 };
 
+export const extractConnectorCollectionId = (
+  connectorName: string,
+  fallbackCollectionId?: string,
+): string => {
+  if (!connectorName) return fallbackCollectionId || "";
+  const collectionMatch = connectorName.match(/\/collections\/([^/]+)/);
+  if (collectionMatch?.[1]) {
+    return collectionMatch[1];
+  }
+  const segments = connectorName.split("/").filter(Boolean);
+  const last = segments[segments.length - 1];
+  if (last === "dataConnector" && segments.length >= 2) {
+    return segments[segments.length - 2];
+  }
+  return last || fallbackCollectionId || "";
+};
+
 export const fetchConnectorLogs = async (
   config: Config,
   connectorName: string,
   hoursAgo: number = 24,
   instanceUri?: string,
 ): Promise<{ entries?: LogEntry[]; nextPageToken?: string }> => {
-  const connectorId = connectorName.split("/").pop();
+  const connectorId = extractConnectorCollectionId(
+    connectorName,
+    config.collectionId,
+  );
   const startTime = new Date(
     Date.now() - hoursAgo * 60 * 60 * 1000,
   ).toISOString();
@@ -161,7 +181,7 @@ export const fetchConnectorLogs = async (
   if (instanceUri) {
     const serviceName = extractCloudRunServiceName(instanceUri);
     if (serviceName) {
-      filter = `(${filter}) OR (resource.type="cloud_run_revision" AND resource.labels.service_name="${serviceName}" AND (severity>=WARNING OR httpRequest.status>=400))`;
+      filter = `(${filter}) OR (resource.type="cloud_run_revision" AND resource.labels.service_name="${serviceName}" AND (severity>=ERROR OR httpRequest.status>=500))`;
     }
   }
 

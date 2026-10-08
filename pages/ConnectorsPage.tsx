@@ -73,20 +73,29 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
   const activeVendors = React.useMemo(() => {
     const set = new Set<string>();
     collections.forEach((col) => {
+      const valResult = validationResults[col.name];
+      const valDetails = valResult?.details as
+        | { connectorState?: Record<string, unknown>; dataStores?: Record<string, unknown>[] }
+        | undefined;
       const dataConnector =
-        col.dataConnector && typeof col.dataConnector === "object"
+        (valResult?.dataConnector && typeof valResult.dataConnector === "object"
+          ? (valResult.dataConnector as Record<string, unknown>)
+          : undefined) ||
+        valDetails?.connectorState ||
+        (col.dataConnector && typeof col.dataConnector === "object"
           ? (col.dataConnector as Record<string, unknown>)
-          : {};
+          : {});
       const v = detectConnectorVendor({
         displayName: col.displayName,
         collectionDisplayName: col.displayName,
+        dataStores: valDetails?.dataStores,
         ...dataConnector,
         name: (dataConnector.name as string | undefined) || col.name,
       });
       if (v && v !== "GENERIC") set.add(v);
     });
     return Array.from(set);
-  }, [collections]);
+  }, [collections, validationResults]);
 
   return (
     <div className="space-y-6">

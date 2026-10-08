@@ -99,11 +99,11 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
 
   return (
     <div className="space-y-6 animate-fade-in-up">
-      <div className="flex items-center justify-between bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700">
+        <div className="flex items-center gap-4 min-w-0">
           <button
             onClick={onBack}
-            className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
+            className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors shrink-0"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -118,23 +118,23 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
               />
             </svg>
           </button>
-          <div>
-            <h2 className="text-xl font-bold text-white">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-white truncate">
               {selectedRow.engine.displayName}
             </h2>
-            <p className="text-sm text-gray-400 font-mono">
+            <p className="text-sm text-gray-400 font-mono truncate">
               {currentConfig.appId}
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 shrink-0">
           <button
             onClick={() => setIsAuditModalOpen(true)}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 shadow-md flex items-center gap-1"
+            className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 shadow-md flex items-center gap-1 whitespace-nowrap shrink-0"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              className="h-4 w-4"
+              className="h-4 w-4 shrink-0"
               viewBox="0 0 20 20"
               fill="currentColor"
             >
@@ -148,7 +148,7 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
           </button>
           <button
             onClick={() => setIsExportModalOpen(true)}
-            className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 shadow-md"
+            className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 shadow-md whitespace-nowrap shrink-0"
           >
             Backup Analytics
           </button>
@@ -160,8 +160,8 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
       ) : (
         <div className="space-y-6">
           {/* Tabs Navigation */}
-          <div className="border-b border-gray-700 flex justify-between items-center">
-            <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+          <div className="border-b border-gray-700 flex justify-between items-center overflow-x-auto">
+            <nav className="-mb-px flex space-x-4 xl:space-x-8 min-w-max" aria-label="Tabs">
               {[
                 { key: 'overview', label: 'Overview' },
                 { key: 'agents', label: 'Agents' },

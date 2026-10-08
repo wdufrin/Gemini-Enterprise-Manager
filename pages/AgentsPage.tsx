@@ -597,22 +597,22 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
                 }
             />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
+        <div className="flex flex-col lg:flex-row lg:items-end gap-3 xl:gap-4">
+          <div className="flex-1 min-w-[220px]">
+            <label className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Project ID / Number</label>
             <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} />
           </div>
-          <div>
-            <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1">Location</label>
-            <select name="appLocation" value={config.appLocation} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]">
+          <div className="w-full sm:w-36 shrink-0">
+            <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Location</label>
+            <select name="appLocation" value={config.appLocation} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[38px]">
               <option value="global">global</option>
               <option value="us">us</option>
               <option value="eu">eu</option>
             </select>
           </div>
-          <div>
-            <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">Gemini Enterprise ID</label>
-            <select name="appId" value={config.appId} onChange={handleConfigChange} disabled={isLoadingApps || apps.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50">
+          <div className="flex-1 min-w-[200px]">
+            <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Gemini Enterprise ID</label>
+            <select name="appId" value={config.appId} onChange={handleConfigChange} disabled={isLoadingApps || apps.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[38px] disabled:bg-gray-700/50">
               <option value="">{isLoadingApps ? 'Loading...' : '-- Select Gemini Enterprise --'}</option>
               {apps.map(a => {
                   const appId = a.name.split('/').pop() || '';
@@ -621,11 +621,11 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             </select>
           </div>
           {(viewMode === 'list' || viewMode === 'bulk-datasources') && (
-             <div className="flex items-end">
+             <div className="shrink-0">
                 <button 
                     onClick={fetchAgents} 
                     disabled={isLoading}
-                    className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 h-[42px]"
+                    className="w-full lg:w-auto px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 min-h-[38px] whitespace-nowrap shrink-0 flex items-center justify-center"
                 >
                     {isLoading ? 'Loading...' : 'Refresh Agents'}
                 </button>

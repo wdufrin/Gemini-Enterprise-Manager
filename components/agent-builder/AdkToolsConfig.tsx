@@ -376,7 +376,7 @@ export const AdkToolsConfig: React.FC<AdkToolsConfigProps> = ({
             <p className="text-xs text-gray-400 mb-2">
               Model Context Protocol (MCP) servers run alongside your agent and provide structured tool calling:
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 2xl:grid-cols-2 gap-2">
               <McpServiceCheck
                 projectId={deployProjectId || ''}
                 serviceName="bigquery.googleapis.com"
@@ -559,7 +559,7 @@ export const AdkToolsConfig: React.FC<AdkToolsConfigProps> = ({
             <p className="text-xs text-gray-400 mb-2">
               Direct API integrations that equip the ADK agent with specialized enterprise querying functions:
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 2xl:grid-cols-2 gap-3">
               <label className="flex items-start space-x-2.5 cursor-pointer bg-gray-900/40 p-2.5 rounded border border-gray-800">
                 <input
                   type="checkbox"

@@ -22,7 +22,11 @@ import {
   getChecklistDefinition,
   getAllVendors,
 } from './checklistRegistry';
-import { runAutomatedProbe } from './probeRunner';
+import {
+  runAutomatedProbe,
+  isRedactedOrWriteOnlyValue,
+  extractDiagnosticSignals,
+} from './probeRunner';
 import { DynamicConnectorVerification } from './DynamicConnectorVerification';
 import ConnectorVerificationTab from '../ConnectorVerificationTab';
 import { Config } from '../../../types';
@@ -90,7 +94,11 @@ describe('Dynamic Checklist: Vendor Detection', () => {
   it('correctly detects standard SaaS vendors', () => {
     expect(detectConnectorVendor({ name: 'jira-cloud-support' })).toBe('JIRA');
     expect(detectConnectorVendor({ name: 'jira_dc_production' })).toBe('JIRA_DC');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'jira_datacenter' } })).toBe('JIRA_DC');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'atlassian_jira_dc' } })).toBe('JIRA_DC');
     expect(detectConnectorVendor({ name: 'confluence-docs' })).toBe('CONFLUENCE');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'confluence_datacenter' } })).toBe('CONFLUENCE_DC');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'atlassian_confluence_dc' } })).toBe('CONFLUENCE_DC');
     expect(detectConnectorVendor({ name: 'sharepoint_intranet' })).toBe('SHAREPOINT');
     expect(detectConnectorVendor({ name: 'salesforce_crm' })).toBe('SALESFORCE');
   });
@@ -110,6 +118,22 @@ describe('Dynamic Checklist: Vendor Detection', () => {
     expect(detectConnectorVendor({ connectorState: { dataSource: 'trello' } })).toBe('TRELLO');
     expect(detectConnectorVendor({ name: 'workday_hcm_sync' })).toBe('WORKDAY');
     expect(detectConnectorVendor({ connectorState: { dataSource: 'workday' } })).toBe('WORKDAY');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'looker_mcp' } })).toBe('LOOKER');
+    expect(detectConnectorVendor({ name: 'looker-mcp-analytics' })).toBe('LOOKER');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'google_compute_engine' } })).toBe('GOOGLE_COMPUTE_ENGINE');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'googlestitch' } })).toBe('GOOGLE_STITCH');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'notebooklm' } })).toBe('NOTEBOOKLM');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'knowledge_catalog' } })).toBe('KNOWLEDGE_CATALOG');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'people_custom' } })).toBe('GCP_PEOPLE_CUSTOM');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'sharepoint_server' } })).toBe('SHAREPOINT_DC');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'outlookopenapi' } })).toBe('OUTLOOK_OPENAPI');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 's4hana' } })).toBe('SAP_S4HANA');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'sap_hana' } })).toBe('SAP_HANA');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'relativity' } })).toBe('RELATIVITY');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'zoho_desk' } })).toBe('ZOHO_DESK');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'zoho_books' } })).toBe('ZOHO_BOOKS');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'zoho_projects' } })).toBe('ZOHO_PROJECTS');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'supabase' } })).toBe('SUPABASE');
   });
 
   it('detects connectors by collection displayName when resource name is an opaque ID', () => {
@@ -150,20 +174,33 @@ describe('Dynamic Checklist: Registry Definitions', () => {
     expect(def.sections[0].items.some((i) => i.automatedProbe?.type === 'IAM_PERMISSION_CHECK')).toBe(true);
   });
 
-  it('contains at least 35 vendors with authentic categories in getAllVendors()', () => {
+  it('contains all 165 official Gemini Enterprise vendors with authentic categories in getAllVendors()', () => {
     const vendors = getAllVendors();
-    expect(vendors.length).toBeGreaterThanOrEqual(35);
+    expect(vendors.length).toBeGreaterThanOrEqual(165);
     expect(vendors.some((v) => v.id === 'GCP_PEOPLE')).toBe(true);
     expect(vendors.some((v) => v.id === 'BYO_MCP')).toBe(true);
     expect(vendors.some((v) => v.id === 'JIRA')).toBe(true);
+    expect(vendors.some((v) => v.id === 'JIRA_DC')).toBe(true);
+    expect(vendors.some((v) => v.id === 'CONFLUENCE_DC')).toBe(true);
     expect(vendors.some((v) => v.id === 'AIRTABLE')).toBe(true);
     expect(vendors.some((v) => v.id === 'STRIPE')).toBe(true);
     expect(vendors.some((v) => v.id === 'BIGQUERY')).toBe(true);
     expect(vendors.some((v) => v.id === 'GCS')).toBe(true);
+    expect(vendors.some((v) => v.id === 'ALLOYDB')).toBe(true);
+    expect(vendors.some((v) => v.id === 'SPANNER')).toBe(true);
+    expect(vendors.some((v) => v.id === 'LOOKER')).toBe(true);
+    expect(vendors.some((v) => v.id === 'GOOGLE_COMPUTE_ENGINE')).toBe(true);
+    expect(vendors.some((v) => v.id === 'GOOGLE_STITCH')).toBe(true);
+    expect(vendors.some((v) => v.id === 'SAP_S4HANA')).toBe(true);
+    expect(vendors.some((v) => v.id === 'RELATIVITY')).toBe(true);
+    expect(vendors.some((v) => v.id === 'SUPABASE')).toBe(true);
 
     const validCategories = [
       'Google First-Party & MCP',
+      'Microsoft 365 & Identity',
+      'Atlassian & DevTools',
       'Enterprise Platforms',
+      'Collaboration & Storage',
       'Productivity & Tasks',
       'Customer Support & CRM',
       'Universal Fallback',
@@ -173,7 +210,7 @@ describe('Dynamic Checklist: Registry Definitions', () => {
     }
   });
 
-  it('validates dedicated pre-flight checklists for newly added connectors', () => {
+  it('validates dedicated pre-flight checklists for newly added connectors and ServiceNow 24 table ACLs', () => {
     const newVendors = [
       'AIRTABLE',
       'STRIPE',
@@ -186,6 +223,55 @@ describe('Dynamic Checklist: Registry Definitions', () => {
       'GCAL',
       'GCHAT',
       'GMAIL',
+      'GSITES',
+      'ALLOYDB',
+      'CLOUD_SQL',
+      'SPANNER',
+      'BIGTABLE',
+      'FIRESTORE',
+      'GOOGLE_COMPUTE_ENGINE',
+      'GOOGLE_STITCH',
+      'LOOKER',
+      'GOOGLE_GROUPS',
+      'NOTEBOOKLM',
+      'KNOWLEDGE_CATALOG',
+      'GCP_PEOPLE_CUSTOM',
+      'WEBSITE',
+      'CUSTOM_CONNECTOR',
+      'DYNAMICS365',
+      'SHAREPOINT_DC',
+      'OUTLOOK_OPENAPI',
+      'JIRA_DC',
+      'CONFLUENCE_DC',
+      'SOURCEGRAPH',
+      'GRAFANA',
+      'OKTA',
+      'SUPABASE',
+      'LOVABLE',
+      'HEX',
+      'SAP_S4HANA',
+      'SAP_HANA',
+      'FINNHUB',
+      'SERVICEM8',
+      'DB_RISK_ANALYTICS',
+      'MARKETO',
+      'ORACLE_NETSUITE',
+      'ZOHO_CRM',
+      'ZOHO_BOOKS',
+      'ZOHO_DESK',
+      'ZOHO_PROJECTS',
+      'ZOOMINFO',
+      'RELATIVITY',
+      'AEM',
+      'AODOCS',
+      'CODA',
+      'WORDPRESS',
+      'EGNYTE',
+      'ADOBE_WORKFRONT',
+      'DOCUSIGN',
+      'IMANAGE',
+      'LUMAPPS',
+      'WRIKE',
       'TRELLO',
       'WORKDAY',
     ];
@@ -196,6 +282,12 @@ describe('Dynamic Checklist: Registry Definitions', () => {
       expect(def.sections[0].items.length).toBeGreaterThan(0);
       expect(def.documentationUrl).toContain('google.com');
     }
+
+    // Verify ServiceNow includes all 24 individual table ACL checkboxes
+    const snowDef = getChecklistDefinition('SERVICENOW');
+    const snowAclSection = snowDef.sections.find((s) => s.id === 'snow_table_acls');
+    expect(snowAclSection).toBeDefined();
+    expect(snowAclSection!.items.length).toBeGreaterThanOrEqual(24);
   });
 });
 
@@ -274,6 +366,87 @@ describe('Dynamic Checklist: Automated Probe Runner', () => {
     const result = await runAutomatedProbe(probe, connector, config);
     expect(result.status).toBe('pass');
     expect(result.message).toContain('2 active dynamic tools');
+  });
+
+  it('passes OAUTH_CONFIG_VALIDITY when GCP redacts client_id/client_secret on GET but non-redacted tenant/endpoint params are valid', async () => {
+    const sharepointConnectorFromGcpGet = {
+      connectorState: {
+        state: 'ACTIVE',
+        dataSource: 'sharepoint',
+        params: {
+          auth_type: 'OAUTH',
+          tenant_id: '5ae87d26-ea67-46a2-9e69-845111b8ad75',
+          instance_uri: 'https://contoso.sharepoint.com',
+          // Note: GCP omits client_id and client_secret on GET
+        },
+        actionConfig: {
+          isActionConfigured: true,
+          actionParams: {
+            auth_type: 'OAUTH',
+            tenant_id: '5ae87d26-ea67-46a2-9e69-845111b8ad75',
+          },
+        },
+      },
+    };
+
+    const probe = { type: 'OAUTH_CONFIG_VALIDITY' as const };
+    const result = await runAutomatedProbe(probe, sharepointConnectorFromGcpGet, config);
+    expect(result.status).toBe('pass');
+    expect(result.message).toContain('5ae87d26-ea67-46a2-9e69-845111b8ad75');
+    expect(result.message).toContain('redacted by GCP');
+  });
+
+  it('fails OAUTH_CONFIG_VALIDITY when Discovery Engine reports 401/invalid_client or blockingReasons', async () => {
+    const brokenOAuthConnector = {
+      connectorState: {
+        state: 'FAILED',
+        dataSource: 'jira',
+        latestRun: {
+          error: { message: '401 Unauthorized: invalid_client or expired OAuth token' },
+        },
+      },
+    };
+
+    const probe = { type: 'OAUTH_CONFIG_VALIDITY' as const };
+    const result = await runAutomatedProbe(probe, brokenOAuthConnector, config);
+    expect(result.status).toBe('fail');
+    expect(result.message).toContain('401 Unauthorized');
+  });
+
+  it('warns on BYO_MCP OAUTH_CONFIG_VALIDITY when auth_uri or token_uri is missing, and passes when present even without client_id', async () => {
+    const probe = { type: 'OAUTH_CONFIG_VALIDITY' as const };
+
+    const incompleteMcp = {
+      connectorState: {
+        dataSource: 'custom_mcp',
+        actionConfig: {
+          actionParams: {
+            auth_type: 'OAUTH',
+            // missing auth_uri and token_uri
+          },
+        },
+      },
+    };
+    const warnResult = await runAutomatedProbe(probe, incompleteMcp, config);
+    expect(warnResult.status).toBe('warning');
+    expect(warnResult.message).toContain('auth_uri or token_uri is missing');
+
+    const validMcp = {
+      connectorState: {
+        dataSource: 'custom_mcp',
+        actionConfig: {
+          actionParams: {
+            auth_type: 'OAUTH',
+            auth_uri: 'https://accounts.google.com/o/oauth2/v2/auth',
+            token_uri: 'https://oauth2.googleapis.com/token',
+            scopes: 'openid email',
+          },
+        },
+      },
+    };
+    const passResult = await runAutomatedProbe(probe, validMcp, config);
+    expect(passResult.status).toBe('pass');
+    expect(passResult.message).toContain('BYO-MCP OAuth endpoints verified');
   });
 });
 
@@ -450,7 +623,7 @@ describe('ConnectorVerificationTab: Hide Unused Toggle & Filtering', () => {
     expect(options[0].value).toBe('JIRA');
   });
 
-  it('unchecking Hide Unused reveals all 35+ connectors grouped by optgroup categories', () => {
+  it('unchecking Hide Unused reveals all 57 connectors grouped by optgroup categories', () => {
     render(
       <ConnectorVerificationTab
         connector={{ name: 'jira-prod-connector' }}
@@ -464,17 +637,19 @@ describe('ConnectorVerificationTab: Hide Unused Toggle & Filtering', () => {
 
     const select = screen.getByTestId('connector-vendor-select') as HTMLSelectElement;
     const optgroups = select.querySelectorAll('optgroup');
-    expect(optgroups.length).toBeGreaterThanOrEqual(4);
+    expect(optgroups.length).toBeGreaterThanOrEqual(6);
 
     const options = select.querySelectorAll('option');
-    expect(options.length).toBeGreaterThanOrEqual(35);
+    expect(options.length).toBeGreaterThanOrEqual(57);
 
     // Verify key categories exist as optgroups
     const groupLabels = Array.from(optgroups).map((og) => og.getAttribute('label'));
     expect(groupLabels).toContain('Google First-Party & MCP');
+    expect(groupLabels).toContain('Microsoft 365 & Identity');
+    expect(groupLabels).toContain('Atlassian & DevTools');
     expect(groupLabels).toContain('Enterprise Platforms');
+    expect(groupLabels).toContain('Collaboration & Storage');
     expect(groupLabels).toContain('Productivity & Tasks');
-    expect(groupLabels).toContain('Customer Support & CRM');
   });
 
   it('includes all activeVendors passed from project collections when Hide Unused is true', () => {
@@ -497,7 +672,397 @@ describe('ConnectorVerificationTab: Hide Unused Toggle & Filtering', () => {
     expect(options).not.toContain('AIRTABLE');
     expect(options).not.toContain('MIRO');
   });
+
+  it('auto-detects FEDERATED mode and Assistant Actions from connectorState', () => {
+    render(
+      <ConnectorVerificationTab
+        connector={{
+          name: 'projects/test-project/locations/global/collections/jira-fed/dataConnector',
+          connectorState: {
+            dataSource: 'jira',
+            connectorModes: ['FEDERATED', 'ACTIONS'],
+          },
+        }}
+        config={mockConfig}
+      />
+    );
+
+    // Should auto-select Federated Search mode and enable Assistant Actions
+    expect(screen.getByText(/Live real-time federated querying/i)).toBeInTheDocument();
+    expect(screen.getByText(/Federated Search \+ Assistant Actions/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/write:jira-work/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Actions Redirect URI Allowlisted/i)).toBeInTheDocument();
+  });
 });
+
+describe('Forensic Audit & Unified Diagnostics (M1: R1, R2, R3)', () => {
+  const mockConfig: Config = {
+    projectId: 'test-project-123',
+    appLocation: 'global',
+    collectionId: 'col-1',
+    appId: '',
+    assistantId: '',
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  it('verifies all 6 newly upgraded enterprise connectors include OAUTH_CONFIG_VALIDITY probes and Miro uses canonical oauth-redirect URI', () => {
+    const upgradedVendors = [
+      'SOURCEGRAPH',
+      'GRAFANA',
+      'FRESHSERVICE',
+      'INTERCOM',
+      'SHOPIFY',
+      'STRIPE',
+    ];
+
+    for (const vendorId of upgradedVendors) {
+      const def = getChecklistDefinition(vendorId);
+      const allItems = def.sections.flatMap((s) => s.items);
+      const probes = allItems
+        .map((i) => i.automatedProbe?.type)
+        .filter(Boolean);
+      expect(probes).toContain('OAUTH_CONFIG_VALIDITY');
+      expect(probes).toContain('IAM_PERMISSION_CHECK');
+      expect(probes).toContain('CONNECTOR_STATUS');
+      expect(def.documentationUrl).toContain('https://cloud.google.com/gemini/enterprise/docs/connectors');
+    }
+
+    const miroDef = getChecklistDefinition('MIRO');
+    const miroRedirect = miroDef.sections
+      .flatMap((s) => s.items)
+      .find((i) => i.id === 'miro_redirect_uri');
+    expect(miroRedirect?.codeSnippet).toBe('https://vertexaisearch.cloud.google.com/oauth-redirect');
+
+    const mcpDef = getChecklistDefinition('BYO_MCP');
+    const mcpOAuthItem = mcpDef.sections
+      .flatMap((s) => s.items)
+      .find((i) => i.id === 'mcp_oauth_config');
+    expect(mcpOAuthItem?.badge).toBe('Automated');
+  });
+
+  it('treats omitted or masked write-only credentials (client_id, client_secret, refresh_token, api_key) as redacted and never fails OAUTH_CONFIG_VALIDITY on them', async () => {
+    expect(isRedactedOrWriteOnlyValue(undefined)).toBe(true);
+    expect(isRedactedOrWriteOnlyValue(null)).toBe(true);
+    expect(isRedactedOrWriteOnlyValue('')).toBe(true);
+    expect(isRedactedOrWriteOnlyValue('***')).toBe(true);
+    expect(isRedactedOrWriteOnlyValue('REDACTED')).toBe(true);
+    expect(isRedactedOrWriteOnlyValue('••••••')).toBe(true);
+    expect(isRedactedOrWriteOnlyValue('https://acme.my.salesforce.com')).toBe(false);
+
+    const salesforceGetPayload = {
+      connectorState: {
+        state: 'ACTIVE',
+        dataSource: 'salesforce',
+        params: {
+          instance_uri: 'https://acme.my.salesforce.com',
+          client_id: '***',
+          client_secret: 'REDACTED',
+          // refresh_token completely omitted by GCP on GET
+        },
+      },
+    };
+
+    const res = await runAutomatedProbe(
+      { type: 'OAUTH_CONFIG_VALIDITY' },
+      salesforceGetPayload,
+      mockConfig
+    );
+    expect(res.status).toBe('pass');
+    expect(res.message).toContain('https://acme.my.salesforce.com');
+    expect((res.details as { redactedCredentials?: string[] })?.redactedCredentials).toEqual(
+      expect.arrayContaining(['client_id', 'client_secret', 'refresh_token'])
+    );
+  });
+
+  it('unifies CONNECTOR_STATUS and OAUTH_CONFIG_VALIDITY with LRO rawOperations and Cloud Logging recentLogs', async () => {
+    const recentIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+
+    const connectorWithFailedOpAndAuthLog = {
+      connectorState: {
+        state: 'ACTIVE',
+        dataSource: 'servicenow',
+        params: {
+          instance_uri: 'https://dev12345.service-now.com',
+        },
+      },
+      rawOperations: [
+        {
+          name: 'projects/123/locations/global/collections/snow/operations/op-1',
+          done: true,
+          metadata: { updateTime: recentIso },
+          error: {
+            code: 7,
+            message: '403 Forbidden: User lacks snc_read_only access on sys_db_object',
+          },
+        },
+      ],
+      recentLogs: [
+        {
+          timestamp: recentIso,
+          severity: 'ERROR',
+          textPayload: 'OAuth invalid_grant: token has been expired or revoked',
+        },
+      ],
+    };
+
+    const statusProbe = await runAutomatedProbe(
+      { type: 'CONNECTOR_STATUS' },
+      connectorWithFailedOpAndAuthLog,
+      mockConfig
+    );
+    expect(statusProbe.status).toBe('fail');
+    expect(statusProbe.verificationSource).toBe('DIAGNOSTICS_SIGNALS');
+    expect(statusProbe.message).toContain('Sync Failures Detected');
+    expect(statusProbe.remediation).toContain('ServiceNow');
+
+    const oauthProbe = await runAutomatedProbe(
+      { type: 'OAUTH_CONFIG_VALIDITY' },
+      connectorWithFailedOpAndAuthLog,
+      mockConfig
+    );
+    expect(oauthProbe.status).toBe('fail');
+    expect(oauthProbe.verificationSource).toBe('DIAGNOSTICS_SIGNALS');
+    expect(oauthProbe.message).toContain('403 Forbidden');
+    expect(oauthProbe.remediation).toContain('ServiceNow');
+  });
+
+  it('auto-executes and hydrates automated probes on mount, renders Dual-Track summary cards, and blocks checking failing probes', async () => {
+    vi.mocked(api.checkServiceAccountPermissions).mockResolvedValueOnce({
+      hasAll: false,
+      missing: ['bigquery.jobs.create'],
+    });
+
+    const def = getChecklistDefinition('BIGQUERY');
+    const failingConnector = {
+      name: 'projects/123456/locations/global/collections/bq-col/dataConnector',
+      connectorState: {
+        state: 'FAILED',
+        dataSource: 'bigquery',
+        latestRun: {
+          error: { message: 'Caller does not have permission bigquery.jobs.create' },
+        },
+      },
+      rawOperations: [],
+      recentLogs: [],
+    };
+
+    render(
+      <DynamicConnectorVerification
+        connector={failingConnector}
+        checklistDef={def}
+        dataMode="INGESTION"
+        config={mockConfig}
+      />
+    );
+
+    // Dual-track summary cards and live diagnostics banner are rendered
+    expect(screen.getByTestId('automated-probes-summary')).toBeInTheDocument();
+    expect(screen.getByTestId('manual-attestation-summary')).toBeInTheDocument();
+    expect(screen.getByTestId('checklist-live-diagnostics-banner')).toBeInTheDocument();
+
+    // Wait for async IAM_PERMISSION_CHECK probe to finish alongside synchronous CONNECTOR_STATUS probe
+    await waitFor(() => {
+      expect(screen.getByTestId('probe-remediation-bq_iam_service_agent')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('probe-remediation-bq_connector_health')).toBeInTheDocument();
+
+    // Verify failing automated probe item cannot be manually checked by clicking its label
+    const statusLabel = screen.getByText(/Connector State Health/i);
+    fireEvent.click(statusLabel);
+
+    const storedRaw = localStorage.getItem(
+      'gem_connector_checklist_projects_123456_locations_global_collections_bq-col_dataConnector'
+    );
+    expect(storedRaw).not.toBeNull();
+    const stored = JSON.parse(storedRaw!);
+    expect(stored.checkedItems.bq_connector_health).toBe(false);
+    expect(stored.checkedItems.bq_iam_service_agent).toBe(false);
+  });
+
+  it('ignores timeless LRO operations in rawOperations so CONNECTOR_STATUS and OAUTH_CONFIG_VALIDITY do not contradict runConnectorDiagnostics (adv_1)', async () => {
+    const connectorWithTimelessFailedOp = {
+      connectorState: {
+        state: 'ACTIVE',
+        dataSource: 'ms-sharepoint',
+        params: {
+          tenant_id: '5ae87d26-ea67-46a2-9e69-845111b8ad75',
+          instance_uri: 'https://contoso.sharepoint.com',
+        },
+      },
+      rawOperations: [
+        {
+          name: 'projects/123456789/locations/global/collections/sharepoint_prod/operations/ancient-op',
+          done: true,
+          metadata: {},
+          error: {
+            code: 16,
+            message: '401 Unauthorized: Historical error without metadata timestamps',
+          },
+        },
+      ],
+      recentLogs: [],
+    };
+
+    const signals = extractDiagnosticSignals(connectorWithTimelessFailedOp);
+    expect(signals.hardOpFailures).toHaveLength(0);
+    expect(signals.authOpErrors).toHaveLength(0);
+
+    const statusRes = await runAutomatedProbe(
+      { type: 'CONNECTOR_STATUS' },
+      connectorWithTimelessFailedOp,
+      mockConfig
+    );
+    expect(statusRes.status).toBe('pass');
+
+    const oauthRes = await runAutomatedProbe(
+      { type: 'OAUTH_CONFIG_VALIDITY' },
+      connectorWithTimelessFailedOp,
+      mockConfig
+    );
+    expect(oauthRes.status).toBe('pass');
+  });
+
+  it('downgrades unresolved Cloud Logging auth entries on an ACTIVE connector to warning in OAUTH_CONFIG_VALIDITY while failing when connector is FAILED (adv_2)', async () => {
+    const recentIso = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+    const activeConnectorWithAuthLog = {
+      connectorState: {
+        state: 'ACTIVE',
+        dataSource: 'sharepoint',
+        params: {
+          tenant_id: '5ae87d26-ea67-46a2-9e69-845111b8ad75',
+          instance_uri: 'https://contoso.sharepoint.com',
+        },
+      },
+      rawOperations: [],
+      recentLogs: [
+        {
+          timestamp: recentIso,
+          severity: 'ERROR',
+          textPayload: '403 Forbidden: item-level permission denied on site document',
+        },
+      ],
+    };
+
+    const activeStatusRes = await runAutomatedProbe(
+      { type: 'CONNECTOR_STATUS' },
+      activeConnectorWithAuthLog,
+      mockConfig
+    );
+    expect(activeStatusRes.status).toBe('warning');
+    expect(activeStatusRes.verificationSource).toBe('DIAGNOSTICS_SIGNALS');
+
+    const activeOAuthRes = await runAutomatedProbe(
+      { type: 'OAUTH_CONFIG_VALIDITY' },
+      activeConnectorWithAuthLog,
+      mockConfig
+    );
+    expect(activeOAuthRes.status).toBe('warning');
+    expect(activeOAuthRes.verificationSource).toBe('DIAGNOSTICS_SIGNALS');
+    expect(activeOAuthRes.message).toContain('403 Forbidden');
+
+    const failedConnectorWithAuthLog = {
+      ...activeConnectorWithAuthLog,
+      connectorState: {
+        ...activeConnectorWithAuthLog.connectorState,
+        state: 'FAILED',
+      },
+    };
+
+    const failedOAuthRes = await runAutomatedProbe(
+      { type: 'OAUTH_CONFIG_VALIDITY' },
+      failedConnectorWithAuthLog,
+      mockConfig
+    );
+    expect(failedOAuthRes.status).toBe('fail');
+  });
+
+  it('filters masked placeholder strings ("***", "REDACTED") on tenant/endpoint/MCP URIs and passes ACTIVE Microsoft connectors with redacted credentials (adv_3)', async () => {
+    // 1. ACTIVE Microsoft Entra ID connector where GCP GET only returns redacted client credentials
+    const activeEntraRedacted = {
+      connectorState: {
+        state: 'ACTIVE',
+        dataSource: 'entraid',
+        params: {
+          client_id: '***',
+          client_secret: 'REDACTED',
+        },
+      },
+    };
+    const entraRes = await runAutomatedProbe(
+      { type: 'OAUTH_CONFIG_VALIDITY' },
+      activeEntraRedacted,
+      mockConfig
+    );
+    expect(entraRes.status).toBe('pass');
+    expect(entraRes.message).not.toContain('tenant/instance ID: ***');
+
+    // 2. Microsoft SharePoint connector where tenant_id and instance_uri themselves are masked placeholders
+    const maskedMicrosoftParams = {
+      connectorState: {
+        state: 'ACTIVE',
+        dataSource: 'sharepoint',
+        params: {
+          tenant_id: '***',
+          instance_uri: 'REDACTED',
+          client_id: '***',
+          client_secret: 'REDACTED',
+        },
+      },
+    };
+    const maskedMsRes = await runAutomatedProbe(
+      { type: 'OAUTH_CONFIG_VALIDITY' },
+      maskedMicrosoftParams,
+      mockConfig
+    );
+    expect(maskedMsRes.status).toBe('pass');
+    expect(maskedMsRes.message).not.toContain('tenant/instance ID: ***');
+    expect(maskedMsRes.message).not.toContain('endpoint: REDACTED');
+    expect((maskedMsRes.details as { tenantOrInstanceId?: string })?.tenantOrInstanceId).toBeUndefined();
+    expect((maskedMsRes.details as { hostUri?: string })?.hostUri).toBeUndefined();
+
+    // 3. BYO_MCP connector with masked auth_uri / token_uri must warn (treating masked placeholders as missing)
+    const maskedMcp = {
+      connectorState: {
+        state: 'ACTIVE',
+        dataSource: 'custom_mcp',
+        actionConfig: {
+          actionParams: {
+            auth_type: 'OAUTH',
+            auth_uri: '***',
+            token_uri: 'REDACTED',
+          },
+        },
+      },
+    };
+    const maskedMcpRes = await runAutomatedProbe(
+      { type: 'OAUTH_CONFIG_VALIDITY' },
+      maskedMcp,
+      mockConfig
+    );
+    expect(maskedMcpRes.status).toBe('warning');
+
+    // 4. Unconfigured INACTIVE Microsoft connector with empty params still warns
+    const unconfiguredMs = {
+      connectorState: {
+        state: 'INACTIVE',
+        dataSource: 'sharepoint',
+        params: {},
+      },
+    };
+    const unconfiguredMsRes = await runAutomatedProbe(
+      { type: 'OAUTH_CONFIG_VALIDITY' },
+      unconfiguredMs,
+      mockConfig
+    );
+    expect(unconfiguredMsRes.status).toBe('warning');
+  });
+});
+
 
 
 

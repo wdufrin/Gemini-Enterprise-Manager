@@ -1,0 +1,3058 @@
+{
+  "$schema": "./checklist.schema.json",
+  "catalogGroup": "Atlassian & DevTools",
+  "description": "Deterministic validation checklists and automated probes for Atlassian Cloud, Atlassian Data Center, and Developer/Observability tool connectors (Jira Cloud, Jira DC, Confluence Cloud, Confluence DC, GitHub, GitLab, Linear, PagerDuty, Sourcegraph, and Grafana).",
+  "connectors": [
+    {
+      "vendorId": "JIRA",
+      "vendorDisplayName": "Atlassian Jira Cloud",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "jira",
+          "jira_cloud",
+          "jira-cloud",
+          "atlassian_jira"
+        ],
+        "nameSubstrings": [
+          "jira"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud/third-party-config",
+      "sections": [
+        {
+          "id": "jira_oauth_health",
+          "title": "OAuth 2.0 (3LO) App Registration & Automated Health",
+          "stepNumber": 1,
+          "description": "Register an OAuth 2.0 (3LO) integration in the Atlassian Developer Console, configure callback URLs, enable user email visibility, and verify automated connector health.",
+          "items": [
+            {
+              "id": "jira_oauth_app_creds",
+              "label": "OAuth 2.0 (3LO) App Client ID & Secret",
+              "subLabel": "Create an OAuth 2.0 Integration in the Atlassian Developer Console, enable Distribution Sharing (Vendor: Google, Privacy Policy: https://policies.google.com), and copy the Client ID and Client Secret.",
+              "badge": "Required",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://developer.atlassian.com/console/myapps/"
+            },
+            {
+              "id": "jira_oauth_callback_urls",
+              "label": "Callback / Redirect URLs Registered",
+              "subLabel": "Register https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html (Data Ingestion & Actions) and https://vertexaisearch.cloud.google.com/oauth-redirect (Federated Search & Actions).",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect\nhttps://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "jira_offline_access",
+              "label": "Rotating Refresh Tokens / offline_access",
+              "subLabel": "Ensure OAuth 2.0 (3LO) rotating refresh tokens (offline_access) are enabled so Gemini Enterprise can refresh authorization tokens in the background.",
+              "codeSnippet": "offline_access",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "jira_email_visibility_public",
+              "label": "User Email Visibility Set to Public / Anyone",
+              "subLabel": "In Jira Settings > System > General Configuration, set 'User email visibility' to 'Public', and in Atlassian Account Profile and visibility > Contact, set visibility to 'Anyone'. Also grant 'User access admin' and 'Product admin' roles to the connector group.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "jira_iam_permission_probe",
+              "label": "Discovery Engine IAM & Service Agent Permissions",
+              "subLabel": "Verifies the host GCP project has required Discovery Engine Editor and Service Agent permissions.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Validates Discovery Engine IAM permissions on the target Google Cloud project."
+              }
+            },
+            {
+              "id": "jira_oauth_validity_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "jira_connector_status_probe",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Validates that the Jira Cloud connector is ACTIVE in Discovery Engine with no failing authentication or sync operations.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks Discovery Engine connector state and latest sync operation logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "jira_read_scopes",
+          "title": "Classic & Granular Read Scopes",
+          "stepNumber": 2,
+          "description": "Configure Classic scopes and mode-specific Granular scopes under Permissions > Jira API in the Atlassian Developer Console.",
+          "items": [
+            {
+              "id": "jira_scope_classic_read_work",
+              "label": "read:jira-work (Classic Scope)",
+              "subLabel": "Grants access to crawl, index, and search Jira issues, projects, sprints, boards, and work items.",
+              "codeSnippet": "read:jira-work",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "jira_scope_classic_read_user",
+              "label": "read:jira-user (Classic Scope)",
+              "subLabel": "Allows the assistant to fetch and display user profile details in real-time during Federated Search.",
+              "codeSnippet": "read:jira-user",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_ing_read_user",
+              "label": "read:user:jira (Ingestion Granular Scope)",
+              "subLabel": "Required during Data Ingestion to read Jira user records for ACL mapping.",
+              "codeSnippet": "read:user:jira",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "jira_scope_ing_read_group",
+              "label": "read:group:jira (Ingestion Granular Scope)",
+              "subLabel": "Required during Data Ingestion to resolve Jira group memberships for security trimming.",
+              "codeSnippet": "read:group:jira",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "jira_scope_ing_read_avatar",
+              "label": "read:avatar:jira (Ingestion Granular Scope)",
+              "subLabel": "Allows reading system and custom user/project avatars during Data Ingestion.",
+              "codeSnippet": "read:avatar:jira",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "jira_scope_ing_read_security_level",
+              "label": "read:issue-security-level:jira (Ingestion Granular Scope)",
+              "subLabel": "Required during Data Ingestion to enforce issue-level security restrictions.",
+              "codeSnippet": "read:issue-security-level:jira",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "jira_scope_ing_read_security_scheme",
+              "label": "read:issue-security-scheme:jira (Ingestion Granular Scope)",
+              "subLabel": "Required during Data Ingestion to read project issue security schemes for ACL enforcement.",
+              "codeSnippet": "read:issue-security-scheme:jira",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "jira_scope_ing_read_audit_log",
+              "label": "read:audit-log:jira (Ingestion Granular Scope)",
+              "subLabel": "Required during Data Ingestion to track permission and membership changes via audit logs.",
+              "codeSnippet": "read:audit-log:jira",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "jira_scope_ing_read_sprint",
+              "label": "read:sprint:jira-software (Ingestion Granular Scope)",
+              "subLabel": "Allows indexing Jira Software sprint metadata during Data Ingestion.",
+              "codeSnippet": "read:sprint:jira-software",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "jira_scope_fed_read_issue",
+              "label": "read:issue:jira (Federated Granular Scope)",
+              "subLabel": "Allows reading Jira issues in real-time Federated Search.",
+              "codeSnippet": "read:issue:jira",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_issue_type",
+              "label": "read:issue-type:jira (Federated Granular Scope)",
+              "subLabel": "Allows reading issue types in Federated Search.",
+              "codeSnippet": "read:issue-type:jira",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_comment",
+              "label": "read:comment:jira (Federated Granular Scope)",
+              "subLabel": "Allows reading issue comments in Federated Search.",
+              "codeSnippet": "read:comment:jira",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_comment_prop",
+              "label": "read:comment.property:jira (Federated Granular Scope)",
+              "subLabel": "Allows reading issue comment properties in Federated Search.",
+              "codeSnippet": "read:comment.property:jira",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_project",
+              "label": "read:project:jira (Federated Granular Scope)",
+              "subLabel": "Allows reading Jira projects and metadata in Federated Search.",
+              "codeSnippet": "read:project:jira",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_priority",
+              "label": "read:priority:jira (Federated Granular Scope)",
+              "subLabel": "Allows reading issue priority levels in Federated Search.",
+              "codeSnippet": "read:priority:jira",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_transition",
+              "label": "read:issue.transition:jira (Federated Granular Scope)",
+              "subLabel": "Allows reading workflow status transitions for issues in Federated Search.",
+              "codeSnippet": "read:issue.transition:jira",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_issue_meta",
+              "label": "read:issue-meta:jira (Federated Granular Scope)",
+              "subLabel": "Allows reading issue metadata and field configurations in Federated Search.",
+              "codeSnippet": "read:issue-meta:jira",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_board_admin",
+              "label": "read:board-scope.admin:jira-software (Federated Granular Scope)",
+              "subLabel": "Allows reading Jira Software board admin configurations in Federated Search.",
+              "codeSnippet": "read:board-scope.admin:jira-software",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_board_scope",
+              "label": "read:board-scope:jira-software (Federated Granular Scope)",
+              "subLabel": "Allows reading Jira Software board scopes in Federated Search.",
+              "codeSnippet": "read:board-scope:jira-software",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_sprint",
+              "label": "read:sprint:jira-software (Federated Granular Scope)",
+              "subLabel": "Allows reading Jira Software sprints in Federated Search.",
+              "codeSnippet": "read:sprint:jira-software",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_issue_details",
+              "label": "read:issue-details:jira (Federated Granular Scope)",
+              "subLabel": "Allows reading detailed issue fields and descriptions in Federated Search.",
+              "codeSnippet": "read:issue-details:jira",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "jira_scope_fed_read_jql",
+              "label": "read:jql:jira (Federated Granular Scope)",
+              "subLabel": "Allows validating and executing Jira Query Language (JQL) expressions in Federated Search.",
+              "codeSnippet": "read:jql:jira",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            }
+          ]
+        },
+        {
+          "id": "jira_identity_accessor",
+          "title": "User Identity Accessor for Jira Cloud",
+          "stepNumber": 3,
+          "description": "Required for Jira Cloud Data Ingestion to securely resolve user email addresses and map ACLs when Atlassian profile email visibility is restricted.",
+          "items": [
+            {
+              "id": "jira_uia_install",
+              "label": "Install 'User Identity Accessor for Jira Cloud'",
+              "subLabel": "Navigate to Atlassian Marketplace, search for 'User Identity Accessor for Jira Cloud', click 'Get it now', and authorize 'Read Email Address' and 'App Storage scope' on your Jira site.",
+              "badge": "Required",
+              "appliesToMode": "INGESTION",
+              "documentationUrl": "https://marketplace.atlassian.com/apps/1238248/user-identity-accessor-for-jira-cloud"
+            },
+            {
+              "id": "jira_uia_api_key",
+              "label": "Configure Forge API Key (20–30+ Characters)",
+              "subLabel": "In Jira Settings > Apps > Manage apps > User Identity Accessor > Configure, generate or enter a strong API Key and save it for the Jira Cloud Connector configuration.",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "jira_uia_webtrigger_url",
+              "label": "Retrieve Webtrigger URL",
+              "subLabel": "Copy the unique Webtrigger URL generated for your Jira site (e.g., https://YOUR_INSTANCE_ID.hello.atlassian-dev.net/x1/WEBTRIGGER_ID).",
+              "codeSnippet": "https://YOUR_INSTANCE_ID.hello.atlassian-dev.net/x1/WEBTRIGGER_ID",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "jira_uia_curl_verify",
+              "label": "Verify Webtrigger & REST API Connectivity via curl",
+              "subLabel": "Test the User Identity Accessor webtrigger endpoint (returns accountId and emailAddress JSON array) and verify Jira REST API reachability.",
+              "codeSnippet": "curl --location --request POST 'https://YOUR_INSTANCE_ID.hello.atlassian-dev.net/x1/ENDPOINT_PATH' \\\n  --header 'X-Api-Key: YOUR-API-KEY' \\\n  --header 'Content-Type: application/json' \\\n  --data-raw '{ \"accountIds\": [ \"ACCOUNT_ID_1\", \"ACCOUNT_ID_2\" ] }'\n\n# Verify Jira REST API reachability:\ncurl -v -u YOUR_EMAIL:YOUR_API_TOKEN \\\n  -H \"Content-Type: application/json\" \\\n  \"https://YOUR_DOMAIN.atlassian.net/rest/api/3/myself\"",
+              "badge": "Recommended",
+              "appliesToMode": "ALL"
+            }
+          ]
+        },
+        {
+          "id": "jira_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 4,
+          "description": "Classic and Granular write scopes required to enable Gemini Enterprise Assistant Actions (creating, updating, commenting on, and linking Jira issues).",
+          "items": [
+            {
+              "id": "jira_action_redirect_uri",
+              "label": "Actions Redirect URI Allowlisted",
+              "subLabel": "Ensure https://vertexaisearch.cloud.google.com/oauth-redirect is added to the Atlassian 3LO App Callback URLs for interactive Assistant Actions.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "jira_action_classic_write_work",
+              "label": "write:jira-work (Classic Scope)",
+              "subLabel": "Allows the assistant to modify work items, update issue fields, manage comments, and upload attachments.",
+              "codeSnippet": "write:jira-work",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "jira_action_classic_manage_project",
+              "label": "manage:jira-project (Classic Scope)",
+              "subLabel": "Allows the assistant to manage Jira project settings and create project-level objects such as versions and components.",
+              "codeSnippet": "manage:jira-project",
+              "badge": "Recommended",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "jira_action_granular_write_issue",
+              "label": "write:issue:jira (Granular Scope)",
+              "subLabel": "Allows the assistant to create, edit, and transition Jira issues on behalf of the authenticated user.",
+              "codeSnippet": "write:issue:jira",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "jira_action_granular_write_comment",
+              "label": "write:comment:jira (Granular Scope)",
+              "subLabel": "Allows the assistant to post and update comments on Jira issues.",
+              "codeSnippet": "write:comment:jira",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "jira_action_granular_write_attachment",
+              "label": "write:attachment:jira (Granular Scope)",
+              "subLabel": "Allows the assistant to upload and attach files to Jira issues.",
+              "codeSnippet": "write:attachment:jira",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "jira_action_granular_write_project",
+              "label": "write:project:jira (Granular Scope)",
+              "subLabel": "Allows the assistant to create and update Jira project configurations.",
+              "codeSnippet": "write:project:jira",
+              "badge": "Optional",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "jira_action_granular_write_worklog",
+              "label": "write:issue-worklog:jira (Granular Scope)",
+              "subLabel": "Allows the assistant to log work hours and update timesheets on Jira issues.",
+              "codeSnippet": "write:issue-worklog:jira",
+              "badge": "Optional",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "jira_action_granular_write_link",
+              "label": "write:issue-link:jira (Granular Scope)",
+              "subLabel": "Allows the assistant to link Jira issues together and manage issue dependencies.",
+              "codeSnippet": "write:issue-link:jira",
+              "badge": "Optional",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "JIRA_DC",
+      "vendorDisplayName": "Atlassian Jira Data Center",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "jira_dc",
+          "jira-dc",
+          "jira_datacenter",
+          "atlassian_jira_dc"
+        ],
+        "nameSubstrings": [
+          "jira_dc",
+          "jira-dc",
+          "jiradc",
+          "jira data center",
+          "jira-datacenter"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/jira-dc/jira-dc-configuration",
+      "sections": [
+        {
+          "id": "jira_dc_admin_network",
+          "title": "Dedicated Admin User, Network Allowlisting & Automated Health",
+          "stepNumber": 1,
+          "description": "Create a dedicated administrator user in Jira Data Center, allowlist Google Cloud egress IPs, and verify automated connector health.",
+          "items": [
+            {
+              "id": "jira_dc_dedicated_user",
+              "label": "Create Dedicated Connector User & Add to jira-administrators",
+              "subLabel": "In Jira Settings > User management, create a dedicated user (e.g., 'gemini-connector') and add them to the 'jira-administrators' group.",
+              "codeSnippet": "jira-administrators",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "jira_dc_network_static_ip",
+              "label": "Network Reachability & Static IP Egress Allowlisting",
+              "subLabel": "Ensure your on-premises or VPC firewall allows inbound HTTPS traffic from Google Cloud static IP egress ranges and presents a valid public CA SSL certificate.",
+              "badge": "Required",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/configure-static-ip-egress"
+            },
+            {
+              "id": "jira_dc_ingestion_auth_warning",
+              "label": "Ingestion Credentials (Username/Password, PAT, or API Token)",
+              "subLabel": "Note: Data Ingestion supports Username/Password, Personal Access Token (PAT), or API Token, and does NOT use the OAuth Client ID/Secret generated in the Application Link step.",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "jira_dc_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies Discovery Engine Service Agent and Editor permissions on the GCP project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine IAM role bindings on the project."
+              }
+            },
+            {
+              "id": "jira_dc_oauth_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "jira_dc_status_probe",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Verifies the Jira Data Center connector state is ACTIVE with no crawl or auth errors.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks Jira Data Center connector health status."
+              }
+            }
+          ]
+        },
+        {
+          "id": "jira_dc_app_link_scopes",
+          "title": "Incoming OAuth 2.0 Application Link & Read Scopes",
+          "stepNumber": 2,
+          "description": "Configure an incoming External Application link in Jira Administration > Applications > Application links.",
+          "items": [
+            {
+              "id": "jira_dc_app_link_create",
+              "label": "Incoming External Application Link Provisioned",
+              "subLabel": "In Jira Administration > Integrations > Application links, click 'Create link', select Application type 'External application' and Direction 'Incoming', and securely copy the auto-generated Client ID (Consumer Key) and Client Secret.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "jira_dc_redirect_uri",
+              "label": "Redirect URL Configured",
+              "subLabel": "Set the Application Link Redirect URL to https://vertexaisearch.cloud.google.com/oauth-redirect.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "jira_dc_scope_read",
+              "label": "READ Scope (Application Link)",
+              "subLabel": "Required to ingest and search Jira Data Center projects, comments, issues, attachments, and worklogs.",
+              "codeSnippet": "READ",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "jira_dc_scope_admin",
+              "label": "ADMIN Scope / jira-administrators Permission",
+              "subLabel": "Ensures administrative metadata and project security schemes can be enumerated during ACL indexing.",
+              "codeSnippet": "ADMIN",
+              "badge": "Recommended",
+              "appliesToMode": "INGESTION"
+            }
+          ]
+        },
+        {
+          "id": "jira_dc_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 3,
+          "description": "Application Link write scope required to perform Federated Search and Assistant Actions (creating/updating issues, comments, and attachments).",
+          "items": [
+            {
+              "id": "jira_dc_scope_write",
+              "label": "WRITE Scope (Application Link)",
+              "subLabel": "Select 'WRITE' scope in the Jira Data Center Incoming Application Link (WRITE implies READ). Required for Federated Search and Actions such as creating issues, updating issues, updating comments, and uploading attachments.",
+              "codeSnippet": "WRITE",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "CONFLUENCE",
+      "vendorDisplayName": "Atlassian Confluence Cloud",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "confluence",
+          "confluence_cloud",
+          "confluence-cloud",
+          "atlassian_confluence"
+        ],
+        "nameSubstrings": [
+          "confluence"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud/third-party-config",
+      "sections": [
+        {
+          "id": "confluence_oauth_health",
+          "title": "OAuth 2.0 (3LO) App Registration & Automated Health",
+          "stepNumber": 1,
+          "description": "Create an OAuth 2.0 (3LO) integration in the Atlassian Developer Console, configure callback URLs and distribution sharing, and verify automated connector health.",
+          "items": [
+            {
+              "id": "conf_oauth_create",
+              "label": "Create OAuth 2.0 (3LO) Integration & Obtain Cloud ID",
+              "subLabel": "Create an OAuth 2.0 Integration in Atlassian Developer Console, copy Client ID & Secret, and verify your cloudId via https://YOUR_INSTANCE.atlassian.net/_edge/tenant_info (Note: if using API token authentication, create an API token without scopes).",
+              "codeSnippet": "https://YOUR_INSTANCE.atlassian.net/_edge/tenant_info",
+              "badge": "Required",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://developer.atlassian.com/console/myapps/"
+            },
+            {
+              "id": "conf_oauth_callbacks",
+              "label": "Callback URLs Registered",
+              "subLabel": "Register https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html (Data Ingestion & Actions) and https://vertexaisearch.cloud.google.com/oauth-redirect (Federated Search & Actions).",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html\nhttps://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_oauth_distribution",
+              "label": "Distribution Sharing Enabled",
+              "subLabel": "In Distribution controls, enable 'Sharing', set Vendor to 'Google', Privacy policy to 'https://policies.google.com', personal data to 'Yes', and confirm the personal data reporting API checkbox.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies the Confluence administrator has Discovery Engine Editor role and the project Service Agent is healthy.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine IAM role bindings on the host GCP project."
+              }
+            },
+            {
+              "id": "conf_oauth_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "conf_status_probe",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Validates that the Confluence Cloud connector state is ACTIVE with no sync or auth failures.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Validates Confluence Cloud connector status and sync logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "confluence_identity_visibility",
+          "title": "Identity & Email Visibility",
+          "stepNumber": 2,
+          "description": "Required to map users and ACLs accurately. Warning: If user emails are private/restricted, the connector cannot map ACLs unless User Identity Accessor is installed.",
+          "items": [
+            {
+              "id": "conf_email_visibility",
+              "label": "Email Visibility Public ('Anyone' / 'Public')",
+              "subLabel": "In Atlassian Account Profile and visibility > Contact, set visibility to 'Anyone', and in Confluence Settings > System > General Configuration, set 'User email visibility' to 'Public'. Grant 'User access admin' and 'Product admin' to the connector group.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_uia_install",
+              "label": "Install 'User Identity Accessor for Confluence Cloud'",
+              "subLabel": "If user email visibility is restricted, install 'User Identity Accessor for Confluence Cloud' from Atlassian Marketplace and grant 'Read Email Address' and 'App Storage scope'.",
+              "badge": "Required",
+              "appliesToMode": "INGESTION",
+              "documentationUrl": "https://marketplace.atlassian.com/apps/1238254/user-identity-accessor-for-confluence-cloud"
+            },
+            {
+              "id": "conf_uia_api_key",
+              "label": "Configure Forge API Key / Client Secret",
+              "subLabel": "In Confluence Settings > Apps > Manage apps > User Identity Accessor > Configure, generate a 20–30+ character API key and save it for the 'Confluence Identity Sync Forge Client Secret' field in Advanced Options.",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "conf_uia_webtrigger_curl",
+              "label": "Get Webtrigger URL & Verify via curl",
+              "subLabel": "Copy the Webtrigger URL from the Apps administration page and verify that account IDs resolve to email addresses using the POST curl command.",
+              "codeSnippet": "curl --location --request POST 'https://YOUR_INSTANCE_ID.hello.atlassian-dev.net/x1/ENDPOINT_PATH' \\\n  --header 'X-Api-Key: YOUR-API-KEY' \\\n  --header 'Content-Type: application/json' \\\n  --data-raw '{\n   \"accountIds\": [\n       \"ACCOUNT_ID_1\",\n       \"ACCOUNT_ID_2\"\n   ]\n}'",
+              "badge": "Recommended",
+              "appliesToMode": "INGESTION"
+            }
+          ]
+        },
+        {
+          "id": "confluence_read_scopes",
+          "title": "Confluence Classic & Granular Read Scopes",
+          "stepNumber": 3,
+          "description": "Configure Confluence API Classic and Granular read scopes in the Atlassian Developer Console.",
+          "items": [
+            {
+              "id": "conf_scope_classic_content_all",
+              "label": "read:confluence-content.all (Classic Scope)",
+              "subLabel": "Allows the data store to read all Confluence content.",
+              "codeSnippet": "read:confluence-content.all",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_classic_space_summary",
+              "label": "read:confluence-space.summary (Classic Scope)",
+              "subLabel": "Allows the data store to read Confluence space summaries.",
+              "codeSnippet": "read:confluence-space.summary",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_classic_user",
+              "label": "read:confluence-user (Classic Scope)",
+              "subLabel": "Resolves page authors and user permissions for ACL security trimming.",
+              "codeSnippet": "read:confluence-user",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "conf_scope_read_attachment",
+              "label": "read:attachment:confluence (Granular Scope)",
+              "subLabel": "Allows the data store to download and read attachments.",
+              "codeSnippet": "read:attachment:confluence",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_read_comment",
+              "label": "read:comment:confluence (Granular Scope)",
+              "subLabel": "Allows the data store to read page and inline comments.",
+              "codeSnippet": "read:comment:confluence",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_read_configuration",
+              "label": "read:configuration:confluence (Granular Scope)",
+              "subLabel": "Allows the data store to read Confluence configurations.",
+              "codeSnippet": "read:configuration:confluence",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_read_content_details",
+              "label": "read:content-details:confluence (Granular Scope)",
+              "subLabel": "Allows the data store to read content details in Confluence.",
+              "codeSnippet": "read:content-details:confluence",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_read_content_metadata",
+              "label": "read:content.metadata:confluence (Granular Scope)",
+              "subLabel": "Allows the data store to read content metadata and labels.",
+              "codeSnippet": "read:content.metadata:confluence",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_read_group",
+              "label": "read:group:confluence (Granular Scope)",
+              "subLabel": "Allows the data store to read Confluence groups for ACL mapping.",
+              "codeSnippet": "read:group:confluence",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_read_page",
+              "label": "read:page:confluence (Granular Scope)",
+              "subLabel": "Allows the data store to read Confluence pages.",
+              "codeSnippet": "read:page:confluence",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_read_space",
+              "label": "read:space:confluence (Granular Scope)",
+              "subLabel": "Allows the data store to read Confluence spaces.",
+              "codeSnippet": "read:space:confluence",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_read_user",
+              "label": "read:user:confluence (Granular Scope)",
+              "subLabel": "Allows the data store to read Confluence users.",
+              "codeSnippet": "read:user:confluence",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_read_whiteboard",
+              "label": "read:whiteboard:confluence (Granular Scope)",
+              "subLabel": "Allows the data store to read Confluence whiteboards.",
+              "codeSnippet": "read:whiteboard:confluence",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_scope_search",
+              "label": "search:confluence (Granular Scope)",
+              "subLabel": "Allows the data store to perform real-time search queries in Confluence.",
+              "codeSnippet": "search:confluence",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            }
+          ]
+        },
+        {
+          "id": "confluence_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 4,
+          "description": "Confluence API and User Identity API scopes required when enabling Assistant Actions to create and update pages, comments, spaces, and attachments.",
+          "items": [
+            {
+              "id": "conf_action_redirect_uri",
+              "label": "Actions Redirect URI Allowlisted",
+              "subLabel": "Ensure https://vertexaisearch.cloud.google.com/oauth-redirect is added to the Atlassian 3LO App Callback URLs for interactive Assistant Actions.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "conf_action_write_content",
+              "label": "write:confluence-content (Classic Scope)",
+              "subLabel": "Allows the assistant to create, update, and publish content in Confluence.",
+              "codeSnippet": "write:confluence-content",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "conf_action_write_file",
+              "label": "write:confluence-file (Classic Scope)",
+              "subLabel": "Allows the assistant to upload files and attachments to Confluence pages.",
+              "codeSnippet": "write:confluence-file",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "conf_action_write_props",
+              "label": "write:confluence-Props (Classic Scope)",
+              "subLabel": "Allows the assistant to edit Confluence page properties, labels, and metadata.",
+              "codeSnippet": "write:confluence-Props",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "conf_action_write_page",
+              "label": "write:page:confluence (Granular Scope)",
+              "subLabel": "Allows the assistant to create and update pages in Confluence.",
+              "codeSnippet": "write:page:confluence",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "conf_action_write_comment",
+              "label": "write:comment:confluence (Granular Scope)",
+              "subLabel": "Allows the assistant to post and edit comments on Confluence pages.",
+              "codeSnippet": "write:comment:confluence",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "conf_action_write_attachment",
+              "label": "write:attachment:confluence & write:confluence-space",
+              "subLabel": "Allows uploading attachments (write:attachment:confluence), managing spaces (write:space:confluence, write:confluence-space), and reading current user identity (read:me under User Identity API).",
+              "codeSnippet": "write:attachment:confluence write:blogpost:confluence write:space:confluence write:confluence-space read:me",
+              "badge": "Recommended",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "CONFLUENCE_DC",
+      "vendorDisplayName": "Atlassian Confluence Data Center",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "confluence_dc",
+          "confluence-dc",
+          "confluence_datacenter",
+          "atlassian_confluence_dc"
+        ],
+        "nameSubstrings": [
+          "confluence_dc",
+          "confluence-dc",
+          "confluencedc",
+          "confluence data center",
+          "confluence-datacenter"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/confluence-dc",
+      "sections": [
+        {
+          "id": "conf_dc_admin_network",
+          "title": "Dedicated Admin User, Network Allowlisting & Automated Health",
+          "stepNumber": 1,
+          "description": "Create a dedicated administrator user in Confluence Data Center, configure static IP firewall allowlisting, and verify automated connector health.",
+          "items": [
+            {
+              "id": "conf_dc_dedicated_user",
+              "label": "Create Dedicated Connector User & Add to confluence-administrators",
+              "subLabel": "Go to Settings > User management, create a dedicated user (e.g., 'gemini-connector'), and add the user to the 'confluence-administrators' group.",
+              "codeSnippet": "confluence-administrators",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_dc_network_static_ip",
+              "label": "Network Reachability & Static IP Egress Allowlisting",
+              "subLabel": "Ensure your firewall allows inbound HTTPS connections from Google Cloud static IP egress ranges and uses a valid public CA SSL certificate.",
+              "badge": "Required",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/configure-static-ip-egress"
+            },
+            {
+              "id": "conf_dc_ingestion_auth_warning",
+              "label": "Ingestion Credentials (Username/Password, PAT, or API Token)",
+              "subLabel": "Note: Data Ingestion supports Username/Password, Personal Access Token (PAT), or API Token, and does NOT use the OAuth Client ID/Secret generated in the Application Link step.",
+              "badge": "Required",
+              "appliesToMode": "INGESTION"
+            },
+            {
+              "id": "conf_dc_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies Discovery Engine Service Agent and Editor permissions on the GCP project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine IAM role bindings on the project."
+              }
+            },
+            {
+              "id": "conf_dc_oauth_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "conf_dc_status_probe",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Verifies the Confluence Data Center connector state is ACTIVE with no crawl or auth errors.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks Confluence Data Center connector health status."
+              }
+            }
+          ]
+        },
+        {
+          "id": "conf_dc_app_link_scopes",
+          "title": "Incoming OAuth 2.0 Application Link & Read Scopes",
+          "stepNumber": 2,
+          "description": "Configure an incoming External Application link in Settings > Applications > Application links.",
+          "items": [
+            {
+              "id": "conf_dc_app_link_create",
+              "label": "Incoming External Application Link Provisioned",
+              "subLabel": "Go to Settings > Applications > Application links, click 'Create link', set Application type to 'External application' and Direction to 'Incoming', and securely copy the auto-generated Client ID (Consumer Key) and Client Secret.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_dc_redirect_uri",
+              "label": "Redirect URL Configured",
+              "subLabel": "Set the Application Link Redirect URL to https://vertexaisearch.cloud.google.com/oauth-redirect.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_dc_scope_read",
+              "label": "READ Scope (Application Link)",
+              "subLabel": "Required to ingest and search Confluence Data Center page content, spaces, attachments, and comments.",
+              "codeSnippet": "READ",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "conf_dc_scope_admin",
+              "label": "ADMIN Scope / Space Admin Permissions",
+              "subLabel": "Ensures space-level permissions and user/group ACLs can be indexed accurately.",
+              "codeSnippet": "ADMIN",
+              "badge": "Recommended",
+              "appliesToMode": "INGESTION"
+            }
+          ]
+        },
+        {
+          "id": "conf_dc_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 3,
+          "description": "Application Link write scope required to enable Assistant Actions on Confluence Data Center.",
+          "items": [
+            {
+              "id": "conf_dc_scope_write",
+              "label": "WRITE Scope (Application Link)",
+              "subLabel": "Select 'WRITE' permission in the Confluence Data Center Incoming Application Link to allow creating and updating pages, comments, and attachments.",
+              "codeSnippet": "WRITE",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GITHUB",
+      "vendorDisplayName": "GitHub",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "github",
+          "github_cloud",
+          "github-cloud",
+          "github_enterprise"
+        ],
+        "nameSubstrings": [
+          "github"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/github/github-configuration",
+      "sections": [
+        {
+          "id": "github_oauth_app_setup",
+          "title": "GitHub App / OAuth App / Fine-Grained PAT & SAML SSO",
+          "stepNumber": 1,
+          "description": "Register a GitHub App (or OAuth App / Fine-Grained Personal Access Token) in GitHub Developer Settings, authorize SAML SSO, and verify automated connector health.",
+          "items": [
+            {
+              "id": "github_app_registration",
+              "label": "GitHub App / OAuth App / Fine-Grained PAT Provisioned",
+              "subLabel": "In GitHub Settings > Developer Settings > GitHub apps, create a GitHub App, enable 'Expire user authorization tokens' (refresh_token) and 'Request user authorization (OAuth) during installation', install on target repositories, and generate a Client ID and Client Secret.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "github_redirect_uris",
+              "label": "Callback / Redirect URIs Configured",
+              "subLabel": "Register https://vertexaisearch.cloud.google.com/oauth-redirect and https://vertexaisearch.cloud.google.com/console/oauth/github_oauth.html in your GitHub App / OAuth App.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect\nhttps://vertexaisearch.cloud.google.com/console/oauth/github_oauth.html",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "github_saml_sso",
+              "label": "SAML Single Sign-On (SSO) Organization Authorization",
+              "subLabel": "If your GitHub Organization enforces SAML SSO, explicitly click 'Configure SSO' next to your Personal Access Token or authorize the GitHub App for the organization.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "github_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies Discovery Engine Service Agent and Editor permissions on the GCP project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine IAM role bindings on the project."
+              }
+            },
+            {
+              "id": "github_oauth_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "github_status_probe",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Validates that the GitHub connector state is ACTIVE with no sync errors.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks GitHub connector status and sync operation health."
+              }
+            }
+          ]
+        },
+        {
+          "id": "github_read_scopes",
+          "title": "Repository, Organization & Account Read Scopes",
+          "stepNumber": 2,
+          "description": "Required OAuth scopes and GitHub App repository/organization/account permissions for code, issue, and PR search.",
+          "items": [
+            {
+              "id": "github_scope_repo_read",
+              "label": "repo & Repository: Metadata (Read-only Mandatory) / Contents (Read-only)",
+              "subLabel": "Grants read access to files, commits, branches, tags, releases, and mandatory repository metadata search.",
+              "codeSnippet": "repo",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "github_scope_read_org",
+              "label": "read:org & Organization: Members / Issue Types (Read-only)",
+              "subLabel": "Grants read-only access to organization teams, members, collaborators (Repository: Administration Read-only), and organization issue types.",
+              "codeSnippet": "read:org",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "github_scope_read_user_email",
+              "label": "read:user, user:email & Account: Profile (Read / Write)",
+              "subLabel": "Allows reading authenticated user profile information and email addresses for identity mapping.",
+              "codeSnippet": "read:user user:email",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "github_scope_read_issues_prs",
+              "label": "Repository: Issues & Pull requests (Read-only)",
+              "subLabel": "Allows reading issues, labels, issue comments, pull requests, diffs, and PR review comments.",
+              "codeSnippet": "issues:read pull_requests:read",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "github_scope_read_discussion_security",
+              "label": "read:discussion & Security Alerts (Code scanning, Dependabot, Secret scanning)",
+              "subLabel": "Allows reading GitHub Discussions and read-only access to Code scanning, Dependabot, and Secret scanning alerts.",
+              "codeSnippet": "read:discussion",
+              "badge": "Recommended",
+              "appliesToMode": "ALL"
+            }
+          ]
+        },
+        {
+          "id": "github_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 3,
+          "description": "OAuth scopes and GitHub App Read & Write permissions required for Gemini Assistant Actions.",
+          "items": [
+            {
+              "id": "github_action_redirect_uri",
+              "label": "Actions Redirect URI Allowlisted",
+              "subLabel": "Ensure https://vertexaisearch.cloud.google.com/oauth-redirect is configured in the GitHub OAuth / GitHub App Callback URLs for Assistant Actions.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "github_action_repo_write",
+              "label": "public_repo / repo Write & Repository: Contents (Read and write)",
+              "subLabel": "Allows the assistant to create branches, write files, push commits, fork repositories, and star/unstar repositories (Account: Starring Read and write).",
+              "codeSnippet": "repo public_repo",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "github_action_issues_prs_write",
+              "label": "Issues & Pull Requests (Read and write)",
+              "subLabel": "Allows the assistant to create or update issues, post comments, manage labels, and open, merge, or review pull requests (issues:write, pull_requests:write).",
+              "codeSnippet": "issues:write pull_requests:write",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "github_action_workflows_projects_write",
+              "label": "Repository: Actions, Discussions & Organization: Projects (Read and write)",
+              "subLabel": "Allows triggering/rerunning GitHub Actions workflows, managing Discussion comments, and updating Organization Projects v2.",
+              "codeSnippet": "workflow project",
+              "badge": "Recommended",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GITLAB",
+      "vendorDisplayName": "GitLab",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "gitlab",
+          "gitlab_cloud",
+          "gitlab-cloud",
+          "gitlab_self_managed"
+        ],
+        "nameSubstrings": [
+          "gitlab"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/gitlab/gitlab-configuration",
+      "sections": [
+        {
+          "id": "gitlab_oauth_setup",
+          "title": "GitLab OAuth 2.0 Application / PAT & Automated Health",
+          "stepNumber": 1,
+          "description": "Register a Group OAuth 2.0 Application (Settings > Applications) or Personal/Project Access Token in GitLab and verify automated connector health.",
+          "items": [
+            {
+              "id": "gitlab_app_credentials",
+              "label": "OAuth 2.0 Application ID & Secret / PAT Configured",
+              "subLabel": "In your GitLab Group > Settings > Applications, create an application and copy the Application ID (Client ID) and Secret (or provision a Personal/Project Access Token).",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "gitlab_redirect_uri",
+              "label": "Redirect URI Configured",
+              "subLabel": "Set the GitLab Application Redirect URI to https://vertexaisearch.cloud.google.com/oauth-redirect.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "gitlab_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies Discovery Engine Service Agent and Editor permissions on the GCP project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine IAM role bindings on the project."
+              }
+            },
+            {
+              "id": "gitlab_oauth_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "gitlab_status_probe",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Validates that the GitLab connector state is ACTIVE with no sync errors.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks GitLab connector status and sync operation health."
+              }
+            }
+          ]
+        },
+        {
+          "id": "gitlab_read_scopes",
+          "title": "GitLab Read Scopes",
+          "stepNumber": 2,
+          "description": "Required scopes for search-only access to GitLab repositories, merge requests, issues, and user profiles.",
+          "items": [
+            {
+              "id": "gitlab_scope_read_api",
+              "label": "read_api Scope",
+              "subLabel": "Grants read access to the complete GitLab API, including group/project metadata, issues, and merge requests.",
+              "codeSnippet": "read_api",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "gitlab_scope_read_user",
+              "label": "read_user Scope",
+              "subLabel": "Allows reading authenticated user profile information and group memberships.",
+              "codeSnippet": "read_user",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "gitlab_scope_read_repository",
+              "label": "read_repository Scope",
+              "subLabel": "Grants read-only access to repository files, commits, and branches.",
+              "codeSnippet": "read_repository",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            }
+          ]
+        },
+        {
+          "id": "gitlab_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 3,
+          "description": "Write scopes required when enabling Gemini Assistant Actions for GitLab.",
+          "items": [
+            {
+              "id": "gitlab_action_redirect_uri",
+              "label": "Actions Redirect URI Allowlisted",
+              "subLabel": "Ensure https://vertexaisearch.cloud.google.com/oauth-redirect is configured in the GitLab OAuth Application Redirect URI for Assistant Actions.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "gitlab_scope_api",
+              "label": "api Scope (Full Read/Write API Access)",
+              "subLabel": "Required for search and actions (write) access to create issues, comment on merge requests, and manage project items.",
+              "codeSnippet": "api",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "gitlab_scope_write_repository",
+              "label": "write_repository Scope",
+              "subLabel": "Allows the assistant to push commits, create branches, and modify repository files.",
+              "codeSnippet": "write_repository",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "LINEAR",
+      "vendorDisplayName": "Linear",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "linear",
+          "linear_cloud",
+          "linear-cloud"
+        ],
+        "nameSubstrings": [
+          "linear"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/linear",
+      "sections": [
+        {
+          "id": "linear_oauth_setup",
+          "title": "Linear OAuth 2.0 App / API Key & Automated Health",
+          "stepNumber": 1,
+          "description": "Configure a Linear OAuth 2.0 Application or API Key, verify the callback URL, and check automated connector health.",
+          "items": [
+            {
+              "id": "linear_app_creds",
+              "label": "Linear OAuth 2.0 Application / API Key",
+              "subLabel": "In Linear Settings > API > OAuth Applications, create an OAuth 2.0 app and copy the Client ID and Client Secret (or generate a Personal API Key).",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "linear_callback_url",
+              "label": "Callback / Redirect URL Configured",
+              "subLabel": "Linear verification relies on the Callback URL set to https://vertexaisearch.cloud.google.com/oauth-redirect.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "linear_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies Discovery Engine Service Agent and Editor permissions on the GCP project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine IAM role bindings on the project."
+              }
+            },
+            {
+              "id": "linear_oauth_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "linear_status_probe",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Validates that the Linear connector state is ACTIVE with no sync errors.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks Linear connector status and sync operation health."
+              }
+            }
+          ]
+        },
+        {
+          "id": "linear_read_scopes",
+          "title": "Linear Read Scopes",
+          "stepNumber": 2,
+          "description": "Read permissions required to search and index Linear issues, cycles, projects, and comments.",
+          "items": [
+            {
+              "id": "linear_scope_read",
+              "label": "read Scope",
+              "subLabel": "Grants read access to Linear issues, cycles, projects, teams, documents, and comments.",
+              "codeSnippet": "read",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            }
+          ]
+        },
+        {
+          "id": "linear_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 3,
+          "description": "Write scopes required to enable Gemini Assistant Actions for creating and updating Linear issues and comments.",
+          "items": [
+            {
+              "id": "linear_scope_write",
+              "label": "write Scope",
+              "subLabel": "Grants write access to modify Linear issues, workflow states, cycles, and projects.",
+              "codeSnippet": "write",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "linear_scope_issues_create",
+              "label": "issues:create Scope",
+              "subLabel": "Allows the assistant to create new Linear issues on behalf of the user.",
+              "codeSnippet": "issues:create",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "linear_scope_comments_create",
+              "label": "comments:create Scope",
+              "subLabel": "Allows the assistant to post comments on Linear issues.",
+              "codeSnippet": "comments:create",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "PAGERDUTY",
+      "vendorDisplayName": "PagerDuty",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "pagerduty",
+          "pager_duty",
+          "pager-duty"
+        ],
+        "nameSubstrings": [
+          "pagerduty",
+          "pager-duty",
+          "pager_duty"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pagerduty/pagerduty-configuration",
+      "sections": [
+        {
+          "id": "pagerduty_oauth_setup",
+          "title": "PagerDuty OAuth 2.0 App / REST API Key & Automated Health",
+          "stepNumber": 1,
+          "description": "Register an OAuth 2.0 App in PagerDuty (Integrations > Developer Tools > App Registration), set the Redirect URL, and verify automated connector health.",
+          "items": [
+            {
+              "id": "pagerduty_app_registration",
+              "label": "PagerDuty OAuth 2.0 App Client ID & Secret / REST API Key",
+              "subLabel": "Sign in as a PagerDuty Admin or Account Owner, go to Integrations > Developer Tools > App Registration, create a new app with OAuth 2.0 functionality, and securely copy the Client ID and Client Secret.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "pagerduty_redirect_uri",
+              "label": "Redirect URL Configured",
+              "subLabel": "In the PagerDuty OAuth 2.0 app configuration, set the Redirect URL to https://vertexaisearch.cloud.google.com/oauth-redirect.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "pagerduty_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies Discovery Engine Editor and Service Agent permissions on the GCP project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine IAM role bindings on the project."
+              }
+            },
+            {
+              "id": "pagerduty_oauth_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "pagerduty_status_probe",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Validates that the PagerDuty connector state is ACTIVE with no sync errors.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks PagerDuty connector status and health."
+              }
+            }
+          ]
+        },
+        {
+          "id": "pagerduty_read_scopes",
+          "title": "PagerDuty Read Scopes",
+          "stepNumber": 2,
+          "description": "OAuth and resource read scopes required to search PagerDuty incidents, services, schedules, on-calls, and users.",
+          "items": [
+            {
+              "id": "pagerduty_scope_read_all",
+              "label": "read Scope & incidents.read",
+              "subLabel": "Grants read access to PagerDuty incidents, statuses, urgency, and incident logs.",
+              "codeSnippet": "read incidents.read",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "pagerduty_scope_services_read",
+              "label": "services.read Scope",
+              "subLabel": "Grants read access to PagerDuty service directory definitions and integrations.",
+              "codeSnippet": "services.read",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "pagerduty_scope_schedules_read",
+              "label": "schedules.read & oncalls.read Scopes",
+              "subLabel": "Grants read access to on-call rotation schedules and escalation policies.",
+              "codeSnippet": "schedules.read oncalls.read",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "pagerduty_scope_users_read",
+              "label": "users.read Scope",
+              "subLabel": "Grants read access to PagerDuty user profiles and contact methods.",
+              "codeSnippet": "users.read",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            }
+          ]
+        },
+        {
+          "id": "pagerduty_actions_section",
+          "title": "Assistant Actions & Write Scopes",
+          "stepNumber": 3,
+          "description": "Write scopes required to allow Gemini Assistant to create, acknowledge, resolve, and add notes to PagerDuty incidents.",
+          "items": [
+            {
+              "id": "pagerduty_scope_incidents_write",
+              "label": "write & incidents.write Scopes",
+              "subLabel": "Grants write access to trigger, acknowledge, escalate, and resolve PagerDuty incidents.",
+              "codeSnippet": "write incidents.write",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "pagerduty_scope_incident_notes_write",
+              "label": "incident_notes.write Scope",
+              "subLabel": "Allows the assistant to post status updates and investigation notes on PagerDuty incidents.",
+              "codeSnippet": "incident_notes.write",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "SOURCEGRAPH",
+      "vendorDisplayName": "Sourcegraph",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "sourcegraph",
+          "source_graph",
+          "source-graph"
+        ],
+        "nameSubstrings": [
+          "sourcegraph",
+          "source-graph",
+          "source_graph"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/sourcegraph/sourcegraph-configuration",
+      "sections": [
+        {
+          "id": "sourcegraph_auth_setup",
+          "title": "Sourcegraph OAuth Client Application / Access Token & Instance URL",
+          "stepNumber": 1,
+          "description": "Configure a Sourcegraph OAuth client application or Access Token, verify your Sourcegraph Instance URL and Redirect URL, and check automated connector health.",
+          "items": [
+            {
+              "id": "sourcegraph_oauth_client",
+              "label": "Sourcegraph OAuth Client Application / Access Token & Instance URL",
+              "subLabel": "In Sourcegraph Site Administration (or Account Settings) > OAuth applications, create a new client application (e.g., 'Gemini Enterprise Connector'), copy the Client ID and Client Secret (or Access Token), and configure your Sourcegraph Instance URL.",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "sourcegraph_redirect_uri",
+              "label": "Redirect URL Configured",
+              "subLabel": "Set the Sourcegraph OAuth application Redirect URL (callback URL) to https://vertexaisearch.cloud.google.com/oauth-redirect.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "sourcegraph_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies Discovery Engine Editor and Service Agent permissions on the GCP project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine IAM role bindings on the project."
+              }
+            },
+            {
+              "id": "sourcegraph_oauth_config_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "sourcegraph_status_probe",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Validates that the Sourcegraph connector state is ACTIVE with no connectivity or auth errors.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks Sourcegraph connector status and health."
+              }
+            }
+          ]
+        },
+        {
+          "id": "sourcegraph_read_scopes",
+          "title": "Code Search & OpenID Connect Read Scopes",
+          "stepNumber": 2,
+          "description": "Required OAuth and Model Context Protocol (MCP) scopes to authenticate users and execute cross-repository code searches.",
+          "items": [
+            {
+              "id": "sourcegraph_scope_oidc",
+              "label": "openid, profile & email Scopes",
+              "subLabel": "Allows the connector to authenticate the user via OpenID Connect and read basic profile and email identity.",
+              "codeSnippet": "openid profile email",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "sourcegraph_scope_offline_access",
+              "label": "offline_access Scope",
+              "subLabel": "Grants a refresh token so Gemini Enterprise can access Sourcegraph when the user is not actively logged in.",
+              "codeSnippet": "offline_access",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "sourcegraph_scope_code_search_mcp",
+              "label": "mcp & Code Search Read Scopes (user:all)",
+              "subLabel": "Allows connecting via Model Context Protocol (MCP) and GraphQL API to search code, commits, symbols, and repositories.",
+              "codeSnippet": "mcp user:all",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            }
+          ]
+        },
+        {
+          "id": "sourcegraph_actions_section",
+          "title": "Assistant Actions & MCP Tool Scopes",
+          "stepNumber": 3,
+          "description": "Scopes required to invoke interactive Sourcegraph MCP tools and code intelligence actions.",
+          "items": [
+            {
+              "id": "sourcegraph_action_mcp_tools",
+              "label": "mcp Tool Execution & Action Permissions",
+              "subLabel": "Enables Gemini Assistant to execute Sourcegraph MCP tools, symbol navigation, and batch change actions on behalf of the authenticated user.",
+              "codeSnippet": "mcp",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "GRAFANA",
+      "vendorDisplayName": "Grafana",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "grafana",
+          "grafana_cloud",
+          "grafana-cloud"
+        ],
+        "nameSubstrings": [
+          "grafana"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/grafana",
+      "sections": [
+        {
+          "id": "grafana_auth_setup",
+          "title": "Service Account Token / Google-Managed OAuth & Instance URL",
+          "stepNumber": 1,
+          "description": "Configure your Grafana Instance URL, Service Account Token (or Google-managed OAuth), select Dashboard entities, and verify automated connector health.",
+          "items": [
+            {
+              "id": "grafana_instance_token",
+              "label": "Grafana Instance URL & Service Account Token / Google-Managed OAuth",
+              "subLabel": "Provide your Grafana Instance URL and Service Account Token (or authorize via Google-managed OAuth in global, us, or eu locations) and select 'Dashboard' under Entities to search.",
+              "badge": "Required",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/grafana/set-up-data-store"
+            },
+            {
+              "id": "grafana_static_ip_egress",
+              "label": "Static IP Egress Allowlisting (Optional)",
+              "subLabel": "If your Grafana instance is behind a firewall, enable 'Static IP Addresses' in Advanced options and allowlist the Google Cloud egress IPs.",
+              "badge": "Optional",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/configure-static-ip-egress"
+            },
+            {
+              "id": "grafana_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies the user has Discovery Engine Editor role (roles/discoveryengine.editor) and project Service Agent permissions.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine IAM role bindings on the project."
+              }
+            },
+            {
+              "id": "grafana_oauth_config_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and service account tokens are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted connector endpoint/tenant parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "grafana_status_probe",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Validates that the Grafana data store state is ACTIVE with no connectivity errors.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks Grafana connector status and health."
+              }
+            }
+          ]
+        },
+        {
+          "id": "grafana_read_roles",
+          "title": "Dashboard, Alerting & DataSource Read Roles",
+          "stepNumber": 2,
+          "description": "Grafana RBAC roles and permissions required to search and read dashboards, folders, alerts, and data sources.",
+          "items": [
+            {
+              "id": "grafana_role_viewer",
+              "label": "Viewer Role (Dashboards, Alerting & DataSources Read)",
+              "subLabel": "Grant at least the 'Viewer' role (dashboards:read, folders:read, datasources:query, alerting.rule:read) so Gemini Enterprise can search and read Grafana dashboards using natural language.",
+              "codeSnippet": "Viewer (dashboards:read, folders:read, datasources:query)",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            }
+          ]
+        },
+        {
+          "id": "grafana_actions_section",
+          "title": "Assistant Actions & Write Roles",
+          "stepNumber": 3,
+          "description": "Grafana RBAC role required when enabling Assistant Actions to create/edit dashboards, annotations, and alert rules.",
+          "items": [
+            {
+              "id": "grafana_role_editor",
+              "label": "Editor Role (Dashboards & Annotations Write)",
+              "subLabel": "Grant the 'Editor' role (dashboards:write, dashboards:create, annotations:write, alerting.rule:write) to allow the assistant to modify dashboards, create annotations, and manage alerts.",
+              "codeSnippet": "Editor (dashboards:write, dashboards:create, annotations:write)",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "OKTA",
+      "vendorDisplayName": "Okta Identity & Directory",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "okta",
+          "okta_directory",
+          "okta_idx"
+        ],
+        "nameSubstrings": [
+          "okta",
+          "okta-directory",
+          "okta_directory"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-third-party-data-source",
+      "sections": [
+        {
+          "id": "okta_auth_access",
+          "title": "Okta OIDC Web App, API Token & Key Pair Setup",
+          "stepNumber": 1,
+          "description": "Configure an Okta OIDC Web Application integration, API Token, and Public/Private Key Pair.",
+          "items": [
+            {
+              "id": "okta_redirect_uri",
+              "label": "Okta OIDC Sign-In Redirect URI Configured",
+              "subLabel": "Add https://vertexaisearch.cloud.google.com/console/oauth/okta_oauth.html as a Sign-in redirect URI in the Okta OIDC Web App.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/console/oauth/okta_oauth.html",
+              "badge": "Required"
+            },
+            {
+              "id": "okta_api_token_keypair",
+              "label": "Okta API Token & Key Pair Provisioned",
+              "subLabel": "Provide the Okta Client ID, Client Secret, API Token, and Public/Private Key Pair in the connector configuration.",
+              "badge": "Required"
+            },
+            {
+              "id": "okta_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Okta."
+              }
+            },
+            {
+              "id": "okta_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Okta data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Okta connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "okta_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Okta connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "okta_scopes_entities",
+          "title": "Okta API Scopes & Synced Entities",
+          "stepNumber": 2,
+          "description": "Verify Okta API scopes granted on the Okta API Scopes tab.",
+          "items": [
+            {
+              "id": "okta_api_scopes",
+              "label": "Okta Users, Groups & Apps Read Scopes Granted",
+              "subLabel": "Grant okta.users.read, okta.groups.read, okta.apps.read, okta.roles.read, okta.logs.read, and okta.Factors.read.",
+              "codeSnippet": "okta.users.read okta.groups.read okta.apps.read okta.roles.read okta.logs.read",
+              "badge": "Required"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "SUPABASE",
+      "vendorDisplayName": "Supabase",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "supabase"
+        ],
+        "nameSubstrings": [
+          "supabase"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/supabase",
+      "sections": [
+        {
+          "id": "supabase_auth_access",
+          "title": "Supabase Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Supabase Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "supabase_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Supabase uses Google-managed OAuth 2.0. Ensure an active Supabase account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/supabase"
+            },
+            {
+              "id": "supabase_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Supabase."
+              }
+            },
+            {
+              "id": "supabase_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Supabase data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Supabase connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "supabase_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Supabase connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "supabase_entities_read",
+          "title": "Supabase Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Supabase searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "supabase_searchable_entities",
+              "label": "Searchable Entities Enabled (Project, Branch, EdgeFunction, Migration, StorageBucket)",
+              "subLabel": "Verify that the required Supabase searchable entities (Project, Branch, EdgeFunction, Migration, StorageBucket) are enabled in the Data section of the data store.",
+              "codeSnippet": "Project, Branch, EdgeFunction, Migration, StorageBucket",
+              "badge": "Required"
+            },
+            {
+              "id": "supabase_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Supabase tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        },
+        {
+          "id": "supabase_actions_section",
+          "title": "Supabase Assistant Actions & Write Capabilities",
+          "stepNumber": 3,
+          "description": "Enable Supabase Assistant Actions in the data store configuration to allow Gemini Enterprise to execute write operations.",
+          "items": [
+            {
+              "id": "supabase_actions_enabled",
+              "label": "Supabase Assistant Actions Enabled",
+              "subLabel": "Enable Assistant Actions in the Supabase data store (Actions tab) so authorized users can invoke: Execute SQL, Apply migration, Deploy edge function, Create branch, Merge branch, Reset branch, Rebase branch, Delete branch, Create project, Pause project, Restore project, Update storage config.",
+              "codeSnippet": "Execute SQL, Apply migration, Deploy edge function, Create branch, Merge branch, Reset branch, Rebase branch, Delete branch, Create project, Pause project, Restore project, Update storage config",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "LOVABLE",
+      "vendorDisplayName": "Lovable",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "lovable"
+        ],
+        "nameSubstrings": [
+          "lovable"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/lovable",
+      "sections": [
+        {
+          "id": "lovable_auth_access",
+          "title": "Lovable Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Lovable Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "lovable_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Lovable uses Google-managed OAuth 2.0. Ensure an active Lovable account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/lovable"
+            },
+            {
+              "id": "lovable_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Lovable."
+              }
+            },
+            {
+              "id": "lovable_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Lovable data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Lovable connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "lovable_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Lovable connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "lovable_entities_read",
+          "title": "Lovable Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Lovable searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "lovable_searchable_entities",
+              "label": "Searchable Entities Enabled (App, Document)",
+              "subLabel": "Verify that the required Lovable searchable entities (App, Document) are enabled in the Data section of the data store.",
+              "codeSnippet": "App, Document",
+              "badge": "Required"
+            },
+            {
+              "id": "lovable_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Lovable tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        },
+        {
+          "id": "lovable_actions_section",
+          "title": "Lovable Assistant Actions & Write Capabilities",
+          "stepNumber": 3,
+          "description": "Enable Lovable Assistant Actions in the data store configuration to allow Gemini Enterprise to execute write operations.",
+          "items": [
+            {
+              "id": "lovable_actions_enabled",
+              "label": "Lovable Assistant Actions Enabled",
+              "subLabel": "Enable Assistant Actions in the Lovable data store (Actions tab) so authorized users can invoke: Create app, Update app, Add page, Manage secrets.",
+              "codeSnippet": "Create app, Update app, Add page, Manage secrets",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "HEX",
+      "vendorDisplayName": "Hex Analytics",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "hex",
+          "hex_analytics"
+        ],
+        "nameSubstrings": [
+          "hex",
+          "hex_analytics"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/hex",
+      "sections": [
+        {
+          "id": "hex_auth_access",
+          "title": "Hex Analytics Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Hex Analytics Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "hex_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Hex Analytics uses Google-managed OAuth 2.0. Ensure an active Hex Analytics account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/hex"
+            },
+            {
+              "id": "hex_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Hex Analytics."
+              }
+            },
+            {
+              "id": "hex_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Hex Analytics data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Hex Analytics connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "hex_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Hex Analytics connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "hex_entities_read",
+          "title": "Hex Analytics Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Hex Analytics searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "hex_searchable_entities",
+              "label": "Searchable Entities Enabled (Project, ProjectRun, SemanticModel, Thread)",
+              "subLabel": "Verify that the required Hex Analytics searchable entities (Project, ProjectRun, SemanticModel, Thread) are enabled in the Data section of the data store.",
+              "codeSnippet": "Project, ProjectRun, SemanticModel, Thread",
+              "badge": "Required"
+            },
+            {
+              "id": "hex_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Hex Analytics tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        },
+        {
+          "id": "hex_actions_section",
+          "title": "Hex Analytics Assistant Actions & Write Capabilities",
+          "stepNumber": 3,
+          "description": "Enable Hex Analytics Assistant Actions in the data store configuration to allow Gemini Enterprise to execute write operations.",
+          "items": [
+            {
+              "id": "hex_actions_enabled",
+              "label": "Hex Analytics Assistant Actions Enabled",
+              "subLabel": "Enable Assistant Actions in the Hex Analytics data store (Actions tab) so authorized users can invoke: Run project, Cancel project run, Create data query thread, Continue data query.",
+              "codeSnippet": "Run project, Cancel project run, Create data query thread, Continue data query",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "ALATION",
+      "vendorDisplayName": "Alation Data Catalog",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "alation"
+        ],
+        "nameSubstrings": [
+          "alation"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/alation",
+      "sections": [
+        {
+          "id": "alation_auth_access",
+          "title": "Alation Data Catalog Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Alation Data Catalog Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "alation_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Alation Data Catalog uses Google-managed OAuth 2.0. Ensure an active Alation Data Catalog account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/alation"
+            },
+            {
+              "id": "alation_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Alation Data Catalog."
+              }
+            },
+            {
+              "id": "alation_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Alation Data Catalog data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Alation Data Catalog connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "alation_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Alation Data Catalog connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "alation_entities_read",
+          "title": "Alation Data Catalog Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Alation Data Catalog searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "alation_searchable_entities",
+              "label": "Searchable Entities Enabled (DataProduct, Table, Column, Query, GlossaryTerm, Document)",
+              "subLabel": "Verify that the required Alation Data Catalog searchable entities (DataProduct, Table, Column, Query, GlossaryTerm, Document) are enabled in the Data section of the data store.",
+              "codeSnippet": "DataProduct, Table, Column, Query, GlossaryTerm, Document",
+              "badge": "Required"
+            },
+            {
+              "id": "alation_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Alation Data Catalog tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "STARBURST",
+      "vendorDisplayName": "Starburst Enterprise / Galaxy",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "starburst"
+        ],
+        "nameSubstrings": [
+          "starburst"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/starburst",
+      "sections": [
+        {
+          "id": "starburst_auth_access",
+          "title": "Starburst Enterprise / Galaxy Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Starburst Enterprise / Galaxy Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "starburst_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Starburst Enterprise / Galaxy uses Google-managed OAuth 2.0. Ensure an active Starburst Enterprise / Galaxy account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/starburst"
+            },
+            {
+              "id": "starburst_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Starburst Enterprise / Galaxy."
+              }
+            },
+            {
+              "id": "starburst_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Starburst Enterprise / Galaxy data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Starburst Enterprise / Galaxy connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "starburst_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Starburst Enterprise / Galaxy connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "starburst_entities_read",
+          "title": "Starburst Enterprise / Galaxy Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Starburst Enterprise / Galaxy searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "starburst_searchable_entities",
+              "label": "Searchable Entities Enabled (Catalog, Schema, Table, DataProduct, Query)",
+              "subLabel": "Verify that the required Starburst Enterprise / Galaxy searchable entities (Catalog, Schema, Table, DataProduct, Query) are enabled in the Data section of the data store.",
+              "codeSnippet": "Catalog, Schema, Table, DataProduct, Query",
+              "badge": "Required"
+            },
+            {
+              "id": "starburst_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Starburst Enterprise / Galaxy tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "OMNI_ANALYTICS",
+      "vendorDisplayName": "Omni Analytics",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "omni_analytics",
+          "omni"
+        ],
+        "nameSubstrings": [
+          "omni_analytics",
+          "omni"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/omni-analytics",
+      "sections": [
+        {
+          "id": "omni_analytics_auth_access",
+          "title": "Omni Analytics Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify Omni Analytics Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "omni_analytics_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "Omni Analytics uses Google-managed OAuth 2.0. Ensure an active Omni Analytics account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/omni-analytics"
+            },
+            {
+              "id": "omni_analytics_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Omni Analytics."
+              }
+            },
+            {
+              "id": "omni_analytics_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Omni Analytics data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Omni Analytics connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "omni_analytics_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Omni Analytics connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "omni_analytics_entities_read",
+          "title": "Omni Analytics Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Omni Analytics searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "omni_analytics_searchable_entities",
+              "label": "Searchable Entities Enabled (Model, Topic, Document, Dashboard, Query)",
+              "subLabel": "Verify that the required Omni Analytics searchable entities (Model, Topic, Document, Dashboard, Query) are enabled in the Data section of the data store.",
+              "codeSnippet": "Model, Topic, Document, Dashboard, Query",
+              "badge": "Required"
+            },
+            {
+              "id": "omni_analytics_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Omni Analytics tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "THOUGHTSPOT",
+      "vendorDisplayName": "ThoughtSpot",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "thoughtspot",
+          "thought_spot"
+        ],
+        "nameSubstrings": [
+          "thoughtspot",
+          "thought_spot"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/thoughtspot",
+      "sections": [
+        {
+          "id": "thoughtspot_auth_access",
+          "title": "ThoughtSpot Google-Managed OAuth & Health",
+          "stepNumber": 1,
+          "description": "Verify ThoughtSpot Google-managed OAuth setup, IAM permissions, and connector health.",
+          "items": [
+            {
+              "id": "thoughtspot_google_managed_oauth",
+              "label": "Google-Managed OAuth & End-User Account Authorization",
+              "subLabel": "ThoughtSpot uses Google-managed OAuth 2.0. Ensure an active ThoughtSpot account is authorized by end users at query time in the Gemini Enterprise web app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/thoughtspot"
+            },
+            {
+              "id": "thoughtspot_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for ThoughtSpot."
+              }
+            },
+            {
+              "id": "thoughtspot_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "ThoughtSpot data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates ThoughtSpot connector state and latest operation error logs."
+              }
+            },
+            {
+              "id": "thoughtspot_oauth_validity",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted instance/tenant parameters, actionConfig state, and absence of 401/OAuth errors in GCP (note: client_id, client_secret, and vendor portal scopes are redacted by GCP on read and must be attested manually above).",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted ThoughtSpot connector parameters and checks for backend OAuth/auth errors in Discovery Engine."
+              }
+            }
+          ]
+        },
+        {
+          "id": "thoughtspot_entities_read",
+          "title": "ThoughtSpot Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm ThoughtSpot searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "thoughtspot_searchable_entities",
+              "label": "Searchable Entities Enabled (Liveboard, Answer, DataSource, Metric)",
+              "subLabel": "Verify that the required ThoughtSpot searchable entities (Liveboard, Answer, DataSource, Metric) are enabled in the Data section of the data store.",
+              "codeSnippet": "Liveboard, Answer, DataSource, Metric",
+              "badge": "Required"
+            },
+            {
+              "id": "thoughtspot_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your ThoughtSpot tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "APOLLO_GRAPHOS",
+      "vendorDisplayName": "Apollo GraphOS",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "apollo_graphos",
+          "apollographos"
+        ],
+        "nameSubstrings": [
+          "apollo_graphos",
+          "apollographos"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/apollo-graphos",
+      "sections": [
+        {
+          "id": "apollo_graphos_auth_access",
+          "title": "Apollo GraphOS Federated MCP Setup & Health",
+          "stepNumber": 1,
+          "description": "Verify Apollo GraphOS federated data store provisioning and Discovery Engine health.",
+          "items": [
+            {
+              "id": "apollo_graphos_public_mcp_setup",
+              "label": "Public Federated MCP Data Store Provisioned",
+              "subLabel": "Apollo GraphOS uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/apollo-graphos"
+            },
+            {
+              "id": "apollo_graphos_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Apollo GraphOS."
+              }
+            },
+            {
+              "id": "apollo_graphos_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Apollo GraphOS data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Apollo GraphOS connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "apollo_graphos_entities_read",
+          "title": "Apollo GraphOS Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Apollo GraphOS searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "apollo_graphos_searchable_entities",
+              "label": "Searchable Entities Enabled (GraphQLSchema, Specification, Documentation)",
+              "subLabel": "Verify that the required Apollo GraphOS searchable entities (GraphQLSchema, Specification, Documentation) are enabled in the Data section of the data store.",
+              "codeSnippet": "GraphQLSchema, Specification, Documentation",
+              "badge": "Required"
+            },
+            {
+              "id": "apollo_graphos_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Apollo GraphOS tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "AWS_MARKETPLACE",
+      "vendorDisplayName": "AWS Marketplace",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "aws_marketplace"
+        ],
+        "nameSubstrings": [
+          "aws_marketplace"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/aws-marketplace",
+      "sections": [
+        {
+          "id": "aws_marketplace_auth_access",
+          "title": "AWS Marketplace Federated MCP Setup & Health",
+          "stepNumber": 1,
+          "description": "Verify AWS Marketplace federated data store provisioning and Discovery Engine health.",
+          "items": [
+            {
+              "id": "aws_marketplace_public_mcp_setup",
+              "label": "Public Federated MCP Data Store Provisioned",
+              "subLabel": "AWS Marketplace uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/aws-marketplace"
+            },
+            {
+              "id": "aws_marketplace_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for AWS Marketplace."
+              }
+            },
+            {
+              "id": "aws_marketplace_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "AWS Marketplace data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates AWS Marketplace connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "aws_marketplace_entities_read",
+          "title": "AWS Marketplace Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm AWS Marketplace searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "aws_marketplace_searchable_entities",
+              "label": "Searchable Entities Enabled (Solution, ProductListing, ProcurementRecommendation)",
+              "subLabel": "Verify that the required AWS Marketplace searchable entities (Solution, ProductListing, ProcurementRecommendation) are enabled in the Data section of the data store.",
+              "codeSnippet": "Solution, ProductListing, ProcurementRecommendation",
+              "badge": "Required"
+            },
+            {
+              "id": "aws_marketplace_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your AWS Marketplace tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "HUGGINGFACE",
+      "vendorDisplayName": "Hugging Face Hub",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "huggingface",
+          "hugging_face"
+        ],
+        "nameSubstrings": [
+          "huggingface",
+          "hugging_face"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/huggingface",
+      "sections": [
+        {
+          "id": "huggingface_auth_access",
+          "title": "Hugging Face Hub Federated MCP Setup & Health",
+          "stepNumber": 1,
+          "description": "Verify Hugging Face Hub federated data store provisioning and Discovery Engine health.",
+          "items": [
+            {
+              "id": "huggingface_public_mcp_setup",
+              "label": "Public Federated MCP Data Store Provisioned",
+              "subLabel": "Hugging Face Hub uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/huggingface"
+            },
+            {
+              "id": "huggingface_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Hugging Face Hub."
+              }
+            },
+            {
+              "id": "huggingface_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Hugging Face Hub data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Hugging Face Hub connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "huggingface_entities_read",
+          "title": "Hugging Face Hub Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Hugging Face Hub searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "huggingface_searchable_entities",
+              "label": "Searchable Entities Enabled (Model, Dataset, Space, ResearchPaper)",
+              "subLabel": "Verify that the required Hugging Face Hub searchable entities (Model, Dataset, Space, ResearchPaper) are enabled in the Data section of the data store.",
+              "codeSnippet": "Model, Dataset, Space, ResearchPaper",
+              "badge": "Required"
+            },
+            {
+              "id": "huggingface_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Hugging Face Hub tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "PG_AIGUIDE",
+      "vendorDisplayName": "Timescale pg-aiguide (PostgreSQL)",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "pg_aiguide",
+          "timescale_pg_aiguide"
+        ],
+        "nameSubstrings": [
+          "pg_aiguide",
+          "timescale_pg_aiguide"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pg-aiguide",
+      "sections": [
+        {
+          "id": "pg_aiguide_auth_access",
+          "title": "Timescale pg-aiguide (PostgreSQL) Federated MCP Setup & Health",
+          "stepNumber": 1,
+          "description": "Verify Timescale pg-aiguide (PostgreSQL) federated data store provisioning and Discovery Engine health.",
+          "items": [
+            {
+              "id": "pg_aiguide_public_mcp_setup",
+              "label": "Public Federated MCP Data Store Provisioned",
+              "subLabel": "Timescale pg-aiguide (PostgreSQL) uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/pg-aiguide"
+            },
+            {
+              "id": "pg_aiguide_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Timescale pg-aiguide (PostgreSQL)."
+              }
+            },
+            {
+              "id": "pg_aiguide_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Timescale pg-aiguide (PostgreSQL) data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Timescale pg-aiguide (PostgreSQL) connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "pg_aiguide_entities_read",
+          "title": "Timescale pg-aiguide (PostgreSQL) Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Timescale pg-aiguide (PostgreSQL) searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "pg_aiguide_searchable_entities",
+              "label": "Searchable Entities Enabled (PostgresManual, ExtensionDocumentation, BestPracticeSkill)",
+              "subLabel": "Verify that the required Timescale pg-aiguide (PostgreSQL) searchable entities (PostgresManual, ExtensionDocumentation, BestPracticeSkill) are enabled in the Data section of the data store.",
+              "codeSnippet": "PostgresManual, ExtensionDocumentation, BestPracticeSkill",
+              "badge": "Required"
+            },
+            {
+              "id": "pg_aiguide_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Timescale pg-aiguide (PostgreSQL) tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "TWILIO_DOCS",
+      "vendorDisplayName": "Twilio Documentation",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "twilio_docs",
+          "twilio"
+        ],
+        "nameSubstrings": [
+          "twilio_docs",
+          "twilio"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": false,
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/twilio-docs",
+      "sections": [
+        {
+          "id": "twilio_docs_auth_access",
+          "title": "Twilio Documentation Federated MCP Setup & Health",
+          "stepNumber": 1,
+          "description": "Verify Twilio Documentation federated data store provisioning and Discovery Engine health.",
+          "items": [
+            {
+              "id": "twilio_docs_public_mcp_setup",
+              "label": "Public Federated MCP Data Store Provisioned",
+              "subLabel": "Twilio Documentation uses a public MCP endpoint with no OAuth client credentials required. Ensure the data store is linked to your Gemini Enterprise app.",
+              "badge": "Required",
+              "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/twilio-docs"
+            },
+            {
+              "id": "twilio_docs_iam_service_agent",
+              "label": "Discovery Engine Service Agent Role",
+              "subLabel": "Service Agent has roles/discoveryengine.serviceAgent and end users hold Discovery Engine Viewer / User roles on the host GCP project.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Twilio Documentation."
+              }
+            },
+            {
+              "id": "twilio_docs_connector_health",
+              "label": "Connector State Health",
+              "subLabel": "Twilio Documentation data store and connector status in Discovery Engine is ACTIVE with no failing operations.",
+              "badge": "Automated",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "description": "Validates Twilio Documentation connector state and latest operation error logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "twilio_docs_entities_read",
+          "title": "Twilio Documentation Searchable Entities & Federated Scope (Read)",
+          "stepNumber": 2,
+          "description": "Confirm Twilio Documentation searchable entities and rate limit configurations for live federated search.",
+          "items": [
+            {
+              "id": "twilio_docs_searchable_entities",
+              "label": "Searchable Entities Enabled (APIDocumentation, SDKReference)",
+              "subLabel": "Verify that the required Twilio Documentation searchable entities (APIDocumentation, SDKReference) are enabled in the Data section of the data store.",
+              "codeSnippet": "APIDocumentation, SDKReference",
+              "badge": "Required"
+            },
+            {
+              "id": "twilio_docs_rate_limit_qps",
+              "label": "Query Per Second (QPS) Rate Limit Reviewed",
+              "subLabel": "Verify per-data-store QPS limit aligns with your Twilio Documentation tenant API quota.",
+              "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

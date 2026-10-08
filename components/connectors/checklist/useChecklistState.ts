@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ConnectorChecklistState, ProbeExecutionResult } from './types';
 
 const STORAGE_PREFIX = 'gem_connector_checklist_';
@@ -22,6 +22,7 @@ const STORAGE_PREFIX = 'gem_connector_checklist_';
 export function useChecklistState(connectorName: string) {
   const sanitizedKey = connectorName ? connectorName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'default';
   const storageKey = `${STORAGE_PREFIX}${sanitizedKey}`;
+  const prevStorageKeyRef = useRef<string>(storageKey);
 
   const [state, setState] = useState<ConnectorChecklistState>(() => {
     if (typeof window === 'undefined') {
@@ -56,8 +57,13 @@ export function useChecklistState(connectorName: string) {
     };
   });
 
-  // Keep state synced if connectorName changes
+  // Keep state synced ONLY when storageKey actually changes after mount
   useEffect(() => {
+    if (prevStorageKeyRef.current === storageKey) {
+      return;
+    }
+    prevStorageKeyRef.current = storageKey;
+
     try {
       const stored = localStorage.getItem(storageKey);
       if (stored) {
@@ -70,8 +76,8 @@ export function useChecklistState(connectorName: string) {
         });
         return;
       }
-    } catch {
-      // Ignore parse failure
+    } catch (err) {
+      console.warn(`[useChecklistState] Failed to parse stored state for ${connectorName}:`, err);
     }
 
     setState({
@@ -97,6 +103,11 @@ export function useChecklistState(connectorName: string) {
   const toggleItem = useCallback(
     (itemId: string) => {
       setState((prev) => {
+        const existingProbe = prev.probeResults?.[itemId];
+        // Prevent manually checking an automated probe item that is actively failing
+        if (existingProbe?.status === 'fail' && !prev.checkedItems[itemId]) {
+          return prev;
+        }
         const nextChecked = {
           ...prev.checkedItems,
           [itemId]: !prev.checkedItems[itemId],
@@ -120,11 +131,42 @@ export function useChecklistState(connectorName: string) {
           ...(prev.probeResults || {}),
           [itemId]: result,
         };
-        // If probe passed, auto-check the item!
         const nextChecked = {
           ...prev.checkedItems,
-          ...(result.status === 'pass' ? { [itemId]: true } : {}),
+          ...(result.status === 'pass'
+            ? { [itemId]: true }
+            : result.status === 'fail'
+              ? { [itemId]: false }
+              : {}),
         };
+        const nextState: ConnectorChecklistState = {
+          ...prev,
+          lastUpdated: new Date().toISOString(),
+          checkedItems: nextChecked,
+          probeResults: nextProbeResults,
+        };
+        persistState(nextState);
+        return nextState;
+      });
+    },
+    [persistState]
+  );
+
+  const recordProbeResults = useCallback(
+    (results: Record<string, ProbeExecutionResult>) => {
+      setState((prev) => {
+        const nextProbeResults = {
+          ...(prev.probeResults || {}),
+          ...results,
+        };
+        const nextChecked = { ...prev.checkedItems };
+        for (const [itemId, res] of Object.entries(results)) {
+          if (res.status === 'pass') {
+            nextChecked[itemId] = true;
+          } else if (res.status === 'fail') {
+            nextChecked[itemId] = false;
+          }
+        }
         const nextState: ConnectorChecklistState = {
           ...prev,
           lastUpdated: new Date().toISOString(),
@@ -147,8 +189,8 @@ export function useChecklistState(connectorName: string) {
     };
     try {
       localStorage.removeItem(storageKey);
-    } catch {
-      // Ignore removal failure
+    } catch (err) {
+      console.warn(`[useChecklistState] Failed to remove checklist state for ${connectorName}:`, err);
     }
     setState(clearedState);
   }, [connectorName, storageKey]);
@@ -157,6 +199,8 @@ export function useChecklistState(connectorName: string) {
     state,
     toggleItem,
     recordProbeResult,
+    recordProbeResults,
     resetChecklist,
   };
 }
+

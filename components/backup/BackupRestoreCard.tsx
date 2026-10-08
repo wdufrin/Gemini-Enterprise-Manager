@@ -122,12 +122,12 @@ export const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
       {/* Restore Action */}
       <div className="flex-1 mt-4">
         <p className="text-xs text-center text-gray-400 mb-2">Restore from GCS.</p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2">
           <select
             value={selectedBackup}
             onChange={(e) => onBackupSelectionChange(section, e.target.value)}
             disabled={isGloballyLoading}
-            className="block w-full text-xs bg-gray-700 border border-gray-600 rounded-l-md text-white p-2 h-8 disabled:opacity-50"
+            className="block w-full text-xs bg-gray-700 border border-gray-600 rounded-md text-white px-2.5 py-1.5 h-8 disabled:opacity-50"
           >
             <option value="">-- Select Backup File --</option>
             {availableBackups.map((file) => (
@@ -136,25 +136,27 @@ export const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
               </option>
             ))}
           </select>
-          <div className="flex shrink-0">
-            <button
-              onClick={() => onRestore(section, processor)}
-              disabled={isGloballyLoading || !selectedBackup}
-              className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center h-8"
-            >
-              {isRestoreLoading ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
-              ) : (
-                'Restore'
-              )}
-            </button>
-            <button
-              onClick={() => onShowInfo(`Restore:${section}`)}
-              title="Show restore API command"
-              className="p-1.5 text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-r-md h-8"
-            >
-              <InfoIcon />
-            </button>
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <div className="flex shrink-0">
+              <button
+                onClick={() => onRestore(section, processor)}
+                disabled={isGloballyLoading || !selectedBackup}
+                className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center rounded-l-md h-8 whitespace-nowrap"
+              >
+                {isRestoreLoading ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                ) : (
+                  'Restore'
+                )}
+              </button>
+              <button
+                onClick={() => onShowInfo(`Restore:${section}`)}
+                title="Show restore API command"
+                className="p-1.5 text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-r-md h-8"
+              >
+                <InfoIcon />
+              </button>
+            </div>
             {onDownloadBackup && (
               <button
                 onClick={() => onDownloadBackup(section)}

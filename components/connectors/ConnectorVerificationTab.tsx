@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Config } from '../../types';
 import {
   detectConnectorVendor,
@@ -22,6 +22,7 @@ import {
   getAllVendors,
 } from './checklist/checklistRegistry';
 import { DynamicConnectorVerification } from './checklist/DynamicConnectorVerification';
+import { extractConnectorCollectionId } from '../../services/api/monitoring';
 
 interface ConnectorVerificationTabProps {
   connector: any;
@@ -34,10 +35,37 @@ export type DataMode = 'INGESTION' | 'FEDERATED';
 const CATEGORY_ORDER = [
   'Google First-Party & MCP',
   'Enterprise Platforms',
+  'Microsoft 365 & Identity',
+  'Atlassian & DevTools',
+  'Collaboration & Storage',
   'Productivity & Tasks',
   'Customer Support & CRM',
   'Universal Fallback',
 ];
+
+function detectInitialDataMode(connector: any): DataMode {
+  const cs = connector?.connectorState || connector || {};
+  const connectorType = String(cs.connectorType || connector?.connectorType || '').toUpperCase();
+  const modes: string[] = Array.isArray(cs.connectorModes) ? cs.connectorModes : [];
+  if (
+    connectorType.includes('FEDERATED') ||
+    (modes.includes('FEDERATED') && !modes.includes('DATA_INGESTION'))
+  ) {
+    return 'FEDERATED';
+  }
+  return 'INGESTION';
+}
+
+function detectInitialActionsEnabled(connector: any): boolean {
+  const cs = connector?.connectorState || connector || {};
+  const modes: string[] = Array.isArray(cs.connectorModes) ? cs.connectorModes : [];
+  return Boolean(
+    cs.actionConfig ||
+      cs.bapConfig?.enabledActions?.length ||
+      modes.includes('ACTIONS') ||
+      connector?.actionsEnabled
+  );
+}
 
 const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({
   connector,
@@ -46,9 +74,19 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({
 }) => {
   // Intelligent vendor detection (supports GCP People, Drive, BYOMCP, SaaS connectors)
   const initialType = useMemo(() => detectConnectorVendor(connector), [connector]);
+  const initialDataMode = useMemo(() => detectInitialDataMode(connector), [connector]);
+  const initialActionsEnabled = useMemo(() => detectInitialActionsEnabled(connector), [connector]);
+
   const [activeType, setActiveType] = useState<string>(initialType);
-  const [dataMode, setDataMode] = useState<DataMode>('INGESTION');
+  const [dataMode, setDataMode] = useState<DataMode>(initialDataMode);
+  const [actionsEnabled, setActionsEnabled] = useState<boolean>(initialActionsEnabled);
   const [hideUnused, setHideUnused] = useState<boolean>(true);
+
+  useEffect(() => {
+    setActiveType(initialType);
+    setDataMode(initialDataMode);
+    setActionsEnabled(initialActionsEnabled);
+  }, [initialType, initialDataMode, initialActionsEnabled]);
 
   const checklistDef = useMemo(() => getChecklistDefinition(activeType), [activeType]);
   const allVendors = useMemo(() => getAllVendors(), []);
@@ -90,6 +128,17 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({
     ];
   }, [vendorGroups]);
 
+  const resolvedConnectorName =
+    connector?.name ||
+    connector?.connectorState?.name ||
+    '';
+  const resolvedConnectorId = extractConnectorCollectionId(
+    resolvedConnectorName,
+    config.collectionId,
+  );
+  const resolvedProject =
+    resolvedConnectorName.split('/')[1] || config.projectId || '';
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-gray-900/50 p-3 rounded-lg border border-gray-700 gap-3">
@@ -104,7 +153,7 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({
           {/* Hide Unused Connectors Toggle */}
           <label
             className="flex items-center gap-1.5 text-xs text-gray-300 hover:text-white cursor-pointer select-none bg-gray-800/90 px-2.5 py-1.5 rounded border border-gray-700 hover:border-gray-500 transition-colors"
-            title="When checked, only shows connectors active in this project. Uncheck to show all 35+ connectors."
+            title={`When checked, only shows connectors detected in this project (${usedVendorIds.size}). Uncheck to browse all ${allVendors.length} connector checklists.`}
           >
             <input
               type="checkbox"
@@ -113,7 +162,7 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({
               data-testid="hide-unused-checkbox"
               className="rounded bg-gray-900 border-gray-600 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer w-3.5 h-3.5"
             />
-            <span className="font-medium">Hide unused</span>
+            <span className="font-medium">Hide unused ({usedVendorIds.size}/{allVendors.length})</span>
           </label>
 
           {/* Data Mode Toggle */}
@@ -187,6 +236,8 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({
         checklistDef={checklistDef}
         dataMode={dataMode}
         config={config}
+        actionsEnabled={actionsEnabled}
+        onActionsToggle={setActionsEnabled}
       />
 
       {/* Diagnostics Section */}
@@ -198,20 +249,20 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({
           Diagnostics & Troubleshooting
         </h3>
         <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
               <h4 className="text-sm font-semibold text-white">Cloud Logging</h4>
               <p className="text-xs text-gray-400 mt-1">
                 Check for authentication failures, permission denied errors, or internal connector sync issues.
               </p>
             </div>
             <a
-              href={`https://console.cloud.google.com/logs/query;query=(resource.type%3D%22vertex_ai_search_connector%22%20AND%20resource.labels.connector_id%3D%22${connector.name?.split('/').pop()}%22)%20OR%20(jsonPayload.connectorRunPayload.dataConnector%3D%22${connector.name}%22)%20AND%20severity%3E%3DERROR?project=${connector.name?.split('/')[1] || config.projectId}`}
+              href={`https://console.cloud.google.com/logs/query;query=(resource.type%3D%22vertex_ai_search_connector%22%20AND%20resource.labels.connector_id%3D%22${resolvedConnectorId}%22)%20OR%20(jsonPayload.connectorRunPayload.dataConnector%3D%22${resolvedConnectorName}%22)%20AND%20severity%3E%3DERROR?project=${resolvedProject}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded transition-colors border border-gray-600"
+              className="flex items-center px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded transition-colors border border-gray-600 whitespace-nowrap shrink-0"
             >
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
               View Connector Errors

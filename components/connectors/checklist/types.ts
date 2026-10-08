@@ -71,6 +71,8 @@ export interface ConnectorChecklistDefinition {
 export interface ProbeExecutionResult {
   status: 'pass' | 'fail' | 'warning' | 'running';
   message: string;
+  remediation?: string;
+  verificationSource?: 'GCP_API' | 'DIAGNOSTICS_SIGNALS';
   details?: unknown;
   executedAt: string;
 }

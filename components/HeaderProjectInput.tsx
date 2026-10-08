@@ -112,18 +112,18 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
   return (
     <button
       type="button"
-      className="flex items-center space-x-2 group cursor-pointer text-left bg-transparent border-0 p-0 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+      className="flex items-center space-x-1.5 group cursor-pointer text-left bg-transparent border-0 p-0 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded min-w-0"
       onClick={() => setIsEditing(true)}
       aria-label={`Active project: ${projectId || 'Not Set'}. Click to change.`}
     >
-      <span className="text-sm font-medium text-gray-400 group-hover:text-gray-300">Project:</span>
-      <div className="flex items-baseline gap-1" title="Click to change">
-        <span className="text-sm font-bold text-white group-hover:text-blue-300 font-mono">{projectId || 'Not Set'}</span>
+      <span className="text-xs font-medium text-gray-400 group-hover:text-gray-300 shrink-0">Project:</span>
+      <div className="flex items-baseline gap-1 min-w-0" title="Click to change">
+        <span className="text-xs sm:text-sm font-bold text-white group-hover:text-blue-300 font-mono truncate max-w-[160px] xl:max-w-[240px]">{projectId || 'Not Set'}</span>
         {projectNumber && projectId && projectNumber !== projectId && (
-          <span className="text-xs text-gray-500 font-mono">({projectNumber})</span>
+          <span className="text-[11px] text-gray-500 font-mono hidden lg:inline shrink-0">({projectNumber})</span>
         )}
       </div>
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-500 group-hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity" viewBox="0 0 20 20" fill="currentColor">
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-gray-500 group-hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" viewBox="0 0 20 20" fill="currentColor">
         <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
       </svg>
     </button>

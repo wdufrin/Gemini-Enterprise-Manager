@@ -136,31 +136,31 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
             <tr>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider"
+                className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
               >
                 Display Name
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider"
+                className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
               >
                 Collection ID
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider"
+                className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
               >
                 Status
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider"
+                className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
               >
                 Associated App
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider"
+                className="px-4 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
               >
                 Action
               </th>
@@ -169,7 +169,7 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
           <tbody className="bg-gray-800 divide-y divide-gray-700">
             {filteredCollections.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-400">
+                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">
                   No collections match your filter criteria.
                 </td>
               </tr>
@@ -183,7 +183,7 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                     key={collection.name}
                     className="hover:bg-gray-700/50 transition-colors"
                   >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-white">
                       {editingId === collection.name ? (
                         <form
                           onSubmit={(e) => {
@@ -216,7 +216,9 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                         </form>
                       ) : (
                         <div className="flex items-center gap-2 group">
-                          {collection.displayName || collectionId}
+                          <span className="truncate max-w-[200px] xl:max-w-[280px]" title={collection.displayName || collectionId}>
+                            {collection.displayName || collectionId}
+                          </span>
                           <button
                             type="button"
                             onClick={() => {
@@ -225,7 +227,7 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                                 collection.displayName || collectionId
                               );
                             }}
-                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity"
+                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity shrink-0"
                             title="Edit Name"
                           >
                             <svg
@@ -240,15 +242,18 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400 font-mono">
+                    <td
+                      className="px-4 py-3 whitespace-nowrap text-xs text-gray-400 font-mono max-w-[180px] xl:max-w-[240px] truncate"
+                      title={collectionId}
+                    >
                       {collectionId}
                     </td>
-                    <td className="px-6 py-4 whitespace-normal text-sm">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm">
                       {result ? (
                         <button
                           type="button"
                           disabled={result.status === "n/a"}
-                          className={`inline-flex items-center px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider transition-colors shadow-sm ${
+                          className={`inline-flex items-center px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors shadow-sm ${
                             result.status === "success"
                               ? "bg-green-900/80 text-green-200 border border-green-700 hover:bg-green-800 cursor-pointer"
                               : result.status === "error"
@@ -259,16 +264,30 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                           }`}
                           onClick={() => {
                             if (result.status !== "n/a") {
+                              const displayLabel =
+                                collection.displayName &&
+                                collection.displayName !== collectionId
+                                  ? `${collection.displayName} (${collectionId})`
+                                  : collectionId;
                               onSelectResult({
-                                result,
-                                title: `Connector Diagnostics: ${collectionId}`,
+                                result: {
+                                  ...result,
+                                  details: result.details
+                                    ? {
+                                        ...result.details,
+                                        collectionDisplayName:
+                                          collection.displayName,
+                                      }
+                                    : result.details,
+                                },
+                                title: `Connector Diagnostics: ${displayLabel}`,
                               });
                             }
                           }}
                         >
                           {result.status === "pending" && (
                             <svg
-                              className="animate-spin h-3 w-3 mr-2"
+                              className="animate-spin h-3 w-3 mr-2 shrink-0"
                               viewBox="0 0 24 24"
                             >
                               <circle
@@ -295,12 +314,12 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                                 : "CHECKING"}
                         </button>
                       ) : (
-                        <span className="text-gray-500 text-xs italic">
+                        <span className="text-gray-500 text-xs italic whitespace-nowrap">
                           Not checked
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-normal text-sm">
+                    <td className="px-4 py-3 whitespace-normal text-sm">
                       {(() => {
                         const apps = getAssociatedApps(collection.name);
                         if (apps.length === 0) {
@@ -324,25 +343,25 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                         );
                       })()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
                       <button
                         type="button"
                         onClick={() => onCheckDataConnector(collection)}
-                        className="text-blue-400 hover:text-blue-300 font-semibold text-xs border border-blue-500/30 px-3 py-1.5 rounded hover:bg-blue-500/10 transition-colors"
+                        className="text-blue-400 hover:text-blue-300 font-semibold text-xs border border-blue-500/30 px-2.5 xl:px-3 py-1.5 rounded hover:bg-blue-500/10 transition-colors whitespace-nowrap shrink-0"
                       >
                         Run Diagnostics
                       </button>
                       <button
                         type="button"
                         onClick={() => onOpenDetails(collection)}
-                        className="text-gray-300 hover:text-white font-semibold text-xs border border-gray-600 px-3 py-1.5 rounded hover:bg-gray-700 transition-colors ml-2"
+                        className="text-gray-300 hover:text-white font-semibold text-xs border border-gray-600 px-2.5 xl:px-3 py-1.5 rounded hover:bg-gray-700 transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0"
                       >
                         Details
                       </button>
                       <button
                         type="button"
                         onClick={() => onDuplicateConnector(collection)}
-                        className="text-amber-400 hover:text-amber-300 font-semibold text-xs border border-amber-500/30 px-3 py-1.5 rounded hover:bg-amber-500/10 transition-colors ml-2"
+                        className="text-amber-400 hover:text-amber-300 font-semibold text-xs border border-amber-500/30 px-2.5 xl:px-3 py-1.5 rounded hover:bg-amber-500/10 transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0"
                         title="Duplicate this connector configuration"
                       >
                         Duplicate
@@ -351,7 +370,7 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                         <button
                           type="button"
                           onClick={() => onRequestDelete(collection)}
-                          className="text-red-400 hover:text-red-300 font-semibold text-xs border border-red-500/30 px-3 py-1.5 rounded hover:bg-red-500/10 transition-colors ml-2"
+                          className="text-red-400 hover:text-red-300 font-semibold text-xs border border-red-500/30 px-2.5 xl:px-3 py-1.5 rounded hover:bg-red-500/10 transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0"
                         >
                           Delete
                         </button>

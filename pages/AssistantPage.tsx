@@ -391,7 +391,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
 
       {/* Floating Chat Window */}
       {activeChatConfig && (
-        <div className="fixed bottom-4 right-4 z-50 w-[450px] h-[600px] shadow-2xl rounded-lg overflow-hidden border border-gray-700 bg-gray-800 flex flex-col">
+        <div className="fixed bottom-4 right-4 z-50 w-[min(450px,calc(100vw-2rem))] h-[min(600px,calc(100vh-5rem))] shadow-2xl rounded-lg overflow-hidden border border-gray-700 bg-gray-800 flex flex-col">
           <ChatWindow
             targetDisplayName={activeChatConfig.displayName}
             config={activeChatConfig.config}

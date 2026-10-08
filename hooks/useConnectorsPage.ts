@@ -190,36 +190,84 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
   const handleOpenDetails = async (collection: Collection) => {
     const collectionId =
       collection.name.split("/").pop() || "default_collection";
+    const displayLabel =
+      collection.displayName && collection.displayName !== collectionId
+        ? `${collection.displayName} (${collectionId})`
+        : collectionId;
     const result = validationResults[collection.name];
 
-    if (result && result.dataConnector) {
+    if (
+      result &&
+      result.details &&
+      typeof result.details === "object" &&
+      Array.isArray(result.details.diagnostics?.steps) &&
+      result.details.diagnostics.steps.length > 0
+    ) {
       setSelectedResult({
-        result,
-        title: `Connector Details: ${collectionId}`,
+        result: {
+          ...result,
+          details: {
+            ...result.details,
+            collectionDisplayName: collection.displayName,
+          },
+        },
+        title: `Connector Details: ${displayLabel}`,
       });
       return;
     }
 
-    const collectionConfig = { ...config, collectionId: collectionId };
     try {
-      const connector = await api.getDataConnector(collectionConfig);
-      const unvalidatedResult: ValidationResult = {
-        status: "unvalidated",
-        message: "Not validated",
-        dataConnector: connector,
-        details: {
-          summary: "Not validated",
-          connectorState: connector,
-          diagnostics: { steps: [], warnings: [], errors: [] },
-        },
+      const diagResult = await runConnectorDiagnostics(
+        collection,
+        config,
+        scanDurationHours
+      );
+      const enrichedDetails =
+        diagResult.details && typeof diagResult.details === "object"
+          ? {
+              ...diagResult.details,
+              collectionDisplayName: collection.displayName,
+            }
+          : diagResult.details;
+      const enrichedResult: ValidationResult = {
+        ...diagResult,
+        details: enrichedDetails,
       };
+      setValidationResults((prev) => ({
+        ...prev,
+        [collection.name]: enrichedResult,
+      }));
       setSelectedResult({
-        result: unvalidatedResult,
-        title: `Connector Details: ${collectionId}`,
+        result: enrichedResult,
+        title: `Connector Details: ${displayLabel}`,
       });
     } catch (err: unknown) {
-      console.error("Failed to fetch connector config:", err);
-      setError(toErrorMessage(err, "Failed to fetch connector configuration."));
+      const collectionConfig = { ...config, collectionId: collectionId };
+      try {
+        const connector = await api.getDataConnector(collectionConfig);
+        const unvalidatedResult: ValidationResult = {
+          status: "unvalidated",
+          message: "Not validated",
+          dataConnector: connector,
+          details: {
+            summary: "Not validated",
+            connectorState: connector,
+            collectionDisplayName: collection.displayName,
+            diagnostics: { steps: [], warnings: [], errors: [] },
+          },
+        };
+        setValidationResults((prev) => ({
+          ...prev,
+          [collection.name]: unvalidatedResult,
+        }));
+        setSelectedResult({
+          result: unvalidatedResult,
+          title: `Connector Details: ${displayLabel}`,
+        });
+      } catch (fallbackErr: unknown) {
+        console.error("Failed to fetch connector config:", fallbackErr);
+        setError(toErrorMessage(err, "Failed to fetch connector configuration."));
+      }
     }
   };
 

@@ -58,9 +58,9 @@ export const ChatHistoryViewer: React.FC<ChatHistoryViewerProps> = ({ config }) 
   } = useChatHistory(config);
 
   return (
-    <div className="bg-gray-800 rounded-lg shadow-xl border border-gray-700 h-[650px] flex overflow-hidden relative">
+    <div className="bg-gray-800 rounded-lg shadow-xl border border-gray-700 h-[min(650px,calc(100vh-12rem))] min-h-[420px] flex overflow-hidden relative">
       {/* Left Sidebar: Session List & Filters */}
-      <div className="w-80 flex flex-col border-r border-gray-700 bg-gray-900/40 flex-shrink-0">
+      <div className="w-64 xl:w-80 flex flex-col border-r border-gray-700 bg-gray-900/40 flex-shrink-0">
         <div className="p-4 border-b border-gray-700 bg-gray-900/50 space-y-3">
           <div className="flex justify-between items-center">
             <h3 className="text-sm font-bold text-white uppercase tracking-wider">Sessions</h3>
@@ -179,31 +179,31 @@ export const ChatHistoryViewer: React.FC<ChatHistoryViewerProps> = ({ config }) 
       </div>
 
       {/* Right Main: Transcript */}
-      <div className="flex-1 flex flex-col bg-gray-900 relative">
+      <div className="flex-1 min-w-0 flex flex-col bg-gray-900 relative">
         {selectedSessionId ? (
           <>
             {/* Session Header */}
-            <div className="h-14 px-4 border-b border-gray-700 flex justify-between items-center bg-gray-800/40 shrink-0">
-              <div>
-                <div className="text-sm font-bold text-white flex items-center gap-2">
+            <div className="min-h-[3.5rem] py-2 px-4 border-b border-gray-700 flex flex-wrap justify-between items-center gap-2 bg-gray-800/40 shrink-0">
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-white flex items-center gap-2 truncate">
                   {selectedSessionDetails?.userPseudoId || 'Loading...'}
                   <span className="text-gray-500 font-normal">in</span>
-                  <span className="text-blue-300">{config.appId}</span>
+                  <span className="text-blue-300 truncate">{config.appId}</span>
                 </div>
-                <div className="text-[10px] text-gray-500 font-mono">{selectedSessionId}</div>
+                <div className="text-[10px] text-gray-500 font-mono truncate">{selectedSessionId}</div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3 shrink-0">
                 <button
                   onClick={enableAutoLoad}
                   disabled={autoLoadSession.has(selectedSessionId)}
-                  className="text-xs text-blue-400 font-medium hover:text-blue-300 transition-colors disabled:opacity-50"
+                  className="text-xs text-blue-400 font-medium hover:text-blue-300 transition-colors disabled:opacity-50 whitespace-nowrap"
                 >
                   {autoLoadSession.has(selectedSessionId) ? 'Auto-Loading' : 'Load All Content'}
                 </button>
                 <button
                   onClick={handleCloneSession}
                   disabled={isDetailLoading}
-                  className="text-xs text-green-400 font-medium hover:text-green-300 transition-colors disabled:opacity-50 flex items-center gap-1"
+                  className="text-xs text-green-400 font-medium hover:text-green-300 transition-colors disabled:opacity-50 flex items-center gap-1 whitespace-nowrap"
                   title="Clone this session to a new one"
                 >
                   <svg

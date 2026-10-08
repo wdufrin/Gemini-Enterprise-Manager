@@ -87,8 +87,8 @@ export const SanitizationAuditTab: React.FC<SanitizationAuditTabProps> = ({
 }) => {
   return (
     <>
-      <div className="flex flex-col md:flex-row gap-4 items-end">
-        <div className="flex-1 w-full">
+      <div className="flex flex-wrap gap-4 items-end">
+        <div className="flex-1 min-w-[240px]">
           <label className="block text-xs font-medium text-gray-400 mb-1">Search Filters</label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -104,7 +104,7 @@ export const SanitizationAuditTab: React.FC<SanitizationAuditTabProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-4 w-full md:w-auto">
+        <div className="flex flex-wrap items-end gap-3 w-full md:w-auto">
           <div className="flex flex-col min-w-[140px]">
             <label htmlFor="ma-time-range" className="block text-xs font-medium text-gray-400 mb-1">Time Range</label>
             <select
@@ -121,22 +121,22 @@ export const SanitizationAuditTab: React.FC<SanitizationAuditTabProps> = ({
             </select>
           </div>
 
-          <div className="flex items-center h-[38px] mt-auto">
-            <label className="flex items-center cursor-pointer gap-2 px-3 py-2 bg-gray-700/50 rounded-md border border-gray-600 hover:bg-gray-700 transition-colors h-full">
+          <div className="flex items-center h-[38px] shrink-0">
+            <label className="flex items-center cursor-pointer gap-2 px-3 py-2 bg-gray-700/50 rounded-md border border-gray-600 hover:bg-gray-700 transition-colors h-full whitespace-nowrap">
               <input
                 type="checkbox"
                 checked={filterBlockedOnly}
                 onChange={() => setFilterBlockedOnly(!filterBlockedOnly)}
                 className="w-4 h-4 rounded border-gray-500 text-blue-600 focus:ring-blue-500 bg-gray-800"
               />
-              <span className="text-sm text-gray-300 select-none">Blocked Only</span>
+              <span className="text-sm text-gray-300 select-none whitespace-nowrap">Blocked Only</span>
             </label>
           </div>
 
           <button
             onClick={handleFetchLogs}
             disabled={isLoading || !projectNumber}
-            className="px-6 py-2 bg-blue-600 text-white text-sm font-bold rounded-md hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed shadow-lg transition-all h-[38px] flex items-center justify-center min-w-[100px]"
+            className="px-6 py-2 bg-blue-600 text-white text-sm font-bold rounded-md hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed shadow-lg transition-all h-[38px] flex items-center justify-center min-w-[100px] whitespace-nowrap shrink-0"
           >
             {isLoading ? (
               <div className="w-4 h-4 border-2 border-white/50 border-t-white rounded-full animate-spin" />

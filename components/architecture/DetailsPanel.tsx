@@ -166,7 +166,7 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
     }
 
     return (
-        <div className="absolute right-4 top-20 w-96 bg-gray-800/95 backdrop-blur-sm rounded-xl shadow-2xl border border-gray-700 flex flex-col z-20 max-h-[calc(100%-6rem)] animate-fade-in-up overflow-hidden">
+        <div className="absolute right-4 top-20 w-72 lg:w-80 xl:w-96 max-w-[calc(100%-2rem)] bg-gray-800/95 backdrop-blur-sm rounded-xl shadow-2xl border border-gray-700 flex flex-col z-20 max-h-[calc(100%-6rem)] animate-fade-in-up overflow-hidden">
             <header className="p-4 border-b border-gray-700 flex justify-between items-start bg-gray-900/80 rounded-t-xl shrink-0">
                 <div>
                     <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide">{node.type}</p>

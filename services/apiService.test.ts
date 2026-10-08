@@ -486,7 +486,7 @@ describe('apiService', () => {
       expect(filter).toContain('resource.type="vertex_ai_search_connector"');
       expect(filter).toContain('resource.type="cloud_run_revision"');
       expect(filter).toContain('resource.labels.service_name="oracle-mcp-server"');
-      expect(filter).toContain('severity>=WARNING OR httpRequest.status>=400');
+      expect(filter).toContain('severity>=ERROR OR httpRequest.status>=500');
     });
 
     it('should include cloud_run_revision logs for new Cloud Run URL format (with hash and region)', async () => {
@@ -513,7 +513,7 @@ describe('apiService', () => {
       expect(filter).toContain('resource.type="vertex_ai_search_connector"');
       expect(filter).toContain('resource.type="cloud_run_revision"');
       expect(filter).toContain('resource.labels.service_name="multi-mcp"');
-      expect(filter).toContain('severity>=WARNING OR httpRequest.status>=400');
+      expect(filter).toContain('severity>=ERROR OR httpRequest.status>=500');
     });
   });
 

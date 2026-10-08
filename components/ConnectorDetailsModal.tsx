@@ -21,7 +21,11 @@ import ConnectorFiltersTab, { countFilterRules } from './connectors/ConnectorFil
 import BYOMCPConfigTab from './connectors/BYOMCPConfigTab';
 import * as api from '../services/apiService';
 import { Config, DataConnector, Operation, LogEntry } from '../types';
-import { DiagnosticStep, ConnectorDiagnosticsDetails } from './connectors/connectorDiagnostics';
+import {
+  DiagnosticStep,
+  ConnectorDiagnosticsDetails,
+  deriveConnectorRemediation,
+} from './connectors/connectorDiagnostics';
 import { toErrorMessage } from '../utils/errors';
 
 interface ConnectorDetailsModalProps {
@@ -148,34 +152,6 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
 
   if (!isOpen) return null;
 
-
-
-  const getRecommendation = (diagData: ConnectorDiagnosticsDetails | Record<string, unknown>): { title: string, message: string } | null => {
-    const logs = (diagData as Record<string, unknown>).recentLogs || [];
-    const state = connector || (diagData as Record<string, unknown>).connectorState || {};
-    const allText = JSON.stringify(logs) + JSON.stringify(state);
-
-    if (allText.includes('JIRA_INVALID_AUTH_2') || allText.includes('JIRA_INVALID_AUTH')) {
-      return {
-        title: 'Jira Authentication Error',
-        message: 'Verify your Jira API Token. Ensure it is valid and has "read:jira-work" and "read:jira-user" scopes. Check if the user has browsing permissions for the project.'
-      };
-    }
-    if (allText.includes('FORBIDDEN') || allText.includes('403') || allText.includes('PERMISSION_DENIED')) {
-      return {
-        title: 'Access Denied (403)',
-        message: 'The connector lacks permission to access the resource. Check Service Account permissions or 3rd party credentials.'
-      };
-    }
-    if (allText.includes('NOT_FOUND') || allText.includes('404')) {
-      return {
-        title: 'Resource Not Found (404)',
-        message: 'The requested resource (Project, Issue, etc.) could not be found. Check valid IDs and URL configurations.'
-      };
-    }
-    return null;
-  };
-
   const renderContent = () => {
     if (typeof data === 'string') {
       return <div className="whitespace-pre-wrap text-gray-300 font-mono text-sm">{data}</div>;
@@ -188,7 +164,10 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
       const errors = data.diagnostics.errors || [];
       const rawOps = data.rawOperations;
       const connectorState: DataConnector = (connector || data.connectorState || {}) as DataConnector;
-      const recommendation = getRecommendation(data);
+      const recommendation = deriveConnectorRemediation(
+        { ...data, connectorState },
+        connectorState?.dataSource
+      );
 
       const incRules = countFilterRules(connectorState?.params?.structured_search_filter || connectorState?.params?.admin_filter || {});
       const excRules = countFilterRules(connectorState?.params?.structured_exclusion_search_filter || connectorState?.params?.admin_exclusion_filter || {});
@@ -278,12 +257,35 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                 </div>
 
                 {recommendation && (
-                  <div className="mt-3 bg-blue-900/30 border border-blue-700/50 p-3 rounded flex items-start">
-                    <svg className="w-5 h-5 text-blue-400 mr-2 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    <div>
-                      <div className="text-sm font-bold text-blue-300">{recommendation.title}</div>
-                      <div className="text-xs text-blue-200 mt-1">{recommendation.message}</div>
+                  <div className="mt-3 bg-blue-900/30 border border-blue-700/50 p-3 rounded space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start">
+                        <svg className="w-5 h-5 text-blue-400 mr-2 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-blue-300">{recommendation.title}</span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-950/90 text-blue-200 border border-blue-700/70">
+                              Fix in: {recommendation.targetSurface}
+                            </span>
+                          </div>
+                          <div className="text-xs text-blue-200 mt-1">{recommendation.message}</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('verification')}
+                        className="px-2.5 py-1 bg-blue-600/80 hover:bg-blue-600 text-white text-xs font-semibold rounded shrink-0 transition-colors"
+                      >
+                        Open Checklist &rarr;
+                      </button>
                     </div>
+                    {recommendation.steps && recommendation.steps.length > 0 && (
+                      <ol className="list-decimal pl-7 space-y-1 text-xs text-blue-100/90">
+                        {recommendation.steps.map((step, sIdx) => (
+                          <li key={sIdx}>{step}</li>
+                        ))}
+                      </ol>
+                    )}
                   </div>
                 )}
 
@@ -332,16 +334,16 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
 
                 {connectorState?.dataSource === 'custom_mcp' && (
                   <div className="mt-4 border-t border-gray-700/60 pt-4 flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="text-xs text-gray-400 font-medium">
                         BYOMCP Server Actions:
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           onClick={() => setActiveTab('config')}
-                          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded transition-colors flex items-center gap-1.5 shadow"
+                          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded transition-colors flex items-center gap-1.5 shadow whitespace-nowrap shrink-0"
                         >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                           </svg>
@@ -350,16 +352,16 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                         <button
                           onClick={handleRefreshMcpTools}
                           disabled={isRefreshingTools}
-                          className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 transition-colors flex items-center gap-1.5 shadow"
+                          className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 transition-colors flex items-center gap-1.5 shadow whitespace-nowrap shrink-0"
                         >
                           {isRefreshingTools ? (
                             <>
-                              <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                              <svg className="animate-spin h-3.5 w-3.5 text-white shrink-0" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                               Refreshing Tools...
                             </>
                           ) : (
                             <>
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3m-3-3v12" /></svg>
+                              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3m-3-3v12" /></svg>
                               Refresh Tools from MCP
                             </>
                           )}
@@ -417,7 +419,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
               {/* Steps Table */}
               <div>
                 <h3 className="text-sm font-bold text-gray-300 mb-2 uppercase tracking-wider">Diagnostic Steps</h3>
-                <div className="overflow-hidden rounded-lg border border-gray-700">
+                <div className="overflow-x-auto rounded-lg border border-gray-700">
                   <table className="min-w-full divide-y divide-gray-700">
                     <thead className="bg-gray-800">
                       <tr>
@@ -673,7 +675,15 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
             </div>
           ) : activeTab === 'verification' ? (
             <div className="space-y-6 animate-fadeIn">
-              <ConnectorVerificationTab connector={data && typeof data === 'object' ? { ...data, title } : data} config={config} activeVendors={activeVendors} />
+              <ConnectorVerificationTab
+                connector={
+                  data && typeof data === 'object'
+                    ? { ...data, connectorState, title }
+                    : data
+                }
+                config={config}
+                activeVendors={activeVendors}
+              />
             </div>
           ) : activeTab === 'filters' ? (
             <div className="space-y-6 animate-fadeIn">
