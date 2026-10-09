@@ -70,14 +70,20 @@ export function useVanityUrlDeployment(
   // Existing Redirect Domains States
   const [existingDomains, setExistingDomains] = useState<string[]>([]);
   const [selectedDomainOption, setSelectedDomainOption] = useState<string>('new');
+  const [discoveryWarnings, setDiscoveryWarnings] = useState<string[]>([]);
+
+  const appendDiscoveryWarning = (msg: string) => {
+    setDiscoveryWarnings((prev) => (prev.includes(msg) ? prev : [...prev, msg]));
+  };
+  const clearDiscoveryWarnings = () => setDiscoveryWarnings([]);
 
   useEffect(() => {
     const resolveProject = async () => {
       try {
         const p = await api.getProject(projectNumber);
-        if (p.projectId) setProjectId(p.projectId);
-      } catch (e) {
-        console.warn('Could not resolve Project ID string');
+        if (p?.projectId) setProjectId(p.projectId);
+      } catch (e: any) {
+        console.warn('Could not resolve Project ID string', e);
       }
     };
     resolveProject();
@@ -88,12 +94,22 @@ export function useVanityUrlDeployment(
       if (!projectId) return;
       try {
         const [fwdRes, certRes] = await Promise.all([
-          api.listGlobalForwardingRules(projectId).catch(() => ({ items: [] })),
-          api.listManagedSslCertificates(projectId).catch(() => ({ items: [] })),
+          api.listGlobalForwardingRules(projectId).catch((err: any) => {
+            appendDiscoveryWarning(
+              `Global Forwarding Rules discovery failed: ${err?.message || String(err)}`
+            );
+            return { items: [] };
+          }),
+          api.listManagedSslCertificates(projectId).catch((err: any) => {
+            appendDiscoveryWarning(
+              `Managed SSL Certificates discovery failed: ${err?.message || String(err)}`
+            );
+            return { items: [] };
+          }),
         ]);
 
-        const rules = fwdRes.items || [];
-        const certs = certRes.items || [];
+        const rules = (fwdRes || {}).items || [];
+        const certs = (certRes || {}).items || [];
 
         const rawEngineId = engine.name.split('/').pop() || '';
         const cleanEngineId = rawEngineId.replace(/[^a-z0-9-]/g, '').toLowerCase();
@@ -123,8 +139,9 @@ export function useVanityUrlDeployment(
           setSelectedDomainOption('new');
           setCustomDomain('');
         }
-      } catch (e) {
+      } catch (e: any) {
         console.warn('Could not load existing redirects', e);
+        appendDiscoveryWarning(`Redirect discovery failed: ${e?.message || String(e)}`);
       }
     };
     fetchExistingRedirects();
@@ -134,8 +151,13 @@ export function useVanityUrlDeployment(
     const fetchNetworksAndSubnets = async () => {
       if (!projectId) return;
       try {
-        const netRes = await api.listVpcNetworks(projectId).catch(() => ({ items: [] }));
-        const networks = (netRes.items || []).map((n: any) => n.name);
+        const netRes = await api.listVpcNetworks(projectId).catch((err: any) => {
+          appendDiscoveryWarning(
+            `VPC Networks discovery failed: ${err?.message || String(err)}`
+          );
+          return { items: [] };
+        });
+        const networks = ((netRes || {}).items || []).map((n: any) => n.name);
         setNetworksList(networks);
 
         let targetNetwork = 'default';
@@ -152,8 +174,13 @@ export function useVanityUrlDeployment(
         }
 
         const activeRegion = config.appLocation === 'global' ? 'us-central1' : config.appLocation;
-        const subRes = await api.listVpcSubnets(projectId, activeRegion).catch(() => ({ items: [] }));
-        const subnets = (subRes.items || [])
+        const subRes = await api.listVpcSubnets(projectId, activeRegion).catch((err: any) => {
+          appendDiscoveryWarning(
+            `VPC Subnets discovery failed (${activeRegion}): ${err?.message || String(err)}`
+          );
+          return { items: [] };
+        });
+        const subnets = ((subRes || {}).items || [])
           .filter((s: any) => !s.network || String(s.network).endsWith(`/networks/${targetNetwork}`) || s.network === targetNetwork)
           .map((s: any) => s.name);
         setSubnetsList(subnets);
@@ -167,8 +194,9 @@ export function useVanityUrlDeployment(
         } else {
           setSelectedSubnetOption('custom');
         }
-      } catch (e) {
+      } catch (e: any) {
         console.warn('Could not load VPC networks or subnets', e);
+        appendDiscoveryWarning(`VPC discovery failed: ${e?.message || String(e)}`);
       }
     };
     fetchNetworksAndSubnets();
@@ -354,6 +382,9 @@ export function useVanityUrlDeployment(
     existingDomains,
     selectedDomainOption,
     setSelectedDomainOption,
+    discoveryWarnings,
+    clearDiscoveryWarnings,
     handleDeploy,
   };
 }
+

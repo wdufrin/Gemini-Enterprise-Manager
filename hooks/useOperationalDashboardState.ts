@@ -22,6 +22,7 @@ import {
     getEmptyViewDdl
 } from '../components/dashboard/operational/analyticsData';
 import { runBigQueryQuery, gapiRequest, BigQueryQueryResponse } from '../services/apiService';
+import { toErrorMessage } from '../utils/errors';
 
 interface BigQueryTableRow {
     f?: Array<{ v?: unknown }>;
@@ -344,9 +345,11 @@ export function useOperationalDashboardState({
                 setViewRows((prev) => ({ ...prev, [viewId]: rows }));
             } catch (err) {
                 console.warn(`[OperationalAnalytics] Could not fetch rows for ${viewId}:`, err);
+                const errMsg = toErrorMessage(err);
+                brokenViewsRef.current.set(viewId, errMsg);
                 setBrokenViews((prev) => {
                     const next = new Map(prev);
-                    next.set(viewId, toErrorMessage(err));
+                    next.set(viewId, errMsg);
                     return next;
                 });
                 setViewRows((prev) => ({ ...prev, [viewId]: [] }));

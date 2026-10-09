@@ -254,14 +254,44 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
       </div>
 
       {/* Error Display */}
-      {error && (
-        <div className="p-4 bg-red-900/40 border border-red-700 text-red-300 text-xs rounded-lg flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={fetchSkills} className="underline hover:text-white font-semibold">
-            Retry
-          </button>
-        </div>
-      )}
+      {error && (() => {
+        const isApiNotEnabledOrPerm =
+          /403|404|SERVICE_DISABLED|has not been used|PERMISSION_DENIED/i.test(error);
+        return (
+          <div
+            role="alert"
+            data-testid="skills-registry-error-banner"
+            className={`p-4 rounded-lg border text-xs space-y-2 ${
+              isApiNotEnabledOrPerm
+                ? 'bg-amber-950/40 border-amber-700/80 text-amber-200'
+                : 'bg-red-900/40 border-red-700 text-red-200'
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-bold text-sm flex items-center gap-2">
+                <span>
+                  {isApiNotEnabledOrPerm
+                    ? '⚠️ Cloud Agent Registry API Prerequisite / Permission Notice'
+                    : '❌ Failed to Load Enterprise Skills from Cloud Agent Registry'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={fetchSkills}
+                className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 text-white font-semibold border border-gray-600 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+            <p className="font-mono text-[11px] break-all opacity-90">{error}</p>
+            <p className="text-gray-300 leading-relaxed">
+              {isApiNotEnabledOrPerm
+                ? `Ensure the Cloud Agent Registry API (agentregistry.googleapis.com/v1alpha) is enabled in project "${currentConfig.projectId}" and your account holds roles/agentregistry.viewer or roles/agentregistry.admin. Run: gcloud services enable agentregistry.googleapis.com --project=${currentConfig.projectId}`
+                : `The live request to agentregistry.googleapis.com/v1alpha in region "${selectedLocation}" returned an unexpected backend error. Verify network connectivity or switch regions (Global / US / EU) and click Retry.`}
+            </p>
+          </div>
+        );
+      })()}
 
       {/* Skills Table */}
       {isLoading ? (

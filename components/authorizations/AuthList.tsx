@@ -58,7 +58,32 @@ const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, o
         </div>
       </div>
       {authorizations.length === 0 && !isScanningAgents ? (
-        <p className="text-gray-400 p-6 text-center">No authorizations found for the provided project number.</p>
+        <div
+          data-testid="auth-empty-state"
+          className="p-8 text-center bg-gray-800/60 border-t border-gray-700"
+        >
+          <div className="mx-auto w-12 h-12 rounded-xl bg-blue-900/30 border border-blue-700/50 flex items-center justify-center text-blue-400 mb-3">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            </svg>
+          </div>
+          <h3 className="text-base font-bold text-white">
+            No authorizations found for the provided project number.
+          </h3>
+          <p className="text-xs text-gray-400 max-w-xl mx-auto mt-2 leading-relaxed">
+            Discovery Engine <code className="text-blue-300 font-mono">serverSideOauth2</code> resources store OAuth 2.0 client credentials (Client ID, Authorization URI, and Token URI) so ADK agents and tools can securely request delegated end-user tokens for third-party APIs (Jira, ServiceNow, Salesforce, Microsoft Entra ID).
+          </p>
+          <div className="mt-4">
+            <button
+              type="button"
+              data-testid="auth-empty-create-cta"
+              onClick={onCreateNew}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors cursor-pointer"
+            >
+              <span>+ Register First OAuth Authorization</span>
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-700">
@@ -78,14 +103,16 @@ const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, o
             </thead>
             <tbody className="bg-gray-800 divide-y divide-gray-700">
               {authorizations.map((auth) => {
-                const authId = auth.name.split('/').pop() || '';
-                const location = auth.name.match(/locations\/([a-zA-Z0-9-]+)\//)?.[1] || 'unknown';
-                const usingAgents = authUsage[auth.name] || [];
-                const isSelected = selectedIds.has(auth.name);
+                const authName = auth?.name || '';
+                const authId = authName.split('/').pop() || '';
+                const location = authName.match(/locations\/([a-zA-Z0-9-]+)\//)?.[1] || 'global';
+                const usingAgents = authUsage[authName] || [];
+                const isSelected = selectedIds.has(authName);
+                const oauth2 = auth?.serverSideOauth2 || ({} as NonNullable<Authorization['serverSideOauth2']>);
                 return (
-                  <tr key={auth.name} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
+                  <tr key={authName} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
                     <td className="px-6 py-4">
-                      <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(auth.name)} className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600" />
+                      <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(authName)} className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600" />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white font-mono">{authId}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-mono">
@@ -93,7 +120,7 @@ const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, o
                         {location}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-mono">{auth.serverSideOauth2?.clientId || 'N/A'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-mono">{oauth2.clientId || 'N/A'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                       {isScanningAgents ? (
                         <div className="flex items-center">

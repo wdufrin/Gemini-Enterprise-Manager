@@ -735,7 +735,13 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
         setDataStoresError(null);
         setAccessibleDataStores(null);
         try {
-            const viewData = await api.getAgentView(currentAgent.name, config).catch(() => null);
+            let viewData: any = null;
+            let viewFetchError: string | null = null;
+            try {
+                viewData = await api.getAgentView(currentAgent.name, config);
+            } catch (viewErr: unknown) {
+                viewFetchError = toErrorMessage(viewErr);
+            }
 
             const findDataStoreIds = (obj: unknown): string[] => {
                 let ids: string[] = [];
@@ -758,7 +764,13 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
             const dataStoreIds = [...new Set(findDataStoreIds(viewData))];
 
             if (dataStoreIds.length === 0) {
-                setAccessibleDataStores([]);
+                if (viewFetchError) {
+                    setDataStoresError(
+                        `Failed to inspect runtime AgentView (:getView) for linked data stores: ${viewFetchError}`
+                    );
+                } else {
+                    setAccessibleDataStores([]);
+                }
                 return;
             }
 

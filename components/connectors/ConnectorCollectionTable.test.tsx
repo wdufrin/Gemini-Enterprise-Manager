@@ -103,4 +103,21 @@ describe('ConnectorCollectionTable', () => {
     fireEvent.change(searchInput, { target: { value: 'nonexistent_collection_xyz' } });
     expect(screen.getByText('No collections match your filter criteria.')).toBeTruthy();
   });
+
+  it('renders Unverified (API Warning) instead of None for custom collections when associationWarning is present', () => {
+    const props = createProps();
+    render(
+      <ConnectorCollectionTable
+        {...props}
+        associationWarning="Could not verify Associated Apps for collections: Engines lookup failed (403 Forbidden)."
+      />
+    );
+
+    // Confluence KB has no matched apps and is not default_collection -> should render Unverified (API Warning)
+    const unverifiedBadge = screen.getByTestId('connector-assoc-unverified-confluence-kb');
+    expect(unverifiedBadge.textContent).toContain('Unverified (API Warning)');
+
+    // default_collection still renders None when empty
+    expect(screen.getByText('None')).toBeTruthy();
+  });
 });

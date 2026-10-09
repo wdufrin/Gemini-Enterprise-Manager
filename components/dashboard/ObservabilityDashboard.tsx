@@ -21,6 +21,7 @@ export interface AgentDataItem {
     name: string;
     count: number;
     id?: string;
+    avgLatency?: number;
 }
 
 interface Props {
@@ -45,6 +46,7 @@ interface Props {
     timeRange: number;
     setTimeRange: (range: number) => void;
     isLoading?: boolean;
+    onPreviewModeChange?: (isPreview: boolean) => void;
 }
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
@@ -133,10 +135,16 @@ const ObservabilityDashboard: React.FC<Props> = ({
     timeRange,
     setTimeRange,
     isLoading = false,
+    onPreviewModeChange,
 }) => {
     const [forceMockPreview, setForceMockPreview] = useState(false);
 
-    // Mock data for Request Volume over time (fallback)
+    const togglePreviewMode = (nextValue: boolean) => {
+        setForceMockPreview(nextValue);
+        onPreviewModeChange?.(nextValue);
+    };
+
+    // Sample data used ONLY when forceMockPreview === true (explicit opt-in)
     const defaultVolumeData = useMemo(() => [
         { time: '00:00', requests: 2 },
         { time: '04:00', requests: 1 },
@@ -148,7 +156,6 @@ const ObservabilityDashboard: React.FC<Props> = ({
         { time: '24:00', requests: 1 },
     ], []);
 
-    // Mock data for Latency by Agent (fallback)
     const defaultLatencyData = useMemo(() => [
         { name: 'core_assistant', p50: 850, p95: 2450 },
         { name: 'support_agent', p50: 620, p95: 1800 },
@@ -156,44 +163,76 @@ const ObservabilityDashboard: React.FC<Props> = ({
         { name: 'routing_agent', p50: 320, p95: 900 },
     ], []);
 
+    const defaultSampleAgents = useMemo(() => [
+        { name: 'core_assistant', id: 'core_assistant', count: 351 },
+        { name: 'support_agent', id: 'support_agent', count: 124 },
+        { name: 'search_agent', id: 'search_agent', count: 85 },
+        { name: 'routing_agent', id: 'routing_agent', count: 42 },
+    ], []);
+
     const hasLiveResponse = Boolean(customData) && !forceMockPreview;
     const isLiveZero =
         Boolean(customData) &&
+        !forceMockPreview &&
         (customData?.totalRequests ?? 0) === 0 &&
-        (customData?.volumeData?.length ?? 0) === 0;
+        (customData?.volumeData?.length ?? 0) === 0 &&
+        (customData?.agentData?.length ?? 0) === 0;
+    const isUnconfiguredOrEmpty = (!hasLiveResponse || isLiveZero) && !forceMockPreview;
 
-    const volumeData = hasLiveResponse ? (customData?.volumeData || []) : defaultVolumeData;
+    const volumeData = hasLiveResponse
+        ? (customData?.volumeData || [])
+        : forceMockPreview
+            ? defaultVolumeData
+            : [];
     const isVolumeLive = hasLiveResponse;
 
     const roleData = useMemo(() => {
-        return hasLiveResponse ? (customData?.roleData || []) : null;
+        return hasLiveResponse ? (customData?.roleData || []) : [];
     }, [customData?.roleData, hasLiveResponse]);
 
     const agentData = useMemo(() => {
-        return hasLiveResponse ? (customData?.agentData || []) : null;
-    }, [customData?.agentData, hasLiveResponse]);
+        if (hasLiveResponse) return customData?.agentData || [];
+        if (forceMockPreview) return defaultSampleAgents;
+        return [];
+    }, [customData?.agentData, hasLiveResponse, forceMockPreview, defaultSampleAgents]);
     const isAgentLive = hasLiveResponse;
 
-    const totalRequests = hasLiveResponse && customData?.totalRequests !== undefined
-        ? customData.totalRequests
-        : (roleData && roleData.length > 0
-            ? roleData.reduce((acc, curr) => acc + curr.value, 0)
-            : (volumeData.length > 0 ? volumeData.reduce((acc, curr) => acc + curr.requests, 0) : 0));
+    const totalRequests = hasLiveResponse
+        ? (customData?.totalRequests !== undefined
+            ? customData.totalRequests
+            : (roleData.length > 0
+                ? roleData.reduce((acc, curr) => acc + curr.value, 0)
+                : (volumeData.length > 0 ? volumeData.reduce((acc, curr) => acc + curr.requests, 0) : 0)))
+        : forceMockPreview
+            ? defaultVolumeData.reduce((acc, curr) => acc + curr.requests, 0)
+            : 0;
 
-    const usedAgentsCount = hasLiveResponse && customData?.uniqueAgents !== undefined
-        ? customData.uniqueAgents
-        : (agentData ? agentData.length : defaultLatencyData.length);
-    
-    const uniqueUsers = hasLiveResponse && customData?.uniqueUsers !== undefined ? customData.uniqueUsers : undefined;
-    const isUsersLive = hasLiveResponse && uniqueUsers !== undefined;
-    const totalSessions = hasLiveResponse && customData?.totalSessions !== undefined ? customData.totalSessions : undefined;
+    const usedAgentsCount = hasLiveResponse
+        ? (customData?.uniqueAgents !== undefined ? customData.uniqueAgents : agentData.length)
+        : forceMockPreview
+            ? defaultLatencyData.length
+            : 0;
+
+    const uniqueUsers = hasLiveResponse
+        ? (customData?.uniqueUsers ?? 0)
+        : forceMockPreview
+            ? 2
+            : 0;
+    const isUsersLive = hasLiveResponse && customData?.uniqueUsers !== undefined;
+    const totalSessions = hasLiveResponse ? customData?.totalSessions : undefined;
     const isSessionsLive = hasLiveResponse && totalSessions !== undefined;
+
+    const avgMessagesPerSession = isSessionsLive && customData?.totalRequests !== undefined && totalSessions !== undefined && totalSessions > 0
+        ? (totalRequests / totalSessions).toFixed(1)
+        : forceMockPreview
+            ? '5.2'
+            : '0.0';
 
     const queries = customData?.queries;
 
     // Top 10 agents for the bar chart visualization
     const topAgentChartData = useMemo(() => {
-        if (!agentData) return null;
+        if (!hasLiveResponse || !agentData || agentData.length === 0) return null;
         return agentData.slice(0, 10).map((a: AgentDataItem) => {
             const truncatedName = a.name.length > 20 ? a.name.substring(0, 20) + '...' : a.name;
             return {
@@ -201,10 +240,72 @@ const ObservabilityDashboard: React.FC<Props> = ({
                 count: a.count
             };
         });
-    }, [agentData]);
+    }, [agentData, hasLiveResponse]);
 
     return (
         <div className="space-y-6">
+            {/* Opt-In Simulated Preview Mode Banner */}
+            {forceMockPreview && (
+                <div
+                    role="region"
+                    aria-label="Simulated Sample Preview Mode"
+                    data-testid="observability-simulated-banner"
+                    className="p-4 rounded-xl bg-amber-950/60 border border-amber-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                >
+                    <div className="flex items-start gap-3">
+                        <span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-amber-800 text-amber-100 shrink-0 mt-0.5">
+                            SIMULATED SAMPLE PREVIEW (OPT-IN)
+                        </span>
+                        <p className="text-xs text-amber-200/90 leading-relaxed">
+                            Displaying synthetic sample telemetry for layout demonstration only. These metrics are not from your live BigQuery dataset.
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        data-testid="observability-preview-exit"
+                        onClick={() => togglePreviewMode(false)}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-800 hover:bg-amber-700 text-white border border-amber-600 shrink-0 transition-colors"
+                    >
+                        Switch Back to Live Data
+                    </button>
+                </div>
+            )}
+
+            {/* Honest Empty / Unconnected / 0-Row State Banner when no customData or 0 rows and not in preview */}
+            {!isLoading && isUnconfiguredOrEmpty && (
+                <div
+                    data-testid="observability-empty-state"
+                    className="p-5 rounded-xl bg-gray-800/90 border border-gray-700 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                >
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="w-2.5 h-2.5 rounded-full bg-gray-500"></span>
+                            <h3 className="text-sm font-semibold text-white">
+                                Live BigQuery Telemetry Not Connected / 0 Rows Returned
+                            </h3>
+                            {isLiveZero && (
+                                <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-gray-900 text-amber-300 border border-gray-700">
+                                    No Live Telemetry Found in Current Window
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-xs text-gray-400 leading-relaxed max-w-3xl">
+                            No live BigQuery analytics payload is currently loaded. Verify that a Cloud Logging sink routes{' '}
+                            <code className="text-amber-300 font-mono">discoveryengine.googleapis.com/gemini_enterprise_user_activity</code>{' '}
+                            events to your BigQuery dataset, or opt in below to inspect a simulated sample layout.
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        data-testid="observability-preview-toggle"
+                        onClick={() => togglePreviewMode(true)}
+                        className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-gray-900 hover:bg-gray-700 text-amber-300 border border-amber-700/70 shrink-0 transition-colors"
+                    >
+                        Preview Sample Telemetry (Simulated)
+                    </button>
+                </div>
+            )}
+
             {/* Active Query Execution Banner */}
             {isLoading && (
                 <div
@@ -239,12 +340,18 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                 Dataset: <code className="text-green-400 font-mono font-semibold">{datasetId}</code>
                                 {isLoading
                                     ? ' (Querying BigQuery...)'
-                                    : hasLiveResponse
+                                    : hasLiveResponse && !isLiveZero
                                         ? ' (Using live data)'
-                                        : ' (Showing simulated fallback data)'}
+                                        : forceMockPreview
+                                            ? ' (Simulated sample preview — opt-in)'
+                                            : ' (Awaiting live query / 0 rows)'}
                             </p>
                         ) : (
-                            <p className="text-sm text-gray-400">No specific dataset identified. Showing example data.</p>
+                            <p className="text-sm text-gray-400">
+                                {forceMockPreview
+                                    ? 'No specific dataset identified. Showing opt-in simulated sample data.'
+                                    : 'No specific dataset identified. Connect a BigQuery sink dataset to query live logs.'}
+                            </p>
                         )}
                     </div>
                     <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-xs text-gray-400">
@@ -260,24 +367,15 @@ const ObservabilityDashboard: React.FC<Props> = ({
                     </div>
                 </div>
 
-                {/* Controls when live query returned 0 events in current window or fallback mode */}
-                {!isLoading && (isLiveZero || forceMockPreview) && (
+                {/* Controls when live query returned 0 events in current window */}
+                {!isLoading && isLiveZero && timeRange < 30 && !forceMockPreview && (
                     <div className="flex items-center gap-2 flex-wrap">
-                        {isLiveZero && timeRange < 30 && !forceMockPreview && (
-                            <button
-                                type="button"
-                                onClick={() => setTimeRange(30)}
-                                className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
-                            >
-                                Expand to 30 Days
-                            </button>
-                        )}
                         <button
                             type="button"
-                            onClick={() => setForceMockPreview((prev) => !prev)}
-                            className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-gray-900 hover:bg-gray-700 text-amber-300 border border-amber-700/60 transition-colors"
+                            onClick={() => setTimeRange(30)}
+                            className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
                         >
-                            {forceMockPreview ? 'Switch Back to Live Data' : 'Preview Simulated Data'}
+                            Expand to 30 Days
                         </button>
                     </div>
                 )}
@@ -285,9 +383,9 @@ const ObservabilityDashboard: React.FC<Props> = ({
 
             {/* Summary Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${hasLiveResponse || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
-                    {!hasLiveResponse && !isLoading && (
-                        <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${!forceMockPreview ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                    {forceMockPreview && !isLoading && (
+                        <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Simulated Preview</span>
                     )}
                     <div className="flex justify-between items-center mb-1">
                         <div className="flex items-center gap-1">
@@ -304,7 +402,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
                         </div>
                         {queries?.summaryQuery && <QueryTooltip query={queries.summaryQuery} />}
                     </div>
-                    <div className="text-3xl font-light text-white">
+                    <div className="text-3xl font-light text-white" data-testid="kpi-total-queries">
                         {isLoading ? (
                             <span className="text-base text-blue-300 animate-pulse font-mono">Querying...</span>
                         ) : (
@@ -313,9 +411,9 @@ const ObservabilityDashboard: React.FC<Props> = ({
                     </div>
                 </div>
 
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${isUsersLive || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
-                    {!isUsersLive && !isLoading && (
-                        <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${!forceMockPreview ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                    {forceMockPreview && !isLoading && (
+                        <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Simulated Preview</span>
                     )}
                     <div className="flex justify-between items-center mb-1">
                         <div className="flex items-center gap-1">
@@ -332,18 +430,18 @@ const ObservabilityDashboard: React.FC<Props> = ({
                         </div>
                         {queries?.userCountQuery && <QueryTooltip query={queries.userCountQuery} />}
                     </div>
-                    <div className={`text-3xl font-light ${isUsersLive ? 'text-green-400' : 'text-white'}`}>
+                    <div className={`text-3xl font-light ${isUsersLive ? 'text-green-400' : 'text-white'}`} data-testid="kpi-unique-users">
                         {isLoading ? (
                             <span className="text-base text-blue-300 animate-pulse font-mono">Querying...</span>
                         ) : (
-                            isUsersLive ? uniqueUsers : 2
+                            uniqueUsers
                         )}
                     </div>
                 </div>
 
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${(isSessionsLive && customData?.totalRequests !== undefined) || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
-                    {(!isSessionsLive || customData?.totalRequests === undefined) && !isLoading && (
-                        <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${!forceMockPreview ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                    {forceMockPreview && !isLoading && (
+                        <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Simulated Preview</span>
                     )}
                     <div className="flex justify-between items-center mb-1">
                         <div className="flex items-center gap-1">
@@ -362,18 +460,18 @@ const ObservabilityDashboard: React.FC<Props> = ({
                             <QueryTooltip query={`Derived Metric: Total Queries / Total Distinct Sessions\n\n-- Summary metrics query:\n${queries.summaryQuery}`} />
                         )}
                     </div>
-                    <div className="text-3xl font-light text-white">
+                    <div className="text-3xl font-light text-white" data-testid="kpi-avg-messages">
                         {isLoading ? (
                             <span className="text-base text-blue-300 animate-pulse font-mono">Querying...</span>
-                        ) : isSessionsLive && customData?.totalRequests !== undefined && totalSessions !== undefined && totalSessions > 0
-                            ? (totalRequests / totalSessions).toFixed(1)
-                            : (hasLiveResponse ? '0.0' : '5.2')}
+                        ) : (
+                            avgMessagesPerSession
+                        )}
                     </div>
                 </div>
 
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${hasLiveResponse || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
-                    {!hasLiveResponse && !isLoading && (
-                        <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${!forceMockPreview ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                    {forceMockPreview && !isLoading && (
+                        <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Simulated Preview</span>
                     )}
                     <div className="flex justify-between items-center mb-1">
                         <div className="flex items-center gap-1">
@@ -390,7 +488,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
                         </div>
                         {queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />}
                     </div>
-                    <div className={`text-3xl font-light ${hasLiveResponse ? 'text-green-400' : 'text-white'}`}>
+                    <div className={`text-3xl font-light ${hasLiveResponse ? 'text-green-400' : 'text-white'}`} data-testid="kpi-used-agents">
                         {isLoading ? (
                             <span className="text-base text-blue-300 animate-pulse font-mono">Querying...</span>
                         ) : (
@@ -404,10 +502,10 @@ const ObservabilityDashboard: React.FC<Props> = ({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 
                 {/* Request Volume Chart */}
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${isVolumeLive || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${!forceMockPreview ? 'border-gray-700' : 'border-yellow-700/50'}`}>
                     <div className="absolute top-2 right-2 flex items-center gap-2">
-                        {!isVolumeLive && !isLoading && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
+                        {forceMockPreview && !isLoading && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Simulated Preview</span>
                         )}
                         {queries?.volumeQuery && <QueryTooltip query={queries.volumeQuery} />}
                     </div>
@@ -428,7 +526,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                 <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-400"></div>
                                 <span className="text-xs font-mono">Running Request Volume query...</span>
                             </div>
-                        ) : isVolumeLive && volumeData.length === 0 ? (
+                        ) : volumeData.length === 0 ? (
                             <div className="flex flex-col items-center gap-2 text-center">
                                 <span className="text-sm text-gray-400">No request logs in this {timeRange}-day time range.</span>
                                 <div className="flex items-center gap-2 mt-1">
@@ -441,13 +539,6 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                             Try 30-Day Window
                                         </button>
                                     )}
-                                    <button
-                                        type="button"
-                                        onClick={() => setForceMockPreview(true)}
-                                        className="px-2.5 py-1 text-xs rounded bg-gray-800 hover:bg-gray-700 text-amber-300 border border-gray-700"
-                                        >
-                                        Show Simulated Data
-                                    </button>
                                 </div>
                             </div>
                         ) : (
@@ -468,10 +559,10 @@ const ObservabilityDashboard: React.FC<Props> = ({
                 </div>
 
                 {/* Agent Activity Table */}
-                <div className={`bg-gray-900 border rounded-lg p-4 relative ${isAgentLive || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                <div className={`bg-gray-900 border rounded-lg p-4 relative ${!forceMockPreview ? 'border-gray-700' : 'border-yellow-700/50'}`}>
                     <div className="absolute top-2 right-2 flex items-center gap-2">
-                        {!isAgentLive && !isLoading && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
+                        {forceMockPreview && !isLoading && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Simulated Preview</span>
                         )}
                         {queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />}
                     </div>
@@ -492,7 +583,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                 <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-400"></div>
                                 <span className="text-xs font-mono">Running Agent Activity query...</span>
                             </div>
-                        ) : isAgentLive && agentData && agentData.length === 0 ? (
+                        ) : agentData.length === 0 ? (
                             <div className="h-full flex justify-center items-center">
                                 <span className="text-sm text-gray-500">No agent logs in this time range.</span>
                             </div>
@@ -505,16 +596,11 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-800 text-sm text-gray-300">
-                                    {(agentData || [
-                                        { name: 'core_assistant', id: 'core_assistant', count: 351 },
-                                        { name: 'support_agent', id: 'support_agent', count: 124 },
-                                        { name: 'search_agent', id: 'search_agent', count: 85 },
-                                        { name: 'routing_agent', id: 'routing_agent', count: 42 }
-                                    ]).map((agent: any, idx: number) => (
+                                    {agentData.map((agent: any, idx: number) => (
                                         <tr key={idx} className="hover:bg-gray-800/40 transition-colors">
-                                            <td className="py-2.5 pl-2 max-w-[240px] truncate" title={`${agent.name} (${agent.id})`}>
+                                            <td className="py-2.5 pl-2 max-w-[240px] truncate" title={`${agent.name} (${agent.id || agent.name})`}>
                                                 <div className="font-medium text-white truncate">{agent.name}</div>
-                                                <div className="text-xs text-gray-500 truncate font-mono mt-0.5">{agent.id}</div>
+                                                <div className="text-xs text-gray-500 truncate font-mono mt-0.5">{agent.id || agent.name}</div>
                                             </td>
                                             <td className="py-2.5 text-right pr-2 font-mono text-green-400 font-semibold">
                                                 {agent.count.toLocaleString()}
@@ -528,16 +614,16 @@ const ObservabilityDashboard: React.FC<Props> = ({
                 </div>
 
                 {/* Agent Breakdown Chart */}
-                <div className={`bg-gray-900 border rounded-lg p-4 lg:col-span-2 relative ${isAgentLive || isLoading ? 'border-gray-700' : 'border-yellow-700/50'}`}>
+                <div className={`bg-gray-900 border rounded-lg p-4 lg:col-span-2 relative ${!forceMockPreview ? 'border-gray-700' : 'border-yellow-700/50'}`}>
                     <div className="absolute top-2 right-2 flex items-center gap-2">
-                        {!isAgentLive && !isLoading && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
+                        {forceMockPreview && !isLoading && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Simulated Preview</span>
                         )}
                         {queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />}
                     </div>
                     <div className="flex items-center gap-1.5 mb-4 px-2">
                         <h4 className="text-sm font-medium text-gray-300">
-                            {topAgentChartData ? 'Top Agents by Message Volume' : 'Agent Latency Sample (ms)'}
+                            {forceMockPreview ? 'Agent Latency Sample (ms)' : 'Top Agents by Message Volume'}
                         </h4>
                         <MetricInfoTooltip
                             title={CHARTS_METADATA.top_agents_chart.title}
@@ -554,11 +640,11 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                 <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-400"></div>
                                 <span className="text-xs font-mono">Aggregating per-agent telemetry...</span>
                             </div>
-                        ) : isAgentLive && agentData && agentData.length === 0 ? (
+                        ) : !forceMockPreview && (!topAgentChartData || topAgentChartData.length === 0) ? (
                             <span className="text-sm text-gray-500">No agent logs in this time range.</span>
                         ) : (
                             <ResponsiveContainer width="100%" height={256} minWidth={0}>
-                                {topAgentChartData ? (
+                                {topAgentChartData && !forceMockPreview ? (
                                     <BarChart data={topAgentChartData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                                         <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} tick={<CustomXAxisTick />} interval={0} height={60} />

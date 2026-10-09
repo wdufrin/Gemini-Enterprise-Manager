@@ -51,6 +51,7 @@ export const ProjectEngineSelector: React.FC<ProjectEngineSelectorProps> = ({
   const [apps, setApps] = useState<any[]>([]);
   const [isLoadingApps, setIsLoadingApps] = useState<boolean>(false);
   const [isCustomEngine, setIsCustomEngine] = useState<boolean>(false);
+  const [appsLoadError, setAppsLoadError] = useState<string | null>(null);
 
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -76,11 +77,13 @@ export const ProjectEngineSelector: React.FC<ProjectEngineSelectorProps> = ({
     const proj = value.project.trim();
     if (!proj) {
       setApps([]);
+      setAppsLoadError(null);
       return;
     }
     let isMounted = true;
     const fetchApps = async () => {
       setIsLoadingApps(true);
+      setAppsLoadError(null);
       try {
         const res = await api.listResources('engines', {
           projectId: proj,
@@ -93,6 +96,7 @@ export const ProjectEngineSelector: React.FC<ProjectEngineSelectorProps> = ({
         if (isMounted) {
           const engines = res?.engines || [];
           setApps(engines);
+          setAppsLoadError(null);
           if (engines.length > 0) {
             const currentEngine = valueRef.current.engine;
             const hasCurrent = engines.some((e: any) => e.name.split('/').pop() === currentEngine);
@@ -105,10 +109,12 @@ export const ProjectEngineSelector: React.FC<ProjectEngineSelectorProps> = ({
             }
           }
         }
-      } catch (e) {
+      } catch (e: unknown) {
         if (isMounted) {
+          const errMessage = e instanceof Error && e.message ? e.message : String(e || 'Unknown error');
           console.warn(`Could not list engines for project ${proj}:`, e);
           setApps([]);
+          setAppsLoadError(errMessage);
         }
       } finally {
         if (isMounted) setIsLoadingApps(false);
@@ -230,6 +236,20 @@ export const ProjectEngineSelector: React.FC<ProjectEngineSelectorProps> = ({
                 disabled={disabled}
                 className={`w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 ${focusRingClass} disabled:opacity-50`}
               />
+            )}
+
+            {appsLoadError && !isLoadingApps && (
+              <div
+                data-testid="project-engine-selector-error"
+                role="alert"
+                className="mt-1.5 p-2 rounded-lg bg-amber-950/50 border border-amber-700/60 text-[11px] text-amber-200 leading-relaxed"
+              >
+                <span className="font-semibold text-amber-300">
+                  Could not auto-discover Gemini Enterprise Apps:
+                </span>{' '}
+                {appsLoadError}. You can still type an App ID manually above, or verify Discovery Engine API access for project{' '}
+                <code className="font-mono text-amber-100">{value.project}</code>.
+              </div>
             )}
           </div>
         </div>

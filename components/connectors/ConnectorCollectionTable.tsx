@@ -33,6 +33,7 @@ interface ConnectorCollectionTableProps {
   onSelectResult: (payload: { result: ValidationResult; title: string }) => void;
   onDuplicateConnector: (collection: Collection) => void;
   onRequestDelete: (collection: Collection) => void;
+  associationWarning?: string | null;
 }
 
 export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> = ({
@@ -50,6 +51,7 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
   onSelectResult,
   onDuplicateConnector,
   onRequestDelete,
+  associationWarning,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -272,13 +274,14 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                               onSelectResult({
                                 result: {
                                   ...result,
-                                  details: result.details
-                                    ? {
-                                        ...result.details,
-                                        collectionDisplayName:
-                                          collection.displayName,
-                                      }
-                                    : result.details,
+                                  details:
+                                    result.details && typeof result.details === "object"
+                                      ? {
+                                          ...result.details,
+                                          collectionDisplayName:
+                                            collection.displayName,
+                                        }
+                                      : result.details,
                                 },
                                 title: `Connector Diagnostics: ${displayLabel}`,
                               });
@@ -323,6 +326,17 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                       {(() => {
                         const apps = getAssociatedApps(collection.name);
                         if (apps.length === 0) {
+                          if (associationWarning && collectionId !== "default_collection") {
+                            return (
+                              <span
+                                data-testid={`connector-assoc-unverified-${collectionId}`}
+                                className="text-amber-400 text-xs italic"
+                                title={associationWarning}
+                              >
+                                Unverified (API Warning)
+                              </span>
+                            );
+                          }
                           return (
                             <span className="text-gray-500 text-xs italic">
                               None

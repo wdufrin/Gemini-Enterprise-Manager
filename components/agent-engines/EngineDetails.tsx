@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Agent, ReasoningEngine, Config, EnvVar } from "../../types";
 import * as api from "../../services/apiService";
 import Spinner from "../Spinner";
@@ -26,7 +26,7 @@ import { useModalA11y } from "../../hooks/useModalA11y";
 
 interface EngineDetailsProps {
   engine: ReasoningEngine;
-  usingAgents: Agent[];
+  usingAgents?: Agent[];
   onBack: () => void;
   config: Config;
 }
@@ -111,7 +111,7 @@ const ModelArmorModal: React.FC<{
 
 const EngineDetails: React.FC<EngineDetailsProps> = ({
   engine,
-  usingAgents,
+  usingAgents = [],
   onBack,
   config,
 }) => {
@@ -139,23 +139,21 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({
   const [activeTab, setActiveTab] = useState<"details" | "metrics">("details");
   const [isAgentCardOpen, setIsAgentCardOpen] = useState(false);
 
-  useEffect(() => {
-    const fetchDetails = async () => {
-      setIsLoadingDetails(true);
-      setDetailsError(null);
-      try {
-        const details = await api.getReasoningEngine(engine.name, config);
-        setFullEngine(details);
-      } catch (err: any) {
-        setDetailsError(err.message || "Failed to fetch full engine details.");
-      } finally {
-        setIsLoadingDetails(false);
-      }
-    };
-    fetchDetails();
+  const fetchDetails = useCallback(async () => {
+    setIsLoadingDetails(true);
+    setDetailsError(null);
+    try {
+      const details = await api.getReasoningEngine(engine.name, config);
+      setFullEngine(details);
+    } catch (err: any) {
+      setDetailsError(err?.message || "Failed to fetch full engine details.");
+    } finally {
+      setIsLoadingDetails(false);
+    }
   }, [engine.name, config]);
 
-  const handleFetchSessions = async () => {
+  const handleFetchSessions = useCallback(async () => {
+    if (typeof api.listReasoningEngineSessions !== "function") return;
     setIsLoadingSessions(true);
     setSessionsError(null);
     setSessions(null);
@@ -164,13 +162,18 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({
         engine.name,
         config,
       );
-      setSessions(response.sessions || []);
+      setSessions(response?.sessions || []);
     } catch (err: any) {
-      setSessionsError(err.message || "Failed to fetch active sessions.");
+      setSessionsError(err?.message || "Failed to fetch active sessions.");
     } finally {
       setIsLoadingSessions(false);
     }
-  };
+  }, [engine.name, config]);
+
+  useEffect(() => {
+    fetchDetails();
+    handleFetchSessions();
+  }, [fetchDetails, handleFetchSessions]);
 
   const handleRequestDelete = (session: { name: string }) => {
     setSessionToDelete(session);
@@ -306,7 +309,23 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({
               </div>
             )}
             {detailsError && (
-              <p className="text-red-400 mt-6">{detailsError}</p>
+              <div
+                role="alert"
+                data-testid="engine-details-error"
+                className="mt-6 p-3.5 bg-red-900/30 border border-red-700/80 rounded-lg text-xs text-red-200 flex items-center justify-between gap-3"
+              >
+                <div>
+                  <span className="font-bold">Failed to load engine details: </span>
+                  <span>{detailsError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchDetails}
+                  className="px-2.5 py-1 bg-red-800 hover:bg-red-700 text-white rounded font-semibold shrink-0"
+                >
+                  Retry
+                </button>
+              </div>
             )}
 
             {fullEngine && (
@@ -455,7 +474,26 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({
               <div className="mt-4">
                 {isLoadingSessions && <Spinner />}
                 {sessionsError && (
-                  <p className="text-red-400 mt-2">{sessionsError}</p>
+                  <div
+                    role="alert"
+                    data-testid="engine-sessions-error"
+                    className="mt-3 p-3 bg-red-900/30 border border-red-700/80 rounded-lg text-xs text-red-200 flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <span className="font-bold">Failed to load active sessions: </span>
+                      <span>{sessionsError}</span>
+                      <p className="text-[11px] text-red-300/80 mt-0.5">
+                        Ensure your account has <code className="font-mono">aiplatform.reasoningEngineSessions.list</code> permission and that this runtime supports Vertex AI session storage.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleFetchSessions}
+                      className="px-2.5 py-1 bg-red-800 hover:bg-red-700 text-white rounded font-semibold shrink-0"
+                    >
+                      Retry
+                    </button>
+                  </div>
                 )}
                 {sessions !== null && (
                   <>

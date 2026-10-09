@@ -353,9 +353,9 @@ export async function executeRestoreDiscovery(
             ...(engine.searchEngineConfig && {
               searchEngineConfig: engine.searchEngineConfig,
             }),
-            ...(engine.chatEngineConfig && {
+            ...(engine.chatEngineConfig ? {
               chatEngineConfig: engine.chatEngineConfig,
-            }),
+            } : {}),
             ...(engine.commonConfig && {
               commonConfig: engine.commonConfig,
             }),
@@ -490,12 +490,12 @@ export async function executeRestoreDataStores(
         industryVertical: dataStore.industryVertical,
         solutionTypes: dataStore.solutionTypes,
         contentConfig: dataStore.contentConfig || 'NO_CONTENT',
-        ...(dataStore.documentProcessingConfig && {
+        ...(dataStore.documentProcessingConfig ? {
           documentProcessingConfig: dataStore.documentProcessingConfig,
-        }),
-        ...(dataStore.startingUris && {
+        } : {}),
+        ...(dataStore.startingUris ? {
           startingUris: dataStore.startingUris,
-        }),
+        } : {}),
       };
       await api.createDataStore(dsId, payload, apiConfig);
       addLog(`    - CREATED: Data Store '${dsId}'`);

@@ -31,6 +31,9 @@ describe('AgentPermissionsPage (Systemic Honesty)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    vi.mocked(api.getProjectIamPolicy).mockResolvedValue({ bindings: [] });
+    vi.mocked(api.listResources).mockResolvedValue({ engines: [] });
+    vi.mocked(api.getAgentIamPolicy).mockResolvedValue({ bindings: [] });
   });
 
   const renderComponent = (projectNumber = '123456789') => {
@@ -44,11 +47,19 @@ describe('AgentPermissionsPage (Systemic Honesty)', () => {
     );
   };
 
-  it('renders initial state when no scan has run', () => {
-    renderComponent();
+  it('renders initial state when no scan has run and auto-fetches when projectNumber is set', async () => {
+    const { unmount } = renderComponent('');
     expect(screen.getByText('Configuration')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Refetch All Locations/i })).toBeInTheDocument();
     expect(screen.getByText('No agent permissions found.')).toBeInTheDocument();
+    unmount();
+
+    renderComponent('123456789');
+    expect(screen.getByText(/Fetching IAM policies/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Refetch All Locations/i })).toBeInTheDocument();
+      expect(screen.getByText('No agent permissions found.')).toBeInTheDocument();
+    });
   });
 
   it('surfaces PartialResultsBanner when project IAM fetch fails (e.g. 403 Forbidden)', async () => {
@@ -59,7 +70,8 @@ describe('AgentPermissionsPage (Systemic Honesty)', () => {
 
     renderComponent();
 
-    fireEvent.click(screen.getByRole('button', { name: /Refetch All Locations/i }));
+    const refetchBtn = await screen.findByRole('button', { name: /Refetch All Locations/i });
+    fireEvent.click(refetchBtn);
 
     await waitFor(() => {
       expect(screen.getByText(/could not be loaded/i)).toBeInTheDocument();
@@ -84,7 +96,8 @@ describe('AgentPermissionsPage (Systemic Honesty)', () => {
 
     renderComponent();
 
-    fireEvent.click(screen.getByRole('button', { name: /Refetch All Locations/i }));
+    const refetchBtn = await screen.findByRole('button', { name: /Refetch All Locations/i });
+    fireEvent.click(refetchBtn);
 
     await waitFor(() => {
       expect(screen.getByText(/could not be loaded/i)).toBeInTheDocument();
@@ -131,7 +144,8 @@ describe('AgentPermissionsPage (Systemic Honesty)', () => {
 
     renderComponent();
 
-    fireEvent.click(screen.getByRole('button', { name: /Refetch All Locations/i }));
+    const refetchBtn = await screen.findByRole('button', { name: /Refetch All Locations/i });
+    fireEvent.click(refetchBtn);
 
     await waitFor(() => {
       expect(screen.getAllByText('Support App').length).toBeGreaterThan(0);
@@ -144,3 +158,4 @@ describe('AgentPermissionsPage (Systemic Honesty)', () => {
     expect(screen.queryByText(/could not be loaded/i)).toBeNull();
   });
 });
+

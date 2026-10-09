@@ -109,6 +109,15 @@ export function useBackupOperations({
   const [loadingSection, setLoadingSection] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
+  const [discoveryWarnings, setDiscoveryWarnings] = useState<string[]>([]);
+
+  const appendDiscoveryWarning = useCallback((warning: string) => {
+    setDiscoveryWarnings((prev) => (prev.includes(warning) ? prev : [...prev, warning]));
+  }, []);
+
+  const clearDiscoveryWarnings = useCallback(() => {
+    setDiscoveryWarnings([]);
+  }, []);
 
   // GCS State
   const [buckets, setBuckets] = useState<GcsBucket[]>([]);
@@ -180,6 +189,7 @@ export function useBackupOperations({
     }));
     setSelectedBucket('');
     setBackupFiles({});
+    setDiscoveryWarnings([]);
   };
 
   const addLog = useCallback((message: string) => {
@@ -192,7 +202,7 @@ export function useBackupOperations({
     async function fetchBuckets() {
       setIsLoadingBuckets(true);
       try {
-        const response = await api.listBuckets(projectNumber);
+        const response = (await api.listBuckets(projectNumber)) || {};
         const fetchedBuckets = response.items || [];
         setBuckets(fetchedBuckets);
         if (fetchedBuckets.length > 0) {
@@ -200,12 +210,13 @@ export function useBackupOperations({
         }
       } catch (err: unknown) {
         console.error('Failed to fetch buckets:', err);
+        appendDiscoveryWarning(`GCS Buckets: ${toErrorMessage(err, 'Failed to list buckets')}`);
       } finally {
         setIsLoadingBuckets(false);
       }
     }
     fetchBuckets();
-  }, [projectNumber]);
+  }, [projectNumber, appendDiscoveryWarning]);
 
   // Fetch Backup Files from Selected Bucket
   const fetchBackups = useCallback(async () => {
@@ -215,7 +226,7 @@ export function useBackupOperations({
     }
     setIsLoadingFiles(true);
     try {
-      const response = await api.listGcsObjects(selectedBucket, undefined, projectNumber);
+      const response = (await api.listGcsObjects(selectedBucket, undefined, projectNumber)) || {};
       const items = response.items || [];
       const jsonFiles = items
         .filter((obj) => obj.name && obj.name.endsWith('.json'))
@@ -236,11 +247,14 @@ export function useBackupOperations({
       setBackupFiles(filesBySection);
     } catch (e) {
       console.error('Failed to list backups in bucket:', e);
+      appendDiscoveryWarning(
+        `GCS Backup Files (${selectedBucket}): ${toErrorMessage(e, 'Failed to list backup objects')}`
+      );
       setBackupFiles({});
     } finally {
       setIsLoadingFiles(false);
     }
-  }, [selectedBucket, projectNumber]);
+  }, [selectedBucket, projectNumber, appendDiscoveryWarning]);
 
   useEffect(() => {
     fetchBackups();
@@ -253,11 +267,12 @@ export function useBackupOperations({
     async function fetchApps() {
       setIsLoadingApps(true);
       try {
-        const response = await api.listResources('engines', {
-          ...apiConfig,
-          projectId,
-          appLocation,
-        });
+        const response =
+          (await api.listResources('engines', {
+            ...apiConfig,
+            projectId,
+            appLocation,
+          })) || {};
         const fetched = response.engines || [];
         setApps(fetched);
         if (fetched.length > 0) {
@@ -266,12 +281,15 @@ export function useBackupOperations({
         }
       } catch (e) {
         console.error('Failed to fetch apps:', e);
+        appendDiscoveryWarning(
+          `Discovery Engine Apps (${appLocation}): ${toErrorMessage(e, 'Failed to list apps')}`
+        );
       } finally {
         setIsLoadingApps(false);
       }
     }
     fetchApps();
-  }, [projectId, appLocation, apiConfig]);
+  }, [projectId, appLocation, apiConfig, appendDiscoveryWarning]);
 
   // Fetch Agent Engines
   useEffect(() => {
@@ -279,11 +297,12 @@ export function useBackupOperations({
     async function fetchREs() {
       setIsLoadingReasoningEngines(true);
       try {
-        const engines = await api.listAllReasoningEngines({
+        const rawEngines = await api.listAllReasoningEngines({
           ...apiConfig,
           projectId,
           reasoningEngineLocation,
         });
+        const engines = Array.isArray(rawEngines) ? rawEngines : [];
         setReasoningEngines(engines);
         if (engines.length === 1) {
           const id = engines[0].name.split('/').pop() || '';
@@ -291,12 +310,15 @@ export function useBackupOperations({
         }
       } catch (e) {
         console.error('Failed to fetch agent engines:', e);
+        appendDiscoveryWarning(
+          `Vertex AI Agent Engines (${reasoningEngineLocation}): ${toErrorMessage(e, 'Failed to list reasoning engines')}`
+        );
       } finally {
         setIsLoadingReasoningEngines(false);
       }
     }
     fetchREs();
-  }, [projectId, reasoningEngineLocation, apiConfig]);
+  }, [projectId, reasoningEngineLocation, apiConfig, appendDiscoveryWarning]);
 
   const executeOperation = async (section: string, operation: () => Promise<void>) => {
     setIsLoading(true);
@@ -850,6 +872,8 @@ export function useBackupOperations({
     loadingSection,
     error,
     logs,
+    discoveryWarnings,
+    clearDiscoveryWarnings,
     buckets,
     selectedBucket,
     setSelectedBucket,

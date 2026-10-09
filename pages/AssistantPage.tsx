@@ -32,6 +32,9 @@ import {
   AssistantDetailTab,
 } from '../components/assistants/page/AssistantDetailView';
 
+const toErrorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err);
+
 interface AssistantPageProps {
   projectNumber: string;
   projectId?: string;
@@ -97,6 +100,8 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<AssistantDetailTab>('overview');
+  const [aclProbeWarning, setAclProbeWarning] = useState<string | null>(null);
+  const [agentDiscoveryWarning, setAgentDiscoveryWarning] = useState<string | null>(null);
   const [isDataStoreAclSupported, setIsDataStoreAclSupported] = useState<
     boolean | null
   >(() => {
@@ -154,14 +159,19 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
 
   // Probe DataStore ACL feature capability for this project/location
   useEffect(() => {
-    if (!selectedRow?.engine) return;
+    if (!selectedRow?.engine) {
+      setAclProbeWarning(null);
+      return;
+    }
     const override = localStorage.getItem('feature_flag_datastore_acls');
     if (override === 'true') {
       setIsDataStoreAclSupported(true);
+      setAclProbeWarning(null);
       return;
     }
     if (override === 'false') {
       setIsDataStoreAclSupported(false);
+      setAclProbeWarning(null);
       return;
     }
 
@@ -171,6 +181,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
       ...baseApiConfig,
       appId: selectedRow.engine.name.split('/').pop()!,
     };
+    setAclProbeWarning(null);
     api
       .checkDataStoreAclSupport(engineConfig, sampleDsId)
       .then((supported) => {
@@ -178,9 +189,12 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
           setIsDataStoreAclSupported(supported);
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (isMounted) {
           setIsDataStoreAclSupported(false);
+          setAclProbeWarning(
+            `ACL capability probe (getAclConfig) failed${sampleDsId ? ` for data store "${sampleDsId}"` : ''}: ${toErrorMessage(err)}. Defaulting ACL status to unsupported.`,
+          );
         }
       });
 
@@ -198,6 +212,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
   const fetchAgentsForAssistant = useCallback(
     async (appId: string, customAssistantId?: string) => {
       setIsDetailLoading(true);
+      setAgentDiscoveryWarning(null);
       const detailConfig = {
         ...baseApiConfig,
         appId,
@@ -213,8 +228,12 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
           );
           const agentViewResults = await Promise.allSettled(agentViewPromises);
 
+          let rejectedCount = 0;
           const enrichedAgents = baseAgents.map((agent, index) => {
             const viewResult = agentViewResults[index];
+            if (viewResult.status === 'rejected') {
+              rejectedCount += 1;
+            }
             const agentType =
               viewResult.status === 'fulfilled' && viewResult.value?.agentView
                 ? viewResult.value.agentView.agentType
@@ -230,11 +249,17 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
             };
           });
           setAgents(enrichedAgents);
+          if (rejectedCount > 0) {
+            setAgentDiscoveryWarning(
+              `Could not resolve AgentView (:getView) for ${rejectedCount} agent(s) on this assistant. Some agents may be omitted or lack runtime metadata.`,
+            );
+          }
         } else {
           setAgents([]);
         }
       } catch (err: any) {
         console.error('Failed to fetch agents for assistant', err);
+        setAgentDiscoveryWarning(`Agent discovery warning: ${toErrorMessage(err)}`);
         toast.error('Failed to load agents for this assistant.');
       } finally {
         setIsDetailLoading(false);
@@ -301,6 +326,17 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
 
   return (
     <div className="space-y-6 relative">
+      {(aclProbeWarning || agentDiscoveryWarning) && (
+        <div
+          role="alert"
+          data-testid="assistant-diagnostics-warning"
+          className="bg-amber-900/25 border border-amber-700/60 rounded-lg px-4 py-2.5 text-xs text-amber-200 space-y-1"
+        >
+          {aclProbeWarning && <p>• {aclProbeWarning}</p>}
+          {agentDiscoveryWarning && <p>• {agentDiscoveryWarning}</p>}
+        </div>
+      )}
+
       {/* Configuration Header */}
       {!selectedRow && (
         <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700">

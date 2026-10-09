@@ -50,6 +50,9 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
+  const [backgroundWarnings, setBackgroundWarnings] = useState<string[]>([]);
+  const [revisionsError, setRevisionsError] = useState<string | null>(null);
+
   useModalA11y({
     isOpen: isOpen && !!skill,
     onClose,
@@ -59,23 +62,40 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
 
   useEffect(() => {
     if (isOpen && skill) {
+      setBackgroundWarnings([]);
+      setRevisionsError(null);
       setIsLoadingRevisions(true);
       api.listRegistrySkillRevisions(skill.name, config)
-        .then((revs) => setRevisions(revs))
-        .catch((err) => console.warn('Could not load revisions for skill:', err))
+        .then((revs) => {
+          setRevisions(revs);
+        })
+        .catch((err: unknown) => {
+          console.warn('Could not load revisions for skill:', err);
+          const msg = toErrorMessage(err);
+          setRevisionsError(msg);
+          setBackgroundWarnings((prev) => [...prev, `Could not load skill revisions: ${msg}`]);
+        })
         .finally(() => setIsLoadingRevisions(false));
 
-      api.listResources<AppEngine>('engines', config)
-        .then((res) => {
-          const list = res.engines || res.resources || [];
-          setAvailableEngines(list);
-          if (list.length > 0) {
-            const pref = list.find((e: AppEngine) => e.solutionType === 'SOLUTION_TYPE_CHAT' || e.name?.includes('cosmere')) || list[0];
-            const id = pref.name ? pref.name.split('/').pop() : (pref.id as string | undefined);
-            setSelectedEngineId(id || '');
-          }
-        })
-        .catch((err) => console.warn('Could not fetch engines for skill deploy:', err));
+      if (typeof api.listResources === 'function') {
+        api.listResources<AppEngine>('engines', config)
+          .then((res) => {
+            const list = res.engines || res.resources || [];
+            setAvailableEngines(list);
+            if (list.length > 0) {
+              const pref = list.find((e: AppEngine) => e.solutionType === 'SOLUTION_TYPE_CHAT' || e.name?.includes('cosmere')) || list[0];
+              const id = pref.name ? pref.name.split('/').pop() : (pref.id as string | undefined);
+              setSelectedEngineId(id || '');
+            }
+          })
+          .catch((err: unknown) => {
+            console.warn('Could not fetch engines for skill deploy:', err);
+            setBackgroundWarnings((prev) => [
+              ...prev,
+              `Could not list target Gemini Enterprise Apps (${toErrorMessage(err)}). Deployment will attempt default engine discovery.`,
+            ]);
+          });
+      }
     }
   }, [isOpen, skill, config]);
 
@@ -112,8 +132,12 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
             promptInstruction = await skillMd.async('text');
           }
         }
-      } catch (zipErr) {
+      } catch (zipErr: unknown) {
         console.warn('Could not extract SKILL.md from revision archive, falling back to description:', zipErr);
+        setBackgroundWarnings((prev) => [
+          ...prev,
+          `Could not extract SKILL.md from revision archive (fell back to skill description): ${toErrorMessage(zipErr)}`,
+        ]);
       }
 
       const payload: Partial<Agent> = {
@@ -209,6 +233,7 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`);
         }
 
         // Poll until skill is ready and revision is ACTIVE
+        let lastPollError = '';
         for (let i = 0; i < 10; i++) {
           await new Promise((r) => setTimeout(r, 2500));
           try {
@@ -221,9 +246,17 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`);
               defaultRev = activeRev.name;
               break;
             }
-          } catch (pollErr) {
+          } catch (pollErr: unknown) {
             console.warn('Waiting for skill revision compilation...', pollErr);
+            lastPollError = toErrorMessage(pollErr);
           }
+        }
+
+        if (!defaultRev && lastPollError) {
+          setBackgroundWarnings((prev) => [
+            ...prev,
+            `Could not confirm ACTIVE revision state during polling (${lastPollError}).`,
+          ]);
         }
 
         if (revs && revs.length > 0 && !defaultRev) {
@@ -355,6 +388,30 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`);
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {backgroundWarnings.length > 0 && (
+            <div
+              role="alert"
+              data-testid="registry-skill-warnings-banner"
+              className="p-3 bg-amber-950/40 border border-amber-700/80 rounded-lg text-xs text-amber-200 space-y-1"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-bold">⚠️ Skill Inspection Warning</span>
+                <button
+                  type="button"
+                  onClick={() => setBackgroundWarnings([])}
+                  className="text-[11px] underline text-amber-300 hover:text-white"
+                >
+                  Dismiss
+                </button>
+              </div>
+              <ul className="list-disc list-inside space-y-0.5 text-[11px]">
+                {backgroundWarnings.map((w, idx) => (
+                  <li key={idx}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {activeTab === 'overview' && (
             <div className="space-y-4">
               {/* Metadata Grid */}
@@ -413,6 +470,10 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`);
             <div className="space-y-3">
               {isLoadingRevisions ? (
                 <div className="text-center py-8 text-xs text-gray-400">Loading revisions...</div>
+              ) : revisionsError ? (
+                <div className="p-4 bg-red-900/30 border border-red-700/80 rounded-lg text-xs text-red-200">
+                  Failed to load skill revisions from Cloud Agent Registry: {revisionsError}
+                </div>
               ) : revisions.length === 0 ? (
                 <div className="text-center py-8 text-xs text-gray-400">No revisions recorded for this skill.</div>
               ) : (
@@ -443,16 +504,18 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`);
           )}
 
           {activeTab === 'json' && (
-            <div className="relative">
-              <button
-                onClick={handleCopyJson}
-                className="absolute top-2 right-2 px-2.5 py-1 bg-gray-750 hover:bg-gray-700 text-gray-300 hover:text-white rounded text-xs font-semibold transition-colors border border-gray-600"
-              >
-                {copied ? '✓ Copied' : 'Copy JSON'}
-              </button>
-              <pre className="p-4 bg-gray-900 rounded-lg border border-gray-700 font-mono text-[11px] text-gray-300 overflow-x-auto max-h-96">
-                {JSON.stringify(skill, null, 2)}
-              </pre>
+            <div className="space-y-4">
+              <div className="relative">
+                <button
+                  onClick={handleCopyJson}
+                  className="absolute top-2 right-2 px-2.5 py-1 bg-gray-750 hover:bg-gray-700 text-gray-300 hover:text-white rounded text-xs font-semibold transition-colors border border-gray-600"
+                >
+                  {copied ? '✓ Copied' : 'Copy JSON'}
+                </button>
+                <pre className="p-4 bg-gray-900 rounded-lg border border-gray-700 font-mono text-[11px] text-gray-300 overflow-x-auto max-h-96">
+                  {JSON.stringify(skill, null, 2)}
+                </pre>
+              </div>
             </div>
           )}
         </div>

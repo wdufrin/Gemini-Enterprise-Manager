@@ -61,6 +61,7 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
   // Associations mapping states
   const [engines, setEngines] = useState<AppEngine[]>([]);
   const [dataStores, setDataStores] = useState<DataStore[]>([]);
+  const [associationWarning, setAssociationWarning] = useState<string | null>(null);
 
   const [isBulkScanning, setIsBulkScanning] = useState(false);
   const [scanDurationHours, setScanDurationHours] = useState<number | "">(2);
@@ -73,6 +74,7 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
     if (!config.projectId) return;
     setIsLoading(true);
     setError(null);
+    setAssociationWarning(null);
     setCollections([]);
     setValidationResults({});
     setEngines([]);
@@ -83,12 +85,15 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
       const cols = response.collections || [];
       setCollections(cols);
 
+      const assocErrors: string[] = [];
+
       // Fetch engines for associations mapping
       try {
         const enginesRes = await api.listResources("engines", { ...config, appId: "" });
         setEngines(enginesRes.engines || []);
-      } catch (e) {
+      } catch (e: unknown) {
         console.error("Failed to fetch engines for associations:", e);
+        assocErrors.push(`Engines lookup failed (${toErrorMessage(e)})`);
       }
 
       // Fetch data stores for associations mapping
@@ -98,8 +103,15 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
           collectionId: "default_collection",
         });
         setDataStores(dataStoresRes.dataStores || []);
-      } catch (e) {
+      } catch (e: unknown) {
         console.error("Failed to fetch data stores for associations:", e);
+        assocErrors.push(`DataStores lookup failed (${toErrorMessage(e)})`);
+      }
+
+      if (assocErrors.length > 0) {
+        setAssociationWarning(
+          `Could not verify Associated Apps for collections: ${assocErrors.join("; ")}.`
+        );
       }
     } catch (err: unknown) {
       console.error("Failed to fetch collections:", err);
@@ -406,5 +418,7 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
     handleBulkDiagnostics,
     fetchCollections,
     handleLocationChange,
+    associationWarning,
+    setAssociationWarning,
   };
 }

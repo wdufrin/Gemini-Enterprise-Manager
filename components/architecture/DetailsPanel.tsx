@@ -15,12 +15,14 @@
  */
 
 
-import React from 'react';
-import { GraphNode, Page, ReasoningEngine, CloudRunService, Agent, AppEngine, DataStore, Authorization } from '../../types';
+import React, { useState, useMemo } from 'react';
+import { GraphNode, GraphEdge, Page, ReasoningEngine, CloudRunService, Agent, AppEngine, DataStore, Authorization } from '../../types';
 
 interface DetailsPanelProps {
     node: GraphNode | null | undefined;
     projectNumber: string;
+    edges?: GraphEdge[];
+    nodes?: GraphNode[];
     onClose: () => void;
     onNavigate: (page: Page, context?: unknown) => void;
     onDirectQuery: (engine: ReasoningEngine) => void;
@@ -90,7 +92,29 @@ const ActionButton: React.FC<React.PropsWithChildren<{ onClick: () => void }>> =
     </button>
 );
 
-const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClose, onNavigate, onDirectQuery }) => {
+const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, edges, nodes, onClose, onNavigate, onDirectQuery }) => {
+    const [showRawJson, setShowRawJson] = useState(false);
+
+    const lineage = useMemo(() => {
+        if (!node || !edges) return { upstream: [], downstream: [] };
+        const nodeMap = new Map((nodes || []).map((n) => [n.id, n]));
+        const upstream = edges
+            .filter((e) => e.target === node.id)
+            .map((e) => ({
+                id: e.source,
+                label: nodeMap.get(e.source)?.label || e.source.split('/').pop() || e.source,
+                type: nodeMap.get(e.source)?.type || 'Resource',
+            }));
+        const downstream = edges
+            .filter((e) => e.source === node.id)
+            .map((e) => ({
+                id: e.target,
+                label: nodeMap.get(e.target)?.label || e.target.split('/').pop() || e.target,
+                type: nodeMap.get(e.target)?.type || 'Resource',
+            }));
+        return { upstream, downstream };
+    }, [node, edges, nodes]);
+
     if (!node) return null;
     
     const consoleUrl = getGcpConsoleUrl(node, projectNumber);
@@ -156,7 +180,7 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
             case 'CloudRunService':
                  return (
                     <ActionButton onClick={() => onNavigate(Page.A2A_TESTER, { serviceToEdit: node.data })}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 01-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 01-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.214 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                         Test A2A Endpoint
                     </ActionButton>
                  );
@@ -191,6 +215,62 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
                         <DetailItem label="Last Updated" value={(node.data as Record<string, unknown>)?.updateTime ? new Date(String((node.data as Record<string, unknown>).updateTime)).toLocaleString() : 'N/A'} />
                         {renderDetails()}
                     </dl>
+                </section>
+                <section data-testid="architecture-node-lineage">
+                    <h3 className="text-sm font-semibold text-gray-400 mb-2 border-b border-gray-700 pb-1">
+                        Edge Lineage ({lineage.upstream.length} Upstream / {lineage.downstream.length} Downstream)
+                    </h3>
+                    <div className="space-y-2 text-xs">
+                        <div>
+                            <span className="text-gray-400 font-semibold">Upstream Parents:</span>
+                            {lineage.upstream.length === 0 ? (
+                                <p className="text-gray-500 italic mt-0.5">Root / No upstream parent</p>
+                            ) : (
+                                <ul className="mt-1 space-y-1">
+                                    {lineage.upstream.map((u) => (
+                                        <li key={u.id} className="text-gray-200 font-mono truncate" title={u.id}>
+                                            <span className="text-blue-400">[{u.type}]</span> {u.label}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                        <div>
+                            <span className="text-gray-400 font-semibold">Downstream Dependencies:</span>
+                            {lineage.downstream.length === 0 ? (
+                                <p className="text-gray-500 italic mt-0.5">Leaf node / No downstream targets</p>
+                            ) : (
+                                <ul className="mt-1 space-y-1">
+                                    {lineage.downstream.map((d) => (
+                                        <li key={d.id} className="text-gray-200 font-mono truncate" title={d.id}>
+                                            <span className="text-emerald-400">[{d.type}]</span> {d.label}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+                </section>
+                <section>
+                    <div className="flex items-center justify-between border-b border-gray-700 pb-1 mb-2">
+                        <h3 className="text-sm font-semibold text-gray-400">Live GCP Verification</h3>
+                        <button
+                            type="button"
+                            data-testid="toggle-architecture-raw-json"
+                            onClick={() => setShowRawJson((prev) => !prev)}
+                            className="text-xs text-blue-400 hover:text-blue-300 font-mono underline"
+                        >
+                            {showRawJson ? 'Hide Raw JSON' : 'Raw Backend Resource JSON'}
+                        </button>
+                    </div>
+                    {showRawJson && (
+                        <pre
+                            data-testid="architecture-node-raw-json"
+                            className="bg-gray-950 text-green-300 text-xs font-mono p-2.5 rounded border border-gray-700 max-h-48 overflow-auto whitespace-pre-wrap"
+                        >
+                            {JSON.stringify(node.data ?? { id: node.id, label: node.label, type: node.type }, null, 2)}
+                        </pre>
+                    )}
                 </section>
                 <section>
                     <h3 className="text-sm font-semibold text-gray-400 mb-3 border-b border-gray-700 pb-1">Actions</h3>

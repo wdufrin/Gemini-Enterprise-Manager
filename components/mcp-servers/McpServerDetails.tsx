@@ -77,7 +77,7 @@ const McpServerDetails: React.FC<McpServerDetailsProps> = ({ service, config, on
         setHasProbedMcp(true);
         try {
             const tools = await api.listMcpTools(config.projectId, targetUrl);
-            setMcpTools(tools || []);
+            setMcpTools((tools as Array<{ name: string; description?: string; inputSchema?: unknown }>) || []);
         } catch (err: any) {
             setMcpTools([]);
             setMcpProbeError(err?.message || 'Failed to list MCP tools from endpoint.');

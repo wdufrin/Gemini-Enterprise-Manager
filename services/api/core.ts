@@ -15,7 +15,7 @@
  */
 
 import { getGapiClient } from "../gapiService";
-import { redactRequestBody } from "../redaction";
+import { redactRequestBody, redactSensitive } from "../redaction";
 
 export const DISCOVERY_API_VERSION = "v1alpha";
 export const DISCOVERY_API_BETA = "v1beta";
@@ -27,14 +27,20 @@ export const getDiscoveryEngineUrl = (location: string) => {
     : `https://${location}-discoveryengine.googleapis.com`;
 };
 
-// Debug Logger Callback Type
-export type DebugLogger = (log: {
+export interface DebugLogPayload {
   method: string;
   url: string;
   headers: Record<string, string>;
   body: unknown;
   curlCommand: string;
-}) => void;
+  status?: number;
+  durationMs?: number;
+  responseBody?: unknown;
+  errorMessage?: string;
+}
+
+// Debug Logger Callback Type
+export type DebugLogger = (log: DebugLogPayload) => void;
 
 let debugLogger: DebugLogger | null = null;
 
@@ -181,8 +187,7 @@ export const gapiRequest = async <T>(
         }
       }
 
-      // Basic cURL logging
-      if (debugLogger) {
+      const buildDebugRequestMeta = () => {
         const token = client.getToken()?.access_token;
         const logHeaders = { ...requestHeaders };
         if (token) {
@@ -190,14 +195,8 @@ export const gapiRequest = async <T>(
         }
         const logBody = redactRequestBody(body);
         const curlCommand = generateCurlCommand(path, method, logHeaders, logBody);
-        debugLogger({
-          method,
-          url: path,
-          headers: logHeaders,
-          body: logBody,
-          curlCommand,
-        });
-      }
+        return { logHeaders, logBody, curlCommand };
+      };
 
       const requestOptions = {
         path,
@@ -207,10 +206,13 @@ export const gapiRequest = async <T>(
         headers: requestHeaders,
       };
 
+      const startTime = Date.now();
+      let response: { result: unknown; status?: number; [key: string]: unknown };
+
       try {
-        const response = await client.request(requestOptions);
-        return response.result as T;
+        response = await client.request(requestOptions);
       } catch (error: unknown) {
+        const durationMs = Math.max(0, Date.now() - startTime);
         const errObj = typeof error === "object" && error !== null ? (error as Record<string, unknown>) : null;
         let status = typeof errObj?.status === "number" ? errObj.status : 0;
         let code: string | number | undefined = typeof errObj?.code === "string" || typeof errObj?.code === "number" ? errObj.code : undefined;
@@ -297,9 +299,54 @@ export const gapiRequest = async <T>(
           console.error("API Request Failed", error);
         }
 
+        if (debugLogger) {
+          const { logHeaders, logBody, curlCommand } = buildDebugRequestMeta();
+          const rawErrorPayload =
+            errObj?.result !== undefined
+              ? redactSensitive(errObj.result)
+              : errObj?.body !== undefined
+                ? redactRequestBody(errObj.body)
+                : undefined;
+          try {
+            debugLogger({
+              method,
+              url: path,
+              headers: logHeaders,
+              body: logBody,
+              curlCommand,
+              status: status || 0,
+              durationMs,
+              responseBody: rawErrorPayload,
+              errorMessage,
+            });
+          } catch (loggerErr: unknown) {
+            console.warn("[gapiRequest] Debug logger failed on error path:", loggerErr);
+          }
+        }
+
         lastError = new GapiError(errorMessage, status, code, details, error);
         throw lastError;
       }
+
+      const durationMs = Math.max(0, Date.now() - startTime);
+      const responseStatus =
+        typeof response?.status === "number" ? response.status : 200;
+
+      if (debugLogger) {
+        const { logHeaders, logBody, curlCommand } = buildDebugRequestMeta();
+        debugLogger({
+          method,
+          url: path,
+          headers: logHeaders,
+          body: logBody,
+          curlCommand,
+          status: responseStatus,
+          durationMs,
+          responseBody: redactSensitive(response?.result),
+        });
+      }
+
+      return response.result as T;
     }
     throw lastError || new GapiError("API request exceeded retry budget", 503);
   });

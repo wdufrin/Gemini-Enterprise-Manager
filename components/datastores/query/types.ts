@@ -35,6 +35,7 @@ export interface QueryHistoryEntry {
   error?: string;
   timestamp: Date;
   authMode: 'default' | 'wif';
+  rawResponse?: unknown;
 }
 
 export type CodeLanguage = 'python' | 'curl' | 'nodejs' | 'rest';

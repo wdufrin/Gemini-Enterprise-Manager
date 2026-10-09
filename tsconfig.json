@@ -21,7 +21,8 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "types": [
-      "node"
+      "node",
+      "@testing-library/jest-dom"
     ]
   },
   "include": ["**/*.ts", "**/*.tsx"],

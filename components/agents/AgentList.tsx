@@ -364,7 +364,36 @@ const AgentList: React.FC<AgentListProps> = ({
       )}
 
       {agents.length === 0 ? (
-        <p className="text-gray-400 p-6 text-center">No agents found for the provided configuration.</p>
+        <div data-testid="agent-list-empty-state" className="p-8 text-center space-y-4">
+          <div className="max-w-xl mx-auto space-y-2">
+            <p className="text-gray-200 font-semibold text-base">
+              No agents found for the provided configuration.
+            </p>
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Why is this list empty? Either (1) no Gemini Enterprise Engine is selected in the configuration bar above, (2) your Engine is deployed in a different region (<code className="text-gray-300">global</code>, <code className="text-gray-300">us</code>, or <code className="text-gray-300">eu</code>), or (3) no custom ADK/A2A/Low-Code agents have been registered on <code className="text-gray-300">default_assistant</code> yet.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onRegisterNew}
+              data-testid="empty-state-register-agent-btn"
+              className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition-colors"
+            >
+              + Register New Agent
+            </button>
+            {canRestoreDeepResearch && onRestoreDeepResearch && (
+              <button
+                type="button"
+                onClick={onRestoreDeepResearch}
+                data-testid="empty-state-restore-deep-research-btn"
+                className="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 transition-colors"
+              >
+                Restore Built-In Deep Research Agent
+              </button>
+            )}
+          </div>
+        </div>
       ) : filteredAgents.length === 0 ? (
         <div className="p-8 text-center">
           <p className="text-gray-400 text-sm">No agents match your current search or filters.</p>

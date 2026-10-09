@@ -7,10 +7,29 @@ import { ObservabilityDataDictionaryModal } from '../components/dashboard/operat
 import { AgentObservabilityPolicyModal } from '../components/dashboard/operational/AgentObservabilityPolicyModal';
 import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
+import { Config } from '../types';
+
+function useSafeToast() {
+    try {
+        return useToast();
+    } catch (err) {
+        return {
+            toast: {
+                success: (_msg: string) => void err,
+                error: (_msg: string) => void err,
+                warning: (_msg: string) => void err,
+                info: (_msg: string) => void err,
+            },
+            addToast: () => undefined,
+            removeToast: () => undefined,
+        };
+    }
+}
 
 interface Props {
-    projectNumber: string;
-    projectId: string;
+    projectNumber?: string;
+    projectId?: string;
+    config?: Config;
 }
 
 interface ObservabilityDashboardMetrics {
@@ -23,8 +42,10 @@ interface ObservabilityDashboardMetrics {
     queries: Record<string, string>;
 }
 
-const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
-    const { toast } = useToast();
+const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, projectId: propProjectId, config }) => {
+    const projectNumber = propProjectNumber || config?.projectId || '';
+    const projectId = propProjectId || config?.projectId || projectNumber;
+    const { toast } = useSafeToast();
     const [sinks, setSinks] = useState<LoggingSink[]>([]);
     const [tables, setTables] = useState<BigQueryTable[]>([]);
     const [dashboardData, setDashboardData] = useState<ObservabilityDashboardMetrics | null>(null);

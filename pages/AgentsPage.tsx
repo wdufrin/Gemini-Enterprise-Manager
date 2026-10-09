@@ -27,6 +27,7 @@ import ProjectInput from '../components/ProjectInput';
 import ConfirmationModal from '../components/ConfirmationModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 import { usePersistedConfig } from '../hooks/usePersistedConfig';
+import { toErrorMessage } from '../utils/errors';
 
 type ViewMode = 'list' | 'form' | 'details' | 'bulk-datasources';
 
@@ -44,6 +45,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   const [testingAgent, setTestingAgent] = useState<Agent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hydrationWarning, setHydrationWarning] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [togglingAgentId, setTogglingAgentId] = useState<string | null>(null);
 
@@ -182,6 +184,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     }
     setIsLoading(true);
     setError(null);
+    setHydrationWarning(null);
     
     try {
         const assistantsResponse = await api.listResources('assistants', apiConfig);
@@ -251,11 +254,24 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
 
         const agentsNeedingView = baseAgents.filter(a => !a.agentType || !a.agentOrigin);
         if (agentsNeedingView.length > 0) {
+          const failedAgentNames: string[] = [];
           void Promise.all(
-            agentsNeedingView.map(agent =>
-              api.getAgentView(agent.name, apiConfig).catch(() => null)
-            )
+            agentsNeedingView.map(async (agent) => {
+              try {
+                return await api.getAgentView(agent.name, apiConfig);
+              } catch (viewErr: unknown) {
+                const label = agent.displayName || agent.name.split('/').pop() || agent.name;
+                const reason = viewErr instanceof Error ? viewErr.message : String(viewErr);
+                failedAgentNames.push(`${label}: ${reason}`);
+                return null;
+              }
+            })
           ).then(agentViewResults => {
+            if (failedAgentNames.length > 0) {
+              setHydrationWarning(
+                `Partial metadata hydration: Could not fetch runtime AgentView (:getView) for ${failedAgentNames.length} agent(s) (${failedAgentNames.join(', ')}). Displaying locally inferred agent types.`
+              );
+            }
             const viewByName = new Map<string, any>();
             agentsNeedingView.forEach((a, idx) => {
               if (agentViewResults[idx]?.agentView) {
@@ -585,8 +601,25 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     }
   };
 
- return (
+  return (
     <div className="space-y-6">
+      {hydrationWarning && (
+        <div
+          role="alert"
+          data-testid="agents-hydration-warning"
+          className="bg-amber-900/25 border border-amber-700/60 rounded-lg px-4 py-2.5 text-xs text-amber-200 flex items-center justify-between gap-3"
+        >
+          <span>{hydrationWarning}</span>
+          <button
+            type="button"
+            onClick={() => setHydrationWarning(null)}
+            className="text-amber-300 hover:text-white underline shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
         <div className="flex justify-between items-center mb-3">
             <h2 className="text-lg font-semibold text-white">Configuration</h2>

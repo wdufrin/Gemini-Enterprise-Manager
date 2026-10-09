@@ -55,6 +55,9 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const [enginesFetchError, setEnginesFetchError] = useState<string | null>(null);
+  const [authsFetchError, setAuthsFetchError] = useState<string | null>(null);
+
   useModalA11y({
     isOpen,
     onClose,
@@ -74,6 +77,8 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
       });
       setError(null);
       setSuccess(null);
+      setEnginesFetchError(null);
+      setAuthsFetchError(null);
     }
   }, [isOpen, agentName, agentDescription, defaultReasoningEngine, defaultAgentUrl]);
 
@@ -84,6 +89,7 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
     let isMounted = true;
     const loadEngines = async () => {
       setIsLoadingEngines(true);
+      setEnginesFetchError(null);
       try {
         const res = await api.listDiscoveryEngines({
           projectId: effectiveProjectId,
@@ -93,8 +99,11 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
         if (isMounted) {
           setRegEngines(res.engines || []);
         }
-      } catch (e) {
+      } catch (e: unknown) {
         console.warn('Could not load discovery engines for registration:', e);
+        if (isMounted) {
+          setEnginesFetchError(toErrorMessage(e));
+        }
       } finally {
         if (isMounted) setIsLoadingEngines(false);
       }
@@ -113,6 +122,7 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
     let isMounted = true;
     const loadAuths = async () => {
       setIsLoadingAuths(true);
+      setAuthsFetchError(null);
       try {
         const res = await api.listAuthorizations({
           projectId: effectiveProjectId,
@@ -121,8 +131,11 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
         if (isMounted) {
           setRegAuthorizations(res.authorizations || []);
         }
-      } catch (e) {
+      } catch (e: unknown) {
         console.warn('Could not load authorizations for registration:', e);
+        if (isMounted) {
+          setAuthsFetchError(toErrorMessage(e));
+        }
       } finally {
         if (isMounted) setIsLoadingAuths(false);
       }
@@ -264,8 +277,28 @@ const AgentRegisterModal: React.FC<AgentRegisterModalProps> = ({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto py-4 space-y-4">
+          {(enginesFetchError || authsFetchError) && (
+            <div
+              role="alert"
+              data-testid="register-modal-fetch-warning"
+              className="p-3 bg-amber-950/40 border border-amber-700/80 rounded-lg text-xs text-amber-200 space-y-1"
+            >
+              <div className="font-bold">⚠️ Partial Discovery Warning</div>
+              {enginesFetchError && (
+                <div>
+                  Could not auto-list Target Engines ({enginesFetchError}). You can still type the Target Engine ID manually below.
+                </div>
+              )}
+              {authsFetchError && (
+                <div>
+                  Could not auto-list OAuth Authorizations ({authsFetchError}). Verify Discovery Engine permissions if attaching tool authorizations.
+                </div>
+              )}
+            </div>
+          )}
+
           {error && (
-            <div className="p-3 bg-red-900/40 border border-red-700 rounded-lg text-xs text-red-200 leading-relaxed">
+            <div role="alert" className="p-3 bg-red-900/40 border border-red-700 rounded-lg text-xs text-red-200 leading-relaxed">
               {error}
             </div>
           )}

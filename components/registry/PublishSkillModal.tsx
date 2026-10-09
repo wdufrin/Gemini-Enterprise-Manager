@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { Config, RegistrySkill } from '../../types';
 import * as api from '../../services/apiService';
 import { useModalA11y } from '../../hooks/useModalA11y';
@@ -186,6 +186,7 @@ ${description.trim()}`;
             : fallbackResourceName;
 
         let activated = false;
+        let lastPollError = '';
         for (let i = 0; i < 10; i++) {
           await new Promise((r) => setTimeout(r, 2500));
           try {
@@ -207,15 +208,16 @@ ${description.trim()}`;
               activated = true;
               break;
             }
-          } catch (pollErr) {
+          } catch (pollErr: unknown) {
             console.warn('Waiting for initial revision ingestion...', pollErr);
+            lastPollError = pollErr instanceof Error ? pollErr.message : String(pollErr);
           }
         }
 
         if (!activated) {
           onSkillPublished();
           throw new Error(
-            'Skill was created in Draft state, but initial revision ingestion did not complete within 25 seconds. You can activate it from the Skill Details modal once ingestion finishes.'
+            `Skill was created in Draft state, but initial revision ingestion did not complete within 25 seconds${lastPollError ? ` (last poll warning: ${lastPollError})` : ''}. You can activate it from the Skill Details modal once ingestion finishes.`
           );
         }
       }
@@ -276,26 +278,38 @@ ${description.trim()}`;
         {/* Content */}
         <form onSubmit={handlePublish} className="flex-1 overflow-y-auto p-6 space-y-5">
           {error && (
-            <div className="p-3 bg-red-900/40 border border-red-700 text-red-300 text-xs rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span>{error}</span>
+            <div
+              role="alert"
+              data-testid="publish-skill-error-banner"
+              className="p-3.5 bg-red-900/40 border border-red-700 text-red-200 text-xs rounded-lg space-y-2"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <svg className="w-4 h-4 shrink-0 mt-0.5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <div className="font-bold text-red-100">Skill Publication Failed</div>
+                    <div className="mt-0.5 leading-relaxed">{error}</div>
+                  </div>
+                </div>
+                {error.toLowerCase().includes('already exists') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextId = `${skillId.replace(/-v\d+$/, '')}-v${Math.floor(Math.random() * 90 + 10)}`;
+                      setSkillId(nextId);
+                      setError(null);
+                    }}
+                    className="px-2.5 py-1 bg-red-800 hover:bg-red-700 text-white rounded text-[11px] font-semibold transition-colors shrink-0 self-start sm:self-auto"
+                  >
+                    Use New ID ({skillId}-v2)
+                  </button>
+                )}
               </div>
-              {error.toLowerCase().includes('already exists') && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const nextId = `${skillId.replace(/-v\d+$/, '')}-v${Math.floor(Math.random() * 90 + 10)}`;
-                    setSkillId(nextId);
-                    setError(null);
-                  }}
-                  className="px-2.5 py-1 bg-red-800 hover:bg-red-700 text-white rounded text-[11px] font-semibold transition-colors shrink-0 self-start sm:self-auto"
-                >
-                  Use New ID ({skillId}-v2)
-                </button>
-              )}
+              <div className="text-[11px] text-red-300/90 border-t border-red-800/60 pt-1.5">
+                Remediation: Verify that <code className="font-mono">agentregistry.googleapis.com</code> is enabled, the Skill ID is lowercase alphanumeric with hyphens, and your account has <code className="font-mono">roles/agentregistry.admin</code>.
+              </div>
             </div>
           )}
 

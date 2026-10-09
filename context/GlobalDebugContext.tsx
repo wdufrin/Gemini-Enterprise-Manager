@@ -23,6 +23,11 @@ export interface ApiHistoryItem {
     method: string;
     url: string;
     curlCommand: string;
+    requestBody?: unknown;
+    status?: number;
+    durationMs?: number;
+    responseBody?: unknown;
+    errorMessage?: string;
 }
 
 interface GlobalDebugContextType {
@@ -34,31 +39,40 @@ interface GlobalDebugContextType {
 
 const GlobalDebugContext = createContext<GlobalDebugContextType | undefined>(undefined);
 
+const createHistoryId = (): string => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    return `api-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+};
+
 export const GlobalDebugProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    // Default to false. Can potentially persist to localStorage in the future.
+    // Default to false for sidebar visibility; ring buffer always captures last 50 API calls for R2 inspection.
     const [showCurlPreview, setShowCurlPreview] = useState(false);
     const [apiHistory, setApiHistory] = useState<ApiHistoryItem[]>([]);
 
     useEffect(() => {
-        // Register the logger
         api.setDebugLogger((log) => {
-            if (!showCurlPreview) return; // Only log when enabled
-
             const newItem: ApiHistoryItem = {
-                id: crypto.randomUUID(),
+                id: createHistoryId(),
                 timestamp: new Date(),
                 method: log.method,
                 url: log.url,
-                curlCommand: log.curlCommand
+                curlCommand: log.curlCommand,
+                requestBody: log.body,
+                status: log.status,
+                durationMs: log.durationMs,
+                responseBody: log.responseBody,
+                errorMessage: log.errorMessage,
             };
 
-            setApiHistory(prev => [newItem, ...prev].slice(0, 50)); // Keep last 50
+            setApiHistory((prev) => [newItem, ...prev].slice(0, 50));
         });
 
         return () => {
             api.setDebugLogger(null);
         };
-    }, [showCurlPreview]);
+    }, []);
 
     const clearHistory = () => setApiHistory([]);
 
@@ -67,6 +81,10 @@ export const GlobalDebugProvider: React.FC<{ children: ReactNode }> = ({ childre
             {children}
         </GlobalDebugContext.Provider>
     );
+};
+
+export const useOptionalGlobalDebug = (): GlobalDebugContextType | undefined => {
+    return useContext(GlobalDebugContext);
 };
 
 export const useGlobalDebug = () => {

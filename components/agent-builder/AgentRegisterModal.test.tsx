@@ -89,4 +89,15 @@ describe('AgentRegisterModal', () => {
     fireEvent.click(cancelBtn);
     expect(baseProps.onClose).toHaveBeenCalled();
   });
+
+  it('surfaces engine and authorization fetch errors in register-modal-fetch-warning', async () => {
+    vi.mocked(api.listDiscoveryEngines).mockRejectedValueOnce(new Error('403 Forbidden listing engines'));
+    vi.mocked(api.listAuthorizations).mockRejectedValueOnce(new Error('403 Forbidden listing authorizations'));
+
+    render(<AgentRegisterModal {...baseProps} />);
+
+    const warningBanner = await screen.findByTestId('register-modal-fetch-warning');
+    expect(warningBanner.textContent).toMatch(/403 Forbidden listing engines/);
+    expect(warningBanner.textContent).toMatch(/403 Forbidden listing authorizations/);
+  });
 });

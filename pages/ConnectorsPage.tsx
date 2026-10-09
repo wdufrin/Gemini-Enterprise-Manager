@@ -15,6 +15,7 @@
  */
 
 import React from "react";
+import { Config } from "../types";
 import ConnectorDetailsModal from "../components/ConnectorDetailsModal";
 import DuplicateConnectorModal from "../components/connectors/DuplicateConnectorModal";
 import ConfirmationModal from "../components/ConfirmationModal";
@@ -26,15 +27,20 @@ import { detectConnectorVendor } from "../components/connectors/checklist/checkl
 export { type ValidationResult } from "../components/connectors/connectorDiagnostics";
 
 interface ConnectorsPageProps {
-  projectNumber: string;
-  setProjectNumber: (projectNumber: string) => void;
-  accessToken: string;
+  projectNumber?: string;
+  setProjectNumber?: (projectNumber: string) => void;
+  accessToken?: string;
+  config?: Config;
 }
 
 const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
-  projectNumber,
-  setProjectNumber,
+  projectNumber: propProjectNumber,
+  setProjectNumber: propSetProjectNumber,
+  config: propConfig,
 }) => {
+  const projectNumber = propProjectNumber ?? propConfig?.projectId ?? "";
+  const setProjectNumber = propSetProjectNumber ?? (() => {});
+
   const {
     config,
     collections,
@@ -68,6 +74,8 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
     handleBulkDiagnostics,
     fetchCollections,
     handleLocationChange,
+    associationWarning,
+    setAssociationWarning,
   } = useConnectorsPage({ projectNumber });
 
   const activeVendors = React.useMemo(() => {
@@ -113,6 +121,25 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
         onBulkDiagnostics={handleBulkDiagnostics}
       />
 
+      {associationWarning && (
+        <div
+          role="alert"
+          data-testid="connector-association-warning"
+          className="bg-amber-900/30 border border-amber-700/60 text-amber-200 p-3 rounded-lg text-xs flex items-center justify-between"
+        >
+          <span>
+            <strong>Association Discovery Warning:</strong> {associationWarning}
+          </span>
+          <button
+            type="button"
+            onClick={() => setAssociationWarning(null)}
+            className="ml-3 text-amber-300 hover:text-white underline text-xs"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-900/20 border border-red-900/50 text-red-300 p-4 rounded-lg">
           {error}
@@ -135,6 +162,7 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
           onSelectResult={setSelectedResult}
           onDuplicateConnector={handleDuplicateConnector}
           onRequestDelete={handleRequestDelete}
+          associationWarning={associationWarning}
         />
       )}
 

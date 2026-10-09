@@ -72,6 +72,8 @@ export const VanityUrlDeploymentForm: React.FC<VanityUrlDeploymentFormProps> = (
     existingDomains,
     selectedDomainOption,
     setSelectedDomainOption,
+    discoveryWarnings,
+    clearDiscoveryWarnings,
     handleDeploy,
   } = useVanityUrlDeployment(engine, config, projectNumber, onBuildTriggered);
 
@@ -81,6 +83,32 @@ export const VanityUrlDeploymentForm: React.FC<VanityUrlDeploymentFormProps> = (
       <p className="text-gray-400 text-sm mb-6">
         Provision a branded redirect URL or private VPC-SC routing for your Gemini Enterprise Assistant.
       </p>
+
+      {discoveryWarnings && discoveryWarnings.length > 0 && (
+        <div
+          data-testid="vanity-discovery-warning"
+          role="alert"
+          className="mb-6 p-3.5 bg-amber-950/40 border border-amber-700/80 rounded-md text-xs text-amber-200 flex items-start justify-between gap-3"
+        >
+          <div className="space-y-1">
+            <div className="font-semibold text-amber-100">
+              Partial Cloud Networking Discovery Warning
+            </div>
+            <ul className="list-disc list-inside space-y-0.5">
+              {discoveryWarnings.map((w, idx) => (
+                <li key={idx}>{w}</li>
+              ))}
+            </ul>
+          </div>
+          <button
+            type="button"
+            onClick={clearDiscoveryWarnings}
+            className="px-2 py-1 text-xs font-medium rounded bg-amber-900/60 hover:bg-amber-800 text-amber-100 shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Configuration Column */}

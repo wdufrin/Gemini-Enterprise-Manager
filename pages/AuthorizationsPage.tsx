@@ -27,8 +27,9 @@ import PartialResultsBanner, { PartialFailure } from '../components/common/Parti
 import { toErrorMessage } from '../utils/errors';
 
 interface AuthorizationsPageProps {
-  projectNumber: string;
+  projectNumber?: string;
   projectId?: string;
+  config?: Config;
   authorizations?: Authorization[];
   setAuthorizations?: React.Dispatch<React.SetStateAction<Authorization[]>>;
   authUsage?: Record<string, Agent[]>;
@@ -44,8 +45,9 @@ interface AuthorizationsPageProps {
 }
 
 const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
-  projectNumber,
-  projectId,
+  projectNumber: propProjectNumber,
+  projectId: propProjectId,
+  config,
   authorizations: propAuthorizations,
   setAuthorizations: propSetAuthorizations,
   authUsage: propAuthUsage,
@@ -59,6 +61,9 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   hasLoaded: propHasLoaded,
   setHasLoaded: propSetHasLoaded,
 }) => {
+  const projectNumber = propProjectNumber || config?.projectId || '';
+  const projectId = propProjectId || config?.projectId || projectNumber;
+
   const [internalAuthorizations, setInternalAuthorizations] = useState<Authorization[]>([]);
   const authorizations = propAuthorizations ?? internalAuthorizations;
   const setAuthorizations = propSetAuthorizations ?? setInternalAuthorizations;
@@ -125,7 +130,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
 
       const authPromises = discoveryLocations.map(async (loc) => {
         try {
-          const res = await api.listAuthorizations({ ...apiConfig, appLocation: loc });
+          const res = (await api.listAuthorizations({ ...apiConfig, appLocation: loc })) || {};
           return res.authorizations || [];
         } catch (err: any) {
           console.error(`Failed to load auths for region ${loc}:`, err);
@@ -146,25 +151,25 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
           for (const discoveryLocation of discoveryLocations) {
               const locationConfig = { ...apiConfig, appLocation: discoveryLocation };
               try {
-                  const collectionsResponse = await api.listResources('collections', locationConfig);
+                  const collectionsResponse = (await api.listResources('collections', locationConfig)) || {};
                   const collections = collectionsResponse.collections || [];
                   for (const collection of collections) {
                       const collectionId = collection.name.split('/').pop()!;
                       const collectionConfig = { ...locationConfig, collectionId };
                       try {
-                          const appEnginesResponse = await api.listResources('engines', collectionConfig);
+                          const appEnginesResponse = (await api.listResources('engines', collectionConfig)) || {};
                           const appEngines = appEnginesResponse.engines || [];
                           for (const appEngine of appEngines) {
                               const appId = appEngine.name.split('/').pop()!;
                               const appConfig = { ...collectionConfig, appId };
                               try {
-                                  const assistantsResponse = await api.listResources('assistants', appConfig);
+                                  const assistantsResponse = (await api.listResources('assistants', appConfig)) || {};
                                   const assistants = assistantsResponse.assistants || [];
                                   for (const assistant of assistants) {
                                       const assistantId = assistant.name.split('/').pop()!;
                                       const assistantConfig = { ...appConfig, assistantId };
                                       try {
-                                          const agentsResponse = await api.listResources('agents', assistantConfig);
+                                          const agentsResponse = (await api.listResources('agents', assistantConfig)) || {};
                                           if (agentsResponse.agents) {
                                               agentsList.push(...agentsResponse.agents);
                                           }
@@ -223,16 +228,22 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
         Promise.all(authPromises),
         agentPromise
       ]);
-      const allAuths = authResults.flat();
+      const seenNames = new Set<string>();
+      const allAuths = authResults.flat().filter((a) => {
+        if (!a?.name || seenNames.has(a.name)) return false;
+        seenNames.add(a.name);
+        return true;
+      });
 
       setAuthorizations(allAuths);
       setPartialFailures(failures);
       setHasLoaded(true);
       
       const usageMap: Record<string, Agent[]> = {};
+      const seenAgentPerAuth = new Map<string, Set<string>>();
       for (const agent of allAgents) {
         const usedAuths = new Set<string>();
-          if (agent.authorizations) {
+        if (agent.authorizations) {
           agent.authorizations.forEach(a => usedAuths.add(a));
         }
         if (agent.authorizationConfig?.toolAuthorizations) {
@@ -242,9 +253,13 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
         for (const authName of usedAuths) {
           if (!usageMap[authName]) {
             usageMap[authName] = [];
+            seenAgentPerAuth.set(authName, new Set());
           }
-          usageMap[authName].push(agent);
+          if (!seenAgentPerAuth.get(authName)!.has(agent.name)) {
+            seenAgentPerAuth.get(authName)!.add(agent.name);
+            usageMap[authName].push(agent);
           }
+        }
       }
       setAuthUsage(usageMap);
 
@@ -420,7 +435,9 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       />;
     }
 
-    const displayedAuthorizations = authorizations.filter(auth => auth.name.includes(`/locations/${region}/`));
+    const displayedAuthorizations = authorizations.filter(
+      auth => auth.name?.includes(`/locations/${region}/`) || (region === 'global' && !auth.name?.includes('/locations/'))
+    );
 
     return (
       <AuthList
@@ -442,9 +459,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   return (
     <div>
       <div className="bg-gray-800 p-4 rounded-lg mb-6 shadow-md">
-            <div className="flex justify-between items-center mb-3">
-                <h2 className="text-lg font-semibold text-white">Configuration</h2>
-            </div>
+            <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
             <div>
                 <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
                 <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-300 font-mono h-[38px] flex items-center">

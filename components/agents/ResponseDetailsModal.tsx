@@ -47,10 +47,18 @@ export interface DataSourceItem {
   title: string;
 }
 
+export interface ExtendedAnswerDetails extends AnswerDetails {
+  requestPayload?: Record<string, unknown>;
+  rawChunks?: unknown[];
+  thoughtSteps?: string[];
+  sessionId?: string | null;
+  authMode?: string;
+}
+
 interface ResponseDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  details?: AnswerDetails | null;
+  details?: ExtendedAnswerDetails | null;
 }
 
 const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onClose, details }) => {
@@ -66,23 +74,42 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
 
   const toolSteps: ToolStepItem[] = [];
   let dataSources: DataSourceItem[] = [];
+  const extractedThoughts: string[] = [...(details.thoughtSteps || [])];
 
   const uniqueDataStores = new Map<string, DataSourceItem>();
 
+  const effectiveDiagnostics =
+    details.diagnostics ||
+    (details as { diagnosticInfo?: { plannerSteps?: PlannerStep[] } }).diagnosticInfo;
+
   // --- Logic for streamAssist (diagnostics & citations) ---
-  if (details.diagnostics || details.citations) {
-    const plannerSteps = ((details.diagnostics as { plannerSteps?: PlannerStep[] })?.plannerSteps) || [];
+  if (effectiveDiagnostics || details.citations) {
+    const plannerSteps = ((effectiveDiagnostics as { plannerSteps?: PlannerStep[] })?.plannerSteps) || [];
     const refusedDataStoreResources = new Set<string>();
 
-    // 1. Process Planner Steps for Tool Usage and "Inferred" Data Stores
+    // 1. Process Planner Steps for Tool Usage, Function Calls, Thoughts, and "Inferred" Data Stores
     for (let i = 0; i < plannerSteps.length; i++) {
-      const step = plannerSteps[i];
-      const executableCodePart = step.planStep?.parts?.find((p: PlanPart) => p.executableCode);
+      const step = plannerSteps[i] as PlannerStep & { toolStep?: { parts?: unknown[] } };
+      const parts = (step.planStep?.parts || step.toolStep?.parts || []) as Array<PlanPart & {
+        functionCall?: { name?: string; args?: unknown };
+        functionResponse?: { name?: string; response?: unknown };
+        thought?: boolean;
+        text?: string;
+      }>;
+
+      for (const p of parts) {
+        if (p.thought && p.text && !extractedThoughts.includes(p.text)) {
+          extractedThoughts.push(p.text);
+        }
+      }
+
+      const executableCodePart = parts.find((p) => p.executableCode);
+      const functionCallPart = parts.find((p) => p.functionCall);
 
       if (executableCodePart && executableCodePart.executableCode) {
         const code = executableCodePart.executableCode.code;
-        let toolName = 'Code Execution';
-        
+        let toolName = 'Python / Code Execution';
+
         // Attempt to identify tool name from variable usage (e.g., search_tool_1.search)
         const searchMatch = code.match(/print\(([^.]+)\.search/);
         if (searchMatch && searchMatch[1]) {
@@ -100,7 +127,7 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
             break;
           }
         }
-        
+
         // Capture Tool Usage
         toolSteps.push({
           toolStep: { tool: toolName, toolInput: code, toolOutput: toolOutput }
@@ -108,19 +135,44 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
 
         // Check for Permission Denied or Resource Path in tool output to identify Data Stores
         const lowerOutput = String(toolOutput).toLowerCase();
-        const resourceMatch = lowerOutput.match(/(projects\/[^\s/]+\/locations\/[^\s/]+\/collections\/[^\s/]+\/dataStores\/([^\s"']+))/);
-        
+        const resourceMatch = String(toolOutput).match(/(projects\/[^\s/]+\/locations\/[^\s/]+\/collections\/[^\s/]+\/dataStores\/([^\s"']+))/);
+
         if (resourceMatch && resourceMatch[1]) {
-            const fullPath = resourceMatch[1];
-            const dsId = resourceMatch[2];
-            if (lowerOutput.includes('permission_denied') || lowerOutput.includes('access was denied')) {
-                refusedDataStoreResources.add(fullPath);
-            } else {
-                if (!uniqueDataStores.has(fullPath)) {
-                    uniqueDataStores.set(fullPath, { name: fullPath, title: dsId });
-                }
+          const fullPath = resourceMatch[1];
+          const dsId = resourceMatch[2];
+          if (lowerOutput.includes('permission_denied') || lowerOutput.includes('access was denied')) {
+            refusedDataStoreResources.add(fullPath);
+          } else {
+            if (!uniqueDataStores.has(fullPath)) {
+              uniqueDataStores.set(fullPath, { name: fullPath, title: dsId });
             }
+          }
         }
+      } else if (functionCallPart && functionCallPart.functionCall) {
+        const fnName = functionCallPart.functionCall.name || 'Tool Function Call';
+        const fnInput = JSON.stringify(functionCallPart.functionCall.args ?? {}, null, 2);
+        let fnOutput: unknown = '[No functionResponse found in subsequent steps]';
+
+        for (let j = i + 1; j < plannerSteps.length; j++) {
+          const nextStep = plannerSteps[j];
+          const nextParts = (nextStep.planStep?.parts || []) as Array<{
+            functionResponse?: { name?: string; response?: unknown };
+          }>;
+          const respPart = nextParts.find((p) => p.functionResponse);
+          if (respPart && respPart.functionResponse) {
+            fnOutput = respPart.functionResponse.response ?? respPart.functionResponse;
+            i = j;
+            break;
+          }
+        }
+
+        toolSteps.push({
+          toolStep: {
+            tool: `Function: ${fnName}`,
+            toolInput: fnInput,
+            toolOutput: fnOutput,
+          },
+        });
       }
     }
 
@@ -133,7 +185,7 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
         if (dsIndex > -1 && dsIndex < parts.length - 1) {
           const dataStoreId = parts[dsIndex + 1];
           const dataStoreKey = parts.slice(0, dsIndex + 2).join('/');
-          
+
           // Only add if not explicitly refused (403) and not already found in tool steps
           if (!refusedDataStoreResources.has(dataStoreKey) && !uniqueDataStores.has(dataStoreKey)) {
             uniqueDataStores.set(dataStoreKey, { name: dataStoreKey, title: dataStoreId });
@@ -161,10 +213,31 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
       }
     });
   }
-  
+
   dataSources = Array.from(uniqueDataStores.values());
   const hasTools = toolSteps.length > 0;
   const hasDataSources = dataSources.length > 0;
+  const citationsList = (details.citations as CitationItem[]) || [];
+
+  const sourcePayloadToDisplay = details.requestPayload || {
+    sessionId: details.sessionId || '(auto-created)',
+    authMode: details.authMode || 'default',
+    note: 'Source :streamAssist request specification',
+  };
+
+  const liveResponseToDisplay = {
+    sessionId: details.sessionId || null,
+    authMode: details.authMode || 'default',
+    toolStepsExecuted: toolSteps.length,
+    dataStoresGrounded: dataSources.length,
+    citationsCount: citationsList.length,
+    thoughtStepsCount: extractedThoughts.length,
+    ...(extractedThoughts.length > 0 ? { thoughtSteps: extractedThoughts } : {}),
+    diagnostics: details.diagnostics || null,
+    ...(details.rawChunks && details.rawChunks.length > 0
+      ? { streamChunksCount: details.rawChunks.length, rawChunks: details.rawChunks }
+      : {}),
+  };
 
   return (
     <div
@@ -178,10 +251,17 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
         ref={containerRef}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col border border-gray-700"
+        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-gray-700"
       >
         <header className="p-4 border-b border-gray-700 flex justify-between items-center">
-          <h2 id="response-details-title" className="text-xl font-bold text-white">Response Details</h2>
+          <div>
+            <h2 id="response-details-title" className="text-xl font-bold text-white">
+              Response Details &amp; :streamAssist Trace
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Inspects the outbound Discovery Engine request specification alongside planner diagnostics, citations, and streaming response chunks.
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -193,8 +273,65 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
         </header>
 
         <main className="p-6 overflow-y-auto space-y-6">
+          {/* Side-by-Side Outbound Request vs. :streamAssist Response */}
+          <div
+            data-testid="response-details-request-response"
+            className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-900/60 p-4 rounded-lg border border-gray-700"
+          >
+            <div
+              data-testid="response-details-request-pane"
+              className="bg-gray-950/80 border border-gray-800 rounded-lg p-3 flex flex-col"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-blue-400">
+                  Request Query &amp; Grounding Spec
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-950/80 text-blue-300 border border-blue-700/60 font-mono">
+                  POST :streamAssist
+                </span>
+              </div>
+              <pre className="text-xs font-mono text-gray-300 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap">
+                {JSON.stringify(sourcePayloadToDisplay, null, 2)}
+              </pre>
+            </div>
+
+            <div
+              data-testid="response-details-response-pane"
+              className="bg-gray-950/80 border border-gray-800 rounded-lg p-3 flex flex-col"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
+                  :streamAssist Backend Response
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 font-mono">
+                  {toolSteps.length} tool(s) • {citationsList.length} citation(s)
+                </span>
+              </div>
+              <pre className="text-xs font-mono text-gray-300 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap">
+                {JSON.stringify(liveResponseToDisplay, null, 2)}
+              </pre>
+            </div>
+          </div>
+
+          {extractedThoughts.length > 0 && (
+            <div className="bg-gray-900/50 p-3.5 rounded-lg border border-gray-700 space-y-2">
+              <h3 className="text-sm font-semibold text-purple-300 uppercase tracking-wider">
+                Planner Reasoning Steps ({extractedThoughts.length})
+              </h3>
+              <ul className="space-y-1.5 text-xs text-gray-300 font-mono">
+                {extractedThoughts.map((thought, idx) => (
+                  <li key={idx} className="bg-gray-800/80 p-2 rounded border border-gray-700/60 whitespace-pre-wrap">
+                    {thought}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {!hasTools && !hasDataSources ? (
-            <p className="text-gray-400 text-center">No detailed tool or data store information was found for this response.</p>
+            <p className="text-gray-400 text-center text-sm">
+              No detailed tool or data store information was found for this response.
+            </p>
           ) : (
             <>
               {hasDataSources && (

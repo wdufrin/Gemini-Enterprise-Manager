@@ -143,5 +143,18 @@ describe('ObservabilityPage', () => {
         fireEvent.click(eventarcSubTab);
         expect(eventarcSubTab).toHaveAttribute('aria-selected', 'true');
     });
-});
 
+    it('surfaces explicit BigQuery query error banner when runBigQueryQuery fails', async () => {
+        (runBigQueryQuery as any).mockRejectedValue(
+            new Error('403 Access Denied: User lacks bigquery.jobs.create permission')
+        );
+
+        render(
+            <ToastProvider>
+                <ObservabilityPage projectNumber="123" projectId="test-proj" />
+            </ToastProvider>
+        );
+
+        expect(await screen.findByText(/403 Access Denied: User lacks bigquery\.jobs\.create permission/i)).toBeInTheDocument();
+    });
+});

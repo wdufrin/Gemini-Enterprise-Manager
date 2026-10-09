@@ -28,25 +28,30 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 import { usePersistedConfig } from '../hooks/usePersistedConfig';
 import ConnectorsPage from './ConnectorsPage';
+import { toErrorMessage } from '../utils/errors';
 
 interface DataStoresPageProps {
-  projectNumber: string;
+  projectNumber?: string;
   projectId?: string;
   accessToken?: string;
   setProjectNumber?: (projectNumber: string) => void;
   initialTab?: 'datastores' | 'connectors';
+  config?: Config;
+  onSelectDataStore?: (store: DataStore) => void;
 }
 
 type SortKey = 'displayName' | 'name' | 'solutionTypes';
 type SortDirection = 'asc' | 'desc';
 
 const DataStoresPage: React.FC<DataStoresPageProps> = ({
-  projectNumber,
+  projectNumber: propProjectNumber,
   projectId,
   accessToken,
   setProjectNumber,
   initialTab,
+  config: propConfig,
 }) => {
+  const projectNumber = propProjectNumber ?? propConfig?.projectId ?? '';
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') === 'connectors' || initialTab === 'connectors' ? 'connectors' : 'datastores';
 
@@ -91,6 +96,7 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
   // Collections State
   const [availableCollections, setAvailableCollections] = useState<Collection[]>([]);
   const [isLoadingCollections, setIsLoadingCollections] = useState(false);
+  const [collectionWarning, setCollectionWarning] = useState<string | null>(null);
 
   const [config, setConfig] = usePersistedConfig(
     'dataStoresPageConfig',
@@ -125,13 +131,20 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
     const fetchCollections = async () => {
       if (!projectNumber) return;
       setIsLoadingCollections(true);
+      setCollectionWarning(null);
       try {
         const res = await api.listCollections(apiConfig);
         if (isMounted && res.collections && res.collections.length > 0) {
           setAvailableCollections(res.collections);
         }
-      } catch (err) {
+      } catch (err: unknown) {
+        const msg = toErrorMessage(err);
         console.warn('Could not fetch custom collections, defaulting to default_collection:', err);
+        if (isMounted) {
+          setCollectionWarning(
+            `Could not list custom collections (${msg}). Defaulting to default_collection.`
+          );
+        }
       } finally {
         if (isMounted) setIsLoadingCollections(false);
       }
@@ -269,10 +282,6 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
         }
     });
 
-    if (failures.length > 0) {
-        setError(`Failed to delete ${failures.length} data store(s):\n${failures.join('\n')}`);
-    }
-    
     // If we were on the details page of one of the deleted items, go back to list
     if (selectedDataStore && dataStoresToDelete.some(ds => ds.name === selectedDataStore.name)) {
         setViewMode('list');
@@ -282,6 +291,10 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
     setDataStoresToDelete([]);
     setSelectedDataStores(new Set());
     await fetchDataStores(pageToken); // Refresh the current page
+
+    if (failures.length > 0) {
+        setError(`Failed to delete ${failures.length} data store(s):\n${failures.join('\n')}`);
+    }
 
     setIsDeleting(false);
     setDeletingDataStoreIds(new Set());
@@ -520,6 +533,24 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
                 </div>
               )}
             </div>
+            {collectionWarning && (
+              <div
+                role="alert"
+                data-testid="collection-discovery-warning"
+                className="mt-3 text-xs text-amber-300 bg-amber-900/30 border border-amber-700/60 p-2.5 rounded-md flex items-center justify-between"
+              >
+                <span>
+                  <strong>Collection Discovery Notice:</strong> {collectionWarning}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCollectionWarning(null)}
+                  className="ml-3 text-amber-400 hover:text-white text-xs underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
           </div>
           {renderContent()}
 

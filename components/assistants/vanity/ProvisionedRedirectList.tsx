@@ -95,7 +95,7 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
         api.listDnsZones(projectId),
       ]);
 
-      const scopes = aggRes.items || {};
+      const scopes = (aggRes || {}).items || {};
       const rules: Array<{ name: string; IPAddress: string; creationTimestamp: string; region?: string }> = [];
       Object.keys(scopes).forEach((key) => {
         const scopeData = scopes[key];
@@ -110,8 +110,8 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
         }
       });
 
-      const certs: ManagedSslCertificate[] = certRes.items || [];
-      const zones = dnsRes.managedZones || [];
+      const certs: ManagedSslCertificate[] = (certRes || {}).items || [];
+      const zones = (dnsRes || {}).managedZones || [];
 
       const combined: ProvisionedRedirect[] = rules
         .filter((r) => r.name.endsWith('-fwd-rule') || r.name.endsWith('-internal-fwd-rule'))
@@ -207,7 +207,7 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
 
   return (
     <div className="bg-gray-800 rounded-lg border border-gray-700">
-      <div className="flex items-start justify-between p-4 border-b border-gray-700">
+      <div className="flex flex-wrap items-start justify-between gap-3 p-4 border-b border-gray-700">
         <div>
           <h3 className="text-md font-semibold text-white">Provisioned Redirect URLs</h3>
           <p className="text-xs text-gray-400 mt-1">
@@ -373,3 +373,4 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
 };
 
 export default ProvisionedRedirectList;
+

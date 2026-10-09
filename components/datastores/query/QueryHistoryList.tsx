@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Document } from '../../../types';
 import Spinner from '../../Spinner';
 import { QueryHistoryEntry } from './types';
@@ -28,19 +28,28 @@ export interface QueryHistoryListProps {
   showCodePanel: boolean;
 }
 
+type DocumentWithDerived = Document & {
+  derivedStructData?: Record<string, unknown>;
+  displayName?: string;
+};
+
 export const getDocumentPreview = (doc: Document): string => {
-  if (doc.structData) {
-    return JSON.stringify(doc.structData, null, 2);
+  const docExt = doc as DocumentWithDerived;
+  if (docExt.structData && Object.keys(docExt.structData).length > 0) {
+    return JSON.stringify(docExt.structData, null, 2);
   }
-  if (doc.jsonData) {
+  if (docExt.jsonData) {
     try {
-      return JSON.stringify(JSON.parse(doc.jsonData), null, 2);
+      return JSON.stringify(JSON.parse(docExt.jsonData), null, 2);
     } catch {
-      return doc.jsonData;
+      return docExt.jsonData;
     }
   }
-  if (doc.content?.uri) {
-    return `Source: ${doc.content.uri}`;
+  if (docExt.derivedStructData && Object.keys(docExt.derivedStructData).length > 0) {
+    return JSON.stringify(docExt.derivedStructData, null, 2);
+  }
+  if (docExt.content?.uri) {
+    return `Source: ${docExt.content.uri}`;
   }
   return 'No preview available.';
 };
@@ -53,6 +62,8 @@ export const QueryHistoryList: React.FC<QueryHistoryListProps> = ({
   resultsEndRef,
   showCodePanel,
 }) => {
+  const [expandedRawEntryIdx, setExpandedRawEntryIdx] = useState<number | null>(null);
+
   return (
     <main className={`overflow-y-auto p-4 space-y-6 ${showCodePanel ? 'w-1/2' : 'w-full'}`}>
       {history.length === 0 && !isSearching && (
@@ -94,17 +105,52 @@ export const QueryHistoryList: React.FC<QueryHistoryListProps> = ({
                 </div>
               ) : (
                 <div>
-                  <div className="px-4 py-2 border-b border-gray-600 flex justify-between items-center">
+                  <div className="px-4 py-2 border-b border-gray-600 flex justify-between items-center gap-2">
                     <span className="text-sm text-gray-300 font-semibold">
                       {entry.results.length} result{entry.results.length !== 1 ? 's' : ''}
                       {entry.totalSize != null ? ` (of ${entry.totalSize} total)` : ''}
                     </span>
+                    <button
+                      type="button"
+                      data-testid={`toggle-raw-search-json-${historyIdx}`}
+                      onClick={() =>
+                        setExpandedRawEntryIdx(expandedRawEntryIdx === historyIdx ? null : historyIdx)
+                      }
+                      className="text-[11px] px-2 py-0.5 rounded bg-gray-800 border border-gray-600 text-blue-300 hover:bg-gray-700 hover:text-white transition-colors font-mono"
+                    >
+                      {expandedRawEntryIdx === historyIdx ? 'Hide Raw :search JSON' : 'Raw :search Result JSON'}
+                    </button>
                   </div>
+                  {expandedRawEntryIdx === historyIdx && (
+                    <div className="p-3 bg-gray-950 border-b border-gray-700">
+                      <div className="text-[11px] font-semibold text-blue-400 uppercase tracking-wider mb-1">
+                        Raw Discovery Engine :search Response Payload
+                      </div>
+                      <pre
+                        data-testid={`raw-search-json-${historyIdx}`}
+                        className="text-xs text-green-300 font-mono overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap bg-gray-900 p-2.5 rounded border border-gray-800"
+                      >
+                        {JSON.stringify(
+                          entry.rawResponse ?? { results: entry.results, totalSize: entry.totalSize },
+                          null,
+                          2
+                        )}
+                      </pre>
+                    </div>
+                  )}
                   <div className="divide-y divide-gray-600">
                     {entry.results.map((result, resultIdx) => {
-                      const docId = result.document?.id || result.id || `${historyIdx}-${resultIdx}`;
+                      const docExt = result.document as DocumentWithDerived | undefined;
+                      const docId = docExt?.id || result.id || `${historyIdx}-${resultIdx}`;
                       const uniqueKey = `${historyIdx}-${docId}`;
                       const isExpanded = expandedResult === uniqueKey;
+                      const derivedTitle = typeof docExt?.derivedStructData?.title === 'string'
+                        ? docExt.derivedStructData.title
+                        : undefined;
+                      const derivedLink = typeof docExt?.derivedStructData?.link === 'string'
+                        ? docExt.derivedStructData.link
+                        : undefined;
+                      const displayUri = docExt?.content?.uri || derivedLink;
 
                       return (
                         <div key={uniqueKey} className="px-4 py-3">
@@ -119,12 +165,12 @@ export const QueryHistoryList: React.FC<QueryHistoryListProps> = ({
                                   #{resultIdx + 1}
                                 </span>
                                 <p className="text-sm text-white font-medium truncate">
-                                  {result.document?.displayName || result.document?.id || docId}
+                                  {docExt?.displayName || derivedTitle || docExt?.id || docId}
                                 </p>
                               </div>
-                              {result.document?.content?.uri && (
+                              {displayUri && (
                                 <p className="text-xs text-gray-400 mt-1 truncate font-mono">
-                                  {result.document.content.uri}
+                                  {displayUri}
                                 </p>
                               )}
                             </div>

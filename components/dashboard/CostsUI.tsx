@@ -38,6 +38,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
     const [selectedProjectLicense, setSelectedProjectLicense] = useState<string>('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [licenseDiscoveryWarning, setLicenseDiscoveryWarning] = useState<string | null>(null);
 
     // Monitoring State
     const [usageMetrics, setUsageMetrics] = useState<Record<string, number | undefined> | null>(null);
@@ -53,7 +54,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             try {
                 // We use global location for listing billing accounts
                 const config = { projectId: projectNumber, appLocation: 'global' } as Config;
-                const res = await api.listBillingAccounts(config);
+                const res = (await api.listBillingAccounts(config)) || {};
                 const accounts = res.billingAccounts || [];
                 setBillingAccounts(accounts);
                 
@@ -121,7 +122,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             setIsLoading(true);
             try {
                 const config: Config = { projectId: projectNumber, appLocation: 'global', collectionId: '', appId: '', assistantId: '' };
-                const res = await api.listBillingAccountLicenseConfigs(selectedBillingAccountId, config);
+                const res = (await api.listBillingAccountLicenseConfigs(selectedBillingAccountId, config)) || {};
                 const configs = res.billingAccountLicenseConfigs || [];
                 setLicenseConfigs(configs);
 
@@ -170,15 +171,17 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
         const fetchProjectLicenses = async () => {
             if (!projectNumber) return;
             setIsLoading(true);
+            setLicenseDiscoveryWarning(null);
             try {
                 const locations = ['global', 'us', 'eu'];
                 const discoveredLicenses: { name: string }[] = [];
+                const regionalFailures: string[] = [];
                 
                 // 1. Query usage stats across all regions
                 for (const loc of locations) {
                     try {
                         const config: Config = { projectId: projectNumber, appLocation: loc, collectionId: '', appId: '', assistantId: '' };
-                        const res = await api.listLicenseConfigsUsageStats(config);
+                        const res = (await api.listLicenseConfigsUsageStats(config)) || {};
                         if (res.licenseConfigUsageStats) {
                             for (const stat of res.licenseConfigUsageStats) {
                                 if (stat.licenseConfig) {
@@ -189,9 +192,15 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                                 }
                             }
                         }
-                    } catch (_e: unknown) {
-                        // Ignore 404s or 400s for regions that aren't provisioned
+                    } catch (regionErr: unknown) {
+                        regionalFailures.push(`${loc}: ${toErrorMessage(regionErr, 'request failed')}`);
                     }
+                }
+
+                if (regionalFailures.length === locations.length) {
+                    setLicenseDiscoveryWarning(
+                        `Could not auto-discover project-local licenses across regions (${regionalFailures[0]}). Enter seat count manually or select a Cloud Billing account.`
+                    );
                 }
                 
                 // 2. Hydrate subscription tiers and total counts by calling getLicenseConfig
@@ -201,7 +210,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                           const locMatch = license.name.match(/\/locations\/([^/]+)\//);
                           const licenseLoc = locMatch ? locMatch[1] : 'global';
                           const config: Config = { projectId: projectNumber, appLocation: licenseLoc, collectionId: '', appId: '', assistantId: '' };
-                          const res = await api.getLicenseConfig(license.name, config);
+                          const res = (await api.getLicenseConfig(license.name, config)) || ({} as LicenseConfig);
                           hydratedLicenses.push({
                               ...license,
                               allocatedCount: Number(res.licenseCount) || 0, // Using Total instead of Assigned
@@ -241,6 +250,9 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 }
             } catch (err: unknown) {
                 console.error("Failed to fetch project licenses:", err);
+                setLicenseDiscoveryWarning(
+                    `Failed to auto-discover project-local licenses: ${toErrorMessage(err)}`
+                );
             } finally {
                 setIsLoading(false);
             }
@@ -327,7 +339,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 const locationFilter = selectedLocation ? ` AND resource.labels.location="${selectedLocation}"` : '';
                 const promises = metricEntries.map(([key, suffix]) => {
                     const filter = `metric.type="discoveryengine.googleapis.com/quota/${suffix}/usage" AND resource.type="discoveryengine.googleapis.com/Location"${locationFilter}`;
-                    return api.getCloudMonitoringMetrics(projectNumber, filter, startTime, endTime).then(res => ({ key, res }));
+                    return api.getCloudMonitoringMetrics(projectNumber, filter, startTime, endTime).then(res => ({ key, res: res || {} }));
                 });
                 
                 const results = await Promise.allSettled(promises);
@@ -465,6 +477,15 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         {error}
                     </div>
                 )}
+                {licenseDiscoveryWarning && (
+                    <div
+                        data-testid="license-discovery-warning"
+                        role="alert"
+                        className="mb-4 bg-amber-900/30 border border-amber-800 p-3 rounded text-amber-200 text-sm"
+                    >
+                        {licenseDiscoveryWarning}
+                    </div>
+                )}
                 {metricsError && (
                     <div className="mb-4 bg-yellow-900/30 border border-yellow-800 p-3 rounded text-yellow-300 text-sm">
                         {metricsError}
@@ -594,6 +615,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             value={quotas.tasksAndActions} 
                             usage={usageMetrics?.tasksAndActions}
                             unit="tasks / day" 
+                            tooltip="Pooled daily limit for connector actions and tool executions (160/day per Standard seat, 200/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/tasks_and_actions_tier_enterprise*_regional/usage"
                         />
                     </div>
                 </div>
@@ -607,30 +629,35 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             value={quotas.textAnswerGen} 
                             usage={usageMetrics?.textAnswerGen}
                             unit="generations / day" 
+                            tooltip="Pooled daily limit for grounded assistant text answers and search summaries (160/day per Standard seat, 200/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/text_answer_gen_tier_enterprise*_regional/usage"
                         />
                         <QuotaCard 
                             title="Image generation" 
                             value={quotas.imageGen} 
                             usage={usageMetrics?.imageGen}
                             unit="images / day" 
+                            tooltip="Pooled daily limit for enterprise image generations (5/day per Standard seat, 10/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/image_gen_tier_enterprise*_regional/usage"
                         />
                         <QuotaCard 
                             title="Video generation" 
                             value={quotas.videoGen} 
                             usage={usageMetrics?.videoGen}
                             unit="videos / day" 
+                            tooltip="Pooled daily limit for enterprise video generations (2/day per Standard seat, 3/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/video_gen_numbers_tier_enterprise*_regional/usage"
                         />
                         <QuotaCard 
                             title="Grounding with Google search" 
                             value={quotas.grounding} 
                             usage={usageMetrics?.grounding}
                             unit="queries / day" 
+                            tooltip="Pooled daily limit for queries grounded via Google Search (160/day per Standard seat, 200/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/grounding_with_search_tier_enterprise*_regional/usage"
                         />
                         <QuotaCard 
                             title="Web grounding for enterprise" 
                             value={quotas.webGrounding} 
                             usage={usageMetrics?.webGrounding}
                             unit="queries / day" 
+                            tooltip="Pooled daily limit for enterprise web grounding queries (160/day per Standard seat, 200/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/web_grounding_for_enterprise_tier_enterprise*_regional/usage"
                         />
                     </div>
                 </div>
@@ -644,12 +671,14 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             value={quotas.ideaGeneration} 
                             usage={usageMetrics?.ideaGeneration}
                             unit="ideas / day" 
+                            tooltip="Pooled daily limit for Idea Generation agent runs (1/day per Standard or Plus seat). Metric: discoveryengine.googleapis.com/quota/idea_gen_start_instance_tier_enterprise*_regional/usage"
                         />
                         <QuotaCard 
                             title="Deep research" 
                             value={quotas.deepResearch} 
                             usage={usageMetrics?.deepResearch}
                             unit="queries / day" 
+                            tooltip="Pooled daily limit for multi-step Deep Research agent queries (3/day per Standard seat, 10/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/deep_research_query_total_tier_enterprise*_regional/usage"
                         />
                     </div>
                 </div>
@@ -669,3 +698,4 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
 };
 
 export default CostsUI;
+

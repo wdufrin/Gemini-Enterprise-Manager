@@ -7,8 +7,9 @@ import { toErrorMessage } from '../utils/errors';
 import { useModalA11y } from '../hooks/useModalA11y';
 
 interface AgentPermissionsPageProps {
-    projectNumber: string;
-    setProjectNumber: (projectNumber: string) => void;
+    projectNumber?: string;
+    setProjectNumber?: (projectNumber: string) => void;
+    config?: Config;
 }
 
 interface PermissionRow {
@@ -21,15 +22,13 @@ interface PermissionRow {
     permission: 'owner' | 'user' | 'unknown';
 }
 
-
-
-const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumber, setProjectNumber }) => {
+const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
+    projectNumber: propProjectNumber,
+    setProjectNumber,
+    config: propConfig,
+}) => {
+    const projectNumber = propProjectNumber ?? propConfig?.projectId ?? '';
     const [permissionsData, setPermissionsData] = useState<PermissionRow[]>([]);
-
-    useEffect(() => {
-        setPermissionsData([]);
-    }, [projectNumber]);
-
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [partialFailures, setPartialFailures] = useState<PartialFailure[]>([]);
@@ -101,7 +100,9 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
     };
 
     const handleProjectNumberChange = (newValue: string) => {
-        setProjectNumber(newValue);
+        if (setProjectNumber) {
+            setProjectNumber(newValue);
+        }
         setConfig(prev => ({ ...prev, appId: '' }));
     };
 
@@ -110,18 +111,21 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
         projectId: projectNumber,
     }), [config, projectNumber]);
 
-    const fetchPermissions = useCallback(async () => {
+    const runPermissionsScan = useCallback(async (isBackground = false) => {
         if (!apiConfig.projectId) {
-            setError("Project must be selected to list permissions.");
+            if (!isBackground) {
+                setError("Project must be selected to list permissions.");
+            }
             setPermissionsData([]);
             setPartialFailures([]);
             return;
         }
 
-        setIsLoading(true);
+        if (!isBackground) {
+            setIsLoading(true);
+        }
         setError(null);
         setPartialFailures([]);
-        // Do not clear permissionsData immediately so table isn't lost during load
 
         const rows: PermissionRow[] = [];
         const locationsToScan = ['global', 'us', 'eu'];
@@ -131,7 +135,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
             // First fetch the project-level IAM policy to get inherited permissions
             let projectPolicy: IamPolicy = { bindings: [] };
             try {
-                projectPolicy = await api.getProjectIamPolicy(apiConfig.projectId!);
+                projectPolicy = (await api.getProjectIamPolicy(apiConfig.projectId!)) || { bindings: [] };
             } catch (projectErr: unknown) {
                 console.warn("Could not fetch project IAM policy for inherited permissions", projectErr);
                 failures.push({
@@ -148,7 +152,6 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
             const inheritedBindings: IamBinding[] = projectPolicy.bindings?.filter((binding: IamBinding) => {
                 if (!binding.role) return false;
                 const role = binding.role.toLowerCase();
-                // Include standard owner/editor/viewer, discoveryengine roles, and custom project/org roles
                 return role.includes('roles/owner') || 
                        role.includes('roles/editor') || 
                        role.includes('roles/viewer') || 
@@ -161,7 +164,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                 const locConfig = { ...apiConfig, appLocation: location };
                 let appsInLocation: AppEngine[] = [];
                 try {
-                    const enginesResponse = await api.listResources('engines', locConfig);
+                    const enginesResponse = (await api.listResources('engines', locConfig)) || {};
                     appsInLocation = enginesResponse.engines || [];
                 } catch (appErr: unknown) {
                     console.warn(`Could not list apps in location ${location}`, appErr);
@@ -181,29 +184,33 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                     const appName = app.displayName || appId;
 
                     try {
-                        const assistantsResponse = await api.listResources('assistants', appConfig);
-                        const assistants: Assistant[] = assistantsResponse.assistants || [];
+                        const assistantsResponse = (await api.listResources('assistants', appConfig)) || {};
+                        let assistants: Assistant[] = assistantsResponse.assistants || [];
+                        if (assistants.length === 0 && Array.isArray((assistantsResponse as any).agents) && (assistantsResponse as any).agents.length > 0) {
+                            assistants = [{
+                                name: `${app.name}/assistants/default_assistant`,
+                                displayName: 'Default Assistant',
+                            }];
+                        }
 
                         for (const assistant of assistants) {
                             const assistantConfig = { ...appConfig, assistantId: assistant.name.split('/').pop()! };
 
                             try {
-                                const agentsResponse = await api.listResources('agents', assistantConfig);
+                                const agentsResponse = (await api.listResources('agents', assistantConfig)) || {};
                                 const agents: Agent[] = agentsResponse.agents || [];
 
                                 for (const agent of agents) {
                                     try {
-                                        const policy = await api.getAgentIamPolicy(agent.name, locConfig);
+                                        const policy = (await api.getAgentIamPolicy(agent.name, locConfig)) || { bindings: [] };
                                         const specificBindings = policy.bindings || [];
 
-                                        // Combine specific bindings with inherited project bindings
                                         const allBindings = [
                                             ...specificBindings.map((b: IamBinding) => ({ ...b, isInherited: false })),
                                             ...inheritedBindings.map((b: IamBinding) => ({ ...b, isInherited: true }))
                                         ];
 
                                         if (allBindings.length === 0) {
-                                            // If literally no permissions exist (extremely rare if project inherits are caught)
                                             rows.push({
                                                 id: `${location}-${agent.name}-none-none`,
                                                 location: location,
@@ -215,7 +222,6 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                                             });
                                         }
 
-                                        // Deduplicate on full member + permissionType + inheritance scope so user: vs group: and direct vs inherited are preserved
                                         const seenUserRoles = new Set<string>();
 
                                         for (const binding of allBindings) {
@@ -298,14 +304,29 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
             setPermissionsData([]);
             setPartialFailures(failures);
         } finally {
-            setIsLoading(false);
+            if (!isBackground) {
+                setIsLoading(false);
+            }
         }
     }, [apiConfig]);
+
+    const fetchPermissions = useCallback(() => {
+        return runPermissionsScan(false);
+    }, [runPermissionsScan]);
+
+    useEffect(() => {
+        setPermissionsData([]);
+        if (projectNumber) {
+            void runPermissionsScan(false);
+        }
+    }, [projectNumber, runPermissionsScan]);
 
     return (
         <div className="flex flex-col h-full gap-6 w-full min-w-0 max-w-full">
             <div className="bg-gray-800 p-4 rounded-lg shadow-md shrink-0">
-                <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
+                <div className="flex justify-between items-center mb-3">
+                    <h2 className="text-lg font-semibold text-white">Configuration</h2>
+                </div>
                 <div className="flex flex-col sm:flex-row sm:items-end gap-4">
                     <div className="flex-1 min-w-0">
                         <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
@@ -439,6 +460,9 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                         ) : (
                             <div className="text-center px-4">
                                 <p className="text-lg font-medium text-gray-400">No agent permissions found.</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    No permissions data loaded — no explicit or inherited permissions found.
+                                </p>
                                 <p className="text-sm mt-1">Select a project and click refetch to globally scan all agent permissions.</p>
                             </div>
                         )}

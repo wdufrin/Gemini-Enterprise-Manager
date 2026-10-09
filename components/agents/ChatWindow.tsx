@@ -18,9 +18,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatMessage, Config, DataStore, UserProfile } from '../../types';
 import * as api from '../../services/apiService';
-import ResponseDetailsModal from './ResponseDetailsModal';
+import ResponseDetailsModal, { ExtendedAnswerDetails } from './ResponseDetailsModal';
 import ChatCurlModal from './ChatCurlModal';
 import UserMemoriesModal from '../assistants/UserMemoriesModal';
+
+const toErrorMessage = (err: unknown): string =>
+    err instanceof Error ? err.message : String(err);
 
 interface ChatWindowProps {
     targetDisplayName: string;
@@ -37,10 +40,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [sessionId, setSessionId] = useState<string | null>(null);
-    const [detailsToShow, setDetailsToShow] = useState<ChatMessage['answerDetails'] | null>(null);
+    const [detailsToShow, setDetailsToShow] = useState<ExtendedAnswerDetails | null>(null);
     const [thinkingProcess, setThinkingProcess] = useState<string | null>(null);
     const [isCurlModalOpen, setIsCurlModalOpen] = useState(false);
     const [isMemoriesModalOpen, setIsMemoriesModalOpen] = useState(false);
+    const [chatDiagnostics, setChatDiagnostics] = useState<string[]>([]);
+
+    const appendDiagnosticWarning = useCallback((msg: string) => {
+        setChatDiagnostics(prev => (prev.includes(msg) ? prev : [...prev, msg]));
+    }, []);
     
     // Data Store Filtering State
     const [linkedDataStores, setLinkedDataStores] = useState<DataStore[]>([]);
@@ -120,10 +128,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
             setSelectedDsNames(agentName ? new Set() : new Set(matched.map(m => m.name)));
         } catch (e) {
             console.warn("Failed to auto-fetch tools for engine", e);
+            appendDiagnosticWarning(`Auto-fetch linked tools failed: ${toErrorMessage(e)}`);
         } finally {
             setIsFetchingTools(false);
         }
-    }, [config, agentName]);
+    }, [config, agentName, appendDiagnosticWarning]);
 
     useEffect(() => {
         setMessages([]);
@@ -153,11 +162,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                     }
                 } catch (e) {
                     console.error("Failed to fetch aclConfig for pool discovery", e);
+                    appendDiagnosticWarning(`ACL pool discovery (getAclConfig) failed: ${toErrorMessage(e)}`);
                 }
             }
         };
         discoverPool();
-    }, [authMode, showWifConfig, config]);
+    }, [authMode, showWifConfig, config, appendDiagnosticWarning]);
 
     useEffect(() => {
         const fetchPools = async () => {
@@ -174,13 +184,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                     });
                 } catch (e) {
                     console.error("Failed to fetch workforce pools", e);
+                    appendDiagnosticWarning(`Workforce Identity pool listing failed: ${toErrorMessage(e)}`);
                 } finally {
                     setIsLoadingPools(false);
                 }
             }
         };
         fetchPools();
-    }, [authMode, showWifConfig, config.projectId]);
+    }, [authMode, showWifConfig, config.projectId, appendDiagnosticWarning]);
 
     useEffect(() => {
         const fetchProviders = async () => {
@@ -191,6 +202,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                     setAvailableProviders(providerData);
                 } catch (e) {
                     console.error("Failed to fetch workforce pool providers", e);
+                    appendDiagnosticWarning(`Workforce provider listing failed: ${toErrorMessage(e)}`);
                 } finally {
                     setIsLoadingProviders(false);
                 }
@@ -199,7 +211,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
             }
         };
         fetchProviders();
-    }, [authMode, wifPoolId, config.projectId]);
+    }, [authMode, wifPoolId, config.projectId, appendDiagnosticWarning]);
 
     const handleSignIn = async () => {
         if (!wifPoolId.trim() || !wifProviderId.trim()) return;
@@ -260,6 +272,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
         let skipReason: string | null = null;
         let finalDiagnostics: any = null;
         const allCitations: any[] = [];
+        const rawChunks: unknown[] = [];
+        const thoughtSteps: string[] = [];
         let currentSessionId = sessionId;
 
         // Build toolsSpec based on CURRENT filter selection
@@ -268,6 +282,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                 dataStoreSpecs: Array.from(selectedDsNames).map(ds => ({ dataStore: ds }))
             }
         } : undefined;
+
+        let sentRequestPayload: Record<string, unknown> = {
+            endpoint: `https://${config.appLocation === 'global' ? '' : `${config.appLocation}-`}discoveryengine.googleapis.com/v1alpha/projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId}/engines/${config.appId}/assistants/${config.assistantId || 'default_assistant'}:streamAssist`,
+            query: { text: currentQuery },
+        };
 
         try {
             let chatAccessToken = accessToken;
@@ -308,8 +327,24 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                     }
                 } catch (sessionErr) {
                     console.warn("Failed to create user-attributed session, falling back to anonymous auto-creation.", sessionErr);
+                    appendDiagnosticWarning(
+                        `User-attributed session creation failed (${toErrorMessage(sessionErr)}); fell back to anonymous session auto-creation.`,
+                    );
                 }
             } // Close if (!currentSessionId && sessionUserEmail)
+
+            sentRequestPayload = {
+                endpoint: `https://${config.appLocation === 'global' ? '' : `${config.appLocation}-`}discoveryengine.googleapis.com/v1alpha/projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId}/engines/${config.appId}/assistants/${config.assistantId || 'default_assistant'}:streamAssist`,
+                query: { text: currentQuery },
+                ...(currentSessionId ? { session: currentSessionId } : {}),
+                ...(agentName
+                    ? {
+                          answerGenerationMode: 'AGENT',
+                          agentsSpec: { agentSpecs: [{ agentId: agentName.split('/').pop() || agentName }] },
+                      }
+                    : {}),
+                ...(toolsSpec ? { toolsSpec } : {}),
+            };
 
             await api.streamChat(
                 agentName, 
@@ -318,6 +353,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                 config,
                 chatAccessToken,
                 (parsedChunk) => {
+                    rawChunks.push(parsedChunk);
 
                     const newSessionId = parsedChunk.sessionInfo?.session;
                     // Only update if we didn't already have one
@@ -326,7 +362,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                         setSessionId(newSessionId);
                     }
                     
-                    if (parsedChunk.answer?.diagnosticInfo && parsedChunk.answer?.state === 'SUCCEEDED') {
+                    if (parsedChunk.answer?.diagnosticInfo) {
                         finalDiagnostics = parsedChunk.answer.diagnosticInfo;
                     }
 
@@ -346,6 +382,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                             if (replyContent) {
                                 if (replyContent.thought && replyContent.text) {
                                     const thoughtText = replyContent.text;
+                                    thoughtSteps.push(thoughtText);
                                     setThinkingProcess(prev => (prev ? prev + thoughtText : thoughtText));
                                 } else if (replyContent.text) {
                                     wasMessageReceived = true;
@@ -394,9 +431,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                 const messageToUpdate = newMessages[assistantMessageIndex];
 
                 if (messageToUpdate && messageToUpdate.role === 'assistant') {
-                    const answerDetails = (finalDiagnostics || allCitations.length > 0)
-                        ? { diagnostics: finalDiagnostics, citations: allCitations }
-                        : undefined;
+                    const answerDetails: ExtendedAnswerDetails = {
+                        diagnostics: finalDiagnostics,
+                        citations: allCitations,
+                        requestPayload: sentRequestPayload,
+                        rawChunks,
+                        thoughtSteps,
+                        sessionId: currentSessionId,
+                        authMode,
+                    };
                     
                     let finalContent = messageToUpdate.content;
                     if (!wasMessageReceived && finalContent === '') {
@@ -692,6 +735,29 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, agentName = 
                             Apply & Close
                         </button>
                     </div>
+                </div>
+            )}
+
+            {chatDiagnostics.length > 0 && (
+                <div
+                    role="alert"
+                    data-testid="chat-diagnostics-banner"
+                    className="px-4 py-2 bg-amber-900/30 border-b border-amber-700/50 flex items-start justify-between gap-3 text-xs text-amber-200"
+                >
+                    <div className="space-y-0.5">
+                        <span className="font-semibold text-amber-300">Playground Diagnostics:</span>
+                        {chatDiagnostics.map((warning, idx) => (
+                            <p key={idx}>• {warning}</p>
+                        ))}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setChatDiagnostics([])}
+                        data-testid="dismiss-chat-diagnostics-btn"
+                        className="text-amber-300 hover:text-white shrink-0 underline"
+                    >
+                        Dismiss
+                    </button>
                 </div>
             )}
 

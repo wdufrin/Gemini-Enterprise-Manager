@@ -28,6 +28,7 @@ vi.mock('../services/apiService', () => ({
   updateRegistrySkill: vi.fn(),
   deleteRegistrySkill: vi.fn(),
   listRegistrySkillRevisions: vi.fn(),
+  listResources: vi.fn(),
 }));
 
 const mockUserProfile: UserProfile = {
@@ -79,6 +80,7 @@ describe('SkillsRegistryPage Component', () => {
     vi.clearAllMocks();
     vi.mocked(api.listRegistrySkills).mockResolvedValue(mockRegistrySkills);
     vi.mocked(api.listRegistrySkillRevisions).mockResolvedValue([]);
+    vi.mocked(api.listResources).mockResolvedValue({ engines: [] });
   });
 
   const renderWithToast = (ui: React.ReactElement) => {
@@ -180,5 +182,50 @@ describe('SkillsRegistryPage Component', () => {
       expect(screen.getAllByText(/DEPRECATED/i).length).toBeGreaterThan(0);
       expect(screen.getAllByText(/WEIRD/i).length).toBeGreaterThan(0);
     });
+  });
+
+  it('renders structured API error banner when listRegistrySkills fails with 403 and surfaces revision/engine warnings in RegistrySkillDetailModal', async () => {
+    vi.mocked(api.listRegistrySkills).mockRejectedValueOnce(
+      new Error('403 PERMISSION_DENIED: Cloud AI Companion API has not been used in project')
+    );
+
+    const { unmount } = renderWithToast(
+      <SkillsRegistryPage
+        projectNumber="123456789012"
+        projectId="test-project-123"
+        setProjectNumber={vi.fn()}
+        accessToken="mock-token"
+        userProfile={mockUserProfile}
+      />
+    );
+
+    const errorBanner = await screen.findByTestId('skills-registry-error-banner');
+    expect(errorBanner).toBeInTheDocument();
+    expect(errorBanner.textContent).toMatch(/403|PERMISSION_DENIED|API/i);
+    unmount();
+
+    // Now test RegistrySkillDetailModal warning surfacing when revisions/engines fail
+    vi.mocked(api.listRegistrySkills).mockResolvedValue(mockRegistrySkills);
+    vi.mocked(api.listRegistrySkillRevisions).mockRejectedValueOnce(new Error('500 Revisions backend error'));
+    vi.mocked(api.listResources).mockRejectedValueOnce(new Error('403 Engine list forbidden'));
+
+    renderWithToast(
+      <SkillsRegistryPage
+        projectNumber="123456789012"
+        projectId="test-project-123"
+        setProjectNumber={vi.fn()}
+        accessToken="mock-token"
+        userProfile={mockUserProfile}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Corporate Brand Voice')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByTitle('Inspect Skill & Revisions')[0]);
+
+    expect(await screen.findByTestId('registry-skill-warnings-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('registry-skill-warnings-banner').textContent).toMatch(/500 Revisions backend error/);
   });
 });
