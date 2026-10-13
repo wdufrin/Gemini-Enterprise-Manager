@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import JSZip from 'jszip';
 import * as api from '../../services/apiService';
 import {
@@ -89,6 +89,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
   const [validationStatus, setValidationStatus] = useState<
     'idle' | 'validating' | 'success' | 'error'
   >('idle');
+  const [isGrantingPermissions, setIsGrantingPermissions] = useState(false);
   const [missingCloudBuildRoles, setMissingCloudBuildRoles] = useState<string[]>([]);
   const [missingComputeRoles, setMissingComputeRoles] = useState<string[]>([]);
 
@@ -98,6 +99,9 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({
     setError(null);
     setLogs([]);
     setIsDeploying(false);
+    setValidationStatus('idle');
+    setMissingCloudBuildRoles([]);
+    setMissingComputeRoles([]);
     setLeftTab(readmeContent ? 'docs' : 'architecture');
     setIsPermissionsExpanded(false);
     setIsRePermissionsExpanded(false);
@@ -340,7 +344,8 @@ CMD ["python", "main.py"]
     }
   };
 
-  const validatePermissions = async () => {
+  const validatePermissions = useCallback(async () => {
+    if (!projectId || !projectNumber) return;
     setValidationStatus('validating');
     setMissingCloudBuildRoles([]);
     setMissingComputeRoles([]);
@@ -356,22 +361,34 @@ CMD ["python", "main.py"]
           ? [
               'roles/run.admin',
               'roles/iam.serviceAccountUser',
-              'roles/storage.objectViewer',
+              'roles/storage.admin',
+              'roles/artifactregistry.writer',
             ]
-          : ['roles/aiplatform.user', 'roles/storage.objectViewer'];
+          : ['roles/aiplatform.user', 'roles/storage.admin'];
+
+      const hasRoleOrEquivalent = (saEmail: string, role: string): boolean => {
+        const memberKey = `serviceAccount:${saEmail}`;
+        const equivalentRoles = [role, 'roles/owner', 'roles/editor'];
+        if (role === 'roles/artifactregistry.writer') {
+          equivalentRoles.push(
+            'roles/artifactregistry.admin',
+            'roles/artifactregistry.repoAdmin',
+            'roles/artifactregistry.createOnPushWriter'
+          );
+        }
+        return bindings.some(
+          (b) =>
+            equivalentRoles.includes(b.role) &&
+            (b.members || []).includes(memberKey)
+        );
+      };
 
       const missingCB: string[] = [];
       const missingComp: string[] = [];
 
       requiredRoles.forEach((role) => {
-        const binding = bindings.find((b) => b.role === role);
-        const members = binding ? binding.members || [] : [];
-
-        const hasCloudBuild = members.includes(`serviceAccount:${cloudBuildSa}`);
-        const hasCompute = members.includes(`serviceAccount:${computeSa}`);
-
-        if (!hasCloudBuild) missingCB.push(role);
-        if (!hasCompute) missingComp.push(role);
+        if (!hasRoleOrEquivalent(cloudBuildSa, role)) missingCB.push(role);
+        if (!hasRoleOrEquivalent(computeSa, role)) missingComp.push(role);
       });
 
       setMissingCloudBuildRoles(missingCB);
@@ -381,12 +398,65 @@ CMD ["python", "main.py"]
         setValidationStatus('success');
       } else {
         setValidationStatus('error');
+        if (target === 'cloud_run') {
+          setIsPermissionsExpanded(true);
+        } else {
+          setIsRePermissionsExpanded(true);
+        }
       }
     } catch (err: unknown) {
       console.error('Failed to validate permissions', err);
       setValidationStatus('error');
       const msg = err instanceof Error ? err.message : String(err);
       setError(`Validation failed: ${msg}`);
+    }
+  }, [projectId, projectNumber, target]);
+
+  useEffect(() => {
+    if (!isOpen || isResolvingId || !projectId || !projectNumber) return;
+    void validatePermissions();
+  }, [isOpen, isResolvingId, projectId, projectNumber, target, validatePermissions]);
+
+  const grantMissingPermissions = async () => {
+    if (!projectId || !projectNumber) return;
+    setIsGrantingPermissions(true);
+    setError(null);
+    try {
+      const policy = await api.getProjectIamPolicy(projectId);
+      const bindings = policy.bindings || [];
+
+      const cloudBuildMember = `serviceAccount:${projectNumber}@cloudbuild.gserviceaccount.com`;
+      const computeMember = `serviceAccount:${projectNumber}-compute@developer.gserviceaccount.com`;
+
+      const ensureMemberBinding = (role: string, member: string) => {
+        const existing = bindings.find((b) => b.role === role);
+        if (existing) {
+          if (!existing.members) existing.members = [];
+          if (!existing.members.includes(member)) {
+            existing.members.push(member);
+          }
+        } else {
+          bindings.push({ role, members: [member] });
+        }
+      };
+
+      missingCloudBuildRoles.forEach((role) =>
+        ensureMemberBinding(role, cloudBuildMember)
+      );
+      missingComputeRoles.forEach((role) =>
+        ensureMemberBinding(role, computeMember)
+      );
+
+      policy.bindings = bindings;
+      await api.setProjectIamPolicy(projectId, policy);
+      addLog('Granted missing Cloud Build and Compute Service Account roles.');
+      await validatePermissions();
+    } catch (err: unknown) {
+      console.error('Failed to grant missing permissions', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to grant permissions: ${msg}`);
+    } finally {
+      setIsGrantingPermissions(false);
     }
   };
 
@@ -534,6 +604,8 @@ CMD ["python", "main.py"]
                 missingCloudBuildRoles={missingCloudBuildRoles}
                 missingComputeRoles={missingComputeRoles}
                 onValidatePermissions={validatePermissions}
+                onGrantMissingPermissions={grantMissingPermissions}
+                isGrantingPermissions={isGrantingPermissions}
               />
 
               {/* Action Button */}

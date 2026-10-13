@@ -220,7 +220,7 @@ reqs = list(set(reqs))
 logger.info(f"Using requirements: {reqs}")
 
 # Parse .env for deploymentSpec
-env_vars = []
+env_vars = {}
 if os.path.exists(".env"):
     try:
         with open(".env", "r") as f:
@@ -242,17 +242,14 @@ if os.path.exists(".env"):
                     # Update os.environ so the SDK can pick it up locally
                     os.environ[key] = value
                     
-                    # Append strictly non-reserved keys to env_vars list for deployment
-                    # We explicitly allow GOOGLE_CLOUD_LOCATION to pass into the container
-                    # to specify the model endpoint location (e.g. 'global' for Gemini 3).
+                    # Pass env_vars as a dict {key: value} rather than a list of keys
+                    # so google-cloud-aiplatform deduplicates telemetry env vars cleanly.
                     if (value and key not in ["GOOGLE_CLOUD_PROJECT", "STAGING_BUCKET", "PROJECT_ID", "DEPLOYMENT_LOCATION"]
                         and not key.startswith("OTEL_")
                         and not key.startswith("GOOGLE_CLOUD_AGENT_ENGINE_")):
-                        env_vars.append(key)
+                        env_vars[key] = value
         
-        # Deduplicate env_vars to prevent "EnvVar names must be unique" error
-        env_vars = list(set(env_vars))
-        logger.info(f"Final deployment env_vars: {env_vars}")
+        logger.info(f"Final deployment env_vars: {list(env_vars.keys())}")
         logger.info(f"Parsed {len(env_vars)} environment variables for deploymentSpec.")
     except Exception as e:
         logger.warning(f"Failed to parse .env file: {e}")
@@ -278,7 +275,7 @@ try:
          app_to_deploy = agent_engines.AdkApp(agent=app_obj, enable_tracing=False)
          logger.info("Wrapping agent in AdkApp for deployment...")
 
-    logger.info("Creating Agent Engine...")
+    logger.info("Creating or updating Agent Engine...")
     
     # Detect extra packages (like auth_utils.py)
     extra_packages = []
@@ -293,13 +290,30 @@ try:
     
     logger.info(f"Extra packages detected: {extra_packages}")
 
-    remote_app = agent_engines.create(
-        agent_engine=app_to_deploy,
-        requirements=reqs,
-        env_vars=env_vars,
-        extra_packages=extra_packages,
-        display_name=${JSON.stringify(agentName)}
-    )
+    agent_display_name = ${JSON.stringify(agentName)}
+    target_agent = None
+    for existing in agent_engines.list():
+        if getattr(existing, "display_name", None) == agent_display_name:
+            target_agent = existing
+            break
+
+    if target_agent:
+        logger.info(f"Found existing agent: {target_agent.resource_name}. Updating...")
+        remote_app = agent_engines.update(
+            target_agent.resource_name,
+            agent_engine=app_to_deploy,
+            requirements=reqs,
+            env_vars=env_vars,
+            extra_packages=extra_packages,
+        )
+    else:
+        remote_app = agent_engines.create(
+            agent_engine=app_to_deploy,
+            requirements=reqs,
+            env_vars=env_vars,
+            extra_packages=extra_packages,
+            display_name=agent_display_name
+        )
 
 except ImportError:
     logger.warning("Fallback to preview namespace.")

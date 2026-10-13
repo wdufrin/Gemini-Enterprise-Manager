@@ -48,7 +48,9 @@ export function useAgentDeploymentPackage({
   const [readmeContent, setReadmeContent] = useState<string>('');
 
   const [projectId, setProjectId] = useState(projectNumber);
-  const [isResolvingId, setIsResolvingId] = useState(false);
+  const [isResolvingId, setIsResolvingId] = useState(() =>
+    Boolean(isOpen && projectNumber)
+  );
 
   const [buckets, setBuckets] = useState<GcsBucket[]>([]);
   const [selectedBucket, setSelectedBucket] = useState<string>('');

@@ -306,21 +306,32 @@ gcloud iam service-accounts remove-iam-policy-binding $SERVICE_ACCOUNT \\
   --member="principalSet://iam.googleapis.com/$WORKLOAD_IDENTITY_POOL_ID/attribute.repository_owner/$OWNER" \\
   2>/dev/null || echo "No legacy owner-wide binding to remove."
 
-# Optional: Grant Roles to Cloud Build Service Account (If using Cloud Build)
+# Optional: Grant Roles to Cloud Build Service Accounts (If using Cloud Build)
 export PROJECT_NUMBER=$(gcloud projects describe "${projectId}" --format="value(projectNumber)")
 export CLOUD_BUILD_SA="$PROJECT_NUMBER@cloudbuild.gserviceaccount.com"
+export COMPUTE_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
 
-gcloud projects add-iam-policy-binding "${projectId}" \\
-  --member="serviceAccount:$CLOUD_BUILD_SA" \\
-  --role="roles/run.admin"
+for SA in "$CLOUD_BUILD_SA" "$COMPUTE_SA"; do
+  gcloud projects add-iam-policy-binding "${projectId}" \\
+    --member="serviceAccount:$SA" \\
+    --role="roles/aiplatform.user"
 
-gcloud projects add-iam-policy-binding "${projectId}" \\
-  --member="serviceAccount:$CLOUD_BUILD_SA" \\
-  --role="roles/iam.serviceAccountUser"
+  gcloud projects add-iam-policy-binding "${projectId}" \\
+    --member="serviceAccount:$SA" \\
+    --role="roles/storage.admin"
 
-gcloud projects add-iam-policy-binding "${projectId}" \\
-  --member="serviceAccount:$CLOUD_BUILD_SA" \\
-  --role="roles/artifactregistry.admin"
+  gcloud projects add-iam-policy-binding "${projectId}" \\
+    --member="serviceAccount:$SA" \\
+    --role="roles/run.admin"
+
+  gcloud projects add-iam-policy-binding "${projectId}" \\
+    --member="serviceAccount:$SA" \\
+    --role="roles/iam.serviceAccountUser"
+
+  gcloud projects add-iam-policy-binding "${projectId}" \\
+    --member="serviceAccount:$SA" \\
+    --role="roles/artifactregistry.admin"
+done
 
 # 6. Set the newly created Provider and Service Account locally in your App Settings 
 echo "WIF Provider: $WORKLOAD_IDENTITY_PROVIDER"

@@ -28,6 +28,8 @@ interface DeploymentPermissionsCardProps {
   missingCloudBuildRoles: string[];
   missingComputeRoles: string[];
   onValidatePermissions: () => Promise<void>;
+  onGrantMissingPermissions?: () => Promise<void>;
+  isGrantingPermissions?: boolean;
 }
 
 export const DeploymentPermissionsCard: React.FC<DeploymentPermissionsCardProps> = ({
@@ -42,6 +44,8 @@ export const DeploymentPermissionsCard: React.FC<DeploymentPermissionsCardProps>
   missingCloudBuildRoles,
   missingComputeRoles,
   onValidatePermissions,
+  onGrantMissingPermissions,
+  isGrantingPermissions = false,
 }) => {
   const cloudBuildSa = `${projectNumber}@cloudbuild.gserviceaccount.com`;
   const computeSa = `${projectNumber}-compute@developer.gserviceaccount.com`;
@@ -56,7 +60,11 @@ gcloud projects add-iam-policy-binding ${projectId} \\
 
 gcloud projects add-iam-policy-binding ${projectId} \\
   --member="serviceAccount:${cloudBuildSa}" \\
-  --role="roles/storage.objectViewer"
+  --role="roles/storage.admin"
+
+gcloud projects add-iam-policy-binding ${projectId} \\
+  --member="serviceAccount:${cloudBuildSa}" \\
+  --role="roles/artifactregistry.writer"
 
 # If your project uses Compute SA for Cloud Build:
 gcloud projects add-iam-policy-binding ${projectId} \\
@@ -69,7 +77,11 @@ gcloud projects add-iam-policy-binding ${projectId} \\
 
 gcloud projects add-iam-policy-binding ${projectId} \\
   --member="serviceAccount:${computeSa}" \\
-  --role="roles/storage.objectViewer"`;
+  --role="roles/storage.admin"
+
+gcloud projects add-iam-policy-binding ${projectId} \\
+  --member="serviceAccount:${computeSa}" \\
+  --role="roles/artifactregistry.writer"`;
 
   const grantRePermissionsCommand = `gcloud projects add-iam-policy-binding ${projectId} \\
   --member="serviceAccount:${cloudBuildSa}" \\
@@ -77,7 +89,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
 
 gcloud projects add-iam-policy-binding ${projectId} \\
   --member="serviceAccount:${cloudBuildSa}" \\
-  --role="roles/storage.objectViewer"
+  --role="roles/storage.admin"
 
 # If your project uses Compute SA for Cloud Build:
 gcloud projects add-iam-policy-binding ${projectId} \\
@@ -86,7 +98,10 @@ gcloud projects add-iam-policy-binding ${projectId} \\
 
 gcloud projects add-iam-policy-binding ${projectId} \\
   --member="serviceAccount:${computeSa}" \\
-  --role="roles/storage.objectViewer"`;
+  --role="roles/storage.admin"`;
+
+  const hasMissingRoles =
+    missingCloudBuildRoles.length > 0 || missingComputeRoles.length > 0;
 
   if (target === 'cloud_run') {
     return (
@@ -129,9 +144,9 @@ gcloud projects add-iam-policy-binding ${projectId} \\
           <div className="mt-3">
             <p className="text-xs text-yellow-100 mb-2">
               Cloud Build needs <strong>Cloud Run Admin</strong>,{' '}
-              <strong>Service Account User</strong>, and{' '}
-              <strong>Storage Object Viewer</strong> roles to deploy this service.
-              Run this once in your terminal:
+              <strong>Service Account User</strong>, <strong>Storage Admin</strong>,
+              and <strong>Artifact Registry Writer</strong> roles to build and deploy
+              this service. Run this once in your terminal:
             </p>
             <div className="bg-black/50 p-2 rounded border border-yellow-900/50 relative group">
               <pre className="text-[10px] text-yellow-50 whitespace-pre-wrap font-mono">
@@ -144,16 +159,31 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                 Copy
               </button>
             </div>
-            <div className="mt-3 flex items-center justify-between">
-              <button
-                onClick={onValidatePermissions}
-                disabled={validationStatus === 'validating'}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md transition-colors disabled:bg-gray-600"
-              >
-                {validationStatus === 'validating'
-                  ? 'Validating...'
-                  : 'Validate Permissions'}
-              </button>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={onValidatePermissions}
+                  disabled={validationStatus === 'validating' || isGrantingPermissions}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md transition-colors disabled:bg-gray-600"
+                >
+                  {validationStatus === 'validating'
+                    ? 'Validating...'
+                    : 'Validate Permissions'}
+                </button>
+                {validationStatus === 'error' &&
+                  hasMissingRoles &&
+                  onGrantMissingPermissions && (
+                    <button
+                      onClick={onGrantMissingPermissions}
+                      disabled={isGrantingPermissions}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-md transition-colors disabled:bg-gray-600"
+                    >
+                      {isGrantingPermissions
+                        ? 'Granting Roles...'
+                        : 'Grant Missing Permissions'}
+                    </button>
+                  )}
+              </div>
               {validationStatus === 'success' && (
                 <span className="text-xs text-green-400 flex items-center gap-1">
                   <svg
@@ -171,34 +201,31 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                   All permissions granted!
                 </span>
               )}
-              {validationStatus === 'error' &&
-                (missingCloudBuildRoles.length > 0 || missingComputeRoles.length > 0) && (
-                  <span className="text-xs text-red-400 flex flex-col items-end">
-                    {missingCloudBuildRoles.length > 0 && (
-                      <>
-                        <span>Missing on Cloud Build SA:</span>
-                        {missingCloudBuildRoles.map((r) => (
-                          <span key={r}>{r}</span>
-                        ))}
-                      </>
-                    )}
-                    {missingComputeRoles.length > 0 && (
-                      <>
-                        <span className="mt-1">Missing on Compute SA:</span>
-                        {missingComputeRoles.map((r) => (
-                          <span key={r}>{r}</span>
-                        ))}
-                      </>
-                    )}
-                  </span>
-                )}
-              {validationStatus === 'error' &&
-                missingCloudBuildRoles.length === 0 &&
-                missingComputeRoles.length === 0 && (
-                  <span className="text-xs text-red-400">
-                    Validation failed. Check console.
-                  </span>
-                )}
+              {validationStatus === 'error' && hasMissingRoles && (
+                <span className="text-xs text-red-400 flex flex-col items-end">
+                  {missingCloudBuildRoles.length > 0 && (
+                    <>
+                      <span>Missing on Cloud Build SA:</span>
+                      {missingCloudBuildRoles.map((r) => (
+                        <span key={r}>{r}</span>
+                      ))}
+                    </>
+                  )}
+                  {missingComputeRoles.length > 0 && (
+                    <>
+                      <span className="mt-1">Missing on Compute SA:</span>
+                      {missingComputeRoles.map((r) => (
+                        <span key={r}>{r}</span>
+                      ))}
+                    </>
+                  )}
+                </span>
+              )}
+              {validationStatus === 'error' && !hasMissingRoles && (
+                <span className="text-xs text-red-400">
+                  Validation failed. Check console.
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -246,8 +273,9 @@ gcloud projects add-iam-policy-binding ${projectId} \\
         <div className="mt-3">
           <p className="text-xs text-yellow-100 mb-2">
             Cloud Build needs <strong>Vertex AI User</strong> and{' '}
-            <strong>Storage Object Viewer</strong> roles to create Agent Engines.
-            Run this once:
+            <strong>Storage Admin</strong> roles (for{' '}
+            <code className="font-mono">storage.buckets.get</code> and staging bucket
+            uploads) to create Agent Engines. Run this once:
           </p>
           <div className="bg-black/50 p-2 rounded border border-yellow-900/50 relative group">
             <pre className="text-[10px] text-yellow-50 whitespace-pre-wrap font-mono">
@@ -260,16 +288,31 @@ gcloud projects add-iam-policy-binding ${projectId} \\
               Copy
             </button>
           </div>
-          <div className="mt-3 flex items-center justify-between">
-            <button
-              onClick={onValidatePermissions}
-              disabled={validationStatus === 'validating'}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md transition-colors disabled:bg-gray-600"
-            >
-              {validationStatus === 'validating'
-                ? 'Validating...'
-                : 'Validate Permissions'}
-            </button>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onValidatePermissions}
+                disabled={validationStatus === 'validating' || isGrantingPermissions}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md transition-colors disabled:bg-gray-600"
+              >
+                {validationStatus === 'validating'
+                  ? 'Validating...'
+                  : 'Validate Permissions'}
+              </button>
+              {validationStatus === 'error' &&
+                hasMissingRoles &&
+                onGrantMissingPermissions && (
+                  <button
+                    onClick={onGrantMissingPermissions}
+                    disabled={isGrantingPermissions}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-md transition-colors disabled:bg-gray-600"
+                  >
+                    {isGrantingPermissions
+                      ? 'Granting Roles...'
+                      : 'Grant Missing Permissions'}
+                  </button>
+                )}
+            </div>
             {validationStatus === 'success' && (
               <span className="text-xs text-green-400 flex items-center gap-1">
                 <svg
@@ -287,34 +330,31 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                 All permissions granted!
               </span>
             )}
-            {validationStatus === 'error' &&
-              (missingCloudBuildRoles.length > 0 || missingComputeRoles.length > 0) && (
-                <span className="text-xs text-red-400 flex flex-col items-end">
-                  {missingCloudBuildRoles.length > 0 && (
-                    <>
-                      <span>Missing on Cloud Build SA:</span>
-                      {missingCloudBuildRoles.map((r) => (
-                        <span key={r}>{r}</span>
-                      ))}
-                    </>
-                  )}
-                  {missingComputeRoles.length > 0 && (
-                    <>
-                      <span className="mt-1">Missing on Compute SA:</span>
-                      {missingComputeRoles.map((r) => (
-                        <span key={r}>{r}</span>
-                      ))}
-                    </>
-                  )}
-                </span>
-              )}
-            {validationStatus === 'error' &&
-              missingCloudBuildRoles.length === 0 &&
-              missingComputeRoles.length === 0 && (
-                <span className="text-xs text-red-400">
-                  Validation failed. Check console.
-                </span>
-              )}
+            {validationStatus === 'error' && hasMissingRoles && (
+              <span className="text-xs text-red-400 flex flex-col items-end">
+                {missingCloudBuildRoles.length > 0 && (
+                  <>
+                    <span>Missing on Cloud Build SA:</span>
+                    {missingCloudBuildRoles.map((r) => (
+                      <span key={r}>{r}</span>
+                    ))}
+                  </>
+                )}
+                {missingComputeRoles.length > 0 && (
+                  <>
+                    <span className="mt-1">Missing on Compute SA:</span>
+                    {missingComputeRoles.map((r) => (
+                      <span key={r}>{r}</span>
+                    ))}
+                  </>
+                )}
+              </span>
+            )}
+            {validationStatus === 'error' && !hasMissingRoles && (
+              <span className="text-xs text-red-400">
+                Validation failed. Check console.
+              </span>
+            )}
           </div>
         </div>
       )}
