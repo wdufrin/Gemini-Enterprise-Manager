@@ -91,4 +91,48 @@ describe('AuthorizationsPage', () => {
 
     expect(await screen.findByText(/403 Forbidden: EU location policy blocked/i)).toBeInTheDocument();
   });
+
+  it('renders responsive table-fixed layout with truncated long Client IDs and supports column show/hide toggling', async () => {
+    const longClientId = '123456789012-abcdefghijklmnopqrstuvwxyz0123456789.apps.googleusercontent.com';
+    const sampleAuth = {
+      name: 'projects/12345/locations/global/authorizations/long-google-oauth-authorization-id',
+      displayName: 'Google Workspace OAuth',
+      serverSideOauth2: {
+        clientId: longClientId,
+        authorizationUri: 'https://accounts.google.com/o/oauth2/v2/auth',
+        tokenUri: 'https://oauth2.googleapis.com/token',
+      },
+    };
+
+    vi.mocked(api.listAuthorizations).mockResolvedValue({
+      authorizations: [sampleAuth],
+    });
+
+    render(<AuthorizationsPage projectNumber="12345" projectId="test-proj" />);
+
+    const authIdEl = await screen.findByText('long-google-oauth-authorization-id');
+    expect(authIdEl).toHaveAttribute('title', 'long-google-oauth-authorization-id');
+
+    const table = screen.getByRole('table');
+    expect(table.className).toContain('table-fixed');
+    expect(table.className).toContain('w-full');
+
+    const clientIdEl = screen.getByText(longClientId);
+    expect(clientIdEl).toHaveAttribute('title', longClientId);
+    expect(clientIdEl.className).toContain('truncate');
+
+    // Open column picker and hide Client ID column
+    fireEvent.click(screen.getByRole('button', { name: /Toggle authorization table columns/i }));
+    const clientIdCheckbox = screen.getByLabelText('Client ID');
+    expect(clientIdCheckbox).toBeChecked();
+
+    fireEvent.click(clientIdCheckbox);
+    expect(screen.queryByText(longClientId)).not.toBeInTheDocument();
+
+    // Re-enable Client ID column
+    fireEvent.click(clientIdCheckbox);
+    expect(screen.getByText(longClientId)).toBeInTheDocument();
+  });
 });
+
+
