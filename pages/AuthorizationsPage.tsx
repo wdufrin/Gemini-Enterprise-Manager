@@ -124,6 +124,10 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
     setAuthUsage({});
 
     const failures: PartialFailure[] = [];
+    const getStatusCode = (e: unknown): number | undefined => {
+      const rec = e as { status?: number; code?: number } | null | undefined;
+      return rec?.status || rec?.code || (toErrorMessage(e).includes('403') ? 403 : undefined);
+    };
 
     try {
       const discoveryLocations = ['global', 'us', 'eu'];
@@ -132,13 +136,13 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
         try {
           const res = (await api.listAuthorizations({ ...apiConfig, appLocation: loc })) || {};
           return res.authorizations || [];
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error(`Failed to load auths for region ${loc}:`, err);
           failures.push({
             id: `authorizations-${loc}`,
             name: `Authorizations (${loc})`,
             resourceType: 'Authorizations',
-            status: err?.status || err?.code || (toErrorMessage(err).includes('403') ? 403 : undefined),
+            status: getStatusCode(err),
             error: toErrorMessage(err),
             reason: `Failed to load authorizations for region '${loc}': ${toErrorMessage(err)}`,
           });
@@ -173,49 +177,49 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
                                           if (agentsResponse.agents) {
                                               agentsList.push(...agentsResponse.agents);
                                           }
-                                      } catch (agentErr: any) {
+                                      } catch (agentErr: unknown) {
                                           console.warn(`Could not list agents for assistant ${assistantId}:`, agentErr);
                                           failures.push({
                                               id: `agents-${assistantId}`,
                                               name: `Assistant ${assistantId}`,
                                               resourceType: 'Assistant Agents',
-                                              status: agentErr?.status || agentErr?.code,
+                                              status: getStatusCode(agentErr),
                                               error: toErrorMessage(agentErr),
                                               reason: `Could not list agents for assistant '${assistantId}': ${toErrorMessage(agentErr)}`,
                                           });
                                       }
                                   }
-                              } catch (astErr: any) {
+                              } catch (astErr: unknown) {
                                   console.warn(`Could not list assistants for app ${appId}:`, astErr);
                                   failures.push({
                                       id: `assistants-${appId}`,
                                       name: `Engine App ${appId}`,
                                       resourceType: 'Engine Assistants',
-                                      status: astErr?.status || astErr?.code,
+                                      status: getStatusCode(astErr),
                                       error: toErrorMessage(astErr),
                                       reason: `Could not list assistants for app '${appId}': ${toErrorMessage(astErr)}`,
                                   });
                               }
                           }
-                      } catch (engErr: any) {
+                      } catch (engErr: unknown) {
                           console.warn(`Could not list engines for collection ${collectionId}:`, engErr);
                           failures.push({
                               id: `engines-${collectionId}`,
                               name: `Collection ${collectionId}`,
                               resourceType: 'Engines',
-                              status: engErr?.status || engErr?.code,
+                              status: getStatusCode(engErr),
                               error: toErrorMessage(engErr),
                               reason: `Could not list engines for collection '${collectionId}': ${toErrorMessage(engErr)}`,
                           });
                       }
                   }
-              } catch (colErr: any) {
+              } catch (colErr: unknown) {
                   console.warn(`Could not list collections for location ${discoveryLocation}:`, colErr);
                   failures.push({
                       id: `collections-${discoveryLocation}`,
                       name: `Collections (${discoveryLocation})`,
                       resourceType: 'Collections',
-                      status: colErr?.status || colErr?.code,
+                      status: getStatusCode(colErr),
                       error: toErrorMessage(colErr),
                       reason: `Could not list collections for location '${discoveryLocation}': ${toErrorMessage(colErr)}`,
                   });
@@ -263,7 +267,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       }
       setAuthUsage(usageMap);
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(toErrorMessage(err) || 'Failed to fetch authorizations or agent data.');
       setAuthorizations([]);
       setPartialFailures(failures);
@@ -335,8 +339,8 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       const authDisplayName = auth.displayName || auth.name.split('/').pop() || auth.name;
       try {
         await api.deleteAuthorization(auth.name, apiConfig);
-      } catch (err: any) {
-        failures.push(`- ${authDisplayName}: ${err.message}`);
+      } catch (err: unknown) {
+        failures.push(`- ${authDisplayName}: ${toErrorMessage(err)}`);
       }
     }
 
@@ -382,8 +386,8 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       const authData = await api.getAuthorization(auth.name, apiConfig);
         setAuthToEdit(authData);
         setView('form');
-    } catch (err: any) {
-        setError(err.message || `Failed to fetch authorization ${authId} for editing.`);
+    } catch (err: unknown) {
+        setError(toErrorMessage(err) || `Failed to fetch authorization ${authId} for editing.`);
     } finally {
         setIsLoading(false);
     }
@@ -398,8 +402,8 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
     try {
       const authData = await api.getAuthorization(auth.name, apiConfig);
       setAuthToView(authData);
-    } catch (err: any) {
-      setError(err.message || `Failed to fetch details for authorization.`);
+    } catch (err: unknown) {
+      setError(toErrorMessage(err) || `Failed to fetch details for authorization.`);
     } finally {
       setIsLoading(false);
     }

@@ -12,7 +12,7 @@ vi.mock('../services/apiService', () => ({
 }));
 
 vi.mock('../components/dashboard/ObservabilityDashboard', () => ({
-    default: ({ customData }: any) => (
+    default: ({ customData }: { customData?: { totalRequests?: number | string } }) => (
         <div data-testid="dashboard">
             Total Requests: {customData?.totalRequests ?? 'Loading...'}
         </div>
@@ -34,24 +34,24 @@ describe('ObservabilityPage', () => {
         vi.clearAllMocks();
         
         // Setup initial fetches
-        (listLoggingSinks as any).mockResolvedValue({
+        vi.mocked(listLoggingSinks).mockResolvedValue({
             sinks: [{ name: 'test-sink', destination: 'bigquery.googleapis.com/projects/test/datasets/my_dataset' }]
         });
-        (listBigQueryTables as any).mockResolvedValue({
+        vi.mocked(listBigQueryTables).mockResolvedValue({
             tables: [
-                { tableReference: { tableId: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity' }, type: 'TABLE' },
-                { tableReference: { tableId: 'v_admin_feedback_review' }, type: 'VIEW' }
+                { tableReference: { projectId: 'test-proj', datasetId: 'my_dataset', tableId: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity' }, type: 'TABLE' },
+                { tableReference: { projectId: 'test-proj', datasetId: 'my_dataset', tableId: 'v_admin_feedback_review' }, type: 'VIEW' }
             ]
         });
     });
 
     it('polls BigQuery when jobComplete is false', async () => {
-        (runBigQueryQuery as any).mockResolvedValue({
+        vi.mocked(runBigQueryQuery).mockResolvedValue({
             jobComplete: false,
-            jobReference: { jobId: 'job-123', location: 'US' }
+            jobReference: { projectId: 'test-proj', jobId: 'job-123', location: 'US' }
         });
 
-        (gapiRequest as any).mockResolvedValue({
+        vi.mocked(gapiRequest).mockResolvedValue({
             jobComplete: true,
             rows: [
                 { f: [{ v: 'summary' }, { v: '42' }, { v: '5' }, { v: '2' }] }
@@ -82,7 +82,7 @@ describe('ObservabilityPage', () => {
     });
 
     it('auto-collapses the dataset tables and views list by default and expands on toggle', async () => {
-        (runBigQueryQuery as any).mockResolvedValue({
+        vi.mocked(runBigQueryQuery).mockResolvedValue({
             jobComplete: true,
             rows: [
                 { f: [{ v: 'summary' }, { v: '10' }, { v: '2' }, { v: '1' }] }
@@ -117,7 +117,7 @@ describe('ObservabilityPage', () => {
     });
 
     it('renders the Policy & Telemetry Governance inline tab and switches internal policy sub-tabs', async () => {
-        (runBigQueryQuery as any).mockResolvedValue({
+        vi.mocked(runBigQueryQuery).mockResolvedValue({
             jobComplete: true,
             rows: [
                 { f: [{ v: 'summary' }, { v: '10' }, { v: '2' }, { v: '1' }] }
@@ -145,7 +145,7 @@ describe('ObservabilityPage', () => {
     });
 
     it('surfaces explicit BigQuery query error banner when runBigQueryQuery fails', async () => {
-        (runBigQueryQuery as any).mockRejectedValue(
+        vi.mocked(runBigQueryQuery).mockRejectedValue(
             new Error('403 Access Denied: User lacks bigquery.jobs.create permission')
         );
 

@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Agent, Config, SortableAgentKey, SortDirection, Assistant, UserProfile } from '../types';
+import { Agent, AppEngine, Config, IamPolicy, SortableAgentKey, SortDirection, Assistant, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import AgentList from '../components/agents/AgentList';
@@ -36,7 +36,7 @@ interface AgentsPageProps {
   setProjectNumber: (projectNumber: string) => void;
   accessToken: string;
   userProfile?: UserProfile | null;
-  context?: any;
+  context?: { agentToEdit?: Agent } | null;
 }
 
 const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber, accessToken, userProfile = null, context }) => {
@@ -108,7 +108,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   const [sortConfig, setSortConfig] = useState<{ key: SortableAgentKey; direction: SortDirection }>({ key: 'displayName', direction: 'asc' });
 
   // State for dropdown options and their loading status
-  const [apps, setApps] = useState<any[]>([]);
+  const [apps, setApps] = useState<AppEngine[]>([]);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -272,7 +272,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
                 `Partial metadata hydration: Could not fetch runtime AgentView (:getView) for ${failedAgentNames.length} agent(s) (${failedAgentNames.join(', ')}). Displaying locally inferred agent types.`
               );
             }
-            const viewByName = new Map<string, any>();
+            const viewByName = new Map<string, { agentType?: string; agentOrigin?: string }>();
             agentsNeedingView.forEach((a, idx) => {
               if (agentViewResults[idx]?.agentView) {
                 viewByName.set(a.name, agentViewResults[idx]!.agentView);
@@ -313,10 +313,11 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
               }
             })
           ).then(policyResults => {
-            const policyByName = new Map<string, any>();
+            const policyByName = new Map<string, IamPolicy>();
             agentsNeedingIamOwner.forEach((a, idx) => {
-              if (policyResults[idx]?.bindings) {
-                policyByName.set(a.name, policyResults[idx]);
+              const policy = policyResults[idx];
+              if (policy?.bindings) {
+                policyByName.set(a.name, policy);
               }
             });
             if (policyByName.size === 0) return;
@@ -337,8 +338,8 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             setError(`Could not fetch agents for some assistants: ${failedAssistants.join(', ')}. This may be expected for some engine types.`);
         }
 
-    } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred while fetching assistants or agents.');
+    } catch (err: unknown) {
+      setError(toErrorMessage(err) || 'An unexpected error occurred while fetching assistants or agents.');
       setAgents([]);
     } finally {
       setIsLoading(false);
@@ -367,8 +368,8 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
       if (selectedAgent?.name === updatedAgent.name) {
           setSelectedAgent(prev => prev ? { ...prev, ...updatedAgent } : updatedAgent);
       }
-    } catch (err: any) {
-      setError(err.message || `Failed to toggle status for agent ${agentId}.`);
+    } catch (err: unknown) {
+      setError(toErrorMessage(err) || `Failed to toggle status for agent ${agentId}.`);
     } finally {
       setTogglingAgentId(null);
     }
@@ -400,9 +401,9 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     try {
       await api.restoreDeepResearchAgent(apiConfig);
       await fetchAgents();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(
-        err.message ||
+        toErrorMessage(err) ||
           'Failed to restore Deep Research agent. Ensure the Discovery Engine Service Agent has roles/discoveryengine.serviceAgent and CMEK does not block 1P agent creation.'
       );
     } finally {

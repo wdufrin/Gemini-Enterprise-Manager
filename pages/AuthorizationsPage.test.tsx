@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import AuthorizationsPage from './AuthorizationsPage';
 import * as api from '../services/apiService';
@@ -16,11 +16,11 @@ vi.mock('../services/apiService', () => ({
 describe('AuthorizationsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (api.listResources as any).mockResolvedValue({ collections: [] });
+    vi.mocked(api.listResources).mockResolvedValue({ collections: [] });
   });
 
   it('renders plain-English onboarding empty state with serverSideOauth2 explanation and Create CTA when 0 authorizations exist', async () => {
-    (api.listAuthorizations as any).mockResolvedValue({ authorizations: [] });
+    vi.mocked(api.listAuthorizations).mockResolvedValue({ authorizations: [] });
 
     render(<AuthorizationsPage projectNumber="12345" projectId="test-proj" />);
 
@@ -46,10 +46,10 @@ describe('AuthorizationsPage', () => {
       },
     };
 
-    (api.listAuthorizations as any).mockResolvedValue({
+    vi.mocked(api.listAuthorizations).mockResolvedValue({
       authorizations: [sampleAuth],
     });
-    (api.getAuthorization as any).mockResolvedValue(sampleAuth);
+    vi.mocked(api.getAuthorization).mockResolvedValue(sampleAuth);
 
     render(<AuthorizationsPage projectNumber="12345" projectId="test-proj" />);
 
@@ -62,7 +62,7 @@ describe('AuthorizationsPage', () => {
   });
 
   it('surfaces regional 403 error in PartialResultsBanner when EU region fails while global succeeds', async () => {
-    (api.listAuthorizations as any).mockImplementation(({ appLocation }: { appLocation: string }) => {
+    vi.mocked(api.listAuthorizations).mockImplementation(({ appLocation }: { appLocation: string }) => {
       if (appLocation === 'eu') {
         return Promise.reject(new Error('403 Forbidden: EU location policy blocked'));
       }

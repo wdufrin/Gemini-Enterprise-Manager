@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Agent, AppEngine, Assistant, Config, UserProfile } from '../types';
+import { Agent, AppEngine, Assistant, Config, IamPolicy, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import ChatWindow from '../components/agents/ChatWindow';
@@ -42,7 +42,7 @@ interface AssistantPageProps {
   accessToken: string;
   userProfile: UserProfile | null;
   onBuildTriggered?: (buildId: string, projectId?: string) => void;
-  context?: any;
+  context?: { appEngineId?: string } | null;
 }
 
 const AssistantPage: React.FC<AssistantPageProps> = ({
@@ -272,10 +272,11 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
                 }
               }),
             ).then((policyResults) => {
-              const policyByName = new Map<string, any>();
+              const policyByName = new Map<string, IamPolicy>();
               agentsNeedingIamOwner.forEach((a, idx) => {
-                if (policyResults[idx]?.bindings) {
-                  policyByName.set(a.name, policyResults[idx]);
+                const policy = policyResults[idx];
+                if (policy?.bindings) {
+                  policyByName.set(a.name, policy);
                 }
               });
               if (policyByName.size === 0) return;
@@ -294,7 +295,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
         } else {
           setAgents([]);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Failed to fetch agents for assistant', err);
         setAgentDiscoveryWarning(`Agent discovery warning: ${toErrorMessage(err)}`);
         toast.error('Failed to load agents for this assistant.');
