@@ -28,6 +28,7 @@ vi.mock('../services/apiService', async (importOriginal) => {
     listResources: vi.fn(),
     getAgent: vi.fn(),
     getAgentView: vi.fn(),
+    getAgentIamPolicy: vi.fn(),
     getEngine: vi.fn(),
     getWidgetConfig: vi.fn(),
     listCollections: vi.fn(),
@@ -98,6 +99,14 @@ describe('AgentsPage (F5: Agent Manager, Consolidated Catalog & R2/R3)', () => {
       return {};
     });
     vi.mocked(api.getAgentView).mockResolvedValue({});
+    vi.mocked(api.getAgentIamPolicy).mockResolvedValue({
+      bindings: [
+        {
+          role: 'roles/discoveryengine.owner',
+          members: ['user:hr-owner@example.com'],
+        },
+      ],
+    });
     vi.mocked(api.listCollections).mockResolvedValue({ collections: [] });
   });
 
@@ -131,4 +140,115 @@ describe('AgentsPage (F5: Agent Manager, Consolidated Catalog & R2/R3)', () => {
     expect(warningAlert.textContent).toMatch(/HR Benefits Concierge/i);
     expect(warningAlert.textContent).toMatch(/403 PERMISSION_DENIED on getAgentView/i);
   });
+
+  it('fetches per-agent :getIamPolicy to display roles/discoveryengine.owner in Agent Owner column, allows showing/hiding columns, and opens Export / BQ Script modal', async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('HR Benefits Concierge')).toBeInTheDocument();
+    });
+
+    // Verify per-agent :getIamPolicy was invoked and Agent Owner column renders roles/discoveryengine.owner member
+    expect(api.getAgentIamPolicy).toHaveBeenCalledWith(
+      sampleAgent.name,
+      expect.objectContaining({ projectId: '123456' })
+    );
+    expect(screen.getByText('Agent Owner')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('hr-owner@example.com')).toBeInTheDocument();
+    });
+
+    // Open Column Visibility menu and toggle Description column ON and Agent ID column OFF
+    const columnsButton = screen.getByRole('button', { name: /Toggle table columns/i });
+    fireEvent.click(columnsButton);
+
+    const descCheckbox = screen.getByLabelText('Description');
+    fireEvent.click(descCheckbox);
+    expect(screen.getByText('Answers employee benefits questions.')).toBeInTheDocument();
+
+    const agentIdCheckbox = screen.getByLabelText('Agent ID');
+    fireEvent.click(agentIdCheckbox);
+    expect(screen.queryByText('agent-hr')).not.toBeInTheDocument();
+
+    // Open Export / BQ Script modal and verify scripts are generated with sanitized config
+    const exportBtn = screen.getByRole('button', { name: /Export \/ BQ Script/i });
+    fireEvent.click(exportBtn);
+
+    expect(
+      screen.getByText(/Export Registered Agents & Automation Scripts/i)
+    ).toBeInTheDocument();
+
+    const bqTab = screen.getByRole('button', {
+      name: /3\. Python Script \(BigQuery Export\)/i,
+    });
+    fireEvent.click(bqTab);
+
+    expect(screen.getByText(/insert_rows_json/i)).toBeInTheDocument();
+  });
+
+  it('serializes export rows accurately and neutralizes hostile SQL/shell characters in generated scripts', async () => {
+    const {
+      buildAgentRegistryExportRows,
+      serializeAgentRegistryCsv,
+      serializeAgentRegistryJsonl,
+      generateBigQueryExportScript,
+      generateCurlAndBqCliScript,
+    } = await import('../components/agents/ExportAgentRegistryModal');
+
+    const rows = buildAgentRegistryExportRows([
+      {
+        ...sampleAgent,
+        description: 'Contains "quotes", commas, and\nnewlines',
+        lowCodeAgentDefinition: {
+          ownerName: 'sec-owner@example.com',
+        },
+      },
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agent_owner).toBe('sec-owner@example.com');
+    expect(rows[0].agent_id).toBe('agent-hr');
+
+    const csv = serializeAgentRegistryCsv(rows);
+    expect(csv).toContain('"Contains ""quotes"", commas, and\nnewlines"');
+    expect(csv).toContain('sec-owner@example.com');
+
+    const jsonl = serializeAgentRegistryJsonl(rows);
+    const parsed = JSON.parse(jsonl.trim());
+    expect(parsed.agent_owner).toBe('sec-owner@example.com');
+
+    // Adversarial test: hostile datasetId / tableId / projectId with shell/SQL injection characters
+    const bqScript = generateBigQueryExportScript(
+      {
+        projectId: 'my-proj"; rm -rf / #',
+        appLocation: 'global',
+        collectionId: 'default_collection',
+        appId: 'engine-1',
+        assistantId: 'default_assistant',
+      },
+      'bad_dataset; DROP TABLE x;',
+      'bad_table`whoami`'
+    );
+    expect(bqScript).not.toContain('; DROP TABLE');
+    expect(bqScript).not.toContain('rm -rf');
+    expect(bqScript).toContain('BQ_DATASET = "bad_datasetDROPTABLEx"');
+    expect(bqScript).toContain('BQ_TABLE = "bad_tablewhoami"');
+
+    const shellScript = generateCurlAndBqCliScript(
+      {
+        projectId: 'my-proj$( evil )',
+        appLocation: 'global',
+        collectionId: 'default_collection',
+        appId: 'engine-1',
+        assistantId: 'default_assistant',
+      },
+      'ds$(id)',
+      'tbl;ls'
+    );
+    expect(shellScript).not.toContain('$( evil )');
+    expect(shellScript).not.toContain('$(id)');
+    expect(shellScript).toContain('BQ_DATASET="dsid"');
+    expect(shellScript).toContain('BQ_TABLE="tblls"');
+  });
 });
+

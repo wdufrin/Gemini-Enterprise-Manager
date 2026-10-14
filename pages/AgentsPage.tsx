@@ -293,6 +293,45 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             );
           });
         }
+
+        // Background-hydrate per-agent IAM policy (:getIamPolicy) for all registered agents
+        // so roles/discoveryengine.owner (and roles/discoveryengine.agentOwner) is resolved per agent.
+        const agentsNeedingIamOwner = baseAgents.filter(
+          a =>
+            !api.isGoogleManagedAgent(a) &&
+            !a.iamPolicy &&
+            typeof api.getAgentIamPolicy === 'function'
+        );
+        if (agentsNeedingIamOwner.length > 0) {
+          void Promise.all(
+            agentsNeedingIamOwner.map(async (agent) => {
+              try {
+                return await api.getAgentIamPolicy(agent.name, apiConfig);
+              } catch {
+                // Non-fatal: caller may lack getIamPolicy permission on individual agent resources
+                return null;
+              }
+            })
+          ).then(policyResults => {
+            const policyByName = new Map<string, any>();
+            agentsNeedingIamOwner.forEach((a, idx) => {
+              if (policyResults[idx]?.bindings) {
+                policyByName.set(a.name, policyResults[idx]);
+              }
+            });
+            if (policyByName.size === 0) return;
+            setAgents(prev =>
+              prev.map(agent => {
+                const policy = policyByName.get(agent.name);
+                if (!policy) return agent;
+                return {
+                  ...agent,
+                  iamPolicy: policy,
+                };
+              })
+            );
+          });
+        }
         
         if (failedAssistants.length > 0) {
             setError(`Could not fetch agents for some assistants: ${failedAssistants.join(', ')}. This may be expected for some engine types.`);
@@ -527,10 +566,19 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   const sortedAgents = useMemo(() => {
     if (!agents) return [];
     return [...agents].sort((a, b) => {
-      // Handle potentially undefined state property for private agents
-      const aVal = a.state ? (a[sortConfig.key] || '') : (sortConfig.key === 'state' ? 'private' : a[sortConfig.key] || '');
-      const bVal = b.state ? (b[sortConfig.key] || '') : (sortConfig.key === 'state' ? 'private' : b[sortConfig.key] || '');
-      
+      let aVal = '';
+      let bVal = '';
+      if (sortConfig.key === 'owner') {
+        aVal = (api.extractAgentOwnerHint(a) || '').toLowerCase();
+        bVal = (api.extractAgentOwnerHint(b) || '').toLowerCase();
+      } else if (sortConfig.key === 'state') {
+        aVal = a.state ? a.state : 'private';
+        bVal = b.state ? b.state : 'private';
+      } else {
+        aVal = String(a[sortConfig.key] || '');
+        bVal = String(b[sortConfig.key] || '');
+      }
+
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
@@ -576,6 +624,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             {error && !isLoading && <div className="text-center text-red-400 p-4 mb-4 bg-red-900/20 rounded-lg">{error}</div>}
             <AgentList
               agents={sortedAgents}
+              config={apiConfig}
               onSelectAgent={handleSelectAgent}
               onEditAgent={handleEditAgent}
               onDeleteAgent={handleRequestDelete}

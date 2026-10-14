@@ -14,13 +14,14 @@
  * limitations under the License.
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Agent, AppEngine, Config } from '../../types';
 import * as api from '../../services/apiService';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
 import InfoTooltip from '../InfoTooltip';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import ExportAgentRegistryModal from '../agents/ExportAgentRegistryModal';
 
 interface AgentListForAssistantProps {
   agents: Agent[];
@@ -28,6 +29,45 @@ interface AgentListForAssistantProps {
   engine?: AppEngine;
   onRefreshAgents: () => void;
 }
+
+export type AssistantAgentColumnKey =
+  | 'displayName'
+  | 'state'
+  | 'owner'
+  | 'sharing'
+  | 'telemetry'
+  | 'agentType'
+  | 'name'
+  | 'updateTime';
+
+interface AssistantColumnDef {
+  key: AssistantAgentColumnKey;
+  label: string;
+  defaultVisible: boolean;
+}
+
+const ASSISTANT_AGENT_COLUMNS: AssistantColumnDef[] = [
+  { key: 'displayName', label: 'Display Name', defaultVisible: true },
+  { key: 'state', label: 'Status', defaultVisible: true },
+  { key: 'owner', label: 'Agent Owner', defaultVisible: true },
+  { key: 'sharing', label: 'Sharing Scope', defaultVisible: false },
+  { key: 'telemetry', label: 'Telemetry', defaultVisible: true },
+  { key: 'agentType', label: 'Agent Type', defaultVisible: true },
+  { key: 'name', label: 'Agent ID', defaultVisible: true },
+  { key: 'updateTime', label: 'Last Modified', defaultVisible: false },
+];
+
+const DEFAULT_ASSISTANT_VISIBLE_COLUMNS: Record<AssistantAgentColumnKey, boolean> =
+  ASSISTANT_AGENT_COLUMNS.reduce(
+    (acc, col) => ({ ...acc, [col.key]: col.defaultVisible }),
+    {} as Record<AssistantAgentColumnKey, boolean>,
+  );
+
+const getAgentSharingScope = (agent: Agent): 'ALL_USERS' | 'RESTRICTED' | 'PRIVATE' => {
+  const isShared = agent.state === 'ENABLED' || agent.state === 'DISABLED';
+  if (!isShared) return 'PRIVATE';
+  return agent.sharingConfig?.scope === 'ALL_USERS' ? 'ALL_USERS' : 'RESTRICTED';
+};
 
 const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
   agents,
@@ -41,6 +81,48 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isEnforcing, setIsEnforcing] = useState(false);
   const [enforcingAgentName, setEnforcingAgentName] = useState<string | null>(null);
+
+  // Column visibility & Export state
+  const [visibleColumns, setVisibleColumns] = useState<Record<AssistantAgentColumnKey, boolean>>(
+    DEFAULT_ASSISTANT_VISIBLE_COLUMNS,
+  );
+  const [isColumnsOpen, setIsColumnsOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const columnsMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isColumnsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (columnsMenuRef.current && !columnsMenuRef.current.contains(event.target as Node)) {
+        setIsColumnsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isColumnsOpen]);
+
+  const toggleColumn = (key: AssistantAgentColumnKey) => {
+    setVisibleColumns((prev) => {
+      const nextVal = !prev[key];
+      const activeCount = Object.values(prev).filter(Boolean).length;
+      if (!nextVal && activeCount <= 1) {
+        return prev;
+      }
+      return { ...prev, [key]: nextVal };
+    });
+  };
+
+  const resetColumns = () => {
+    setVisibleColumns(DEFAULT_ASSISTANT_VISIBLE_COLUMNS);
+  };
+
+  const showAllColumns = () => {
+    const allTrue = ASSISTANT_AGENT_COLUMNS.reduce(
+      (acc, col) => ({ ...acc, [col.key]: true }),
+      {} as Record<AssistantAgentColumnKey, boolean>,
+    );
+    setVisibleColumns(allTrue);
+  };
 
   // App-level telemetry state from parent App Engine
   const isAppTelemetryEnabled = Boolean(engine?.observabilityConfig?.observabilityEnabled);
@@ -193,7 +275,7 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(fullAgent, null, 2));
       const downloadAnchorNode = document.createElement('a');
       downloadAnchorNode.setAttribute("href",     dataStr);
-      downloadAnchorNode.setAttribute("download", `${fullAgent.displayName.toLowerCase().replace(/\\s+/g, '_')}_config.json`);
+      downloadAnchorNode.setAttribute("download", `${fullAgent.displayName.toLowerCase().replace(/\s+/g, '_')}_config.json`);
       document.body.appendChild(downloadAnchorNode);
       downloadAnchorNode.click();
       downloadAnchorNode.remove();
@@ -202,6 +284,8 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
       toast.error("Failed to download agent configuration: " + toErrorMessage(e));
     }
   };
+
+  const visibleColumnCount = Object.values(visibleColumns).filter(Boolean).length;
 
   return (
     <div className="bg-gray-800 shadow-xl rounded-lg flex flex-col">
@@ -242,6 +326,81 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
         </div>
         {agents.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Column Visibility Picker */}
+            <div className="relative" ref={columnsMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsColumnsOpen((prev) => !prev)}
+                aria-expanded={isColumnsOpen}
+                aria-label="Toggle table columns"
+                className="px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 border border-gray-600 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                title="Show or hide table columns"
+              >
+                <svg className="w-3.5 h-3.5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                </svg>
+                <span>Columns ({visibleColumnCount}/{ASSISTANT_AGENT_COLUMNS.length})</span>
+              </button>
+
+              {isColumnsOpen && (
+                <div
+                  role="menu"
+                  aria-label="Visible columns"
+                  className="absolute right-0 mt-2 w-56 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl z-30 p-3 space-y-2"
+                >
+                  <div className="flex items-center justify-between pb-1.5 border-b border-gray-800">
+                    <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Visible Fields</span>
+                    <div className="flex items-center gap-2 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={showAllColumns}
+                        className="text-blue-400 hover:text-blue-300 font-medium"
+                      >
+                        All
+                      </button>
+                      <span className="text-gray-600">·</span>
+                      <button
+                        type="button"
+                        onClick={resetColumns}
+                        className="text-gray-400 hover:text-gray-200 font-medium"
+                      >
+                        Default
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1 max-h-64 overflow-y-auto">
+                    {ASSISTANT_AGENT_COLUMNS.map((col) => (
+                      <label
+                        key={col.key}
+                        className="flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-gray-800 cursor-pointer text-xs text-gray-200"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={visibleColumns[col.key]}
+                          onChange={() => toggleColumn(col.key)}
+                          className="h-3.5 w-3.5 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500"
+                        />
+                        <span>{col.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Export Registry & Automation Scripts Button */}
+            <button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              className="px-2.5 py-1.5 bg-blue-900/60 hover:bg-blue-800/70 text-blue-200 border border-blue-600/60 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              title="Export Registered Agents to local CSV/JSON or generate Python/BigQuery export scripts"
+            >
+              <svg className="w-3.5 h-3.5 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              <span>Export / BQ Script</span>
+            </button>
+
             {isAppTelemetryEnabled && (
               <label className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer bg-gray-900/60 px-2 py-1 rounded border border-gray-700/60">
                 <input
@@ -312,11 +471,30 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
           <table className="min-w-full divide-y divide-gray-700">
             <thead className="bg-gray-700/50 sticky top-0">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Display Name</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Telemetry</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent Type</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent ID</th>
+                {visibleColumns.displayName && (
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Display Name</th>
+                )}
+                {visibleColumns.state && (
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
+                )}
+                {visibleColumns.owner && (
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent Owner</th>
+                )}
+                {visibleColumns.sharing && (
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Sharing Scope</th>
+                )}
+                {visibleColumns.telemetry && (
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Telemetry</th>
+                )}
+                {visibleColumns.agentType && (
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent Type</th>
+                )}
+                {visibleColumns.name && (
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent ID</th>
+                )}
+                {visibleColumns.updateTime && (
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Last Modified</th>
+                )}
                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -328,202 +506,250 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
                 const isObsEnabled = Boolean(agent.observabilityConfig?.observabilityEnabled);
                 const isSensEnabled = Boolean(agent.observabilityConfig?.sensitiveLoggingEnabled);
                 const hasLegacyAuth = Boolean(agent.authorizations && agent.authorizations.length > 0);
+                const ownerHint = api.extractAgentOwnerHint(agent);
+                const sharingScope = getAgentSharingScope(agent);
 
                 return (
                   <tr key={agent.name} className="hover:bg-gray-700/50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white flex items-center">
-                        <span className={`h-2.5 w-2.5 rounded-full mr-3 shrink-0 ${statusColorClass}`}></span>
-                        {editingId === agent.name ? (
-                            <form 
-                                onSubmit={(e) => { e.preventDefault(); handleSaveName(agent); }}
-                                className="flex items-center gap-2"
-                            >
-                                <input 
-                                    autoFocus
-                                    type="text" 
-                                    value={editName} 
-                                    onChange={(e) => setEditName(e.target.value)} 
-                                    className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-blue-500" 
-                                />
-                                <button type="submit" disabled={isSaving} className="text-blue-400 hover:text-blue-300 font-semibold text-xs disabled:opacity-50">
-                                    {isSaving ? '...' : 'Save'}
-                                </button>
-                                <button type="button" onClick={() => setEditingId(null)} className="text-gray-400 hover:text-gray-300 font-semibold text-xs">
-                                    Cancel
-                                </button>
-                            </form>
-                        ) : (
-                            <div className="flex items-center gap-2 group">
-                                <span>{agent.displayName}</span>
-                                {api.isGoogleManagedAgent(agent) && (
-                                  <span
-                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70"
-                                    title="First-party Google-managed built-in agent (protected from deletion)."
-                                  >
-                                    Google Built-in
-                                  </span>
-                                )}
-                                {hasLegacyAuth && (
-                                  <span
-                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 text-amber-300 border border-amber-700/70"
-                                    title="Uses legacy agent.authorizations schema. In-place updates rejected by Google Cloud Discovery Engine API."
-                                  >
-                                    Legacy Schema
-                                  </span>
-                                )}
-                                <button 
-                                    onClick={() => handleEditClick(agent)}
-                                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity"
-                                    title="Edit Name"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
-                                </button>
-                            </div>
-                        )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusColorClass} ${statusText === 'Private' ? 'text-black' : 'text-white'}`}>
-                            {statusText}
-                        </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <div className="space-y-1.5">
-                        {/* Visual Status Indicator: Shows if All or Part are enabled */}
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {isObsEnabled && isSensEnabled ? (
-                            <span
-                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-950/90 text-emerald-300 border border-emerald-700/60"
-                              title="Full observability: OpenTelemetry distributed traces and sensitive prompt logging are both active."
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                              <span>All Enabled (Full)</span>
-                            </span>
-                          ) : isObsEnabled ? (
-                            <span
-                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-950/90 text-blue-300 border border-blue-700/60"
-                              title="Partial observability: OpenTelemetry distributed traces are active, but sensitive prompt payloads are excluded."
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                              <span>Part Enabled (Traces Only)</span>
-                            </span>
-                          ) : hasLegacyAuth ? (
-                            <span
-                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-950/90 text-amber-300 border border-amber-700/60"
-                              title="Telemetry disabled. Legacy authorizations schema prevents in-place updates. Download JSON and re-create to enable."
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                              <span>Disabled (Legacy Blocked)</span>
-                            </span>
+                    {visibleColumns.displayName && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white flex items-center">
+                          <span className={`h-2.5 w-2.5 rounded-full mr-3 shrink-0 ${statusColorClass}`}></span>
+                          {editingId === agent.name ? (
+                              <form 
+                                  onSubmit={(e) => { e.preventDefault(); handleSaveName(agent); }}
+                                  className="flex items-center gap-2"
+                              >
+                                  <input 
+                                      autoFocus
+                                      type="text" 
+                                      value={editName} 
+                                      onChange={(e) => setEditName(e.target.value)} 
+                                      className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                                  />
+                                  <button type="submit" disabled={isSaving} className="text-blue-400 hover:text-blue-300 font-semibold text-xs disabled:opacity-50">
+                                      {isSaving ? '...' : 'Save'}
+                                  </button>
+                                  <button type="button" onClick={() => setEditingId(null)} className="text-gray-400 hover:text-gray-300 font-semibold text-xs">
+                                      Cancel
+                                  </button>
+                              </form>
                           ) : (
-                            <span
-                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-850 text-gray-400 border border-gray-700"
-                              title="Telemetry is completely disabled for this agent."
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
-                              <span>Disabled</span>
-                            </span>
+                              <div className="flex items-center gap-2 group">
+                                  <span>{agent.displayName}</span>
+                                  {api.isGoogleManagedAgent(agent) && (
+                                    <span
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70"
+                                      title="First-party Google-managed built-in agent (protected from deletion)."
+                                    >
+                                      Google Built-in
+                                    </span>
+                                  )}
+                                  {hasLegacyAuth && (
+                                    <span
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 text-amber-300 border border-amber-700/70"
+                                      title="Uses legacy agent.authorizations schema. In-place updates rejected by Google Cloud Discovery Engine API."
+                                    >
+                                      Legacy Schema
+                                    </span>
+                                  )}
+                                  <button 
+                                      onClick={() => handleEditClick(agent)}
+                                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity"
+                                      title="Edit Name"
+                                  >
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                  </button>
+                              </div>
                           )}
-
-                          {/* Primary toggle button */}
-                          <button
-                            type="button"
-                            onClick={() => handleToggleSingleAgentTelemetry(agent)}
-                            disabled={enforcingAgentName === agent.name}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border transition-colors ${
-                              isObsEnabled
-                                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900'
-                                : 'bg-amber-950/80 text-amber-300 border border-amber-700/60 hover:bg-amber-900'
-                            }`}
-                            title={
-                              isObsEnabled
-                                ? 'OpenTelemetry active. Click to disable.'
-                                : hasLegacyAuth
-                                ? 'Legacy agent schema. In-place API updates rejected by Google.'
-                                : 'Telemetry disabled. Click to turn ON OpenTelemetry & prompt logging.'
-                            }
+                      </td>
+                    )}
+                    {visibleColumns.state && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusColorClass} ${statusText === 'Private' ? 'text-black' : 'text-white'}`}>
+                              {statusText}
+                          </span>
+                      </td>
+                    )}
+                    {visibleColumns.owner && (
+                      <td className="px-6 py-4 whitespace-nowrap text-xs">
+                        {ownerHint ? (
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded bg-gray-900/70 text-cyan-300 border border-gray-700 font-mono truncate max-w-[180px]"
+                            title={`Agent Owner: ${ownerHint}`}
                           >
-                            <span>{isObsEnabled ? 'ON' : 'OFF'}</span>
-                            {isSensEnabled && (
-                              <span className="text-[10px] text-emerald-400/80 font-normal">(Sensitive)</span>
-                            )}
-                            {!isObsEnabled && (
-                              <span className="text-[10px] underline ml-0.5">
-                                {hasLegacyAuth ? 'Legacy' : 'Enable'}
+                            {ownerHint}
+                          </span>
+                        ) : (
+                          <span className="text-gray-500 italic">—</span>
+                        )}
+                      </td>
+                    )}
+                    {visibleColumns.sharing && (
+                      <td className="px-6 py-4 whitespace-nowrap text-xs">
+                        {sharingScope === 'ALL_USERS' ? (
+                          <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 font-medium">
+                            All Users
+                          </span>
+                        ) : sharingScope === 'RESTRICTED' ? (
+                          <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-blue-900/50 text-blue-300 border border-blue-700/50 font-medium">
+                            Restricted IAM
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-gray-700 text-gray-300 border border-gray-600 font-medium">
+                            Private
+                          </span>
+                        )}
+                      </td>
+                    )}
+                    {visibleColumns.telemetry && (
+                      <td className="px-6 py-4 text-sm">
+                        <div className="space-y-1.5">
+                          {/* Visual Status Indicator: Shows if All or Part are enabled */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {isObsEnabled && isSensEnabled ? (
+                              <span
+                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-950/90 text-emerald-300 border border-emerald-700/60"
+                                title="Full observability: OpenTelemetry distributed traces and sensitive prompt logging are both active."
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                <span>All Enabled (Full)</span>
+                              </span>
+                            ) : isObsEnabled ? (
+                              <span
+                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-950/90 text-blue-300 border border-blue-700/60"
+                                title="Partial observability: OpenTelemetry distributed traces are active, but sensitive prompt payloads are excluded."
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                                <span>Part Enabled (Traces Only)</span>
+                              </span>
+                            ) : hasLegacyAuth ? (
+                              <span
+                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-950/90 text-amber-300 border border-amber-700/60"
+                                title="Telemetry disabled. Legacy authorizations schema prevents in-place updates. Download JSON and re-create to enable."
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                <span>Disabled (Legacy Blocked)</span>
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-850 text-gray-400 border border-gray-700"
+                                title="Telemetry is completely disabled for this agent."
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
+                                <span>Disabled</span>
                               </span>
                             )}
-                          </button>
 
-                          {/* Configure 2 Options Gear Icon */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setConfiguringAgent(agent);
-                              setConfigAgentObs(isObsEnabled);
-                              setConfigAgentSens(isSensEnabled);
-                            }}
-                            disabled={enforcingAgentName === agent.name}
-                            className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
-                            title={`Configure both telemetry options for ${agent.displayName || 'this agent'}`}
-                            aria-label={`Configure telemetry options for ${agent.displayName || 'agent'}`}
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                          </button>
+                            {/* Primary toggle button */}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSingleAgentTelemetry(agent)}
+                              disabled={enforcingAgentName === agent.name}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border transition-colors ${
+                                isObsEnabled
+                                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900'
+                                  : 'bg-amber-950/80 text-amber-300 border border-amber-700/60 hover:bg-amber-900'
+                              }`}
+                              title={
+                                isObsEnabled
+                                  ? 'OpenTelemetry active. Click to disable.'
+                                  : hasLegacyAuth
+                                  ? 'Legacy agent schema. In-place API updates rejected by Google.'
+                                  : 'Telemetry disabled. Click to turn ON OpenTelemetry & prompt logging.'
+                              }
+                            >
+                              <span>{isObsEnabled ? 'ON' : 'OFF'}</span>
+                              {isSensEnabled && (
+                                <span className="text-[10px] text-emerald-400/80 font-normal">(Sensitive)</span>
+                              )}
+                              {!isObsEnabled && (
+                                <span className="text-[10px] underline ml-0.5">
+                                  {hasLegacyAuth ? 'Legacy' : 'Enable'}
+                                </span>
+                              )}
+                            </button>
+
+                            {/* Configure 2 Options Gear Icon */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfiguringAgent(agent);
+                                setConfigAgentObs(isObsEnabled);
+                                setConfigAgentSens(isSensEnabled);
+                              }}
+                              disabled={enforcingAgentName === agent.name}
+                              className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+                              title={`Configure both telemetry options for ${agent.displayName || 'this agent'}`}
+                              aria-label={`Configure telemetry options for ${agent.displayName || 'agent'}`}
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              </svg>
+                            </button>
+                          </div>
+
+                          {/* Quick Two Options Controls */}
+                          <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+                            <span className="text-[10px] text-gray-500 uppercase font-mono">Options:</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleUpdateAgentObservability(agent, {
+                                  observabilityEnabled: !isObsEnabled,
+                                  sensitiveLoggingEnabled: !isObsEnabled ? isSensEnabled : false,
+                                })
+                              }
+                              disabled={enforcingAgentName === agent.name}
+                              className={`px-1.5 py-0.5 rounded font-mono border transition-colors ${
+                                isObsEnabled
+                                  ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900'
+                                  : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white hover:bg-gray-700'
+                              }`}
+                              title="Option 1: OpenTelemetry distributed tracing"
+                            >
+                              1. Traces: {isObsEnabled ? 'ON' : 'OFF'}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleUpdateAgentObservability(agent, {
+                                  observabilityEnabled: true,
+                                  sensitiveLoggingEnabled: !isSensEnabled,
+                                })
+                              }
+                              disabled={enforcingAgentName === agent.name || !isObsEnabled}
+                              className={`px-1.5 py-0.5 rounded font-mono border transition-colors ${
+                                !isObsEnabled
+                                  ? 'bg-gray-900/40 text-gray-600 border-gray-800/50 cursor-not-allowed'
+                                  : isSensEnabled
+                                  ? 'bg-purple-950/70 text-purple-300 border-purple-700/60 hover:bg-purple-900'
+                                  : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white hover:bg-gray-700'
+                              }`}
+                              title={
+                                !isObsEnabled
+                                  ? 'Enable Traces first to log sensitive prompts'
+                                  : 'Option 2: Sensitive prompt & payload data logging'
+                              }
+                            >
+                              2. Sensitive: {isSensEnabled ? 'ON' : 'OFF'}
+                            </button>
+                          </div>
                         </div>
-
-                        {/* Quick Two Options Controls */}
-                        <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-                          <span className="text-[10px] text-gray-500 uppercase font-mono">Options:</span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleUpdateAgentObservability(agent, {
-                                observabilityEnabled: !isObsEnabled,
-                                sensitiveLoggingEnabled: !isObsEnabled ? isSensEnabled : false,
-                              })
-                            }
-                            disabled={enforcingAgentName === agent.name}
-                            className={`px-1.5 py-0.5 rounded font-mono border transition-colors ${
-                              isObsEnabled
-                                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900'
-                                : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white hover:bg-gray-700'
-                            }`}
-                            title="Option 1: OpenTelemetry distributed tracing"
-                          >
-                            1. Traces: {isObsEnabled ? 'ON' : 'OFF'}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleUpdateAgentObservability(agent, {
-                                observabilityEnabled: true,
-                                sensitiveLoggingEnabled: !isSensEnabled,
-                              })
-                            }
-                            disabled={enforcingAgentName === agent.name || !isObsEnabled}
-                            className={`px-1.5 py-0.5 rounded font-mono border transition-colors ${
-                              !isObsEnabled
-                                ? 'bg-gray-900/40 text-gray-600 border-gray-800/50 cursor-not-allowed'
-                                : isSensEnabled
-                                ? 'bg-purple-950/70 text-purple-300 border-purple-700/60 hover:bg-purple-900'
-                                : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white hover:bg-gray-700'
-                            }`}
-                            title={
-                              !isObsEnabled
-                                ? 'Enable Traces first to log sensitive prompts'
-                                : 'Option 2: Sensitive prompt & payload data logging'
-                            }
-                          >
-                            2. Sensitive: {isSensEnabled ? 'ON' : 'OFF'}
-                          </button>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{agent.agentType || 'N/A'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{agentId}</td>
+                      </td>
+                    )}
+                    {visibleColumns.agentType && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{agent.agentType || 'N/A'}</td>
+                    )}
+                    {visibleColumns.name && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{agentId}</td>
+                    )}
+                    {visibleColumns.updateTime && (
+                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">
+                        {agent.updateTime ? new Date(agent.updateTime).toLocaleString() : 'N/A'}
+                      </td>
+                    )}
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <button 
                         onClick={() => handleDownloadAgentConfig(agent)} 
@@ -663,6 +889,13 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
           </div>
         </div>
       )}
+
+      <ExportAgentRegistryModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        agents={agents}
+        config={config}
+      />
     </div>
   );
 };

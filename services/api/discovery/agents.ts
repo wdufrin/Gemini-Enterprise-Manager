@@ -1109,40 +1109,113 @@ export const isCustomNoCodeAgent = (agent: Partial<Agent> | null | undefined): b
 };
 
 /**
- * Extracts a human-readable owner hint (such as an email address or display name)
- * from the agent's definition if present.
+ * Extracts a human-readable owner hint (such as an email address, IAM principal, or display name)
+ * from the agent's definition, IAM policy (`roles/discoveryengine.agentOwner`), or first-party status.
  */
 export const extractAgentOwnerHint = (
   agent: Partial<Agent> | null | undefined,
 ): string | null => {
   if (!agent) return null;
   const agentRec = agent as Record<string, unknown>;
+  const lowCodeRec = agent.lowCodeAgentDefinition as Record<string, unknown> | undefined;
+  const workflowRec = agent.workflowAgentDefinition as Record<string, unknown> | undefined;
+  const designerRec = agent.agentDesignerAgentDefinition as Record<string, unknown> | undefined;
+  const skillRec = agent.skillAgentDefinition as Record<string, unknown> | undefined;
+  const noCodeRec = agent.noCodeAgentDefinition as Record<string, unknown> | undefined;
+
+  // Check per-agent IAM policy (:getIamPolicy) bindings for roles/discoveryengine.owner,
+  // roles/discoveryengine.agentOwner, roles/owner, or any role containing 'owner'
+  const bindings = agent.iamPolicy?.bindings || [];
+  const ownerRoleBindings = bindings.filter((b) => {
+    const r = (b.role || "").toLowerCase();
+    return (
+      r === "roles/discoveryengine.owner" ||
+      r === "roles/discoveryengine.agentowner" ||
+      r === "roles/owner" ||
+      r.includes("owner")
+    );
+  });
+  const effectiveOwnerBindings =
+    ownerRoleBindings.length > 0
+      ? ownerRoleBindings
+      : bindings.filter((b) => {
+          const r = (b.role || "").toLowerCase();
+          return r.includes("admin") || r.includes("editor");
+        });
+
+  const iamOwners = Array.from(
+    new Set(
+      effectiveOwnerBindings
+        .flatMap((b) => b.members || [])
+        .map((m) =>
+          typeof m === "string"
+            ? m
+                .trim()
+                .replace(/^(user:|serviceAccount:|group:|domain:)/, "")
+                .trim()
+            : "",
+        )
+        .filter((m) => m.length > 0 && m !== "UNKNOWN" && m !== "N/A"),
+    ),
+  );
+  if (iamOwners.length > 0) {
+    return iamOwners.join(", ");
+  }
+
   const candidates: unknown[] = [
     agent.lowCodeAgentDefinition?.ownerName,
+    lowCodeRec?.owner_name,
     agent.lowCodeAgentDefinition?.owner,
-    (agent.workflowAgentDefinition as Record<string, unknown> | undefined)?.ownerName,
-    (agent.workflowAgentDefinition as Record<string, unknown> | undefined)?.owner,
-    (agent.agentDesignerAgentDefinition as Record<string, unknown> | undefined)?.ownerName,
-    (agent.agentDesignerAgentDefinition as Record<string, unknown> | undefined)?.owner,
+    workflowRec?.ownerName,
+    workflowRec?.owner_name,
+    workflowRec?.owner,
+    designerRec?.ownerName,
+    designerRec?.owner_name,
+    designerRec?.owner,
+    skillRec?.ownerName,
+    skillRec?.owner_name,
     agent.skillAgentDefinition?.owner,
-    (agent.noCodeAgentDefinition as Record<string, unknown> | undefined)?.ownerName,
-    (agent.noCodeAgentDefinition as Record<string, unknown> | undefined)?.owner,
+    noCodeRec?.ownerName,
+    noCodeRec?.owner_name,
+    noCodeRec?.owner,
     agentRec.creatorEmail,
+    agentRec.creator_email,
     agentRec.ownerEmail,
+    agentRec.owner_email,
     agentRec.ownerName,
+    agentRec.owner_name,
     agentRec.owner,
   ];
+
+  // First pass: prefer explicit email addresses or Workforce Identity principals
   for (const raw of candidates) {
     if (typeof raw === "string" && raw.trim()) {
       const cleaned = raw.trim();
       const withoutPrefix = cleaned.startsWith("user:")
         ? cleaned.slice("user:".length).trim()
-        : cleaned;
+        : cleaned.startsWith("serviceAccount:")
+          ? cleaned.slice("serviceAccount:".length).trim()
+          : cleaned;
       if (EMAIL_REGEX.test(withoutPrefix) || WIF_SUBJECT_REGEX.test(cleaned)) {
+        return cleaned.startsWith("user:") ? withoutPrefix : cleaned;
+      }
+    }
+  }
+
+  // Second pass: accept non-empty human-readable display names (e.g. lowCodeAgentDefinition.ownerName = "Alice Smith")
+  for (const raw of candidates) {
+    if (typeof raw === "string" && raw.trim()) {
+      const cleaned = raw.trim();
+      if (cleaned !== "UNKNOWN" && cleaned !== "N/A") {
         return cleaned;
       }
     }
   }
+
+  if (isGoogleManagedAgent(agent)) {
+    return "Google";
+  }
+
   return null;
 };
 

@@ -615,7 +615,7 @@ describe('agents API - shareAgent and Admin Publish & Share for User', () => {
     );
   });
 
-  it('extractAgentOwnerHint extracts creator/owner email from agent metadata when present', () => {
+  it('extractAgentOwnerHint extracts creator/owner email, IAM agentOwner principal, display name, or Google built-in owner and rejects blank/placeholder values', () => {
     expect(
       extractAgentOwnerHint({
         name: privateAgentName,
@@ -623,7 +623,78 @@ describe('agents API - shareAgent and Admin Publish & Share for User', () => {
         creatorEmail: 'creator@company.com',
       } as unknown as Agent),
     ).toBe('creator@company.com');
+
+    // Extracts from IAM policy roles/discoveryengine.owner and roles/discoveryengine.agentOwner bindings
+    expect(
+      extractAgentOwnerHint({
+        name: 'projects/180054373655/locations/global/collections/default_collection/engines/cosmere-1756136513915_1756136523768/assistants/default_assistant/agents/acme-sales-advisor',
+        displayName: 'ACME Sales Advisor',
+        iamPolicy: {
+          bindings: [
+            {
+              role: 'roles/discoveryengine.owner',
+              members: ['user:sales-owner@acme.com'],
+            },
+          ],
+        },
+      }),
+    ).toBe('sales-owner@acme.com');
+
+    expect(
+      extractAgentOwnerHint({
+        name: privateAgentName,
+        displayName: 'Shared IAM Agent',
+        iamPolicy: {
+          bindings: [
+            {
+              role: 'roles/discoveryengine.agentOwner',
+              members: ['user:iam-owner@company.com'],
+            },
+          ],
+        },
+      }),
+    ).toBe('iam-owner@company.com');
+
+    // Extracts plain display name from lowCodeAgentDefinition.ownerName
+    expect(
+      extractAgentOwnerHint({
+        name: privateAgentName,
+        displayName: 'Low Code Bot',
+        lowCodeAgentDefinition: {
+          ownerName: 'Alice Developer',
+        },
+      }),
+    ).toBe('Alice Developer');
+
+    // Returns 'Google' for Google-managed 1P agents
+    expect(
+      extractAgentOwnerHint({
+        name: 'projects/p/locations/global/collections/default_collection/engines/e/assistants/default_assistant/agents/deep_research',
+        displayName: 'Deep Research',
+      }),
+    ).toBe('Google');
+
+    // Negative / hostile cases: rejects null, empty strings, and placeholder strings
     expect(extractAgentOwnerHint(null)).toBeNull();
+    expect(extractAgentOwnerHint(undefined)).toBeNull();
+    expect(
+      extractAgentOwnerHint({
+        name: privateAgentName,
+        displayName: 'Placeholder Owner',
+        lowCodeAgentDefinition: {
+          ownerName: '   ',
+        },
+      }),
+    ).toBeNull();
+    expect(
+      extractAgentOwnerHint({
+        name: privateAgentName,
+        displayName: 'Unknown Placeholder',
+        lowCodeAgentDefinition: {
+          ownerName: 'UNKNOWN',
+        },
+      }),
+    ).toBeNull();
   });
 
   it('adminPublishAndShareForUser clones a user PRIVATE agent, deploys, activates sharing, grants IAM access, transfers ownership to user, and deletes the original draft', async () => {

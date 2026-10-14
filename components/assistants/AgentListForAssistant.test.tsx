@@ -536,4 +536,45 @@ describe('AgentListForAssistant - Telemetry Policy Controls', () => {
       expect(onRefreshMock).toHaveBeenCalledTimes(1);
     });
   });
+
+  it('displays Agent Owner column, supports showing/hiding columns, and opens Export / BQ Script modal', () => {
+    const ownedAgents: Agent[] = [
+      {
+        ...mockAgents[0],
+        lowCodeAgentDefinition: {
+          ownerName: 'owner-team@company.com',
+        },
+      },
+    ];
+
+    render(
+      <ToastProvider>
+        <AgentListForAssistant
+          agents={ownedAgents}
+          config={mockConfig}
+          engine={mockEngineWithSensitiveDisabled}
+          onRefreshAgents={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    expect(screen.getByText('Agent Owner')).toBeInTheDocument();
+    expect(screen.getByText('owner-team@company.com')).toBeInTheDocument();
+
+    // Open column picker and enable Sharing Scope column
+    const colBtn = screen.getByRole('button', { name: /Toggle table columns/i });
+    fireEvent.click(colBtn);
+
+    const sharingCheckbox = screen.getByLabelText('Sharing Scope');
+    fireEvent.click(sharingCheckbox);
+    expect(screen.getByText('Restricted IAM')).toBeInTheDocument();
+
+    // Open Export modal
+    const exportBtn = screen.getByRole('button', { name: /Export \/ BQ Script/i });
+    fireEvent.click(exportBtn);
+
+    expect(
+      screen.getByText(/Export Registered Agents & Automation Scripts/i),
+    ).toBeInTheDocument();
+  });
 });

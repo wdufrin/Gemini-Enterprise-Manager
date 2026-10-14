@@ -38,7 +38,7 @@ export enum Page {
   CONFIG_AUDIT = 'App Config Audit',
 }
 
-export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime' | 'agentType';
+export type SortableAgentKey = 'displayName' | 'state' | 'owner' | 'name' | 'updateTime' | 'agentType';
 export type SortDirection = 'asc' | 'desc';
 
 export interface UserProfile { name: string; email: string; picture: string; oid?: string; }

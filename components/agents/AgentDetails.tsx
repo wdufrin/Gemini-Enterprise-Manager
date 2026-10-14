@@ -1172,6 +1172,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                         <DetailItem label="Full Resource Name" value={currentAgent.name} />
                         <DetailItem label="Agent ID" value={agentId} />
                         {statusElement}
+                        <DetailItem label="Agent Owner" value={ownerHint || 'Not specified'} />
                         <DetailItem
                             label="Sharing Scope"
                             value={

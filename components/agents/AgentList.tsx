@@ -14,12 +14,14 @@
  * limitations under the License.
  */
 
-import React, { useState, useMemo } from 'react';
-import { Agent, SortableAgentKey, SortConfig } from '../../types';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { Agent, Config, SortableAgentKey, SortConfig } from '../../types';
 import * as api from '../../services/apiService';
+import ExportAgentRegistryModal from './ExportAgentRegistryModal';
 
 interface AgentListProps {
   agents: Agent[];
+  config?: Config;
   onSelectAgent: (agent: Agent) => void;
   onEditAgent: (agent: Agent) => void;
   onDeleteAgent: (agent: Agent) => void;
@@ -44,6 +46,42 @@ interface AgentListProps {
 type StatusFilter = 'ALL' | 'ENABLED' | 'DISABLED' | 'PRIVATE';
 type ScopeFilter = 'ALL' | 'ALL_USERS' | 'RESTRICTED' | 'PRIVATE';
 
+export type AgentListColumnKey =
+  | 'displayName'
+  | 'state'
+  | 'owner'
+  | 'sharing'
+  | 'agentType'
+  | 'agentOrigin'
+  | 'description'
+  | 'name'
+  | 'createTime'
+  | 'updateTime';
+
+interface ColumnDefinition {
+  key: AgentListColumnKey;
+  label: string;
+  defaultVisible: boolean;
+}
+
+const AGENT_LIST_COLUMNS: ColumnDefinition[] = [
+  { key: 'displayName', label: 'Display Name', defaultVisible: true },
+  { key: 'state', label: 'Status', defaultVisible: true },
+  { key: 'owner', label: 'Agent Owner', defaultVisible: true },
+  { key: 'sharing', label: 'Sharing Scope', defaultVisible: true },
+  { key: 'agentType', label: 'Agent Type', defaultVisible: true },
+  { key: 'agentOrigin', label: 'Origin', defaultVisible: false },
+  { key: 'description', label: 'Description', defaultVisible: false },
+  { key: 'name', label: 'Agent ID', defaultVisible: true },
+  { key: 'createTime', label: 'Created On', defaultVisible: false },
+  { key: 'updateTime', label: 'Last Modified', defaultVisible: true },
+];
+
+const DEFAULT_VISIBLE_COLUMNS: Record<AgentListColumnKey, boolean> = AGENT_LIST_COLUMNS.reduce(
+  (acc, col) => ({ ...acc, [col.key]: col.defaultVisible }),
+  {} as Record<AgentListColumnKey, boolean>,
+);
+
 const SortIcon: React.FC<{ direction: 'asc' | 'desc' }> = ({ direction }) => {
   const path = direction === 'asc'
     ? "M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z"
@@ -63,6 +101,7 @@ const getAgentSharingScope = (agent: Agent): 'ALL_USERS' | 'RESTRICTED' | 'PRIVA
 
 const AgentList: React.FC<AgentListProps> = ({ 
   agents, 
+  config,
   onSelectAgent, 
   onEditAgent: _onEditAgent, 
   onDeleteAgent, 
@@ -92,6 +131,46 @@ const AgentList: React.FC<AgentListProps> = ({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('ALL');
+
+  // Column visibility & Export state
+  const [visibleColumns, setVisibleColumns] = useState<Record<AgentListColumnKey, boolean>>(DEFAULT_VISIBLE_COLUMNS);
+  const [isColumnsOpen, setIsColumnsOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const columnsMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isColumnsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (columnsMenuRef.current && !columnsMenuRef.current.contains(event.target as Node)) {
+        setIsColumnsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isColumnsOpen]);
+
+  const toggleColumn = (key: AgentListColumnKey) => {
+    setVisibleColumns(prev => {
+      const nextVal = !prev[key];
+      const activeCount = Object.values(prev).filter(Boolean).length;
+      if (!nextVal && activeCount <= 1) {
+        return prev; // Keep at least 1 column visible
+      }
+      return { ...prev, [key]: nextVal };
+    });
+  };
+
+  const resetColumns = () => {
+    setVisibleColumns(DEFAULT_VISIBLE_COLUMNS);
+  };
+
+  const showAllColumns = () => {
+    const allTrue = AGENT_LIST_COLUMNS.reduce(
+      (acc, col) => ({ ...acc, [col.key]: true }),
+      {} as Record<AgentListColumnKey, boolean>,
+    );
+    setVisibleColumns(allTrue);
+  };
 
   const availableTypes = useMemo(() => {
     const types = new Set<string>();
@@ -206,6 +285,15 @@ const AgentList: React.FC<AgentListProps> = ({
   };
 
   const hasActiveFilters = searchQuery.trim() !== '' || statusFilter !== 'ALL' || typeFilter !== 'ALL' || scopeFilter !== 'ALL';
+  const visibleColumnCount = Object.values(visibleColumns).filter(Boolean).length;
+
+  const fallbackConfig: Config = config || {
+    projectId: '',
+    appLocation: 'global',
+    collectionId: 'default_collection',
+    appId: '',
+    assistantId: 'default_assistant',
+  };
 
   return (
     <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
@@ -216,7 +304,7 @@ const AgentList: React.FC<AgentListProps> = ({
             Showing {filteredAgents.length} of {agents.length} agent{agents.length === 1 ? '' : 's'}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           {selectedAgents.size > 0 && (
             <>
               <span className="text-sm text-gray-300 font-medium whitespace-nowrap">{selectedAgents.size} selected</span>
@@ -238,6 +326,86 @@ const AgentList: React.FC<AgentListProps> = ({
               </button>
             </>
           )}
+
+          {/* Column Visibility Picker */}
+          {agents.length > 0 && (
+            <div className="relative" ref={columnsMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsColumnsOpen(prev => !prev)}
+                aria-expanded={isColumnsOpen}
+                aria-label="Toggle table columns"
+                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 border border-gray-600 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                title="Show or hide table columns"
+              >
+                <svg className="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                </svg>
+                <span>Columns ({visibleColumnCount}/{AGENT_LIST_COLUMNS.length})</span>
+              </button>
+
+              {isColumnsOpen && (
+                <div
+                  role="menu"
+                  aria-label="Visible columns"
+                  className="absolute right-0 mt-2 w-60 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl z-30 p-3 space-y-2"
+                >
+                  <div className="flex items-center justify-between pb-1.5 border-b border-gray-800">
+                    <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Visible Fields</span>
+                    <div className="flex items-center gap-2 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={showAllColumns}
+                        className="text-blue-400 hover:text-blue-300 font-medium"
+                      >
+                        All
+                      </button>
+                      <span className="text-gray-600">·</span>
+                      <button
+                        type="button"
+                        onClick={resetColumns}
+                        className="text-gray-400 hover:text-gray-200 font-medium"
+                      >
+                        Default
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1 max-h-64 overflow-y-auto">
+                    {AGENT_LIST_COLUMNS.map(col => (
+                      <label
+                        key={col.key}
+                        className="flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-gray-800 cursor-pointer text-xs text-gray-200"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={visibleColumns[col.key]}
+                          onChange={() => toggleColumn(col.key)}
+                          className="h-3.5 w-3.5 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500"
+                        />
+                        <span>{col.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Export Registry & Automation Scripts Button */}
+          {agents.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              className="px-3.5 py-2 bg-blue-900/60 hover:bg-blue-800/70 text-blue-200 border border-blue-600/60 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              title="Export Registered Agents to local CSV/JSON or generate Python/BigQuery export scripts"
+            >
+              <svg className="w-4 h-4 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              <span>Export / BQ Script</span>
+            </button>
+          )}
+
           <button
             onClick={onRegisterNew}
             className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-green-500 whitespace-nowrap shrink-0"
@@ -425,14 +593,44 @@ const AgentList: React.FC<AgentListProps> = ({
                               className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600 disabled:opacity-40"
                           />
                         </th>
-                        <SortableHeader sortKey="displayName">Display Name</SortableHeader>
-                        <SortableHeader sortKey="state">Status</SortableHeader>
-                        <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                            Sharing & Owner
-                        </th>
-                        <SortableHeader sortKey="agentType">Agent Type</SortableHeader>
-                        <SortableHeader sortKey="name">Agent ID</SortableHeader>
-                        <SortableHeader sortKey="updateTime">Last Modified</SortableHeader>
+                        {visibleColumns.displayName && (
+                          <SortableHeader sortKey="displayName">Display Name</SortableHeader>
+                        )}
+                        {visibleColumns.state && (
+                          <SortableHeader sortKey="state">Status</SortableHeader>
+                        )}
+                        {visibleColumns.owner && (
+                          <SortableHeader sortKey="owner">Agent Owner</SortableHeader>
+                        )}
+                        {visibleColumns.sharing && (
+                          <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                            Sharing Scope
+                          </th>
+                        )}
+                        {visibleColumns.agentType && (
+                          <SortableHeader sortKey="agentType">Agent Type</SortableHeader>
+                        )}
+                        {visibleColumns.agentOrigin && (
+                          <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                            Origin
+                          </th>
+                        )}
+                        {visibleColumns.description && (
+                          <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                            Description
+                          </th>
+                        )}
+                        {visibleColumns.name && (
+                          <SortableHeader sortKey="name">Agent ID</SortableHeader>
+                        )}
+                        {visibleColumns.createTime && (
+                          <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                            Created On
+                          </th>
+                        )}
+                        {visibleColumns.updateTime && (
+                          <SortableHeader sortKey="updateTime">Last Modified</SortableHeader>
+                        )}
                         <th scope="col" className="px-3 xl:px-5 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                             Actions
                         </th>
@@ -489,91 +687,123 @@ const AgentList: React.FC<AgentListProps> = ({
                                         className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600 disabled:opacity-30 disabled:cursor-not-allowed"
                                     />
                                 </td>
-                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm font-medium text-white">
-                                    <div className="flex items-center">
-                                        <span className={`h-2.5 w-2.5 rounded-full mr-2.5 shrink-0 ${statusColorClass}`}></span>
-                                        {editingId === agent.name ? (
-                                            <form 
-                                                onSubmit={(e) => { e.preventDefault(); handleSaveName(agent); }}
-                                                className="flex items-center gap-2"
-                                            >
-                                                <input 
-                                                    autoFocus
-                                                    type="text" 
-                                                    value={editName} 
-                                                    onChange={(e) => setEditName(e.target.value)} 
-                                                    className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-blue-500" 
-                                                />
-                                                <button type="submit" disabled={isSaving} className="text-blue-400 hover:text-blue-300 font-semibold text-xs disabled:opacity-50">
-                                                    {isSaving ? '...' : 'Save'}
-                                                </button>
-                                                <button type="button" onClick={() => setEditingId(null)} className="text-gray-400 hover:text-gray-300 font-semibold text-xs">
-                                                    Cancel
-                                                </button>
-                                            </form>
-                                        ) : (
-                                            <div className="flex items-center gap-2 group">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => onSelectAgent(agent)}
-                                                    className="text-left hover:text-blue-400 transition-colors max-w-[180px] xl:max-w-[260px] truncate"
-                                                    title={agent.displayName}
-                                                >
-                                                    {agent.displayName}
-                                                </button>
-                                                {isGoogleManaged && (
-                                                    <span
-                                                        className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap shrink-0"
-                                                        title="First-party Google-managed built-in agent (protected from deletion)."
-                                                    >
-                                                        Google Built-in
-                                                    </span>
-                                                )}
-                                                {onUpdateAgentName && (
-                                                    <button 
-                                                        type="button"
-                                                        onClick={() => handleEditClick(agent)}
-                                                        className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded p-0.5 transition-opacity shrink-0"
-                                                        title="Edit Name"
-                                                        aria-label={`Edit name for ${agent.displayName}`}
-                                                    >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                </td>
-                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm">
-                                    {statusButton}
-                                </td>
-                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs">
-                                    <div className="flex flex-col gap-1">
-                                        {sharingScope === 'ALL_USERS' ? (
-                                            <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 font-medium">
-                                                All Users
-                                            </span>
-                                        ) : sharingScope === 'RESTRICTED' ? (
-                                            <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-blue-900/50 text-blue-300 border border-blue-700/50 font-medium">
-                                                Restricted IAM
-                                            </span>
-                                        ) : (
-                                            <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-gray-700 text-gray-300 border border-gray-600 font-medium">
-                                                Private
-                                            </span>
-                                        )}
-                                        {ownerHint && (
-                                            <span className="text-[11px] text-gray-400 font-mono truncate max-w-[160px]" title={`Owner: ${ownerHint}`}>
-                                                {ownerHint}
-                                            </span>
-                                        )}
-                                    </div>
-                                </td>
-                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400">{agent.agentType || 'N/A'}</td>
-                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400 font-mono max-w-[140px] xl:max-w-[200px] truncate" title={agentId}>{agentId}</td>
-                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400">
-                                    {agent.updateTime ? new Date(agent.updateTime).toLocaleString() : 'N/A'}
-                                </td>
+                                {visibleColumns.displayName && (
+                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm font-medium text-white">
+                                      <div className="flex items-center">
+                                          <span className={`h-2.5 w-2.5 rounded-full mr-2.5 shrink-0 ${statusColorClass}`}></span>
+                                          {editingId === agent.name ? (
+                                              <form 
+                                                  onSubmit={(e) => { e.preventDefault(); handleSaveName(agent); }}
+                                                  className="flex items-center gap-2"
+                                              >
+                                                  <input 
+                                                      autoFocus
+                                                      type="text" 
+                                                      value={editName} 
+                                                      onChange={(e) => setEditName(e.target.value)} 
+                                                      className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                                                  />
+                                                  <button type="submit" disabled={isSaving} className="text-blue-400 hover:text-blue-300 font-semibold text-xs disabled:opacity-50">
+                                                      {isSaving ? '...' : 'Save'}
+                                                  </button>
+                                                  <button type="button" onClick={() => setEditingId(null)} className="text-gray-400 hover:text-gray-300 font-semibold text-xs">
+                                                      Cancel
+                                                  </button>
+                                              </form>
+                                          ) : (
+                                              <div className="flex items-center gap-2 group">
+                                                  <button
+                                                      type="button"
+                                                      onClick={() => onSelectAgent(agent)}
+                                                      className="text-left hover:text-blue-400 transition-colors max-w-[180px] xl:max-w-[260px] truncate"
+                                                      title={agent.displayName}
+                                                  >
+                                                      {agent.displayName}
+                                                  </button>
+                                                  {isGoogleManaged && (
+                                                      <span
+                                                          className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap shrink-0"
+                                                          title="First-party Google-managed built-in agent (protected from deletion)."
+                                                      >
+                                                          Google Built-in
+                                                      </span>
+                                                  )}
+                                                  {onUpdateAgentName && (
+                                                      <button 
+                                                          type="button"
+                                                          onClick={() => handleEditClick(agent)}
+                                                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded p-0.5 transition-opacity shrink-0"
+                                                          title="Edit Name"
+                                                          aria-label={`Edit name for ${agent.displayName}`}
+                                                      >
+                                                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                                      </button>
+                                                  )}
+                                              </div>
+                                          )}
+                                      </div>
+                                  </td>
+                                )}
+                                {visibleColumns.state && (
+                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm">
+                                      {statusButton}
+                                  </td>
+                                )}
+                                {visibleColumns.owner && (
+                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs">
+                                    {ownerHint ? (
+                                      <span
+                                        className="inline-flex items-center px-2 py-0.5 rounded bg-gray-900/70 text-cyan-300 border border-gray-700 font-mono truncate max-w-[180px]"
+                                        title={`Agent Owner: ${ownerHint}`}
+                                      >
+                                        {ownerHint}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-500 italic">—</span>
+                                    )}
+                                  </td>
+                                )}
+                                {visibleColumns.sharing && (
+                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs">
+                                      {sharingScope === 'ALL_USERS' ? (
+                                          <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 font-medium">
+                                              All Users
+                                          </span>
+                                      ) : sharingScope === 'RESTRICTED' ? (
+                                          <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-blue-900/50 text-blue-300 border border-blue-700/50 font-medium">
+                                              Restricted IAM
+                                          </span>
+                                      ) : (
+                                          <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-gray-700 text-gray-300 border border-gray-600 font-medium">
+                                              Private
+                                          </span>
+                                      )}
+                                  </td>
+                                )}
+                                {visibleColumns.agentType && (
+                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400">{agent.agentType || 'N/A'}</td>
+                                )}
+                                {visibleColumns.agentOrigin && (
+                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400 font-mono">{agent.agentOrigin || 'N/A'}</td>
+                                )}
+                                {visibleColumns.description && (
+                                  <td className="px-3 xl:px-5 py-3 text-xs text-gray-400 max-w-[240px] truncate" title={agent.description || ''}>
+                                    {agent.description || '—'}
+                                  </td>
+                                )}
+                                {visibleColumns.name && (
+                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400 font-mono max-w-[140px] xl:max-w-[200px] truncate" title={agentId}>{agentId}</td>
+                                )}
+                                {visibleColumns.createTime && (
+                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400">
+                                    {agent.createTime ? new Date(agent.createTime).toLocaleString() : 'N/A'}
+                                  </td>
+                                )}
+                                {visibleColumns.updateTime && (
+                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400">
+                                      {agent.updateTime ? new Date(agent.updateTime).toLocaleString() : 'N/A'}
+                                  </td>
+                                )}
                                 <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-right text-sm font-medium space-x-2.5">
                                     {isDeleting ? (
                                         <span className="text-xs text-gray-400 italic">Deleting...</span>
@@ -620,6 +850,13 @@ const AgentList: React.FC<AgentListProps> = ({
             </table>
         </div>
       )}
+
+      <ExportAgentRegistryModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        agents={filteredAgents}
+        config={fallbackConfig}
+      />
     </div>
   );
 };
