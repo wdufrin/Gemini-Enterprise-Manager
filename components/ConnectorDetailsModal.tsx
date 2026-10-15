@@ -26,6 +26,7 @@ import {
   ConnectorDiagnosticsDetails,
   deriveConnectorRemediation,
 } from './connectors/connectorDiagnostics';
+import { getConnectorCloneEligibility } from './connectors/duplicate/duplicateFieldUtils';
 import { toErrorMessage } from '../utils/errors';
 
 interface ConnectorDetailsModalProps {
@@ -36,6 +37,7 @@ interface ConnectorDetailsModalProps {
   status: 'success' | 'error' | 'unvalidated';
   config: Config;
   onRefreshSuccess?: () => void;
+  onCloneConnector?: (connector: DataConnector) => void;
   activeVendors?: string[];
 }
 
@@ -56,6 +58,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
   status,
   config,
   onRefreshSuccess,
+  onCloneConnector,
   activeVendors,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -738,6 +741,22 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                         )}
                       </button>
                     </>
+                  )}
+                  {onCloneConnector && connectorState && getConnectorCloneEligibility(connectorState).canClone && (
+                    <button
+                      type="button"
+                      onClick={() => onCloneConnector(connectorState)}
+                      className="px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded hover:bg-amber-500 transition-colors flex items-center gap-1.5 shadow"
+                      title="Clone this connector to another project (Experimental)"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                      </svg>
+                      <span>Clone Connector</span>
+                      <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded bg-amber-950/60 text-amber-200 border border-amber-300/40">
+                        Experimental
+                      </span>
+                    </button>
                   )}
                   {connectorState?.dataSource && [
                     'jira', 'confluence', 'sharepoint', 'onedrive', 'ms-onedrive', 'outlook', 'ms-outlook', 

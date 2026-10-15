@@ -78,6 +78,8 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
     setAssociationWarning,
   } = useConnectorsPage({ projectNumber });
 
+  const [enableExperimentalClone, setEnableExperimentalClone] = React.useState(false);
+
   const activeVendors = React.useMemo(() => {
     const set = new Set<string>();
     collections.forEach((col) => {
@@ -163,6 +165,8 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
           onDuplicateConnector={handleDuplicateConnector}
           onRequestDelete={handleRequestDelete}
           associationWarning={associationWarning}
+          enableExperimentalClone={enableExperimentalClone}
+          onToggleExperimentalClone={setEnableExperimentalClone}
         />
       )}
 
@@ -176,6 +180,23 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
         }
         config={config}
         onRefreshSuccess={fetchCollections}
+        onCloneConnector={
+          enableExperimentalClone
+            ? (connectorState) => {
+                const collectionName =
+                  connectorState.name?.replace(/\/dataConnector$/, "") ||
+                  `projects/${config.projectId}/locations/${config.appLocation}/collections/${selectedResult?.title.split(": ").pop() || "default_collection"}`;
+                const matchedCollection = collections.find(
+                  (c) => c.name === collectionName,
+                ) || {
+                  name: collectionName,
+                  displayName: collectionName.split("/").pop() || "",
+                };
+                setSelectedResult(null);
+                handleDuplicateConnector(matchedCollection, connectorState);
+              }
+            : undefined
+        }
         activeVendors={activeVendors}
       />
 

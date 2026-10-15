@@ -22,6 +22,7 @@ import {
   ValidationResult,
   runConnectorDiagnostics,
 } from "../components/connectors/connectorDiagnostics";
+import { getConnectorCloneEligibility } from "../components/connectors/duplicate/duplicateFieldUtils";
 
 interface UseConnectorsPageProps {
   projectNumber: string;
@@ -283,37 +284,42 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
     }
   };
 
-  const handleDuplicateConnector = async (collection: Collection) => {
+  const handleDuplicateConnector = async (
+    collection: Collection,
+    prefetchedConnector?: DataConnector,
+  ) => {
     const collectionId =
       collection.name.split("/").pop() || "default_collection";
     const collectionConfig = { ...config, collectionId: collectionId };
     setIsLoading(true);
     setError(null);
     try {
-      const connector = await api.getDataConnector(collectionConfig);
-      const dataSource = connector.dataSource?.toLowerCase() || "";
-      const ALLOWED_DUPLICATE_SOURCES = [
-        "jira",
-        "confluence",
-        "sharepoint",
-        "onedrive",
-        "ms-onedrive",
-        "teams",
-        "ms-teams",
-        "outlook",
-        "ms-outlook",
-      ];
+      const connector =
+        prefetchedConnector || (await api.getDataConnector(collectionConfig));
 
-      if (!ALLOWED_DUPLICATE_SOURCES.includes(dataSource)) {
-        setError(
-          `Duplication is currently only supported and validated for Jira, Confluence, and Office 365 (SharePoint, OneDrive, Teams, Outlook) connectors. Duplication of '${connector.dataSource}' is restricted.`
-        );
-        return;
-      }
+      setValidationResults((prev) => {
+        if (prev[collection.name]?.dataConnector) return prev;
+        return {
+          ...prev,
+          [collection.name]: {
+            status: prev[collection.name]?.status || "unvalidated",
+            message: prev[collection.name]?.message || "Not validated",
+            dataConnector: connector,
+            details: prev[collection.name]?.details || {
+              summary: "Not validated",
+              connectorState: connector,
+              collectionDisplayName: collection.displayName,
+              diagnostics: { steps: [], warnings: [], errors: [] },
+            },
+          },
+        };
+      });
 
-      if (connector.connectorType !== "THIRD_PARTY_FEDERATED") {
+      const eligibility = getConnectorCloneEligibility(connector);
+      if (!eligibility.canClone) {
         setError(
-          `Duplication is currently only supported and validated for Federated connectors. Duplication of ingested connector '${collectionId}' (${connector.connectorType || "THIRD_PARTY"}) is restricted.`
+          eligibility.reason ||
+            `Cloning '${connector.dataSource || collectionId}' is not supported via API because it requires an interactive browser OAuth token.`,
         );
         return;
       }

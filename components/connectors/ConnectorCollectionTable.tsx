@@ -17,6 +17,7 @@
 import React, { useState, useMemo } from "react";
 import { Collection } from "../../types";
 import { ValidationResult } from "./connectorDiagnostics";
+import { getConnectorCloneEligibility } from "./duplicate/duplicateFieldUtils";
 
 interface ConnectorCollectionTableProps {
   collections: Collection[];
@@ -34,6 +35,8 @@ interface ConnectorCollectionTableProps {
   onDuplicateConnector: (collection: Collection) => void;
   onRequestDelete: (collection: Collection) => void;
   associationWarning?: string | null;
+  enableExperimentalClone?: boolean;
+  onToggleExperimentalClone?: (enabled: boolean) => void;
 }
 
 export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> = ({
@@ -52,9 +55,21 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
   onDuplicateConnector,
   onRequestDelete,
   associationWarning,
+  enableExperimentalClone,
+  onToggleExperimentalClone,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [internalEnableClone, setInternalEnableClone] = useState(false);
+
+  const isCloneEnabled = enableExperimentalClone ?? internalEnableClone;
+  const handleToggleClone = (enabled: boolean) => {
+    if (onToggleExperimentalClone) {
+      onToggleExperimentalClone(enabled);
+    } else {
+      setInternalEnableClone(enabled);
+    }
+  };
 
   const filteredCollections = useMemo(() => {
     return collections.filter((collection) => {
@@ -97,6 +112,27 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <label
+            className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-md border text-xs font-medium cursor-pointer transition-colors select-none ${
+              isCloneEnabled
+                ? "bg-amber-950/40 border-amber-500/50 text-amber-200"
+                : "bg-gray-900 border-gray-700 text-gray-300 hover:border-gray-600"
+            }`}
+            title="Toggle experimental cross-project connector cloning"
+          >
+            <input
+              type="checkbox"
+              checked={isCloneEnabled}
+              onChange={(e) => handleToggleClone(e.target.checked)}
+              aria-label="Enable experimental connector cloning"
+              className="h-3.5 w-3.5 rounded bg-gray-800 border-gray-600 text-amber-500 focus:ring-amber-500 cursor-pointer"
+            />
+            <span>Clone</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              Experimental
+            </span>
+          </label>
+
           <div className="relative">
             <input
               type="text"
@@ -372,14 +408,31 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                       >
                         Details
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => onDuplicateConnector(collection)}
-                        className="text-amber-400 hover:text-amber-300 font-semibold text-xs border border-amber-500/30 px-2.5 xl:px-3 py-1.5 rounded hover:bg-amber-500/10 transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0"
-                        title="Duplicate this connector configuration"
-                      >
-                        Duplicate
-                      </button>
+                      {(() => {
+                        if (!isCloneEnabled || collectionId === "default_collection") return null;
+                        const knownConnector =
+                          result?.dataConnector ||
+                          (result?.details &&
+                          typeof result.details === "object" &&
+                          "connectorState" in result.details
+                            ? (result.details as { connectorState?: unknown }).connectorState
+                            : undefined) ||
+                          collection.dataConnector;
+                        const eligibility = knownConnector
+                          ? getConnectorCloneEligibility(knownConnector)
+                          : { canClone: true };
+                        if (!eligibility.canClone) return null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => onDuplicateConnector(collection)}
+                            className="text-amber-400 hover:text-amber-300 font-semibold text-xs border border-amber-500/30 px-2.5 xl:px-3 py-1.5 rounded hover:bg-amber-500/10 transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0"
+                            title="Clone this connector to another project"
+                          >
+                            Clone
+                          </button>
+                        );
+                      })()}
                       {collectionId !== "default_collection" && (
                         <button
                           type="button"

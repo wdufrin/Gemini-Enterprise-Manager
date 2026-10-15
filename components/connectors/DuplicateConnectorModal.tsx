@@ -27,16 +27,20 @@ import { DuplicateModalFooter } from "./duplicate/DuplicateModalFooter";
 export {
   discoverFields,
   buildDuplicatePayload,
+  getConnectorCloneEligibility,
+  normalizeDataSource,
   type FormField,
+  type ConnectorCloneEligibility,
   tooltipTexts,
 } from "./duplicate/duplicateFieldUtils";
+import { normalizeDataSource } from "./duplicate/duplicateFieldUtils";
 
 interface DuplicateConnectorModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
   sourceCollectionName: string;
-  sourceConnectorState: any;
+  sourceConnectorState: Record<string, unknown> | null;
   currentProjectId: string;
   currentLocation: string;
 }
@@ -95,12 +99,20 @@ const DuplicateConnectorModal: React.FC<DuplicateConnectorModalProps> = ({
   // NOTE: This early return MUST stay below every hook call above.
   if (!isOpen) return null;
 
-  const isAtlassian = ["jira", "confluence"].includes(
-    sourceConnectorState?.dataSource?.toLowerCase(),
-  );
-  const isMicrosoft = ["sharepoint", "onedrive", "outlook", "teams"].includes(
-    sourceConnectorState?.dataSource?.toLowerCase(),
-  );
+  const rawDs =
+    typeof sourceConnectorState?.dataSource === "string"
+      ? sourceConnectorState.dataSource
+      : undefined;
+  const normalizedDs = normalizeDataSource(rawDs);
+  const isAtlassian = ["jira", "confluence"].includes(normalizedDs);
+  const isMicrosoft = [
+    "sharepoint",
+    "onedrive",
+    "outlook",
+    "teams",
+    "entra_id",
+    "dynamics365",
+  ].includes(normalizedDs);
 
   return (
     <div
@@ -133,7 +145,10 @@ const DuplicateConnectorModal: React.FC<DuplicateConnectorModalProps> = ({
                 d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"
               />
             </svg>
-            Duplicate Connector: {sourceCollectionId}
+            <span>Clone Connector: {sourceCollectionId}</span>
+            <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              Experimental
+            </span>
           </h2>
           <button
             type="button"
@@ -194,7 +209,7 @@ const DuplicateConnectorModal: React.FC<DuplicateConnectorModalProps> = ({
             {/* Step 3: Credentials */}
             {currentStep === 3 && (
               <DuplicateStepCredentials
-                dataSource={sourceConnectorState?.dataSource}
+                dataSource={rawDs}
                 isAtlassian={isAtlassian}
                 isMicrosoft={isMicrosoft}
                 formFields={formFields}
