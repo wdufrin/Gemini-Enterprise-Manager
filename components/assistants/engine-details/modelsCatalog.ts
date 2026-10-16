@@ -25,6 +25,7 @@ export interface EnterpriseModel {
 }
 
 export const formatModelDisplayName = (id: string): string => {
+    if (id === 'gemini-4-argon') return 'Gemini 4 Argon';
     if (id === 'gemini-flash-latest') return 'Gemini 2.x Flash (Latest Auto-Updating)';
     if (id === 'gemini-3.1-pro-preview') return 'Gemini 3.1 Pro (Thinking)';
     if (id === 'gemini-3.1-pro') return 'Gemini 3.1 Pro (Legacy)';
@@ -55,6 +56,9 @@ export const formatModelDisplayName = (id: string): string => {
 };
 
 export const getModelDefaultDescription = (id: string): string => {
+    if (id === 'gemini-4-argon') {
+        return 'Next-generation frontier reasoning model for complex analysis, coding, and agentic workflows.';
+    }
     if (id === 'gemini-3-pro-image-preview' || id === 'gemini-3-pro-image') {
         return 'Built for complex image generation use cases, with increased factuality.';
     }
@@ -85,13 +89,20 @@ export const getModelDefaultDescription = (id: string): string => {
     if (id.startsWith('claude-sonnet')) {
         return 'Balanced intelligence and speed for everyday tasks.';
     }
-    if (id.includes('pro') || id.includes('ultra') || id.includes('thinking')) {
+    if (id.includes('pro') || id.includes('ultra') || id.includes('thinking') || id.includes('argon')) {
         return 'High-intelligence frontier model optimized for complex reasoning, multi-step problem solving, and analysis.';
     }
     return 'Frontier intelligence built for speed.';
 };
 
 export const STANDARD_ENTERPRISE_MODELS: EnterpriseModel[] = [
+    {
+        id: 'gemini-4-argon',
+        displayName: 'Gemini 4 Argon',
+        description: 'Next-generation frontier reasoning model for complex analysis, coding, and agentic workflows.',
+        isPreview: false,
+        category: 'Pro / Reasoning'
+    },
     {
         id: 'gemini-3.8-flash',
         displayName: 'Gemini 3.8 Flash',
@@ -176,7 +187,7 @@ export const extractEngineNameFromAgentName = (
     return null;
 };
 
-const categorizeModel = (modelId: string): string => {
+export const categorizeModel = (modelId: string): string => {
     if (modelId.includes('image') || modelId.includes('vision')) {
         return 'Vision & Image';
     }
@@ -184,6 +195,7 @@ const categorizeModel = (modelId: string): string => {
         modelId.includes('pro') ||
         modelId.includes('ultra') ||
         modelId.includes('thinking') ||
+        modelId.includes('argon') ||
         modelId.includes('opus')
     ) {
         return 'Pro / Reasoning';

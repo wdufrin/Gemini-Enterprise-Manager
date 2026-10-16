@@ -235,6 +235,7 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
               <SkillsViewer
                 agents={agents}
                 config={currentConfig}
+                engine={selectedRow.engine}
                 userProfile={userProfile}
                 onRefreshSkills={onRefreshAgents}
               />

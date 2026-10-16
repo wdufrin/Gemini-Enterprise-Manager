@@ -95,6 +95,32 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
     setRefreshSuccess(false);
 
     try {
+      const parts = connector.name.split('/');
+      const projId = parts[parts.indexOf('projects') + 1] || config.projectId;
+      const loc = parts[parts.indexOf('locations') + 1] || config.appLocation;
+      const collId = parts[parts.indexOf('collections') + 1] || config.collectionId;
+      const connectorConfig = { ...config, projectId: projId, appLocation: loc, collectionId: collId };
+
+      if (typeof api.refreshDataConnectorTools === 'function') {
+        try {
+          const rpcResult = await api.refreshDataConnectorTools(connector.name, connectorConfig);
+          const refreshedConnector =
+            rpcResult && typeof rpcResult === 'object' && 'dataSource' in rpcResult
+              ? (rpcResult as DataConnector)
+              : await api.getDataConnector(connectorConfig);
+          if (refreshedConnector) {
+            setConnector(refreshedConnector);
+          }
+          setRefreshSuccess(true);
+          if (onRefreshSuccess) {
+            onRefreshSuccess();
+          }
+          return;
+        } catch (rpcErr: unknown) {
+          console.warn('Native refreshDataConnectorTools RPC failed, falling back to browser MCP tool discovery:', rpcErr);
+        }
+      }
+
       const params = connector.params as Record<string, unknown> | undefined;
       const actionConfig = connector.actionConfig as Record<string, unknown> | undefined;
       const actionParams = actionConfig?.actionParams as Record<string, unknown> | undefined;
@@ -105,11 +131,6 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
       if (!mcpEndpointUrl) {
         throw new Error("No MCP instance URI found in connector configuration.");
       }
-
-      const parts = connector.name.split('/');
-      const projId = parts[parts.indexOf('projects') + 1];
-      const loc = parts[parts.indexOf('locations') + 1];
-      const collId = parts[parts.indexOf('collections') + 1];
 
       const newTools = await api.listMcpTools(projId, mcpEndpointUrl);
       if (!newTools || newTools.length === 0) {
@@ -136,7 +157,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
         connector.name,
         updatedConnectorPayload,
         ['dynamic_tools', 'bap_config'],
-        { ...config, projectId: projId, appLocation: loc, collectionId: collId }
+        connectorConfig
       );
 
       setConnector(response as unknown as DataConnector);

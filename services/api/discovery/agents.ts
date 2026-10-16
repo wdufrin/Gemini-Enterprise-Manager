@@ -660,6 +660,10 @@ export const ensureSkillSharingOnEngine = async (config: Config) => {
     if (!engine) return;
     const features = { ...(engine.features || {}) };
     let needsUpdate = false;
+    if (features["skills"] !== "FEATURE_STATE_ON") {
+      features["skills"] = "FEATURE_STATE_ON";
+      needsUpdate = true;
+    }
     if (features["skill-sharing"] !== "FEATURE_STATE_ON") {
       features["skill-sharing"] = "FEATURE_STATE_ON";
       needsUpdate = true;
@@ -754,6 +758,51 @@ export const enableAgent = async (name: string, config: Config) => {
     config.projectId,
   );
   return getAgent(agentName, config);
+};
+
+export const suspendAgent = async (
+  name: string,
+  config: Config,
+  suspensionReason?: string,
+): Promise<Agent> => {
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const agentName = resolveFullAgentResourceName(name, config);
+  const body = suspensionReason?.trim()
+    ? { suspensionReason: suspensionReason.trim() }
+    : {};
+  await gapiRequest(
+    `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}:suspendAgent`,
+    "POST",
+    config.projectId,
+    undefined,
+    body,
+  );
+  return getAgent(agentName, config);
+};
+
+export const rejectAgent = async (
+  name: string,
+  config: Config,
+  rejectionReason?: string,
+): Promise<Agent> => {
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const agentName = resolveFullAgentResourceName(name, config);
+  const body = rejectionReason?.trim()
+    ? { rejectionReason: rejectionReason.trim() }
+    : {};
+  try {
+    await gapiRequest(
+      `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}:rejectAgent`,
+      "POST",
+      config.projectId,
+      undefined,
+      body,
+    );
+    return getAgent(agentName, config);
+  } catch (err: unknown) {
+    console.warn("rejectAgent RPC returned error, falling back to withdrawAgent:", err);
+    return withdrawAgent(agentName, config);
+  }
 };
 
 /**

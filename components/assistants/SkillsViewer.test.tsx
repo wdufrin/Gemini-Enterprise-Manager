@@ -18,7 +18,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import SkillsViewer from './SkillsViewer';
-import { Agent, Config, UserProfile } from '../../types';
+import { Agent, AppEngine, Config, UserProfile } from '../../types';
 import * as api from '../../services/apiService';
 import { ToastProvider } from '../../context/ToastContext';
 
@@ -26,6 +26,11 @@ vi.mock('../../services/apiService', () => ({
   createSkillAgent: vi.fn(),
   updateAgent: vi.fn(),
   deleteSkillAgent: vi.fn(),
+  ensureSkillSharingOnEngine: vi.fn(),
+  suspendAgent: vi.fn(),
+  rejectAgent: vi.fn(),
+  enableAgent: vi.fn(),
+  disableAgent: vi.fn(),
 }));
 
 const mockConfig: Config = {
@@ -65,6 +70,13 @@ const mockAgents: Agent[] = [
       instruction: '# SQL Styling\nAlways format keywords in uppercase.',
     },
   },
+  {
+    name: 'projects/123/locations/global/collections/default_collection/engines/engine/assistants/assistant/agents/normal-a2a-agent',
+    displayName: 'Employee Skill Assessment Bot',
+    description: 'Standard A2A agent whose title contains the word skill.',
+    state: 'ENABLED',
+    agentType: 'A2A',
+  },
 ];
 
 describe('SkillsViewer Component', () => {
@@ -76,7 +88,7 @@ describe('SkillsViewer Component', () => {
     return render(<ToastProvider>{ui}</ToastProvider>);
   };
 
-  it('renders skills list and correctly classifies organizational vs user-created skills', () => {
+  it('renders skills list, classifies organizational vs user-created skills, and excludes non-skill agents with "skill" in displayName', () => {
     const onRefreshSkills = vi.fn();
     renderWithToast(
       <SkillsViewer
@@ -89,12 +101,14 @@ describe('SkillsViewer Component', () => {
 
     expect(screen.getByText('Corporate Financial Forecaster')).toBeInTheDocument();
     expect(screen.getByText('Personal SQL Optimizer')).toBeInTheDocument();
+    // Ensure false-positive non-skill agent is excluded
+    expect(screen.queryByText('Employee Skill Assessment Bot')).not.toBeInTheDocument();
     expect(screen.getByText('🏢 Organization')).toBeInTheDocument();
     expect(screen.getByText('👤 User-Created')).toBeInTheDocument();
     expect(screen.getByText('Agent Registry')).toBeInTheDocument();
   });
 
-  it('filters skills by scope tab', () => {
+  it('filters skills by scope/origin tab', () => {
     const onRefreshSkills = vi.fn();
     renderWithToast(
       <SkillsViewer
@@ -134,8 +148,63 @@ describe('SkillsViewer Component', () => {
     expect(screen.getByText(/Apply standard discount rates/i)).toBeInTheDocument();
   });
 
+  it('displays engine feature warning banner when skills or skill-sharing is FEATURE_STATE_OFF and allows one-click enablement', async () => {
+    vi.mocked(api.ensureSkillSharingOnEngine).mockResolvedValue(undefined);
+    const onRefreshSkills = vi.fn();
+    const disabledEngine: AppEngine = {
+      name: 'projects/123/locations/global/collections/default_collection/engines/test-engine-id',
+      displayName: 'Test Engine',
+      solutionType: 'SOLUTION_TYPE_CHAT',
+      features: {
+        skills: 'FEATURE_STATE_OFF',
+        'skill-sharing': 'FEATURE_STATE_OFF',
+      },
+    };
+
+    renderWithToast(
+      <SkillsViewer
+        agents={mockAgents}
+        config={mockConfig}
+        engine={disabledEngine}
+        userProfile={mockUserProfile}
+        onRefreshSkills={onRefreshSkills}
+      />
+    );
+
+    expect(screen.getByTestId('skills-engine-feature-warning')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Enable Skill Features/i }));
+
+    await waitFor(() => {
+      expect(api.ensureSkillSharingOnEngine).toHaveBeenCalledWith(mockConfig);
+      expect(onRefreshSkills).toHaveBeenCalled();
+    });
+  });
+
+  it('opens Export Skills modal and switches between CSV and SKILL.md formats', () => {
+    const onRefreshSkills = vi.fn();
+    renderWithToast(
+      <SkillsViewer
+        agents={mockAgents}
+        config={mockConfig}
+        userProfile={mockUserProfile}
+        onRefreshSkills={onRefreshSkills}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Export Skills/i }));
+    expect(screen.getByText('Export Assistant Skills')).toBeInTheDocument();
+
+    const preview = screen.getByTestId('skills-export-preview');
+    expect(preview.textContent).toContain('skill_id,display_name,description');
+    expect(preview.textContent).toContain('Corporate Financial Forecaster');
+
+    fireEvent.click(screen.getByRole('button', { name: /SKILL\.md Bundle/i }));
+    expect(preview.textContent).toContain('name: org-skill-1');
+    expect(preview.textContent).toContain('# GAAP Financial Guidelines');
+  });
+
   it('opens Add Skill modal and submits a new skill agent', async () => {
-    vi.mocked(api.createSkillAgent).mockResolvedValue({} as any);
+    vi.mocked(api.createSkillAgent).mockResolvedValue({} as Agent);
     const onRefreshSkills = vi.fn();
 
     renderWithToast(

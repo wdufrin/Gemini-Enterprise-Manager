@@ -20,6 +20,11 @@ import * as api from '../../services/apiService';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import {
+  classifySkillAgent,
+  normalizeAppSkillForExport,
+} from '../../utils/skillExportUtils';
+import ExportSkillsModal from './ExportSkillsModal';
 
 interface SkillDetailModalProps {
   skill: Agent | null;
@@ -41,19 +46,22 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   const [activeTab, setActiveTab] = useState<'instructions' | 'config' | 'raw'>('instructions');
   const [copied, setCopied] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
 
   useModalA11y({
     isOpen,
     onClose,
     containerRef,
-    preventClose: isUpdating,
+    preventClose: isUpdating || isExportOpen,
   });
 
   if (!isOpen || !skill) return null;
 
   const skillDef = skill.skillAgentDefinition || {};
-  const isOrg = skill.state === 'ENABLED';
-  const owner = skillDef.owner || 'System / Default';
+  const classification = classifySkillAgent(skill);
+  const isOrgWide = classification.sharingScope === 'ORG_WIDE';
+  const owner = classification.ownerPrincipal || 'System / Default';
+  const normalizedState = (skill.state || 'PRIVATE').toUpperCase();
 
   const handleCopyJson = () => {
     navigator.clipboard.writeText(JSON.stringify(skill, null, 2));
@@ -64,7 +72,7 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   const handleToggleScope = async () => {
     setIsUpdating(true);
     try {
-      if (skill.state === 'ENABLED' && (skill.sharingConfig?.scope === 'ALL_USERS' || !skill.sharingConfig)) {
+      if (isOrgWide) {
         await api.demoteSkillToPersonal(skill, config);
       } else {
         await api.promoteSkillToOrg(skill, config);
@@ -81,8 +89,8 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   const handleToggleActiveState = async () => {
     setIsUpdating(true);
     try {
-      const isDisabled = skill.state === 'DISABLED';
-      if (isDisabled) {
+      const isInactive = normalizedState === 'DISABLED' || normalizedState === 'SUSPENDED';
+      if (isInactive) {
         if (typeof api.enableAgent === 'function') {
           await api.enableAgent(skill.name, config);
         } else {
@@ -104,6 +112,54 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
     }
   };
 
+  const handleSuspendSkill = async () => {
+    setIsUpdating(true);
+    try {
+      if (typeof api.suspendAgent === 'function') {
+        await api.suspendAgent(skill.name, config, 'Suspended by Administrator');
+      } else {
+        await api.updateAgent(skill, { state: 'SUSPENDED' }, config);
+      }
+      onSkillUpdated();
+    } catch (err) {
+      console.error('Failed to suspend skill:', err);
+      toast.error('Failed to suspend skill: ' + toErrorMessage(err));
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleRejectToPrivate = async () => {
+    setIsUpdating(true);
+    try {
+      if (typeof api.rejectAgent === 'function') {
+        await api.rejectAgent(skill.name, config, 'Returned to private by Administrator');
+      } else if (typeof api.withdrawAgent === 'function') {
+        await api.withdrawAgent(skill.name, config);
+      }
+      onSkillUpdated();
+    } catch (err) {
+      console.error('Failed to reject skill to private:', err);
+      toast.error('Failed to return skill to private: ' + toErrorMessage(err));
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const getStateBadgeClass = (stateStr: string): string => {
+    switch (stateStr) {
+      case 'ENABLED':
+        return 'bg-green-900/60 text-green-300 border-green-700';
+      case 'DISABLED':
+        return 'bg-red-900/60 text-red-300 border-red-700';
+      case 'SUSPENDED':
+        return 'bg-amber-900/60 text-amber-300 border-amber-700';
+      case 'PRIVATE':
+      default:
+        return 'bg-purple-900/50 text-purple-300 border-purple-700/80';
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 overflow-y-auto bg-black/75 flex items-center justify-center p-4"
@@ -111,7 +167,7 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
       aria-modal="true"
       aria-labelledby="skill-detail-title"
       onClick={() => {
-        if (!isUpdating) onClose();
+        if (!isUpdating && !isExportOpen) onClose();
       }}
     >
       <div
@@ -121,50 +177,62 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
         className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-fade-in-up"
       >
         {/* Modal Header */}
-        <div className="p-5 border-b border-gray-700 flex items-start justify-between">
-          <div className="flex items-start gap-3">
+        <div className="p-5 border-b border-gray-700 flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
             <div className="p-2.5 bg-blue-900/40 text-blue-400 border border-blue-700/50 rounded-lg shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 id="skill-detail-title" className="text-lg font-bold text-gray-100">{skill.displayName}</h2>
-                {isOrg ? (
-                  <span className="px-2 py-0.5 text-xs font-semibold bg-blue-900/60 text-blue-300 rounded border border-blue-700 flex items-center gap-1">
-                    🏢 Organization-wide
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 text-xs font-semibold bg-purple-900/60 text-purple-300 rounded border border-purple-700 flex items-center gap-1">
-                    👤 User-Created (Personal)
-                  </span>
-                )}
+                <h2 id="skill-detail-title" className="text-lg font-bold text-gray-100 break-words">{skill.displayName}</h2>
                 <span
-                  className={`px-2 py-0.5 text-xs font-semibold rounded border ${
-                    skill.state === 'ENABLED'
-                      ? 'bg-green-900/60 text-green-300 border-green-700'
-                      : skill.state === 'DISABLED'
-                      ? 'bg-red-900/60 text-red-300 border-red-700'
-                      : 'bg-yellow-900/60 text-yellow-300 border-yellow-700'
+                  className={`px-2 py-0.5 text-xs font-semibold rounded border flex items-center gap-1 ${
+                    classification.origin === 'GOOGLE_1P'
+                      ? 'bg-emerald-900/60 text-emerald-300 border-emerald-700'
+                      : classification.origin === 'USER_CREATED'
+                      ? 'bg-purple-900/60 text-purple-300 border-purple-700'
+                      : 'bg-blue-900/60 text-blue-300 border-blue-700'
                   }`}
                 >
-                  {skill.state || 'Private'}
+                  {classification.originLabel}
+                </span>
+                {normalizedState !== 'PRIVATE' && (
+                  <span className="px-2 py-0.5 text-[11px] font-medium bg-gray-900/80 text-gray-300 rounded border border-gray-700">
+                    {classification.sharingLabel}
+                  </span>
+                )}
+                <span className={`px-2 py-0.5 text-xs font-semibold rounded border ${getStateBadgeClass(normalizedState)}`}>
+                  {normalizedState}
                 </span>
               </div>
-              <p className="text-xs text-gray-400 mt-1 font-mono">{skill.name}</p>
+              <p className="text-xs text-gray-400 mt-1 font-mono break-all">{skill.name}</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close dialog"
-            className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsExportOpen(true)}
+              className="px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 border border-gray-600 whitespace-nowrap"
+              title="Export this skill to SKILL.md, JSON, or CSV"
+            >
+              <svg className="w-3.5 h-3.5 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Export
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close dialog"
+              className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded-lg transition-colors shrink-0"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Tab Selection */}
@@ -213,13 +281,30 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
                   {skillDef.instruction ? `${skillDef.instruction.length} characters` : 'No inline prompt'}
                 </span>
               </div>
-              <div className="p-4 bg-gray-900 border border-gray-700 rounded-lg text-xs font-mono text-gray-200 whitespace-pre-wrap leading-relaxed max-h-[350px] overflow-y-auto">
-                {skillDef.instruction || (
-                  <span className="text-gray-500 italic">
-                    This skill utilizes an external registry package, Cloud Storage files, or first-party connector binaries.
-                  </span>
-                )}
-              </div>
+              {classification.isInstructionRedactedForAdmin ? (
+                <div
+                  data-testid="private-skill-redacted-notice"
+                  className="p-4 bg-purple-950/30 border border-purple-700/70 rounded-lg text-xs text-purple-200 space-y-1.5"
+                >
+                  <div className="font-bold flex items-center gap-1.5">
+                    <span>🔒 Private User Skill — Instructions Not Shared</span>
+                  </div>
+                  <p className="text-purple-200/90 leading-relaxed">
+                    This skill is currently in the <strong>PRIVATE</strong> state (owned by{' '}
+                    <code className="font-mono text-purple-100">{owner}</code>). In Gemini Enterprise, private
+                    user-created skill instructions (<code className="font-mono">SKILL.md</code>) are only exposed to
+                    administrators after the owner shares the skill with the organization or submits it for review.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-4 bg-gray-900 border border-gray-700 rounded-lg text-xs font-mono text-gray-200 whitespace-pre-wrap leading-relaxed max-h-[350px] overflow-y-auto">
+                  {skillDef.instruction || (
+                    <span className="text-gray-500 italic">
+                      This skill utilizes an external registry package, Cloud Storage files, or first-party connector binaries.
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -231,8 +316,10 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
                   <span className="text-gray-200 font-mono break-all">{owner}</span>
                 </div>
                 <div className="p-3.5 bg-gray-900/60 border border-gray-700 rounded-lg space-y-1.5">
-                  <span className="text-gray-500 font-semibold block">Current State</span>
-                  <span className="text-gray-200 font-semibold">{skill.state || 'PRIVATE'}</span>
+                  <span className="text-gray-500 font-semibold block">Current State & Sharing Scope</span>
+                  <span className="text-gray-200 font-semibold">
+                    {normalizedState} ({classification.sharingLabel})
+                  </span>
                 </div>
               </div>
 
@@ -313,30 +400,52 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
         </div>
 
         {/* Modal Footer with Actions */}
-        <div className="p-4 border-t border-gray-700 bg-gray-900/50 flex items-center justify-between gap-3 rounded-b-xl">
-          <div className="flex items-center gap-2">
+        <div className="p-4 border-t border-gray-700 bg-gray-900/50 flex items-center justify-between gap-3 flex-wrap rounded-b-xl">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleToggleScope}
               disabled={isUpdating}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${
-                isOrg
+                isOrgWide
                   ? 'bg-purple-900/40 text-purple-300 border-purple-700 hover:bg-purple-900/60'
                   : 'bg-blue-900/40 text-blue-300 border-blue-700 hover:bg-blue-900/60'
               }`}
             >
-              {isOrg ? '🔄 Convert to User-Created (Private)' : '🚀 Promote to Organization-wide'}
+              {isOrgWide ? '🔄 Restrict to Personal Scope' : '🚀 Promote to Organization-wide'}
             </button>
-            <button
-              onClick={handleToggleActiveState}
-              disabled={isUpdating}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                skill.state === 'DISABLED'
-                  ? 'bg-green-900/40 text-green-300 border-green-700 hover:bg-green-900/60'
-                  : 'bg-yellow-900/40 text-yellow-300 border-yellow-700 hover:bg-yellow-900/60'
-              }`}
-            >
-              {skill.state === 'DISABLED' ? 'Enable Skill' : 'Disable Skill'}
-            </button>
+            {normalizedState !== 'PRIVATE' && (
+              <button
+                onClick={handleToggleActiveState}
+                disabled={isUpdating}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                  normalizedState === 'DISABLED' || normalizedState === 'SUSPENDED'
+                    ? 'bg-green-900/40 text-green-300 border-green-700 hover:bg-green-900/60'
+                    : 'bg-yellow-900/40 text-yellow-300 border-yellow-700 hover:bg-yellow-900/60'
+                }`}
+              >
+                {normalizedState === 'DISABLED' || normalizedState === 'SUSPENDED' ? 'Enable Skill' : 'Disable Skill'}
+              </button>
+            )}
+            {normalizedState === 'ENABLED' && (
+              <button
+                onClick={handleSuspendSkill}
+                disabled={isUpdating}
+                className="px-3 py-1.5 text-xs font-medium rounded-lg border bg-amber-900/40 text-amber-300 border-amber-700 hover:bg-amber-900/60 transition-colors"
+                title="Temporarily suspend this shared skill (:suspendAgent)"
+              >
+                ⏸️ Suspend Skill
+              </button>
+            )}
+            {(normalizedState === 'DISABLED' || normalizedState === 'SUSPENDED') && (
+              <button
+                onClick={handleRejectToPrivate}
+                disabled={isUpdating}
+                className="px-3 py-1.5 text-xs font-medium rounded-lg border bg-red-900/40 text-red-300 border-red-700 hover:bg-red-900/60 transition-colors"
+                title="Reject shared skill and return it to PRIVATE state (:rejectAgent)"
+              >
+                ↩️ Reject to Private
+              </button>
+            )}
           </div>
 
           <button
@@ -347,6 +456,14 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
           </button>
         </div>
       </div>
+
+      <ExportSkillsModal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        records={[normalizeAppSkillForExport(skill)]}
+        title={`Export Skill: ${skill.displayName}`}
+        filenamePrefix={skill.name.split('/').pop() || 'skill'}
+      />
     </div>
   );
 };

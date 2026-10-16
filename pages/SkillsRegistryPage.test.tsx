@@ -73,6 +73,12 @@ const mockRegistrySkills: RegistrySkill[] = [
     displayName: 'Unknown Skill',
     state: 'STATE_WEIRD',
   },
+  {
+    name: 'projects/test-project-123/locations/global/skills/private-admin-mcp-jira-tools-a1b2c3',
+    displayName: 'Jira Custom MCP Skill',
+    description: 'Auto-generated skill from Custom MCP connector (byomcp_signature:abc123)',
+    state: 'STATE_ACTIVE',
+  },
 ];
 
 describe('SkillsRegistryPage Component', () => {
@@ -87,7 +93,7 @@ describe('SkillsRegistryPage Component', () => {
     return render(<ToastProvider>{ui}</ToastProvider>);
   };
 
-  it('renders enterprise skills registry with statistics and skill list', async () => {
+  it('renders enterprise skills registry with statistics, skill list, and Data Connector MCP badge for private-admin-mcp-* skills', async () => {
     renderWithToast(
       <SkillsRegistryPage
         projectNumber="123456789012"
@@ -102,6 +108,8 @@ describe('SkillsRegistryPage Component', () => {
       expect(screen.getByText('Enterprise Skills Registry')).toBeInTheDocument();
       expect(screen.getByText('Corporate Brand Voice')).toBeInTheDocument();
       expect(screen.getByText('gke-storage')).toBeInTheDocument();
+      expect(screen.getByText('Jira Custom MCP Skill')).toBeInTheDocument();
+      expect(screen.getByText('Data Connector MCP')).toBeInTheDocument();
       expect(screen.getAllByText('mycompany.com').length).toBeGreaterThan(0);
       expect(screen.getAllByText('cloud.google.com').length).toBeGreaterThan(0);
     });

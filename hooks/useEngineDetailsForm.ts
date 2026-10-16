@@ -22,6 +22,7 @@ import { FeatureDefinition, FEATURE_DEFS } from '../components/assistants/engine
 import {
     EnterpriseModel,
     STANDARD_ENTERPRISE_MODELS,
+    categorizeModel,
     formatModelDisplayName,
     getModelDefaultDescription
 } from '../components/assistants/engine-details/modelsCatalog';
@@ -106,12 +107,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             apiModels.forEach((m) => {
                 if (m.modelId) {
                     const isPreview = Boolean(m.isPreview || m.modelId.includes('preview') || m.modelId.includes('exp'));
-                    let category = 'Flash / Speed';
-                    if (m.modelId.includes('image') || m.modelId.includes('vision')) {
-                        category = 'Vision & Image';
-                    } else if (m.modelId.includes('pro') || m.modelId.includes('ultra') || m.modelId.includes('thinking')) {
-                        category = 'Pro / Reasoning';
-                    }
+                    const category = categorizeModel(m.modelId);
 
                     activeMap.set(m.modelId, {
                         id: m.modelId,
@@ -138,12 +134,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
 
         extraKeys.forEach(id => {
             const isPreview = id.includes('preview') || id.includes('exp');
-            let category = 'Flash / Speed';
-            if (id.includes('image') || id.includes('vision')) {
-                category = 'Vision & Image';
-            } else if (id.includes('pro') || id.includes('ultra') || id.includes('thinking')) {
-                category = 'Pro / Reasoning';
-            }
+            const category = categorizeModel(id);
 
             const isKnownLegacy = ['gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3.1-pro', 'gemini-2.5-flash-image', 'gemini-3-flash'].includes(id);
 

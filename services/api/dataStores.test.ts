@@ -9,6 +9,7 @@ import {
     setDataStoreIamPolicy,
     getDiscoveryProjectConfig,
     updateDataStoreAccessControlConfig,
+    refreshDataConnectorTools,
 } from './dataStores';
 import { Config } from '../../types';
 
@@ -287,6 +288,33 @@ describe('dataStores listDocuments pagination and ACL checks', () => {
             await expect(
                 updateDataStoreAccessControlConfig('test-project-123', true, 'global')
             ).rejects.toThrow(/discoveryengine\.projects\.update denied/i);
+        });
+
+        it('calls POST :refreshDataConnectorTools and propagates backend errors on invalid connector state', async () => {
+            const connectorName = 'projects/test-project-123/locations/global/collections/default_collection/dataConnector';
+            vi.mocked(core.gapiRequest).mockResolvedValueOnce({
+                name: connectorName,
+                dataSource: 'custom_mcp',
+            });
+
+            const res = await refreshDataConnectorTools(connectorName, mockConfig);
+            expect(res).toEqual({ name: connectorName, dataSource: 'custom_mcp' });
+            expect(core.gapiRequest).toHaveBeenCalledWith(
+                `https://discoveryengine.googleapis.com/v1alpha/${connectorName}:refreshDataConnectorTools`,
+                'POST',
+                'test-project-123',
+                undefined,
+                {},
+                undefined,
+                true
+            );
+
+            vi.mocked(core.gapiRequest).mockRejectedValueOnce(
+                new Error('400 FAILED_PRECONDITION: Connector does not support dynamic tool fetching')
+            );
+            await expect(
+                refreshDataConnectorTools(connectorName, mockConfig)
+            ).rejects.toThrow(/FAILED_PRECONDITION/i);
         });
     });
 });

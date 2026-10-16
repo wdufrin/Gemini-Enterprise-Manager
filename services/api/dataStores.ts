@@ -247,6 +247,23 @@ export const setUpDataConnector = async (
   return gapiRequest<Operation>(url, "POST", projectId, undefined, payload);
 };
 
+export const refreshDataConnectorTools = async (
+  name: string,
+  config: Config,
+) => {
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}:refreshDataConnectorTools`;
+  return gapiRequest<Operation | DataConnector>(
+    url,
+    "POST",
+    config.projectId,
+    undefined,
+    {},
+    undefined,
+    true,
+  );
+};
+
 export const listDocuments = async (
   dataStoreName: string,
   config: Config,

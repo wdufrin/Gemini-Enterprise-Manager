@@ -19,7 +19,9 @@ import { Config, Page, RegistrySkill, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import PublishSkillModal from '../components/registry/PublishSkillModal';
 import RegistrySkillDetailModal from '../components/registry/RegistrySkillDetailModal';
+import ExportSkillsModal from '../components/assistants/ExportSkillsModal';
 import CurlInfoModal from '../components/CurlInfoModal';
+import { normalizeRegistrySkillForExport } from '../utils/skillExportUtils';
 
 interface SkillsRegistryPageProps {
   projectNumber: string;
@@ -46,6 +48,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   
   const [isPublishModalOpen, setIsPublishModalOpen] = useState<boolean>(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [inspectingSkill, setInspectingSkill] = useState<RegistrySkill | null>(null);
 
   const currentConfig: Config = useMemo(() => ({
@@ -115,6 +118,11 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
     });
   }, [skills, selectedPublisher, selectedStatus, searchQuery]);
 
+  const exportRecords = useMemo(
+    () => filteredSkills.map((s) => normalizeRegistrySkillForExport(s)),
+    [filteredSkills]
+  );
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header Banner */}
@@ -172,6 +180,18 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
               </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              disabled={filteredSkills.length === 0}
+              className="px-3.5 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 text-xs font-semibold rounded-lg flex items-center gap-1.5 border border-gray-600 transition-colors shrink-0"
+              title="Export filtered registry skills to CSV, JSON, JSONL, or SKILL.md"
+            >
+              <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              <span>Export Skills</span>
             </button>
             <button
               onClick={() => setIsPublishModalOpen(true)}
@@ -343,6 +363,10 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                   const skillId = skill.name.split('/').pop() || '';
                   const publisher = skill.publisher ? skill.publisher.split('/').pop() : 'Default';
                   const isGoogle = publisher?.includes('google');
+                  const isConnectorMcpSkill =
+                    skillId.startsWith('private-admin-mcp-') ||
+                    skillId.startsWith('private-byomcp-') ||
+                    Boolean(skill.description?.includes('byomcp_signature:'));
 
                   return (
                     <tr key={skill.name} className="hover:bg-gray-750/50 transition-colors">
@@ -350,6 +374,14 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="font-semibold text-gray-100 flex items-center gap-2">
                           <span>{skill.displayName}</span>
+                          {isConnectorMcpSkill && (
+                            <span
+                              className="px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-900/40 text-cyan-300 border border-cyan-700/70 rounded"
+                              title="Auto-synced from a Custom MCP Data Connector"
+                            >
+                              Data Connector MCP
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-blue-400 font-mono mt-0.5">
                           {skill.skillId || `/${skillId}`}
@@ -425,6 +457,15 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
         onClose={() => setIsPublishModalOpen(false)}
         config={currentConfig}
         onSkillPublished={fetchSkills}
+      />
+
+      {/* Export Skills Modal */}
+      <ExportSkillsModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        records={exportRecords}
+        title="Export Enterprise Skills Registry"
+        filenamePrefix={`ge-skills-registry-${selectedLocation}`}
       />
 
       {/* Detail Inspector Modal */}

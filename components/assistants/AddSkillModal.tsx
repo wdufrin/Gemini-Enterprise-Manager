@@ -112,13 +112,15 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
 
     try {
       const state = scope === 'ORGANIZATIONAL' ? 'ENABLED' : 'PRIVATE';
-      const ownerPrincipal = userProfile?.email
-        ? `principal://iam.googleapis.com/users/${userProfile.email}`
-        : undefined;
+      const ownerPrincipal =
+        scope === 'USER_CREATED' && userProfile?.email
+          ? `principal://iam.googleapis.com/users/${userProfile.email}`
+          : undefined;
 
-      const skillAgentDefinition: any = {
-        owner: ownerPrincipal,
-      };
+      const skillAgentDefinition: any = {};
+      if (ownerPrincipal) {
+        skillAgentDefinition.owner = ownerPrincipal;
+      }
 
       if (activeTab === 'custom') {
         skillAgentDefinition.instruction = instruction;

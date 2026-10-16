@@ -110,7 +110,7 @@ Respond ONLY with a valid JSON object wrapped inside a \`\`\`json markdown block
   ]
 }`;
 
-    const requestBody = {
+    const baseRequestBody = {
       contents: [
         {
           role: 'user',
@@ -122,18 +122,19 @@ Respond ONLY with a valid JSON object wrapped inside a \`\`\`json markdown block
           googleSearch: {},
         },
       ],
-      generationConfig: {
-        temperature: 0.1,
-      },
     };
 
-    // Candidate Gemini models (gemini-2.5-flash as default, falling back to gemini-2.5-pro)
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+    // Candidate Gemini models (gemini-2.5-flash as default, falling back to gemini-3.8-flash and gemini-2.5-pro)
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-2.5-pro'];
     let response: GenerateContentResponse | null = null;
     let lastError: unknown = null;
 
     for (const model of modelsToTry) {
       try {
+        // Gemini 3.6+ Flash models ignore custom temperature and use fixed default sampling
+        const requestBody = model.startsWith('gemini-3.')
+          ? baseRequestBody
+          : { ...baseRequestBody, generationConfig: { temperature: 0.1 } };
         const url = `https://${validLoc}-aiplatform.googleapis.com/v1beta1/projects/${config.projectId}/locations/${validLoc}/publishers/google/models/${model}:generateContent`;
         response = await gapiRequest<GenerateContentResponse>(
           url,

@@ -15,16 +15,30 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Agent, Config, UserProfile } from '../../types';
+import { Agent, AppEngine, Config, UserProfile } from '../../types';
 import * as api from '../../services/apiService';
 import AddSkillModal from './AddSkillModal';
 import SkillDetailModal from './SkillDetailModal';
+import ExportSkillsModal from './ExportSkillsModal';
 import ConfirmationModal from '../ConfirmationModal';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
+import {
+  classifySkillAgent,
+  isSkillAgentResource,
+  normalizeAppSkillForExport,
+} from '../../utils/skillExportUtils';
 
 const getSourceBadge = (skill: Agent) => {
   const def = skill.skillAgentDefinition;
+  const rec = skill as unknown as Record<string, unknown>;
+  if (rec.geminiEnterpriseSkillConfig) {
+    return (
+      <span className="px-2 py-0.5 text-[11px] font-semibold bg-emerald-900/40 text-emerald-300 rounded border border-emerald-700 font-mono">
+        Google (1P)
+      </span>
+    );
+  }
   if (def?.agentRegistrySkill) {
     return (
       <span className="px-2 py-0.5 text-[11px] font-semibold bg-blue-900/40 text-blue-300 rounded border border-blue-700 font-mono">
@@ -61,10 +75,27 @@ interface SkillTableRowProps {
 
 const SkillTableRow = React.memo<SkillTableRowProps>(({ skill, onInspect, onDelete }) => {
   const skillId = skill.name.split('/').pop() || '';
-  const isOrg = skill.state === 'ENABLED' || !skill.skillAgentDefinition?.owner;
-  const ownerEmail = skill.skillAgentDefinition?.owner
-    ? skill.skillAgentDefinition.owner.replace('principal://iam.googleapis.com/users/', '')
-    : null;
+  const classification = classifySkillAgent(skill);
+  const ownerEmail = classification.ownerPrincipal;
+  const normalizedState = (skill.state || 'PRIVATE').toUpperCase();
+
+  const statusBadgeStyle =
+    normalizedState === 'ENABLED'
+      ? 'bg-green-900/40 text-green-300 border-green-700'
+      : normalizedState === 'DISABLED'
+      ? 'bg-red-900/40 text-red-300 border-red-700'
+      : normalizedState === 'SUSPENDED'
+      ? 'bg-amber-900/40 text-amber-300 border-amber-700'
+      : 'bg-yellow-900/40 text-yellow-300 border-yellow-700';
+
+  const statusDotStyle =
+    normalizedState === 'ENABLED'
+      ? 'bg-green-400'
+      : normalizedState === 'DISABLED'
+      ? 'bg-red-400'
+      : normalizedState === 'SUSPENDED'
+      ? 'bg-amber-400'
+      : 'bg-yellow-400';
 
   return (
     <tr className="hover:bg-gray-750/50 transition-colors">
@@ -74,44 +105,42 @@ const SkillTableRow = React.memo<SkillTableRowProps>(({ skill, onInspect, onDele
         <div className="text-[11px] text-gray-500 font-mono mt-0.5">{skillId}</div>
       </td>
 
-      {/* Scope Badge */}
+      {/* Origin & Scope Badge */}
       <td className="px-6 py-4 whitespace-nowrap">
-        {isOrg ? (
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-900/40 text-blue-300 border border-blue-700/60">
-            <span>🏢 Organization</span>
+        <div className="flex flex-col items-start gap-1">
+          {classification.origin === 'GOOGLE_1P' ? (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-900/40 text-emerald-300 border border-emerald-700/60">
+              <span>{classification.originLabel}</span>
+            </div>
+          ) : classification.origin === 'USER_CREATED' ? (
+            <div
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-purple-900/40 text-purple-300 border border-purple-700/60"
+              title={ownerEmail || undefined}
+            >
+              <span>{classification.originLabel}</span>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-900/40 text-blue-300 border border-blue-700/60">
+              <span>{classification.originLabel}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+            <span className="px-1.5 py-0.5 rounded bg-gray-900/70 border border-gray-700 text-gray-300 font-medium">
+              {classification.sharingLabel}
+            </span>
+            {ownerEmail && (
+              <span className="truncate max-w-[150px] font-mono text-gray-300" title={ownerEmail}>
+                {ownerEmail}
+              </span>
+            )}
           </div>
-        ) : (
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-purple-900/40 text-purple-300 border border-purple-700/60" title={ownerEmail || undefined}>
-            <span>👤 User-Created</span>
-          </div>
-        )}
-        {ownerEmail && !isOrg && (
-          <div className="text-[10px] text-gray-400 mt-1 truncate max-w-[150px]" title={ownerEmail}>
-            {ownerEmail}
-          </div>
-        )}
+        </div>
       </td>
 
       {/* Status */}
       <td className="px-6 py-4 whitespace-nowrap">
-        <span
-          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${
-            skill.state === 'ENABLED'
-              ? 'bg-green-900/40 text-green-300 border-green-700'
-              : skill.state === 'DISABLED'
-              ? 'bg-red-900/40 text-red-300 border-red-700'
-              : 'bg-yellow-900/40 text-yellow-300 border-yellow-700'
-          }`}
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              skill.state === 'ENABLED'
-                ? 'bg-green-400'
-                : skill.state === 'DISABLED'
-                ? 'bg-red-400'
-                : 'bg-yellow-400'
-            }`}
-          />
+        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${statusBadgeStyle}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${statusDotStyle}`} />
           {skill.state || 'Private'}
         </span>
       </td>
@@ -163,6 +192,7 @@ SkillTableRow.displayName = 'SkillTableRow';
 interface SkillsViewerProps {
   agents: Agent[];
   config: Config;
+  engine?: AppEngine | null;
   userProfile?: UserProfile | null;
   onRefreshSkills: () => void;
 }
@@ -170,6 +200,7 @@ interface SkillsViewerProps {
 export const SkillsViewer: React.FC<SkillsViewerProps> = ({
   agents,
   config,
+  engine,
   userProfile,
   onRefreshSkills,
 }) => {
@@ -180,31 +211,36 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
   const [skillToDelete, setSkillToDelete] = useState<Agent | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isEnablingEngineFeatures, setIsEnablingEngineFeatures] = useState(false);
+  const [engineFeaturesEnabledOverride, setEngineFeaturesEnabledOverride] = useState(false);
 
-  // Classify skills vs standard agents (or treat all skills + subagents cleanly)
+  // Filter strictly for skill resources (no false positives from displayName containing 'skill')
   const skillsList = useMemo(() => {
-    return agents.filter((agent) => {
-      // An agent is a skill if it has skillAgentDefinition OR agentType === 'SKILL' OR starts with skill-
-      return (
-        agent.skillAgentDefinition !== undefined ||
-        agent.agentType === 'SKILL' ||
-        agent.name.includes('/skills/') ||
-        agent.displayName.toLowerCase().includes('skill')
-      );
-    });
+    return agents.filter((agent) => isSkillAgentResource(agent) || agent.name.includes('/skills/'));
   }, [agents]);
 
   // Statistics
   const totalCount = skillsList.length;
-  const orgCount = skillsList.filter((s) => s.state === 'ENABLED' || !s.skillAgentDefinition?.owner).length;
-  const userCount = totalCount - orgCount;
+  const orgWideCount = useMemo(
+    () => skillsList.filter((s) => classifySkillAgent(s).sharingScope === 'ORG_WIDE').length,
+    [skillsList]
+  );
+  const userCreatedCount = useMemo(
+    () => skillsList.filter((s) => classifySkillAgent(s).origin === 'USER_CREATED').length,
+    [skillsList]
+  );
 
-  // Filtered skills based on scope and search
+  // Filtered skills based on scope/origin tab and search query
   const filteredSkills = useMemo(() => {
     return skillsList.filter((skill) => {
-      const isOrg = skill.state === 'ENABLED' || !skill.skillAgentDefinition?.owner;
-      if (scopeFilter === 'ORGANIZATIONAL' && !isOrg) return false;
-      if (scopeFilter === 'USER_CREATED' && isOrg) return false;
+      const classification = classifySkillAgent(skill);
+      if (scopeFilter === 'ORGANIZATIONAL' && classification.sharingScope !== 'ORG_WIDE') {
+        return false;
+      }
+      if (scopeFilter === 'USER_CREATED' && classification.origin !== 'USER_CREATED') {
+        return false;
+      }
 
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
@@ -212,9 +248,47 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
       const desc = (skill.description || '').toLowerCase();
       const id = (skill.name || '').toLowerCase();
       const inst = (skill.skillAgentDefinition?.instruction || '').toLowerCase();
-      return name.includes(q) || desc.includes(q) || id.includes(q) || inst.includes(q);
+      const owner = (classification.ownerPrincipal || '').toLowerCase();
+      return (
+        name.includes(q) ||
+        desc.includes(q) ||
+        id.includes(q) ||
+        inst.includes(q) ||
+        owner.includes(q)
+      );
     });
   }, [skillsList, scopeFilter, searchQuery]);
+
+  const exportRecords = useMemo(
+    () => filteredSkills.map((s) => normalizeAppSkillForExport(s)),
+    [filteredSkills]
+  );
+
+  const missingEngineFeatures = useMemo(() => {
+    if (!engine?.features || engineFeaturesEnabledOverride) return [];
+    const missing: string[] = [];
+    if (engine.features['skills'] === 'FEATURE_STATE_OFF') {
+      missing.push('skills');
+    }
+    if (engine.features['skill-sharing'] === 'FEATURE_STATE_OFF') {
+      missing.push('skill-sharing');
+    }
+    return missing;
+  }, [engine, engineFeaturesEnabledOverride]);
+
+  const handleEnableEngineSkillFeatures = async () => {
+    setIsEnablingEngineFeatures(true);
+    try {
+      await api.ensureSkillSharingOnEngine(config);
+      setEngineFeaturesEnabledOverride(true);
+      toast.success('Enabled skills and skill-sharing features on the Gemini Enterprise engine.');
+      onRefreshSkills();
+    } catch (err) {
+      toast.error('Failed to enable engine skill features: ' + toErrorMessage(err));
+    } finally {
+      setIsEnablingEngineFeatures(false);
+    }
+  };
 
   const handleDeleteConfirm = async () => {
     if (!skillToDelete) return;
@@ -241,6 +315,33 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {missingEngineFeatures.length > 0 && (
+        <div
+          role="alert"
+          data-testid="skills-engine-feature-warning"
+          className="p-4 bg-amber-950/40 border border-amber-700/80 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        >
+          <div className="text-xs text-amber-200 space-y-1">
+            <div className="font-bold text-amber-100">
+              ⚠️ Engine Skill Features Disabled ({missingEngineFeatures.join(', ')})
+            </div>
+            <p className="text-amber-200/90">
+              This Gemini Enterprise app currently has{' '}
+              <code className="font-mono text-amber-100">{missingEngineFeatures.join(' & ')}</code>{' '}
+              turned off. Users will not be able to invoke or share skills until these engine features are enabled.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleEnableEngineSkillFeatures}
+            disabled={isEnablingEngineFeatures}
+            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shrink-0 transition-colors shadow"
+          >
+            {isEnablingEngineFeatures ? 'Enabling...' : 'Enable Skill Features'}
+          </button>
+        </div>
+      )}
+
       {/* Overview & Information Card */}
       <div className="bg-gray-800 rounded-lg p-5 border border-gray-700 shadow-md">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -274,6 +375,18 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
               </svg>
             </button>
             <button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              disabled={filteredSkills.length === 0}
+              className="px-3.5 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 text-xs font-semibold rounded-lg flex items-center gap-1.5 border border-gray-600 transition-colors"
+              title="Export filtered skills to CSV, JSON, JSONL, or SKILL.md"
+            >
+              <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              <span>Export Skills</span>
+            </button>
+            <button
               onClick={() => setIsAddModalOpen(true)}
               className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow transition-colors"
             >
@@ -295,13 +408,13 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
             <span className="text-xs text-blue-400 font-medium flex items-center gap-1.5">
               🏢 Organization-wide
             </span>
-            <span className="text-base font-bold text-blue-300">{orgCount}</span>
+            <span className="text-base font-bold text-blue-300">{orgWideCount}</span>
           </div>
           <div className="p-3 bg-gray-900/60 rounded-lg border border-gray-700/50 flex items-center justify-between">
             <span className="text-xs text-purple-400 font-medium flex items-center gap-1.5">
-              👤 User-Created (Personal)
+              👤 User-Created (Employee)
             </span>
-            <span className="text-base font-bold text-purple-300">{userCount}</span>
+            <span className="text-base font-bold text-purple-300">{userCreatedCount}</span>
           </div>
         </div>
       </div>
@@ -328,7 +441,7 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
                 : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            <span>🏢 Org-wide ({orgCount})</span>
+            <span>🏢 Org-wide ({orgWideCount})</span>
           </button>
           <button
             onClick={() => setScopeFilter('USER_CREATED')}
@@ -338,7 +451,7 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
                 : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            <span>👤 User-Created ({userCount})</span>
+            <span>👤 User-Created ({userCreatedCount})</span>
           </button>
         </div>
 
@@ -348,7 +461,7 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search skills by name, description..."
+            placeholder="Search skills by name, owner, description..."
             className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
           />
           <svg
@@ -394,7 +507,7 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
               <thead className="bg-gray-900/60 text-gray-400 text-[11px] uppercase tracking-wider font-semibold">
                 <tr>
                   <th scope="col" className="px-6 py-3.5">Skill Name & ID</th>
-                  <th scope="col" className="px-6 py-3.5">Scope</th>
+                  <th scope="col" className="px-6 py-3.5">Origin & Scope</th>
                   <th scope="col" className="px-6 py-3.5">Status</th>
                   <th scope="col" className="px-6 py-3.5">Source Type</th>
                   <th scope="col" className="px-6 py-3.5">Description</th>
@@ -426,6 +539,15 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
           onSkillCreated={onRefreshSkills}
         />
       )}
+
+      {/* Export Skills Modal */}
+      <ExportSkillsModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        records={exportRecords}
+        title="Export Assistant Skills"
+        filenamePrefix={`ge-assistant-skills-${config.appId || 'app'}`}
+      />
 
       {/* Skill Detail Modal */}
       {selectedSkill && (

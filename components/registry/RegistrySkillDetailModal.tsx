@@ -19,9 +19,11 @@ import { Config, RegistrySkill, RegistrySkillRevision, AppEngine, Agent } from '
 import * as api from '../../services/apiService';
 import JSZip from 'jszip';
 import DestructiveConfirmModal from '../DestructiveConfirmModal';
+import ExportSkillsModal from '../assistants/ExportSkillsModal';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import { normalizeRegistrySkillForExport } from '../../utils/skillExportUtils';
 
 interface RegistrySkillDetailModalProps {
   skill: RegistrySkill | null;
@@ -49,6 +51,7 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
   const [deploySuccess, setDeploySuccess] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
 
   const [backgroundWarnings, setBackgroundWarnings] = useState<string[]>([]);
   const [revisionsError, setRevisionsError] = useState<string | null>(null);
@@ -57,7 +60,7 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
     isOpen: isOpen && !!skill,
     onClose,
     containerRef,
-    preventClose: isUpdating || isDeleteConfirmOpen,
+    preventClose: isUpdating || isDeleteConfirmOpen || isExportOpen,
   });
 
   useEffect(() => {
@@ -112,7 +115,7 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
     setDeploySuccess(false);
     try {
       const rawId = skill.name.split('/').pop() || 'skill';
-      const cleanId = rawId.replace(/^private-/, '');
+      const cleanId = rawId.replace(/^private-(?:admin-mcp-|byomcp-)?/, '');
       // Discovery Engine requires agentId to match ^[a-z0-9][a-z0-9-_]*$ (no dots or special characters)
       const sanitizedAgentId = cleanId
         .replace(/^(discoveryengine\.googleapis\.com|cloud\.google\.com)-?/, '')
@@ -209,7 +212,7 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
         // If the skill has no revisions at all, create an initial revision from its metadata
         if (!revs || revs.length === 0) {
           const rawId = skill.name.split('/').pop() || 'skill';
-          const cleanId = rawId.replace(/^private-/, '');
+          const cleanId = rawId.replace(/^private-(?:admin-mcp-|byomcp-)?/, '');
           const zip = new JSZip();
           zip.file('SKILL.md', `---
 name: ${cleanId}
@@ -345,11 +348,24 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`);
               <p className="text-[11px] text-gray-400 font-mono mt-0.5">{skill.name}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-200">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsExportOpen(true)}
+              className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 border border-gray-600"
+              title="Export this Registry Skill to SKILL.md, JSON, or CSV"
+            >
+              <svg className="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Export
+            </button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-200">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Tab Navigation */}
@@ -607,6 +623,14 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`);
           "Existing agent workflows referencing this specific skill revision may encounter errors."
         ]}
         isLoading={isUpdating}
+      />
+
+      <ExportSkillsModal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        records={[normalizeRegistrySkillForExport(skill)]}
+        title={`Export Registry Skill: ${skill.displayName}`}
+        filenamePrefix={skillId || 'registry-skill'}
       />
     </div>
   );
