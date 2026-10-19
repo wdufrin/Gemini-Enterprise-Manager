@@ -38,7 +38,7 @@ export const BYOMCPFooterActions: React.FC<BYOMCPFooterActionsProps> = ({
   onSave,
 }) => {
   return (
-    <div className="bg-gray-900/80 p-4 rounded-lg border border-gray-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+    <div className="sticky bottom-0 z-10 bg-gray-950/95 backdrop-blur-md p-4 rounded-lg border border-gray-700 shadow-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"

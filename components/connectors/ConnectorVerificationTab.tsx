@@ -253,35 +253,27 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({
         onActionsToggle={setActionsEnabled}
       />
 
-      {/* Diagnostics Section */}
-      <div className="mt-8 pt-6 border-t border-gray-700">
-        <h3 className="text-sm font-bold text-gray-300 mb-4 uppercase tracking-wider flex items-center">
-          <svg className="w-4 h-4 mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      {/* Compact Cloud Logging Link Bar */}
+      <div className="bg-gray-900/60 rounded-lg p-3 border border-gray-700/80 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs text-gray-300">
+          <svg className="w-4 h-4 text-yellow-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
-          Diagnostics & Troubleshooting
-        </h3>
-        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <h4 className="text-sm font-semibold text-white">Cloud Logging</h4>
-              <p className="text-xs text-gray-400 mt-1">
-                Check for authentication failures, permission denied errors, or internal connector sync issues.
-              </p>
-            </div>
-            <a
-              href={`https://console.cloud.google.com/logs/query;query=(resource.type%3D%22vertex_ai_search_connector%22%20AND%20resource.labels.connector_id%3D%22${resolvedConnectorId}%22)%20OR%20(jsonPayload.connectorRunPayload.dataConnector%3D%22${resolvedConnectorName}%22)%20AND%20severity%3E%3DERROR?project=${resolvedProject}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded transition-colors border border-gray-600 whitespace-nowrap shrink-0"
-            >
-              <svg className="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-              View Connector Errors
-            </a>
-          </div>
+          <span>
+            <strong className="text-white">Cloud Logging Explorer:</strong> Inspect raw authentication, permission, or sync errors in Google Cloud Console.
+          </span>
         </div>
+        <a
+          href={`https://console.cloud.google.com/logs/query;query=(resource.type%3D%22vertex_ai_search_connector%22%20AND%20resource.labels.connector_id%3D%22${resolvedConnectorId}%22)%20OR%20(jsonPayload.connectorRunPayload.dataConnector%3D%22${resolvedConnectorName}%22)%20AND%20severity%3E%3DERROR?project=${resolvedProject}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-xs font-medium rounded transition-colors border border-gray-600 whitespace-nowrap shrink-0"
+        >
+          <svg className="w-3.5 h-3.5 mr-1.5 shrink-0 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+          View Connector Errors
+        </a>
       </div>
     </div>
   );

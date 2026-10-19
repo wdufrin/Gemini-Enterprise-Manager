@@ -605,15 +605,19 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs font-semibold font-mono text-gray-200">{item.label}</span>
-                          {item.badge && (
+                          {item.automatedProbe ? (
+                            <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-purple-950/70 text-purple-200 border border-purple-700/70">
+                              {probeResult?.verificationSource === 'DIAGNOSTICS_SIGNALS'
+                                ? 'GCP API + Live Logs/LRO'
+                                : 'GCP API Probe'}
+                            </span>
+                          ) : item.badge ? (
                             <span
                               className={`px-1.5 py-0.2 rounded text-[10px] font-semibold border ${
                                 item.badge === 'Live KB Verified'
                                   ? 'bg-emerald-950 text-emerald-300 border-emerald-700 animate-pulse'
                                   : item.badge === 'Required'
                                   ? 'bg-blue-950 text-blue-300 border-blue-800'
-                                  : item.badge === 'Automated'
-                                  ? 'bg-purple-950 text-purple-300 border-purple-800'
                                   : item.badge === 'Recommended'
                                   ? 'bg-teal-950 text-teal-300 border-teal-800'
                                   : 'bg-gray-700 text-gray-300 border-gray-600'
@@ -621,19 +625,7 @@ export const DynamicConnectorVerification: React.FC<DynamicConnectorVerification
                             >
                               {item.badge}
                             </span>
-                          )}
-                          {/* Verification Track Badge: Automated GCP API vs Manual Vendor Portal */}
-                          {item.automatedProbe ? (
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-purple-950/60 text-purple-200 border border-purple-700/60">
-                              {probeResult?.verificationSource === 'DIAGNOSTICS_SIGNALS'
-                                ? 'GCP API + Live Logs/LRO'
-                                : 'GCP API Probe'}
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-gray-800 text-gray-300 border border-gray-700">
-                              Manual Vendor Portal
-                            </span>
-                          )}
+                          ) : null}
                           {item.isActionRequirement && (
                             <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold border bg-purple-950/90 text-purple-300 border-purple-800 flex items-center gap-1">
                               <svg className="w-2.5 h-2.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

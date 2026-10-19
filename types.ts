@@ -731,6 +731,16 @@ export interface ManagedSslCertificate {
     creationTimestamp: string;
 }
 
+export interface CitationRolePointers {
+  items?: string;
+  uri?: string;
+  title?: string;
+  snippet?: string;
+  id?: string;
+}
+
+export type CitationMappings = Record<string, CitationRolePointers>;
+
 export interface DataConnectorActionParams {
   mcp_server_description?: string;
   mcp_agent_instructions?: string;
@@ -744,6 +754,7 @@ export interface DataConnectorActionParams {
   client_secret?: string;
   mcp_server_source?: string;
   registry_mcp_server_name?: string;
+  citation_mappings?: CitationMappings;
   [key: string]: unknown;
 }
 

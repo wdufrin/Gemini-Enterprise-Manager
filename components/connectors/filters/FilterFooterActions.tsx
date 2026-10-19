@@ -32,7 +32,7 @@ export const FilterFooterActions: React.FC<FilterFooterActionsProps> = ({
   onSaveFilters,
 }) => {
   return (
-    <div className="pt-4 border-t border-gray-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+    <div className="sticky bottom-0 z-10 bg-gray-950/95 backdrop-blur-md p-4 rounded-lg border border-gray-700 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-3">
       <div className="text-xs text-gray-400 flex items-center gap-2">
         {hasUnsavedChanges ? (
           <span className="text-yellow-400 font-semibold flex items-center gap-1.5">

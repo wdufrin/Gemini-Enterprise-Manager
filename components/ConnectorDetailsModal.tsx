@@ -209,66 +209,93 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
           : 0;
       const failedOpsCount = Array.isArray(rawOps) ? rawOps.filter((op: Operation) => !!op.error).length : 0;
       const totalLogSignals = recentErrorLogsCount + failedOpsCount;
+      const citationRulesCount =
+        connectorState?.actionConfig?.actionParams?.citation_mappings &&
+        typeof connectorState.actionConfig.actionParams.citation_mappings === 'object'
+          ? Object.keys(connectorState.actionConfig.actionParams.citation_mappings).length
+          : 0;
+      const totalToolsCount = Array.isArray(connectorState?.dynamicTools)
+        ? connectorState.dynamicTools.length
+        : 0;
+      const enabledToolsCount = Array.isArray(connectorState?.dynamicTools)
+        ? connectorState.dynamicTools.filter((t) => t.enabled).length
+        : 0;
 
       return (
         <div>
-          {/* Tabs */}
-          <div className="flex flex-wrap border-b border-gray-700 mb-6" role="tablist" aria-label="Connector details sections">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'diagnostics'}
-              className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'diagnostics' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
-              onClick={() => setActiveTab('diagnostics')}
-            >
-              Diagnostics
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'verification'}
-              className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'verification' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
-              onClick={() => setActiveTab('verification')}
-            >
-              Validation Checklist
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'filters'}
-              className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors flex items-center gap-1.5 ${activeTab === 'filters' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
-              onClick={() => setActiveTab('filters')}
-            >
-              <span>Filters</span>
-              {totalFilters > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-900/80 text-blue-200 border border-blue-700">
-                  {totalFilters}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'config'}
-              className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'config' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
-              onClick={() => setActiveTab('config')}
-            >
-              {connectorState?.dataSource === 'custom_mcp' ? 'BYOMCP Settings & JSON' : 'Configuration'}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'logs'}
-              className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors flex items-center gap-1.5 ${activeTab === 'logs' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
-              onClick={() => setActiveTab('logs')}
-            >
-              <span>Logs &amp; Raw State</span>
-              {totalLogSignals > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-900/80 text-red-200 border border-red-700">
-                  {totalLogSignals}
-                </span>
-              )}
-            </button>
+          {/* Tabs & Global Actions */}
+          <div className="flex flex-wrap items-center justify-between border-b border-gray-700 mb-6 gap-2">
+            <div className="flex flex-wrap" role="tablist" aria-label="Connector details sections">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'diagnostics'}
+                className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'diagnostics' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
+                onClick={() => setActiveTab('diagnostics')}
+              >
+                Diagnostics
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'verification'}
+                className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'verification' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
+                onClick={() => setActiveTab('verification')}
+              >
+                Validation Checklist
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'filters'}
+                className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors flex items-center gap-1.5 ${activeTab === 'filters' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
+                onClick={() => setActiveTab('filters')}
+              >
+                <span>Filters</span>
+                {totalFilters > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-900/80 text-blue-200 border border-blue-700">
+                    {totalFilters}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'config'}
+                className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors ${activeTab === 'config' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
+                onClick={() => setActiveTab('config')}
+              >
+                {connectorState?.dataSource === 'custom_mcp' ? 'BYOMCP Settings & JSON' : 'Configuration'}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'logs'}
+                className={`px-4 py-2 text-sm font-medium focus:outline-none transition-colors flex items-center gap-1.5 ${activeTab === 'logs' ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}
+                onClick={() => setActiveTab('logs')}
+              >
+                <span>Logs &amp; Raw State</span>
+                {totalLogSignals > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-900/80 text-red-200 border border-red-700">
+                    {totalLogSignals}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {onCloneConnector && connectorState && getConnectorCloneEligibility(connectorState).canClone && (
+              <button
+                type="button"
+                onClick={() => onCloneConnector(connectorState)}
+                className="mb-1.5 px-2.5 py-1 bg-amber-600/90 hover:bg-amber-500 text-white text-xs font-semibold rounded transition-colors flex items-center gap-1.5 shadow-sm"
+                title="Clone this connector to another project or collection"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                </svg>
+                <span>Clone Connector</span>
+              </button>
+            )}
           </div>
 
           {activeTab === 'diagnostics' ? (
@@ -357,10 +384,21 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                 </div>
 
                 {connectorState?.dataSource === 'custom_mcp' && (
-                  <div className="mt-4 border-t border-gray-700/60 pt-4 flex flex-col gap-2">
+                  <div className="mt-3 bg-gray-950/50 border border-gray-800 rounded p-3 flex flex-col gap-2.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-xs text-gray-400 font-medium">
-                        BYOMCP Server Actions:
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="font-semibold text-purple-300">MCP Tools &amp; Citations:</span>
+                        <span className="px-2 py-0.5 rounded bg-gray-900 border border-gray-700 text-gray-200 font-mono text-[11px]">
+                          {enabledToolsCount}/{totalToolsCount} tools enabled
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-gray-900 border border-gray-700 text-gray-200 font-mono text-[11px]">
+                          {citationRulesCount} citation rule(s)
+                        </span>
+                        {connectorState.params?.instance_uri && (
+                          <span className="text-gray-400 font-mono text-[11px] truncate max-w-xs" title={String(connectorState.params.instance_uri)}>
+                            {String(connectorState.params.instance_uri)}
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button
@@ -404,36 +442,6 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                       <div className="text-xs text-red-400 bg-red-950/30 border border-red-900/50 p-2 rounded flex items-center gap-1.5 animate-fadeIn">
                         <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         Failed to refresh tools: {refreshError}
-                      </div>
-                    )}
-
-                    {connectorState?.dynamicTools && connectorState.dynamicTools.length > 0 && (
-                      <div className="mt-2 bg-gray-950/40 border border-gray-800 rounded p-2.5 space-y-2">
-                        <div className="text-[11px] text-gray-400 font-bold uppercase tracking-wider flex items-center justify-between">
-                          <span>Configured Tools ({connectorState.dynamicTools.length})</span>
-                          <span className="text-gray-500 font-normal normal-case font-mono text-[10px]">
-                            Source: {connectorState.params?.instance_uri || 'Unknown'}
-                          </span>
-                        </div>
-                        <ul className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
-                          {connectorState.dynamicTools.map((tool: { name?: string; displayName?: string; enabled?: boolean; description?: string }, idx: number) => (
-                            <li key={idx} className="bg-gray-900/60 p-2 rounded border border-gray-800/80 flex flex-col gap-0.5">
-                              <div className="flex items-center justify-between">
-                                <span className="font-mono text-xs font-semibold text-blue-400">
-                                  {tool.displayName || tool.name}
-                                </span>
-                                <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${tool.enabled ? 'bg-green-950 text-green-400 border border-green-900' : 'bg-gray-800 text-gray-500'}`}>
-                                  {tool.enabled ? 'Enabled' : 'Disabled'}
-                                </span>
-                              </div>
-                              {tool.description && (
-                                <p className="text-[11px] text-gray-400 line-clamp-2" title={tool.description}>
-                                  {tool.description}
-                                </p>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
                       </div>
                     )}
                   </div>
@@ -483,100 +491,6 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                     </tbody>
                   </table>
                 </div>
-              </div>
-
-              {/* Raw Data Accordions / Sections */}
-              <div className="space-y-2">
-                <details className="group">
-                  <summary className="flex justify-between items-center font-medium cursor-pointer list-none text-sm text-gray-400 hover:text-white bg-gray-900/30 p-2 rounded">
-                    <span>Raw Data Connector State</span>
-                    <span className="transition group-open:rotate-180">
-                      <svg fill="none" height="24" shapeRendering="geometricPrecision" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24" width="24"><path d="M6 9l6 6 6-6"></path></svg>
-                    </span>
-                  </summary>
-                  <div className="text-gray-300 mt-2 group-open:animate-fadeIn">
-                    <pre className="text-xs bg-gray-950 p-2 rounded overflow-x-auto border border-gray-800"
-                      dangerouslySetInnerHTML={{
-                        __html: escapeHtml(JSON.stringify(connectorState, null, 2) || '{}')
-                          .replace(/(&quot;state&quot;: &quot;FAILED&quot;)/g, '<span class="text-red-500 font-bold">$1</span>')
-                          .replace(/(&quot;error&quot;:\s*\{[^}]+\})/g, '<span class="text-red-400">$1</span>')
-                      }}
-                    />
-                  </div>
-                </details>
-
-                {rawOps && rawOps.length > 0 && (
-                  <details className="group" open={rawOps.some((op: Operation) => !!op.error)}>
-                    <summary className="flex justify-between items-center font-medium cursor-pointer list-none text-sm text-gray-400 hover:text-white bg-gray-900/30 p-2 rounded">
-                      <span className={rawOps.some((op: Operation) => !!op.error) ? "text-red-400 font-bold" : ""}>
-                        Recent Operations ({rawOps.length}) {rawOps.some((op: Operation) => !!op.error) ? '(Failures Detected)' : ''}
-                      </span>
-                      <span className="transition group-open:rotate-180">
-                        <svg fill="none" height="24" shapeRendering="geometricPrecision" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24" width="24"><path d="M6 9l6 6 6-6"></path></svg>
-                      </span>
-                    </summary>
-                    <div className="text-gray-300 mt-2 group-open:animate-fadeIn">
-                      <pre className="text-xs bg-gray-950 p-2 rounded overflow-x-auto border border-gray-800"
-                        dangerouslySetInnerHTML={{
-                          __html: escapeHtml(JSON.stringify(rawOps, null, 2))
-                            .replace(/(&quot;error&quot;:\s*\{[\s\S]*?\}(,|\s*\}))/g, '<span class="text-red-400 font-bold">$1</span>')
-                        }}
-                      />
-                    </div>
-                  </details>
-                )}
-
-                {Boolean(data && typeof data === 'object' && 'recentLogs' in data && Array.isArray(data.recentLogs) && data.recentLogs.length > 0) && (
-                  <details className="group">
-                    <summary className="flex justify-between items-center font-medium cursor-pointer list-none text-sm text-gray-400 hover:text-white bg-gray-900/30 p-2 rounded">
-                      <span className="text-red-400 font-bold">
-                        Recent Error Logs ({((data as Record<string, unknown>).recentLogs as unknown[]).length})
-                      </span>
-                      <span className="transition group-open:rotate-180">
-                        <svg fill="none" height="24" shapeRendering="geometricPrecision" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24" width="24"><path d="M6 9l6 6 6-6"></path></svg>
-                      </span>
-                    </summary>
-                    <div className="text-gray-300 mt-2 group-open:animate-fadeIn space-y-2">
-                      {((data as Record<string, unknown>).recentLogs as LogEntry[]).map((log, i: number) => (
-                        <div key={i} className="bg-gray-950 p-2 rounded border border-gray-800 text-xs font-mono">
-                          <div className="flex justify-between text-gray-500 mb-1">
-                            <span>{log.timestamp}</span>
-                            <span className={log.severity === 'ERROR' ? 'text-red-500' : 'text-yellow-500'}>{log.severity}</span>
-                          </div>
-                          <div className="whitespace-pre-wrap text-gray-300">
-                            {log.httpRequest ? (
-                              <div className="flex flex-col gap-1 text-[11px]">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-red-400 bg-red-950/40 border border-red-900/50 px-1 py-0.5 rounded text-[9px] uppercase">
-                                    {log.httpRequest.requestMethod}
-                                  </span>
-                                  <span className="font-semibold text-gray-200">
-                                    Status {log.httpRequest.status}
-                                  </span>
-                                  {log.httpRequest.latency && (
-                                    <span className="text-gray-500 text-[10px]">
-                                      ({log.httpRequest.latency})
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="text-gray-400 break-all select-all hover:text-gray-300 transition-colors">
-                                  {log.httpRequest.requestUrl}
-                                </div>
-                                {log.httpRequest.userAgent && (
-                                  <div className="text-[10px] text-gray-600 line-clamp-1 truncate" title={log.httpRequest.userAgent}>
-                                    User-Agent: {log.httpRequest.userAgent}
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              log.textPayload || JSON.stringify(log.jsonPayload || log.protoPayload || log, null, 2)
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                )}
               </div>
 
               {/* Quick Jump to Logs & Raw State */}
@@ -742,27 +656,6 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                       </svg>
                       Edit Filters
                     </button>
-                  {connectorState?.dataSource === 'custom_mcp' && (
-                    <>
-                      <button
-                        onClick={handleRefreshMcpTools}
-                        disabled={isRefreshingTools}
-                        className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 transition-colors flex items-center gap-1.5 shadow"
-                      >
-                        {isRefreshingTools ? (
-                          <>
-                            <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            Refreshing...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3m-3-3v12" /></svg>
-                            Refresh Tools
-                          </>
-                        )}
-                      </button>
-                    </>
-                  )}
                   {onCloneConnector && connectorState && getConnectorCloneEligibility(connectorState).canClone && (
                     <button
                       type="button"
@@ -930,6 +823,15 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
 
   if (!isOpen) return null;
 
+  const activeDataSource =
+    connector?.dataSource ||
+    (data && typeof data === 'object' && 'connectorState' in data
+      ? (data.connectorState as DataConnector | undefined)?.dataSource
+      : undefined);
+  const hasEmbeddedStickyFooter =
+    activeTab === 'filters' ||
+    (activeTab === 'config' && activeDataSource === 'custom_mcp');
+
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
       onClose();
@@ -979,15 +881,17 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
           {renderContent()}
         </div>
 
-        <div className="p-4 border-t border-gray-700 bg-gray-800 rounded-b-lg shrink-0 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 bg-gray-700 text-white font-medium rounded hover:bg-gray-600 transition-colors border border-gray-600 shadow-sm"
-          >
-            Close
-          </button>
-        </div>
+        {!hasEmbeddedStickyFooter && (
+          <div className="p-4 border-t border-gray-700 bg-gray-800 rounded-b-lg shrink-0 flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-700 text-white font-medium rounded hover:bg-gray-600 transition-colors border border-gray-600 shadow-sm"
+            >
+              Close
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

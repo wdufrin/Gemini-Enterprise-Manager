@@ -155,6 +155,7 @@ const INTERNAL_SYSTEM_KEYS = new Set([
   "use_static_secrets",
   "service_name",
   "secret_id",
+  "citation_mappings",
 ]);
 
 const EXPLICIT_SECRET_KEYS = new Set([

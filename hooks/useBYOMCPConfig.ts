@@ -22,8 +22,15 @@ import {
   DynamicToolItem,
   CustomParamItem,
   InstructionPreset,
+  CitationMappingRuleItem,
   KNOWN_ACTION_PARAM_KEYS,
 } from '../components/connectors/byomcp/types';
+import {
+  parseCitationMappingsFromApi,
+  serializeCitationMappingsToApi,
+  validateCitationMappings,
+  validateRawCitationMappingsObject,
+} from '../components/connectors/byomcp/citationPointerUtils';
 
 interface UseBYOMCPConfigProps {
   connector: DataConnector;
@@ -54,6 +61,7 @@ export function useBYOMCPConfig({
   const [showClientSecret, setShowClientSecret] = useState<boolean>(false);
   const [mcpServerSource, setMcpServerSource] = useState<string>('BYO_MCP');
   const [registryMcpServerName, setRegistryMcpServerName] = useState<string>('');
+  const [citationMappings, setCitationMappings] = useState<CitationMappingRuleItem[]>([]);
   const [customActionParams, setCustomActionParams] = useState<CustomParamItem[]>([]);
 
   // Tools & BAP Config
@@ -116,6 +124,7 @@ export function useBYOMCPConfig({
     setClientSecret(cSecret);
     setMcpServerSource(mSource);
     setRegistryMcpServerName(regName);
+    setCitationMappings(parseCitationMappingsFromApi(actionParams.citation_mappings));
 
     // Custom action params
     const customList: CustomParamItem[] = [];
@@ -219,6 +228,13 @@ export function useBYOMCPConfig({
     const origInterval = connector?.refreshInterval || '86400s';
     const origStaticIp = Boolean(connector?.staticIpEnabled ?? connector?.params?.static_ip_enabled);
 
+    const origCitationRules = parseCitationMappingsFromApi(origActionParams.citation_mappings);
+    const hadOrigCitationMappings = origCitationRules.length > 0;
+    const serializedCurrentCitations = serializeCitationMappingsToApi(citationMappings);
+    const serializedOrigCitations = serializeCitationMappingsToApi(origCitationRules);
+    const citationMappingsChanged =
+      JSON.stringify(serializedCurrentCitations) !== JSON.stringify(serializedOrigCitations);
+
     const descChanged = mcpServerDescription !== origDesc;
     const instChanged = mcpAgentInstructions !== origInst;
     const uriChanged = instanceUri.trim() !== origUri;
@@ -239,6 +255,7 @@ export function useBYOMCPConfig({
     const actionParamsChanged =
       descChanged ||
       instChanged ||
+      citationMappingsChanged ||
       customChanged ||
       authChanged ||
       (uriChanged && Boolean(origActionParams.instance_uri));
@@ -268,6 +285,15 @@ export function useBYOMCPConfig({
       }
       if (instanceUri.trim()) {
         actionParamsPayload.instance_uri = instanceUri.trim();
+      }
+
+      if (citationMappings.length > 0) {
+        actionParamsPayload.citation_mappings = serializedCurrentCitations;
+      } else if (hadOrigCitationMappings) {
+        // Sending empty object {} removes all citation mappings per Discovery Engine v1 spec
+        actionParamsPayload.citation_mappings = {};
+      } else {
+        delete actionParamsPayload.citation_mappings;
       }
 
       if (authChanged) {
@@ -352,6 +378,7 @@ export function useBYOMCPConfig({
     refreshInterval,
     staticIpEnabled,
     dynamicTools,
+    citationMappings,
     customActionParams,
     clientId,
     clientSecret,
@@ -413,6 +440,9 @@ export function useBYOMCPConfig({
     }
     if (actionParams.registry_mcp_server_name !== undefined) {
       setRegistryMcpServerName(String(actionParams.registry_mcp_server_name));
+    }
+    if (actionParams.citation_mappings !== undefined) {
+      setCitationMappings(parseCitationMappingsFromApi(actionParams.citation_mappings));
     }
 
     if (Array.isArray(parsed.dynamicTools)) {
@@ -553,6 +583,27 @@ export function useBYOMCPConfig({
     setDynamicTools((prev) => prev.map((t) => ({ ...t, enabled: enable })));
   };
 
+  // Citation mapping handlers
+  const handleAddCitationMapping = (rule: CitationMappingRuleItem) => {
+    setCitationMappings((prev) => [...prev, rule]);
+  };
+
+  const handleUpdateCitationMapping = (index: number, updated: CitationMappingRuleItem) => {
+    setCitationMappings((prev) => {
+      const next = [...prev];
+      next[index] = updated;
+      return next;
+    });
+  };
+
+  const handleRemoveCitationMapping = (index: number) => {
+    setCitationMappings((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleClearAllCitationMappings = () => {
+    setCitationMappings([]);
+  };
+
   // Custom action param handlers
   const handleAddCustomParam = () => {
     setCustomActionParams((prev) => [...prev, { key: '', value: '' }]);
@@ -642,6 +693,16 @@ export function useBYOMCPConfig({
       return;
     }
 
+    if (editorMode === 'visual' && citationMappings.length > 0) {
+      const citationErrors = validateCitationMappings(citationMappings).filter(
+        (issue) => issue.severity === 'error'
+      );
+      if (citationErrors.length > 0) {
+        setSaveError(`Invalid citation_mappings configuration: ${citationErrors[0].message}`);
+        return;
+      }
+    }
+
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
@@ -655,6 +716,20 @@ export function useBYOMCPConfig({
       let payloadToSend: Record<string, unknown> = {};
       if (editorMode === 'json' && rawJsonText) {
         payloadToSend = JSON.parse(rawJsonText);
+        const rawActionConfig = payloadToSend.actionConfig as
+          | { actionParams?: Record<string, unknown> }
+          | undefined;
+        const rawCitations = rawActionConfig?.actionParams?.citation_mappings;
+        if (rawCitations !== undefined) {
+          const rawIssues = validateRawCitationMappingsObject(rawCitations).filter(
+            (i) => i.severity === 'error'
+          );
+          if (rawIssues.length > 0) {
+            setSaveError(`Invalid citation_mappings in JSON: ${rawIssues[0].message}`);
+            setIsSaving(false);
+            return;
+          }
+        }
       } else {
         payloadToSend = targetedPayload;
       }
@@ -712,6 +787,8 @@ export function useBYOMCPConfig({
     setMcpServerSource,
     registryMcpServerName,
     setRegistryMcpServerName,
+    citationMappings,
+    setCitationMappings,
     customActionParams,
     dynamicTools,
     isRefreshingTools,
@@ -746,6 +823,10 @@ export function useBYOMCPConfig({
     handleApplyPreset,
     handleToggleTool,
     handleToggleAllTools,
+    handleAddCitationMapping,
+    handleUpdateCitationMapping,
+    handleRemoveCitationMapping,
+    handleClearAllCitationMappings,
     handleAddCustomParam,
     handleUpdateCustomParam,
     handleRemoveCustomParam,

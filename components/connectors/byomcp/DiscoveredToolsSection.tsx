@@ -15,7 +15,7 @@
  */
 
 import React from 'react';
-import { DynamicToolItem } from './types';
+import { CitationMappingRuleItem, DynamicToolItem } from './types';
 
 interface DiscoveredToolsSectionProps {
   instanceUri: string;
@@ -30,6 +30,8 @@ interface DiscoveredToolsSectionProps {
   dynamicTools: DynamicToolItem[];
   onToggleTool: (toolName: string) => void;
   onToggleAllTools: (enable: boolean) => void;
+  citationMappings?: CitationMappingRuleItem[];
+  onConfigureToolCitations?: (toolName: string) => void;
 }
 
 export const DiscoveredToolsSection: React.FC<DiscoveredToolsSectionProps> = ({
@@ -45,7 +47,10 @@ export const DiscoveredToolsSection: React.FC<DiscoveredToolsSectionProps> = ({
   dynamicTools,
   onToggleTool,
   onToggleAllTools,
+  citationMappings = [],
+  onConfigureToolCitations,
 }) => {
+  const hasDefaultCitationRule = citationMappings.some((r) => r.toolName === '');
   return (
     <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-800 space-y-4">
       <div className="border-b border-gray-800 pb-2 flex justify-between items-center">
@@ -170,44 +175,69 @@ export const DiscoveredToolsSection: React.FC<DiscoveredToolsSectionProps> = ({
           </div>
         ) : (
           <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-1">
-            {dynamicTools.map((tool, idx) => (
-              <div
-                key={idx}
-                className={`p-2.5 rounded border transition-colors flex items-start justify-between gap-3 ${
-                  tool.enabled
-                    ? 'bg-gray-950/70 border-gray-700/80 hover:border-gray-600'
-                    : 'bg-gray-950/30 border-gray-800/60 opacity-60'
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-bold text-purple-300">
-                      {tool.name}
-                    </span>
-                    {tool.displayName && tool.displayName !== tool.name && (
-                      <span className="text-[11px] text-gray-400">({tool.displayName})</span>
-                    )}
-                  </div>
-                  {tool.description && (
-                    <p className="text-[11px] text-gray-400 mt-0.5 line-clamp-2" title={tool.description}>
-                      {tool.description}
-                    </p>
-                  )}
-                </div>
-
-                {/* Toggle Button */}
-                <button
-                  onClick={() => onToggleTool(tool.name)}
-                  className={`px-2.5 py-1 text-xs font-semibold rounded shrink-0 transition-colors ${
+            {dynamicTools.map((tool, idx) => {
+              const hasCustomCitation = citationMappings.some((r) => r.toolName === tool.name);
+              return (
+                <div
+                  key={idx}
+                  className={`p-2.5 rounded border transition-colors flex items-start justify-between gap-3 ${
                     tool.enabled
-                      ? 'bg-green-950 text-green-300 border border-green-800 hover:bg-green-900'
-                      : 'bg-gray-800 text-gray-400 border border-gray-700 hover:bg-gray-700'
+                      ? 'bg-gray-950/70 border-gray-700/80 hover:border-gray-600'
+                      : 'bg-gray-950/30 border-gray-800/60 opacity-60'
                   }`}
                 >
-                  {tool.enabled ? 'Enabled' : 'Disabled'}
-                </button>
-              </div>
-            ))}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-purple-300">
+                        {tool.name}
+                      </span>
+                      {tool.displayName && tool.displayName !== tool.name && (
+                        <span className="text-[11px] text-gray-400">({tool.displayName})</span>
+                      )}
+                      {hasCustomCitation ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-950/80 text-purple-300 border border-purple-800/80">
+                          Custom Citations
+                        </span>
+                      ) : hasDefaultCitationRule ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-950/60 text-amber-300 border border-amber-800/70">
+                          Inherits Default (&quot;&quot;)
+                        </span>
+                      ) : null}
+                    </div>
+                    {tool.description && (
+                      <p className="text-[11px] text-gray-400 mt-0.5 line-clamp-2" title={tool.description}>
+                        {tool.description}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Tool Row Actions */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {onConfigureToolCitations && (
+                      <button
+                        type="button"
+                        onClick={() => onConfigureToolCitations(tool.name)}
+                        className="px-2 py-1 text-[11px] font-medium rounded bg-gray-900 hover:bg-purple-950/70 text-gray-300 hover:text-purple-200 border border-gray-700 hover:border-purple-700/80 transition-colors"
+                        title={`Configure or edit RFC 6901 citation mappings for ${tool.name}`}
+                      >
+                        {hasCustomCitation ? 'Edit Citations' : '+ Citations'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onToggleTool(tool.name)}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded shrink-0 transition-colors ${
+                        tool.enabled
+                          ? 'bg-green-950 text-green-300 border border-green-800 hover:bg-green-900'
+                          : 'bg-gray-800 text-gray-400 border border-gray-700 hover:bg-gray-700'
+                      }`}
+                    >
+                      {tool.enabled ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

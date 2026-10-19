@@ -88,6 +88,16 @@ export const INSTRUCTION_PRESETS: InstructionPreset[] = [
   },
 ];
 
+export interface CitationMappingRuleItem {
+  toolName: string;
+  items: string;
+  itemsIsRoot?: boolean;
+  uri: string;
+  title: string;
+  snippet: string;
+  id: string;
+}
+
 export const KNOWN_ACTION_PARAM_KEYS = new Set([
   'mcp_server_description',
   'mcp_agent_instructions',
@@ -101,4 +111,5 @@ export const KNOWN_ACTION_PARAM_KEYS = new Set([
   'client_secret',
   'mcp_server_source',
   'registry_mcp_server_name',
+  'citation_mappings',
 ]);
