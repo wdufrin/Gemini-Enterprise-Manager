@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "vite preview --port 8080",
+    "start": "vite preview --host 0.0.0.0 --port 8080",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "typecheck": "tsc --noEmit",
@@ -21,12 +21,14 @@
     "sync-checklists": "node scripts/syncChecklists.mjs"
   },
   "dependencies": {
+    "@vitejs/plugin-react": "^6.1.2",
     "jszip": "^3.10.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.18.4",
     "reactflow": "^11.10.4",
-    "recharts": "^3.10.1"
+    "recharts": "^3.10.1",
+    "vite": "^8.3.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
@@ -36,7 +38,6 @@
     "@types/react-dom": "^18.3.7",
     "@typescript-eslint/eslint-plugin": "^8.71.1",
     "@typescript-eslint/parser": "^8.71.1",
-    "@vitejs/plugin-react": "^6.1.2",
     "autoprefixer": "^10.6.1",
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^9.1.0",
@@ -47,7 +48,6 @@
     "prettier": "^3.9.9",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3",
-    "vite": "^8.3.3",
     "vitest": "^4.1.2"
   },
   "overrides": {

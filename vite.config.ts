@@ -1,4 +1,4 @@
-/// <reference types="vitest" />
+/// <reference types="vitest/config" />
 /**
  * Copyright 2024 Google LLC
  *
@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import path from 'path'
@@ -42,6 +42,11 @@ export default defineConfig({
         '**/examples/**'
       ]
     }
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: 8080,
+    allowedHosts: true,
   },
   test: {
     globals: true,
