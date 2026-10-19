@@ -188,6 +188,73 @@ export const listMcpTools = async (
   }
 };
 
+export const callMcpTool = async (
+  projectId: string,
+  mcpEndpointUrl: string,
+  toolName: string,
+  toolArgs: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> => {
+  if (!mcpEndpointUrl.startsWith("https://")) {
+    throw new Error(
+      `MCP endpoint must use https:// -- refusing to call "${mcpEndpointUrl}".`,
+    );
+  }
+
+  const payload = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: {
+      name: toolName,
+      arguments: toolArgs,
+    },
+  };
+
+  const isTrustedGoogleHost = mayReceiveGoogleCredentials(mcpEndpointUrl);
+  const headers: Record<string, string> = {
+    "Content-Type": isGoogleApiEndpoint(mcpEndpointUrl)
+      ? "text/plain;charset=UTF-8"
+      : "application/json",
+  };
+
+  if (isTrustedGoogleHost && !isGoogleApiEndpoint(mcpEndpointUrl)) {
+    const client = await getGapiClient();
+    const token = client.getToken()?.access_token;
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    if (projectId) {
+      headers["X-Goog-User-Project"] = projectId;
+    }
+  }
+
+  const res = await fetch(mcpEndpointUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(
+      `MCP endpoint ${mcpEndpointUrl} returned HTTP ${res.status}: ${await res.text()}`,
+    );
+  }
+
+  const rpcResponse = await readMcpBody(res);
+  if (rpcResponse.error && typeof rpcResponse.error === "object") {
+    const errObj = rpcResponse.error as { message?: string; code?: number };
+    throw new Error(
+      `MCP tool "${toolName}" returned JSON-RPC error${errObj.code !== undefined ? ` (${errObj.code})` : ""}: ${errObj.message || JSON.stringify(rpcResponse.error)}`,
+    );
+  }
+
+  const result = rpcResponse.result;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    return result as Record<string, unknown>;
+  }
+  return rpcResponse;
+};
+
 export const checkMcpCompliance = async (
   projectId: string,
   serviceName: string,

@@ -49,6 +49,7 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
     validationResults,
     selectedResult,
     setSelectedResult,
+    loadingDetailsCollectionId,
     editingId,
     setEditingId,
     editName,
@@ -167,6 +168,7 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
           associationWarning={associationWarning}
           enableExperimentalClone={enableExperimentalClone}
           onToggleExperimentalClone={setEnableExperimentalClone}
+          loadingDetailsCollectionId={loadingDetailsCollectionId}
         />
       )}
 
@@ -176,8 +178,15 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
         title={selectedResult?.title || "Details"}
         data={selectedResult?.result.details || selectedResult?.result.message}
         status={
-          selectedResult?.result.status === "success" ? "success" : "error"
+          selectedResult?.result.status === "success"
+            ? "success"
+            : selectedResult?.result.status === "pending"
+              ? "loading"
+              : selectedResult?.result.status === "unvalidated"
+                ? "unvalidated"
+                : "error"
         }
+        isLoading={Boolean(selectedResult?.isLoadingDetails || selectedResult?.result.status === "pending")}
         config={config}
         onRefreshSuccess={fetchCollections}
         onCloneConnector={

@@ -269,3 +269,64 @@ describe("listMcpTools against first-party Google MCP endpoints", () => {
   });
 });
 
+describe("callMcpTool live tool probing and security boundaries", () => {
+  beforeEach(() => {
+    gapiRequestMock.mockReset();
+    getTokenMock.mockClear();
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("rejects non-HTTPS endpoints with an explicit error", async () => {
+    const { callMcpTool } = await import("./mcp");
+    await expect(
+      callMcpTool("my-project", "http://insecure.example.com/mcp", "get_brand_design_system"),
+    ).rejects.toThrow(/must use https/i);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("executes tools/call JSON-RPC request and returns the result object", async () => {
+    const { callMcpTool } = await import("./mcp");
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          content: [{ type: "text", text: '{"source":"Figma","data":{"$schema":"https://tr.designtokens.org/format/"}}' }],
+          isError: false,
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await callMcpTool(
+      "my-project",
+      "https://gm-figma-mcp.example.com/mcp",
+      "get_brand_design_system",
+      { brand_name: "General Motors" },
+    );
+
+    expect(res).toEqual({
+      content: [{ type: "text", text: '{"source":"Figma","data":{"$schema":"https://tr.designtokens.org/format/"}}' }],
+      isError: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws when the MCP server returns a JSON-RPC error object", async () => {
+    const { callMcpTool } = await import("./mcp");
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        jsonrpc: "2.0",
+        id: 1,
+        error: { code: -32602, message: "Missing required argument: slide_spec_json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callMcpTool("my-project", "https://gm-figma-mcp.example.com/mcp", "validate_slide_brand_compliance"),
+    ).rejects.toThrow(/Missing required argument: slide_spec_json/);
+  });
+});
+
+

@@ -534,13 +534,15 @@ export function useBYOMCPConfig({
 
       // Merge with existing enabled states if tool name matches
       const existingMap = new Map(dynamicTools.map((t) => [t.name, t]));
-      const newToolList: DynamicToolItem[] = tools.map((t: { name: string; description?: string; [key: string]: unknown }) => {
+      const newToolList: DynamicToolItem[] = tools.map((t: { name: string; description?: string; inputSchema?: Record<string, unknown>; outputSchema?: Record<string, unknown>; [key: string]: unknown }) => {
         const existing = existingMap.get(t.name);
         return {
           name: t.name,
           displayName: existing?.displayName || t.name,
           description: t.description || existing?.description || '',
           enabled: existing ? existing.enabled : true,
+          inputSchema: (t.inputSchema as Record<string, unknown> | undefined) || existing?.inputSchema,
+          outputSchema: (t.outputSchema as Record<string, unknown> | undefined) || existing?.outputSchema,
         };
       });
 
@@ -552,6 +554,20 @@ export function useBYOMCPConfig({
     } finally {
       setIsRefreshingTools(false);
     }
+  };
+
+  // Probe a live MCP tool via tools/call to inspect its actual JSON response and discover citation pointers
+  const handleProbeLiveTool = async (
+    toolName: string,
+    toolArgs: Record<string, unknown> = {}
+  ): Promise<Record<string, unknown>> => {
+    const uri = instanceUri.trim();
+    if (!uri) {
+      throw new Error('No MCP instance URI configured. Enter an MCP server URL above first.');
+    }
+    const parts = (connector.name || '').split('/');
+    const projId = parts[parts.indexOf('projects') + 1] || config.projectId;
+    return await api.callMcpTool(projId, uri, toolName, toolArgs);
   };
 
   // Apply a template preset
@@ -820,6 +836,7 @@ export function useBYOMCPConfig({
     handleSwitchMode,
     handleTestConnectivity,
     handleRefreshToolsFromEndpoint,
+    handleProbeLiveTool,
     handleApplyPreset,
     handleToggleTool,
     handleToggleAllTools,

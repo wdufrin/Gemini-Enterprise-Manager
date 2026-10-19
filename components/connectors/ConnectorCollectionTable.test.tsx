@@ -169,6 +169,21 @@ describe('ConnectorCollectionTable', () => {
     fireEvent.click(cloneButtons[0]);
     expect(props.onDuplicateConnector).toHaveBeenCalledWith(COLLECTIONS[0]);
   });
+
+  it('shows Opening... spinner on the active collection Details button while loading details', () => {
+    const props = createProps();
+    render(
+      <ConnectorCollectionTable
+        {...props}
+        loadingDetailsCollectionId="projects/123/locations/global/collections/jira-prod"
+      />
+    );
+
+    const openingBtn = screen.getByRole('button', { name: /Opening\.\.\./i }) as HTMLButtonElement;
+    expect(openingBtn.disabled).toBe(true);
+    // Other collection rows still show enabled "Details" buttons
+    expect(screen.getAllByRole('button', { name: 'Details' })).toHaveLength(2);
+  });
 });
 
 import {

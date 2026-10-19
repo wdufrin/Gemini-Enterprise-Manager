@@ -857,3 +857,317 @@ export const SAMPLE_MCP_RESPONSE_PRESETS: SampleMcpResponsePreset[] = [
     ),
   },
 ];
+
+export interface DiscoveredPointerCandidate {
+  pointer: string;
+  sampleValue: string;
+  suggestedRole?: 'uri' | 'title' | 'snippet' | 'id';
+}
+
+export interface DiscoveredSampleSchema {
+  itemsCandidates: Array<{ pointer: string; isRoot: boolean; count: number; label: string }>;
+  fieldCandidates: DiscoveredPointerCandidate[];
+  recommendedRule: Omit<CitationMappingRuleItem, 'toolName'>;
+}
+
+/**
+ * Unwraps MCP content[0].text if it contains serialized JSON so we inspect the inner JSON document.
+ */
+function unwrapSampleJsonRoot(parsedRoot: unknown): unknown {
+  if (parsedRoot && typeof parsedRoot === 'object' && !Array.isArray(parsedRoot)) {
+    const rootObj = parsedRoot as Record<string, unknown>;
+    if (
+      Array.isArray(rootObj.content) &&
+      rootObj.content.length > 0 &&
+      rootObj.content[0] &&
+      typeof rootObj.content[0] === 'object' &&
+      (rootObj.content[0] as Record<string, unknown>).type === 'text' &&
+      typeof (rootObj.content[0] as Record<string, unknown>).text === 'string' &&
+      rootObj.structuredContent === undefined
+    ) {
+      const innerText = (rootObj.content[0] as Record<string, unknown>).text as string;
+      try {
+        return JSON.parse(innerText);
+      } catch {
+        return parsedRoot;
+      }
+    }
+  }
+  return parsedRoot;
+}
+
+function escapeJsonPointerToken(token: string): string {
+  return token.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
+function collectLeafPointers(
+  obj: unknown,
+  prefix = '',
+  depth = 0,
+  maxDepth = 3
+): DiscoveredPointerCandidate[] {
+  if (depth > maxDepth || obj === null || obj === undefined || typeof obj !== 'object' || Array.isArray(obj)) {
+    return [];
+  }
+  const results: DiscoveredPointerCandidate[] = [];
+  for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
+    const ptr = `${prefix}/${escapeJsonPointerToken(key)}`;
+    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+      const strVal = String(val);
+      // Skip giant inline SVG or markdown blobs over 300 chars as URI/ID candidates, but keep truncated preview
+      const lowerKey = key.toLowerCase();
+      let suggestedRole: DiscoveredPointerCandidate['suggestedRole'];
+      if (
+        typeof val === 'string' &&
+        (val.startsWith('http://') ||
+          val.startsWith('https://') ||
+          lowerKey.includes('url') ||
+          lowerKey.includes('uri') ||
+          lowerKey.includes('link') ||
+          lowerKey === '$schema')
+      ) {
+        suggestedRole = 'uri';
+      } else if (
+        lowerKey === 'title' ||
+        lowerKey === 'name' ||
+        lowerKey === 'source' ||
+        lowerKey === 'brand' ||
+        lowerKey.endsWith('title') ||
+        lowerKey.endsWith('name')
+      ) {
+        suggestedRole = 'title';
+      } else if (
+        lowerKey === 'snippet' ||
+        lowerKey === 'summary' ||
+        lowerKey === 'description' ||
+        lowerKey === 'text' ||
+        lowerKey === 'excerpt'
+      ) {
+        suggestedRole = 'snippet';
+      } else if (
+        lowerKey === 'id' ||
+        lowerKey.endsWith('_id') ||
+        lowerKey.endsWith('id') ||
+        lowerKey.endsWith('key')
+      ) {
+        suggestedRole = 'id';
+      }
+
+      results.push({
+        pointer: ptr,
+        sampleValue: strVal.length > 90 ? `${strVal.slice(0, 87)}...` : strVal,
+        suggestedRole,
+      });
+    } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+      results.push(...collectLeafPointers(val, ptr, depth + 1, maxDepth));
+    }
+  }
+  return results;
+}
+
+/**
+ * Inspects a sample MCP tool JSON output (or live tool response) and extracts all valid
+ * RFC 6901 JSON Pointers for items, uri, title, snippet, and id, plus a recommended rule.
+ */
+export function extractCandidatePointersFromSample(
+  rawSampleJson: string,
+  currentItemsPointer?: string,
+  currentItemsIsRoot?: boolean
+): DiscoveredSampleSchema | null {
+  let parsedRoot: unknown;
+  try {
+    parsedRoot = JSON.parse(rawSampleJson);
+  } catch {
+    return null;
+  }
+
+  const doc = unwrapSampleJsonRoot(parsedRoot);
+  if (!doc || typeof doc !== 'object') {
+    return null;
+  }
+
+  const itemsCandidates: DiscoveredSampleSchema['itemsCandidates'] = [];
+  if (!Array.isArray(doc)) {
+    const rec = doc as Record<string, unknown>;
+    for (const [k, v] of Object.entries(rec)) {
+      if (Array.isArray(v) && v.length > 0 && typeof v[0] === 'object' && v[0] !== null) {
+        const ptr = `/${escapeJsonPointerToken(k)}`;
+        itemsCandidates.push({
+          pointer: ptr,
+          isRoot: false,
+          count: v.length,
+          label: `${ptr} (${v.length} item${v.length === 1 ? '' : 's'})`,
+        });
+      } else if (k === 'structuredContent' && v && typeof v === 'object' && !Array.isArray(v)) {
+        for (const [sk, sv] of Object.entries(v as Record<string, unknown>)) {
+          if (Array.isArray(sv) && sv.length > 0 && typeof sv[0] === 'object' && sv[0] !== null) {
+            const ptr = `/structuredContent/${escapeJsonPointerToken(sk)}`;
+            itemsCandidates.push({
+              pointer: ptr,
+              isRoot: false,
+              count: sv.length,
+              label: `${ptr} (${sv.length} item${sv.length === 1 ? '' : 's'})`,
+            });
+          }
+        }
+      }
+    }
+    itemsCandidates.push({
+      pointer: '',
+      isRoot: true,
+      count: 1,
+      label: '"" (Root single object)',
+    });
+  } else if (doc.length > 0 && typeof doc[0] === 'object') {
+    itemsCandidates.push({
+      pointer: '',
+      isRoot: true,
+      count: doc.length,
+      label: `"" (Root array of ${doc.length} items)`,
+    });
+  }
+
+  // Determine the item object to inspect for item-relative pointers
+  let targetItem: unknown = doc;
+  let recommendedItems = '';
+  let recommendedItemsIsRoot = true;
+
+  if (currentItemsIsRoot) {
+    targetItem = Array.isArray(doc) ? doc[0] : doc;
+    recommendedItems = '';
+    recommendedItemsIsRoot = true;
+  } else if (currentItemsPointer && currentItemsPointer.trim() !== '') {
+    const evalRes = evaluateJsonPointer(doc, currentItemsPointer.trim());
+    if (evalRes.found && Array.isArray(evalRes.value) && evalRes.value.length > 0) {
+      targetItem = evalRes.value[0];
+      recommendedItems = currentItemsPointer.trim();
+      recommendedItemsIsRoot = false;
+    } else if (evalRes.found && evalRes.value && typeof evalRes.value === 'object') {
+      targetItem = evalRes.value;
+      recommendedItems = currentItemsPointer.trim();
+      recommendedItemsIsRoot = false;
+    }
+  } else {
+    const firstArrayCandidate = itemsCandidates.find((c) => !c.isRoot);
+    if (firstArrayCandidate) {
+      const evalRes = evaluateJsonPointer(doc, firstArrayCandidate.pointer);
+      if (evalRes.found && Array.isArray(evalRes.value) && evalRes.value.length > 0) {
+        targetItem = evalRes.value[0];
+        recommendedItems = firstArrayCandidate.pointer;
+        recommendedItemsIsRoot = false;
+      }
+    } else if (Array.isArray(doc) && doc.length > 0) {
+      targetItem = doc[0];
+      recommendedItems = '';
+      recommendedItemsIsRoot = true;
+    }
+  }
+
+  const fieldCandidates = collectLeafPointers(targetItem);
+
+  const bestUri =
+    fieldCandidates.find((f) => f.suggestedRole === 'uri' && f.sampleValue.startsWith('http')) ||
+    fieldCandidates.find((f) => f.suggestedRole === 'uri') ||
+    fieldCandidates[0];
+  const bestTitle =
+    fieldCandidates.find((f) => f.suggestedRole === 'title') ||
+    fieldCandidates.find((f) => f.pointer !== bestUri?.pointer);
+  const bestSnippet = fieldCandidates.find(
+    (f) => f.suggestedRole === 'snippet' && f.pointer !== bestTitle?.pointer
+  );
+  const bestId = fieldCandidates.find(
+    (f) => f.suggestedRole === 'id' && f.pointer !== bestUri?.pointer
+  );
+
+  return {
+    itemsCandidates,
+    fieldCandidates,
+    recommendedRule: {
+      items: recommendedItemsIsRoot ? '' : recommendedItems,
+      itemsIsRoot: recommendedItemsIsRoot,
+      uri: bestUri?.pointer || '/url',
+      title: bestTitle?.pointer || '',
+      snippet: bestSnippet?.pointer || '',
+      id: bestId?.pointer || '',
+    },
+  };
+}
+
+/**
+ * Synthesizes a realistic sample JSON payload that matches a tool's configured RFC 6901 JSON Pointers
+ * so the Live Citation Previewer immediately renders valid chips for custom pointers.
+ */
+export function synthesizeSampleJsonFromRule(
+  toolName: string,
+  rules: CitationMappingRuleItem[]
+): string {
+  const defaultRule = rules.find((r) => r.toolName === '');
+  const namedRule = toolName !== '' ? rules.find((r) => r.toolName === toolName) : undefined;
+  const activeRule = namedRule || defaultRule;
+
+  if (!activeRule) {
+    return SAMPLE_MCP_RESPONSE_PRESETS[0].sampleJson;
+  }
+
+  const isRoot =
+    namedRule?.itemsIsRoot ??
+    (namedRule?.items.trim() ? false : defaultRule?.itemsIsRoot ?? false);
+  const itemsPtr = isRoot
+    ? ''
+    : namedRule?.items.trim() || defaultRule?.items.trim() || '/results';
+  const uriPtr = namedRule?.uri.trim() || defaultRule?.uri.trim() || '/link';
+  const titlePtr = namedRule?.title.trim() || defaultRule?.title.trim() || '/title';
+  const snippetPtr = namedRule?.snippet.trim() || defaultRule?.snippet.trim() || '/snippet';
+  const idPtr = namedRule?.id.trim() || defaultRule?.id.trim() || '/id';
+
+  const setPointerValue = (target: Record<string, unknown>, pointer: string, value: unknown) => {
+    if (!pointer || !pointer.startsWith('/')) return;
+    const tokens = pointer
+      .slice(1)
+      .split('/')
+      .map((t) => t.replace(/~1/g, '/').replace(/~0/g, '~'));
+    let curr: Record<string, unknown> = target;
+    for (let i = 0; i < tokens.length - 1; i++) {
+      const tok = tokens[i];
+      if (!curr[tok] || typeof curr[tok] !== 'object' || Array.isArray(curr[tok])) {
+        curr[tok] = {};
+      }
+      curr = curr[tok] as Record<string, unknown>;
+    }
+    curr[tokens[tokens.length - 1]] = value;
+  };
+
+  const labelTool = toolName || 'mcp_tool';
+  const itemObj: Record<string, unknown> = {};
+  setPointerValue(
+    itemObj,
+    uriPtr,
+    uriPtr.toLowerCase().includes('slides')
+      ? 'https://docs.google.com/presentation/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit'
+      : uriPtr.includes('$schema')
+        ? 'https://tr.designtokens.org/format/'
+        : `https://enterprise.example.com/${encodeURIComponent(labelTool)}/ref-101`
+  );
+  if (titlePtr) {
+    setPointerValue(itemObj, titlePtr, `${labelTool} — Grounded Source Reference`);
+  }
+  if (snippetPtr) {
+    setPointerValue(
+      itemObj,
+      snippetPtr,
+      `Verified excerpt returned by ${labelTool} matching pointer ${snippetPtr}.`
+    );
+  }
+  if (idPtr) {
+    setPointerValue(itemObj, idPtr, `${labelTool}-id-001`);
+  }
+
+  if (isRoot || itemsPtr === '') {
+    return JSON.stringify(itemObj, null, 2);
+  }
+
+  const rootObj: Record<string, unknown> = {};
+  setPointerValue(rootObj, itemsPtr, [itemObj]);
+  return JSON.stringify(rootObj, null, 2);
+}
+

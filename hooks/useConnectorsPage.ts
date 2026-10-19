@@ -46,7 +46,9 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
   const [selectedResult, setSelectedResult] = useState<{
     result: ValidationResult;
     title: string;
+    isLoadingDetails?: boolean;
   } | null>(null);
+  const [loadingDetailsCollectionId, setLoadingDetailsCollectionId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [isSavingName, setIsSavingName] = useState(false);
@@ -229,6 +231,22 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
       return;
     }
 
+    setLoadingDetailsCollectionId(collection.name);
+    setSelectedResult({
+      result: {
+        status: "pending",
+        message: "Loading connector details & running live diagnostics...",
+        details: {
+          summary: "Loading connector configuration, operations, and diagnostic checks...",
+          connectorState: collection.dataConnector as DataConnector | undefined,
+          collectionDisplayName: collection.displayName,
+          diagnostics: { steps: [], warnings: [], errors: [] },
+        },
+      },
+      title: `Connector Details: ${displayLabel}`,
+      isLoadingDetails: true,
+    });
+
     try {
       const diagResult = await runConnectorDiagnostics(
         collection,
@@ -253,6 +271,7 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
       setSelectedResult({
         result: enrichedResult,
         title: `Connector Details: ${displayLabel}`,
+        isLoadingDetails: false,
       });
     } catch (err: unknown) {
       const collectionConfig = { ...config, collectionId: collectionId };
@@ -276,11 +295,15 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
         setSelectedResult({
           result: unvalidatedResult,
           title: `Connector Details: ${displayLabel}`,
+          isLoadingDetails: false,
         });
       } catch (fallbackErr: unknown) {
         console.error("Failed to fetch connector config:", fallbackErr);
+        setSelectedResult(null);
         setError(toErrorMessage(err, "Failed to fetch connector configuration."));
       }
+    } finally {
+      setLoadingDetailsCollectionId(null);
     }
   };
 
@@ -399,6 +422,7 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
     validationResults,
     selectedResult,
     setSelectedResult,
+    loadingDetailsCollectionId,
     editingId,
     setEditingId,
     editName,

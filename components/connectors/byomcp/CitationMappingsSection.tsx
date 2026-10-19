@@ -19,6 +19,8 @@ import { CitationMappingRuleItem, DynamicToolItem } from './types';
 import {
   validateCitationMappings,
   previewCitationExtraction,
+  extractCandidatePointersFromSample,
+  synthesizeSampleJsonFromRule,
   SAMPLE_MCP_RESPONSE_PRESETS,
   SampleMcpResponsePreset,
 } from './citationPointerUtils';
@@ -31,6 +33,11 @@ interface CitationMappingsSectionProps {
   onRemoveCitationMapping: (index: number) => void;
   onClearAllCitationMappings: () => void;
   focusedToolName?: string | null;
+  instanceUri?: string;
+  onProbeLiveTool?: (
+    toolName: string,
+    toolArgs?: Record<string, unknown>
+  ) => Promise<Record<string, unknown>>;
 }
 
 export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = ({
@@ -41,6 +48,8 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
   onRemoveCitationMapping,
   onClearAllCitationMappings,
   focusedToolName,
+  instanceUri,
+  onProbeLiveTool,
 }) => {
   const [selectedToolToAdd, setSelectedToolToAdd] = useState<string>('');
   const [customToolNameInput, setCustomToolNameInput] = useState<string>('');
@@ -48,20 +57,71 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
     () => citationMappings.length > 0
   );
   const hasHydratedPreviewRef = useRef<boolean>(citationMappings.length > 0);
-  const [previewToolName, setPreviewToolName] = useState<string>('search_docs');
-  const [sampleJsonText, setSampleJsonText] = useState<string>(
-    SAMPLE_MCP_RESPONSE_PRESETS[0].sampleJson
-  );
-  const [activePresetId, setActivePresetId] = useState<string>(
-    SAMPLE_MCP_RESPONSE_PRESETS[0].id
-  );
+  const [previewToolName, setPreviewToolName] = useState<string>(() => {
+    const firstNamed = citationMappings.find((r) => r.toolName !== '');
+    return firstNamed?.toolName || 'search_docs';
+  });
+  const [sampleJsonText, setSampleJsonText] = useState<string>(() => {
+    if (citationMappings.length > 0) {
+      const firstNamed = citationMappings.find((r) => r.toolName !== '');
+      const toolKey = firstNamed?.toolName || '';
+      const activeRule = firstNamed || citationMappings[0];
+      // If the rule uses custom pointers rather than the default /results + /link, synthesize a matching sample!
+      const isDefaultPresetPointers =
+        activeRule &&
+        !activeRule.itemsIsRoot &&
+        (activeRule.items === '/results' || activeRule.items === '') &&
+        (activeRule.uri === '/link' || activeRule.uri === '');
+      if (!isDefaultPresetPointers) {
+        return synthesizeSampleJsonFromRule(toolKey, citationMappings);
+      }
+    }
+    return SAMPLE_MCP_RESPONSE_PRESETS[0].sampleJson;
+  });
+  const [activePresetId, setActivePresetId] = useState<string>(() => {
+    if (citationMappings.length > 0) {
+      const firstNamed = citationMappings.find((r) => r.toolName !== '');
+      const activeRule = firstNamed || citationMappings[0];
+      const isDefaultPresetPointers =
+        activeRule &&
+        !activeRule.itemsIsRoot &&
+        (activeRule.items === '/results' || activeRule.items === '') &&
+        (activeRule.uri === '/link' || activeRule.uri === '');
+      if (!isDefaultPresetPointers) {
+        return 'custom_synthesized';
+      }
+    }
+    return SAMPLE_MCP_RESPONSE_PRESETS[0].id;
+  });
+  const [isProbingTool, setIsProbingTool] = useState<boolean>(false);
+  const [probeError, setProbeError] = useState<string | null>(null);
+  const [probeSuccessNote, setProbeSuccessNote] = useState<string | null>(null);
+  const hasSyncedInitialSampleRef = useRef<boolean>(citationMappings.length > 0);
 
   useEffect(() => {
     if (!hasHydratedPreviewRef.current && citationMappings.length > 0) {
       hasHydratedPreviewRef.current = true;
       setShowLivePreview(true);
     }
-  }, [citationMappings.length]);
+    if (!hasSyncedInitialSampleRef.current && citationMappings.length > 0) {
+      hasSyncedInitialSampleRef.current = true;
+      const firstNamed = citationMappings.find((r) => r.toolName !== '');
+      const toolKey = firstNamed?.toolName || '';
+      const activeRule = firstNamed || citationMappings[0];
+      if (firstNamed) {
+        setPreviewToolName(firstNamed.toolName);
+      }
+      const isDefaultPresetPointers =
+        activeRule &&
+        !activeRule.itemsIsRoot &&
+        (activeRule.items === '/results' || activeRule.items === '') &&
+        (activeRule.uri === '/link' || activeRule.uri === '');
+      if (!isDefaultPresetPointers) {
+        setSampleJsonText(synthesizeSampleJsonFromRule(toolKey, citationMappings));
+        setActivePresetId('custom_synthesized');
+      }
+    }
+  }, [citationMappings]);
 
   useEffect(() => {
     if (focusedToolName) {
@@ -104,10 +164,79 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
     return previewToolName || 'search_docs';
   }, [citationMappings, previewToolName]);
 
+  const activePreviewRule = useMemo(
+    () =>
+      citationMappings.find((r) => r.toolName === effectivePreviewTool) ||
+      defaultRule,
+    [citationMappings, effectivePreviewTool, defaultRule]
+  );
+
+  const discoveredSchema = useMemo(
+    () =>
+      extractCandidatePointersFromSample(
+        sampleJsonText,
+        activePreviewRule?.items,
+        activePreviewRule?.itemsIsRoot
+      ),
+    [sampleJsonText, activePreviewRule?.items, activePreviewRule?.itemsIsRoot]
+  );
+
   const previewResult = useMemo(
     () => previewCitationExtraction(sampleJsonText, effectivePreviewTool, citationMappings),
     [sampleJsonText, effectivePreviewTool, citationMappings]
   );
+
+  const handleSynthesizeSampleForTool = (targetTool: string) => {
+    const synthesized = synthesizeSampleJsonFromRule(targetTool, citationMappings);
+    setSampleJsonText(synthesized);
+    setActivePresetId('custom_synthesized');
+    setProbeError(null);
+    setProbeSuccessNote(null);
+  };
+
+  const handleRunLiveToolAndDiscover = async (targetToolName?: string) => {
+    const toolToCall = targetToolName || effectivePreviewTool;
+    if (!onProbeLiveTool || !toolToCall) return;
+
+    setIsProbingTool(true);
+    setProbeError(null);
+    setProbeSuccessNote(null);
+
+    try {
+      const liveResult = await onProbeLiveTool(toolToCall, {});
+      const formattedJson = JSON.stringify(liveResult, null, 2);
+      setSampleJsonText(formattedJson);
+      setActivePresetId('live_tool_response');
+      setShowLivePreview(true);
+
+      const schema = extractCandidatePointersFromSample(formattedJson);
+      if (schema) {
+        const targetIdx = citationMappings.findIndex((r) => r.toolName === toolToCall);
+        if (targetIdx >= 0) {
+          onUpdateCitationMapping(targetIdx, {
+            ...citationMappings[targetIdx],
+            ...schema.recommendedRule,
+          });
+        } else {
+          onAddCitationMapping({
+            toolName: toolToCall,
+            ...schema.recommendedRule,
+          });
+        }
+        setPreviewToolName(toolToCall);
+        setProbeSuccessNote(
+          `Executed "${toolToCall}" on live MCP server and auto-populated ${schema.fieldCandidates.length} discovered JSON pointers!`
+        );
+      } else {
+        setProbeSuccessNote(`Fetched live response from "${toolToCall}".`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setProbeError(msg || `Failed to call tool "${toolToCall}" on MCP server.`);
+    } finally {
+      setIsProbingTool(false);
+    }
+  };
 
   const handleAddDefaultRule = () => {
     if (hasDefaultRule) return;
@@ -150,6 +279,8 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
   const handleLoadSamplePreset = (preset: SampleMcpResponsePreset) => {
     setActivePresetId(preset.id);
     setSampleJsonText(preset.sampleJson);
+    setProbeError(null);
+    setProbeSuccessNote(null);
   };
 
   const handleApplyPresetToCurrentTool = (preset: SampleMcpResponsePreset) => {
@@ -175,6 +306,32 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
       onAddCitationMapping({
         toolName: targetTool,
         ...preset.recommendedRule,
+      });
+      setPreviewToolName(targetTool);
+    }
+  };
+
+  const handleAutoDetectFromCurrentSample = () => {
+    if (!discoveredSchema) return;
+    const targetIdx = citationMappings.findIndex(
+      (r) => r.toolName === effectivePreviewTool
+    );
+    if (targetIdx >= 0) {
+      onUpdateCitationMapping(targetIdx, {
+        ...citationMappings[targetIdx],
+        ...discoveredSchema.recommendedRule,
+      });
+    } else if (citationMappings.length > 0) {
+      onUpdateCitationMapping(0, {
+        ...citationMappings[0],
+        ...discoveredSchema.recommendedRule,
+      });
+    } else {
+      const targetTool =
+        dynamicTools[0]?.name || effectivePreviewTool || 'search_docs';
+      onAddCitationMapping({
+        toolName: targetTool,
+        ...discoveredSchema.recommendedRule,
       });
       setPreviewToolName(targetTool);
     }
@@ -399,18 +556,43 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
                     ) : (
                       <>
                         <span className="text-xs text-gray-400 font-semibold">Tool Key:</span>
-                        <input
-                          type="text"
-                          value={rule.toolName}
-                          aria-label={`Tool name for rule ${idx + 1}`}
-                          onChange={(e) =>
-                            onUpdateCitationMapping(idx, {
-                              ...rule,
-                              toolName: e.target.value,
-                            })
-                          }
-                          className="bg-gray-900 border border-gray-700 rounded px-2 py-0.5 text-xs font-mono font-bold text-purple-300 focus:outline-none focus:border-blue-500"
-                        />
+                        {dynamicTools.length > 0 ? (
+                          <>
+                            <input
+                              type="text"
+                              list={`mcp-tool-names-list-${idx}`}
+                              value={rule.toolName}
+                              aria-label={`Tool name for rule ${idx + 1}`}
+                              onChange={(e) =>
+                                onUpdateCitationMapping(idx, {
+                                  ...rule,
+                                  toolName: e.target.value,
+                                })
+                              }
+                              className="bg-gray-900 border border-gray-700 rounded px-2 py-0.5 text-xs font-mono font-bold text-purple-300 focus:outline-none focus:border-blue-500"
+                            />
+                            <datalist id={`mcp-tool-names-list-${idx}`}>
+                              {dynamicTools.map((dt) => (
+                                <option key={dt.name} value={dt.name}>
+                                  {dt.description ? dt.description.slice(0, 70) : dt.name}
+                                </option>
+                              ))}
+                            </datalist>
+                          </>
+                        ) : (
+                          <input
+                            type="text"
+                            value={rule.toolName}
+                            aria-label={`Tool name for rule ${idx + 1}`}
+                            onChange={(e) =>
+                              onUpdateCitationMapping(idx, {
+                                ...rule,
+                                toolName: e.target.value,
+                              })
+                            }
+                            className="bg-gray-900 border border-gray-700 rounded px-2 py-0.5 text-xs font-mono font-bold text-purple-300 focus:outline-none focus:border-blue-500"
+                          />
+                        )}
                         {discoveredTool && (
                           <span
                             className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
@@ -427,10 +609,26 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {!isDefault && onProbeLiveTool && instanceUri && (
+                      <button
+                        type="button"
+                        disabled={isProbingTool || !rule.toolName.trim()}
+                        onClick={() => handleRunLiveToolAndDiscover(rule.toolName)}
+                        className="px-2 py-1 text-[11px] font-semibold rounded bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-800/80 disabled:opacity-40 transition-colors flex items-center gap-1"
+                        title="Call this tool on the live MCP server and auto-discover its JSON output pointers"
+                      >
+                        <svg className="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Auto-Discover from Live Tool
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
-                        setPreviewToolName(rule.toolName || 'search_docs');
+                        const tName = rule.toolName || 'search_docs';
+                        setPreviewToolName(tName);
+                        handleSynthesizeSampleForTool(rule.toolName);
                         setShowLivePreview(true);
                       }}
                       className="px-2 py-1 text-[11px] font-semibold rounded bg-gray-800 hover:bg-gray-700 text-blue-400 border border-gray-700 transition-colors"
@@ -490,6 +688,7 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
                     ) : (
                       <input
                         type="text"
+                        list="discovered-items-pointers-list"
                         value={rule.items}
                         aria-label={`items pointer for ${rule.toolName || 'default'}`}
                         onChange={(e) =>
@@ -517,6 +716,7 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
                     </label>
                     <input
                       type="text"
+                      list="discovered-field-pointers-list"
                       value={rule.uri}
                       aria-label={`uri pointer for ${rule.toolName || 'default'}`}
                       onChange={(e) =>
@@ -540,6 +740,7 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
                     </label>
                     <input
                       type="text"
+                      list="discovered-field-pointers-list"
                       value={rule.title}
                       aria-label={`title pointer for ${rule.toolName || 'default'}`}
                       onChange={(e) =>
@@ -559,6 +760,7 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
                     </label>
                     <input
                       type="text"
+                      list="discovered-field-pointers-list"
                       value={rule.snippet}
                       aria-label={`snippet pointer for ${rule.toolName || 'default'}`}
                       onChange={(e) =>
@@ -576,6 +778,7 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
                     </label>
                     <input
                       type="text"
+                      list="discovered-field-pointers-list"
                       value={rule.id}
                       aria-label={`id pointer for ${rule.toolName || 'default'}`}
                       onChange={(e) =>
@@ -592,6 +795,29 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
         </div>
       )}
 
+      {/* Shared HTML5 datalists populated from the current Sample/Live MCP Tool Response JSON */}
+      {discoveredSchema && (
+        <>
+          <datalist id="discovered-items-pointers-list">
+            {discoveredSchema.itemsCandidates
+              .filter((c) => !c.isRoot && c.pointer)
+              .map((c) => (
+                <option key={c.pointer} value={c.pointer}>
+                  {c.label}
+                </option>
+              ))}
+          </datalist>
+          <datalist id="discovered-field-pointers-list">
+            {discoveredSchema.fieldCandidates.map((f) => (
+              <option key={f.pointer} value={f.pointer}>
+                {f.suggestedRole ? `[${f.suggestedRole.toUpperCase()}] ` : ''}
+                {f.sampleValue}
+              </option>
+            ))}
+          </datalist>
+        </>
+      )}
+
       {/* LIVE JSON POINTER & CITATION CHIP PREVIEWER */}
       {showLivePreview && (
         <div className="bg-gray-950/90 p-4 rounded-lg border border-purple-900/60 space-y-4">
@@ -604,7 +830,7 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
                 </h5>
               </div>
               <p className="text-[11px] text-gray-400 mt-0.5">
-                Paste a sample MCP tool response payload below to verify how Gemini Enterprise resolves pointers, decodes wrappers, and renders citation chips.
+                Paste a sample MCP tool response, synthesize a payload from your pointers, or execute the live tool to auto-discover pointers.
               </p>
             </div>
 
@@ -620,14 +846,21 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
                 className="bg-gray-900 border border-gray-700 rounded px-2.5 py-1 text-xs font-mono text-purple-300 focus:outline-none focus:border-purple-500 w-40"
               />
               {citationMappings.filter((r) => r.toolName !== '').length > 0 && (
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-wrap">
                   {citationMappings
                     .filter((r) => r.toolName !== '')
                     .map((r) => (
                       <button
                         key={r.toolName}
                         type="button"
-                        onClick={() => setPreviewToolName(r.toolName)}
+                        onClick={() => {
+                          setPreviewToolName(r.toolName);
+                          if (activePresetId === 'custom_synthesized') {
+                            setSampleJsonText(
+                              synthesizeSampleJsonFromRule(r.toolName, citationMappings)
+                            );
+                          }
+                        }}
                         className={`px-2 py-1 rounded text-[11px] font-mono transition-colors ${
                           effectivePreviewTool === r.toolName
                             ? 'bg-purple-600 text-white font-bold'
@@ -642,12 +875,68 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
             </div>
           </div>
 
+          {/* Live Tool Probe Feedback Banners */}
+          {probeSuccessNote && (
+            <div className="p-2.5 rounded bg-emerald-950/40 border border-emerald-800/80 text-emerald-300 text-xs flex items-center justify-between gap-2">
+              <span>{probeSuccessNote}</span>
+              <button
+                type="button"
+                onClick={() => setProbeSuccessNote(null)}
+                className="text-emerald-400 hover:text-white text-[11px]"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+          {probeError && (
+            <div className="p-2.5 rounded bg-red-950/40 border border-red-800/80 text-red-300 text-xs flex items-center justify-between gap-2">
+              <span>{probeError}</span>
+              <button
+                type="button"
+                onClick={() => setProbeError(null)}
+                className="text-red-400 hover:text-white text-[11px]"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {/* Sample Payload Presets Bar */}
           <div className="flex flex-wrap items-center justify-between gap-2 bg-gray-900/70 p-2.5 rounded border border-gray-800">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] font-semibold text-gray-400 mr-1">
                 Sample Tool Outputs:
               </span>
+              <button
+                type="button"
+                onClick={() => handleSynthesizeSampleForTool(effectivePreviewTool)}
+                className={`px-2.5 py-1 rounded text-[11px] font-semibold border transition-colors ${
+                  activePresetId === 'custom_synthesized'
+                    ? 'bg-purple-950 text-purple-200 border-purple-600'
+                    : 'bg-gray-950 text-purple-300 border-purple-900/70 hover:border-purple-700'
+                }`}
+                title="Synthesize a sample JSON payload that matches the configured pointers for the current tool"
+              >
+                Match Current Pointers
+              </button>
+              {onProbeLiveTool && instanceUri && (
+                <button
+                  type="button"
+                  disabled={isProbingTool || !effectivePreviewTool.trim()}
+                  onClick={() => handleRunLiveToolAndDiscover(effectivePreviewTool)}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold border transition-colors flex items-center gap-1 ${
+                    activePresetId === 'live_tool_response'
+                      ? 'bg-emerald-950 text-emerald-200 border-emerald-600'
+                      : 'bg-emerald-950/40 text-emerald-300 border-emerald-800/80 hover:bg-emerald-900/60'
+                  } disabled:opacity-40`}
+                  title="Execute tools/call on the live MCP server and populate the real JSON response"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  {isProbingTool ? 'Calling MCP Tool...' : 'Fetch Live Tool Output'}
+                </button>
+              )}
               {SAMPLE_MCP_RESPONSE_PRESETS.map((preset) => (
                 <button
                   key={preset.id}
@@ -665,20 +954,85 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
               ))}
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                const preset =
-                  SAMPLE_MCP_RESPONSE_PRESETS.find((p) => p.id === activePresetId) ||
-                  SAMPLE_MCP_RESPONSE_PRESETS[0];
-                handleApplyPresetToCurrentTool(preset);
-              }}
-              className="px-2.5 py-1 rounded text-[11px] font-semibold bg-purple-900/60 hover:bg-purple-800/80 text-purple-200 border border-purple-700/80 transition-colors"
-              title="Apply the active sample's recommended pointers to the simulated tool"
-            >
-              Apply Recommended Pointers
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleAutoDetectFromCurrentSample}
+                disabled={!discoveredSchema}
+                className="px-2.5 py-1 rounded text-[11px] font-semibold bg-emerald-900/60 hover:bg-emerald-800/80 disabled:opacity-40 text-emerald-200 border border-emerald-700/80 transition-colors"
+                title="Inspect the JSON in the Sample box and auto-populate the best items, uri, title, snippet, and id pointers"
+              >
+                Auto-Detect Pointers from JSON
+              </button>
+              {SAMPLE_MCP_RESPONSE_PRESETS.some((p) => p.id === activePresetId) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const preset =
+                      SAMPLE_MCP_RESPONSE_PRESETS.find((p) => p.id === activePresetId) ||
+                      SAMPLE_MCP_RESPONSE_PRESETS[0];
+                    handleApplyPresetToCurrentTool(preset);
+                  }}
+                  className="px-2.5 py-1 rounded text-[11px] font-semibold bg-purple-900/60 hover:bg-purple-800/80 text-purple-200 border border-purple-700/80 transition-colors"
+                  title="Apply the active preset's recommended pointers to the simulated tool"
+                >
+                  Apply Recommended Pointers
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* Discovered JSON Pointers Quick-Assign Bar */}
+          {discoveredSchema && discoveredSchema.fieldCandidates.length > 0 && (
+            <div className="bg-gray-900/60 p-2.5 rounded border border-gray-800/90 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-gray-300">
+                  Discovered JSON Pointers in Sample ({discoveredSchema.fieldCandidates.length} fields) — click any field to assign to &quot;{effectivePreviewTool}&quot;:
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto custom-scrollbar">
+                {discoveredSchema.fieldCandidates.map((cand) => (
+                  <div
+                    key={cand.pointer}
+                    className="inline-flex items-center gap-1 bg-gray-950 border border-gray-800 rounded px-2 py-0.5 text-[11px]"
+                    title={`Sample value: ${cand.sampleValue}`}
+                  >
+                    <span className="font-mono text-purple-300 font-semibold">
+                      {cand.pointer}
+                    </span>
+                    <span className="text-gray-500 truncate max-w-[140px]">
+                      = &quot;{cand.sampleValue}&quot;
+                    </span>
+                    {(['uri', 'title', 'snippet', 'id'] as const).map((role) => (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => {
+                          const targetIdx = citationMappings.findIndex(
+                            (r) => r.toolName === effectivePreviewTool
+                          );
+                          if (targetIdx >= 0) {
+                            onUpdateCitationMapping(targetIdx, {
+                              ...citationMappings[targetIdx],
+                              [role]: cand.pointer,
+                            });
+                          }
+                        }}
+                        className={`px-1 py-0.2 rounded text-[9px] font-mono uppercase transition-colors ${
+                          cand.suggestedRole === role
+                            ? 'bg-purple-800/80 text-white font-bold'
+                            : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800'
+                        }`}
+                        title={`Set ${role}="${cand.pointer}" on ${effectivePreviewTool}`}
+                      >
+                        {role}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Two-Column Split: Sample JSON Input vs Extracted Citation Chips */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

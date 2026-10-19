@@ -21,6 +21,8 @@ export interface DynamicToolItem {
   displayName?: string;
   description?: string;
   enabled: boolean;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
 }
 
 export interface CustomParamItem {

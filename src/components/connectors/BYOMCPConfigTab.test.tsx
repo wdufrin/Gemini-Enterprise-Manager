@@ -26,6 +26,8 @@ import {
   previewCitationExtraction,
   parseCitationMappingsFromApi,
   serializeCitationMappingsToApi,
+  extractCandidatePointersFromSample,
+  synthesizeSampleJsonFromRule,
 } from '../../../components/connectors/byomcp/citationPointerUtils';
 import * as api from '../../../services/apiService';
 import { Config } from '../../../types';
@@ -33,6 +35,7 @@ import { Config } from '../../../types';
 vi.mock('../../../services/apiService', () => ({
   updateDataConnector: vi.fn(),
   listMcpTools: vi.fn(),
+  callMcpTool: vi.fn(),
 }));
 
 const mockConfig: Config = {
@@ -515,5 +518,64 @@ describe('citationPointerUtils (RFC 6901 & citation_mappings validation and eval
     expect(res3.wrapperType).toBe('mcp_unstructured_text');
     expect(res3.fallbackTriggered).toBe(true);
   });
+
+  it('extracts candidate RFC 6901 pointers from nested MCP tool JSON and rejects malformed JSON', () => {
+    // Negative case: invalid JSON returns null
+    expect(extractCandidatePointersFromSample('not valid json {')).toBeNull();
+    expect(extractCandidatePointersFromSample('null')).toBeNull();
+
+    // Positive case: wrapped MCP content[0].text containing nested Figma design system response
+    const figmaWrappedResponse = JSON.stringify({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            status: 'success',
+            source: 'Figma Enterprise Design System API (gm_corporate.figma.json)',
+            data: {
+              $schema: 'https://tr.designtokens.org/format/',
+              brand: 'General Motors',
+              figmaFileKey: 'gm-corp-brand-system-2026-v4',
+            },
+          }),
+        },
+      ],
+    });
+
+    const schema = extractCandidatePointersFromSample(figmaWrappedResponse);
+    expect(schema).not.toBeNull();
+    expect(schema!.recommendedRule.itemsIsRoot).toBe(true);
+    expect(schema!.recommendedRule.uri).toBe('/data/$schema');
+    expect(schema!.recommendedRule.title).toBe('/source');
+    expect(schema!.recommendedRule.id).toBe('/data/figmaFileKey');
+  });
+
+  it('synthesizes a matching sample JSON from custom tool pointers so preview renders valid chips immediately', () => {
+    const customRules = parseCitationMappingsFromApi({
+      validate_slide_brand_compliance: {
+        items: '',
+        uri: '/googleSlidesUrl',
+        title: '/brand',
+        snippet: '/approvedFont',
+        id: '/googleSlidesId',
+      },
+    });
+
+    const synthesized = synthesizeSampleJsonFromRule(
+      'validate_slide_brand_compliance',
+      customRules
+    );
+    const preview = previewCitationExtraction(
+      synthesized,
+      'validate_slide_brand_compliance',
+      customRules
+    );
+
+    expect(preview.ok).toBe(true);
+    expect(preview.chips).toHaveLength(1);
+    expect(preview.chips[0].hasValidChip).toBe(true);
+    expect(preview.chips[0].uri).toContain('https://docs.google.com/presentation/d/');
+  });
 });
+
 

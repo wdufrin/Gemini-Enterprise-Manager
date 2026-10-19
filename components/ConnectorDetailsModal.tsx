@@ -34,7 +34,8 @@ interface ConnectorDetailsModalProps {
   onClose: () => void;
   title: string;
   data: ConnectorDiagnosticsDetails | string | null | undefined;
-  status: 'success' | 'error' | 'unvalidated';
+  status: 'success' | 'error' | 'unvalidated' | 'loading';
+  isLoading?: boolean;
   config: Config;
   onRefreshSuccess?: () => void;
   onCloneConnector?: (connector: DataConnector) => void;
@@ -56,6 +57,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
   title,
   data,
   status,
+  isLoading = false,
   config,
   onRefreshSuccess,
   onCloneConnector,
@@ -177,6 +179,62 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
   if (!isOpen) return null;
 
   const renderContent = () => {
+    if (isLoading || status === 'loading') {
+      return (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="connector-details-loading"
+          className="py-12 px-6 flex flex-col items-center justify-center text-center space-y-6 animate-fadeIn"
+        >
+          <div className="relative flex items-center justify-center">
+            <div className="h-16 w-16 rounded-full border-4 border-blue-500/20" />
+            <svg
+              className="animate-spin h-16 w-16 text-blue-400 absolute inset-0"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="3"
+              />
+              <path
+                className="opacity-90"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              />
+            </svg>
+          </div>
+
+          <div className="space-y-1.5 max-w-md">
+            <h3 className="text-base font-bold text-white">
+              Loading Connector Details &amp; Diagnostics...
+            </h3>
+            <p className="text-xs text-gray-400">
+              Inspecting Discovery Engine connector state, entity data stores, recent operations, and Cloud Logging entries.
+            </p>
+          </div>
+
+          <div className="w-full max-w-lg bg-gray-950/80 border border-gray-800 rounded-lg p-4 space-y-2.5 text-left">
+            {[
+              'Fetching DataConnector configuration & actionParams...',
+              'Checking linked DataStores & BAP / MCP endpoint status...',
+              'Scanning recent sync operations & Cloud Logging signals...',
+            ].map((stepText, idx) => (
+              <div key={idx} className="flex items-center gap-2.5 text-xs text-gray-300">
+                <span className="h-2 w-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                <span>{stepText}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     if (typeof data === 'string') {
       return <div className="whitespace-pre-wrap text-gray-300 font-mono text-sm">{data}</div>;
     }
@@ -851,12 +909,17 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
         tabIndex={-1}
         className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-gray-700 ring-1 ring-white/10 overflow-hidden"
       >
-        <div className={`p-4 border-b ${status === 'success' ? 'border-green-900/50 bg-green-900/10' : status === 'unvalidated' ? 'border-gray-700 bg-gray-800' : 'border-red-900/50 bg-red-900/10'} flex justify-between items-center rounded-t-lg shrink-0`}>
+        <div className={`p-4 border-b ${status === 'success' ? 'border-green-900/50 bg-green-900/10' : status === 'loading' || isLoading ? 'border-blue-900/50 bg-blue-900/10' : status === 'unvalidated' ? 'border-gray-700 bg-gray-800' : 'border-red-900/50 bg-red-900/10'} flex justify-between items-center rounded-t-lg shrink-0`}>
           <h2
             id={titleId}
-            className={`text-xl font-bold ${status === 'success' ? 'text-green-400' : status === 'unvalidated' ? 'text-gray-300' : 'text-red-400'} flex items-center gap-2`}
+            className={`text-xl font-bold ${status === 'success' ? 'text-green-400' : status === 'loading' || isLoading ? 'text-blue-300' : status === 'unvalidated' ? 'text-gray-300' : 'text-red-400'} flex items-center gap-2`}
           >
-            {status === 'success' ? (
+            {status === 'loading' || isLoading ? (
+              <svg className="animate-spin h-6 w-6 text-blue-400 shrink-0" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+            ) : status === 'success' ? (
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             ) : status === 'unvalidated' ? (
               <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>

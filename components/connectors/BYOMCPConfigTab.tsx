@@ -93,6 +93,7 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
     handleSwitchMode,
     handleTestConnectivity,
     handleRefreshToolsFromEndpoint,
+    handleProbeLiveTool,
     handleApplyPreset,
     handleToggleTool,
     handleToggleAllTools,
@@ -320,6 +321,8 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
                   onRemoveCitationMapping={handleRemoveCitationMapping}
                   onClearAllCitationMappings={handleClearAllCitationMappings}
                   focusedToolName={focusedCitationTool}
+                  instanceUri={instanceUri}
+                  onProbeLiveTool={handleProbeLiveTool}
                 />
               </div>
             </>
