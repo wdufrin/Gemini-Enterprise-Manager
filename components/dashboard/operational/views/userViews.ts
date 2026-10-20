@@ -226,18 +226,33 @@ LIMIT 100;`
 SELECT
   timestamp,
   trace,
-  JSON_VALUE(json_payload.userIamPrincipal) AS user_email,
-  JSON_VALUE(json_payload.logMetadata.methodName) AS method_name,
   COALESCE(
-    JSON_VALUE(json_payload.request.query.text),
-    (SELECT STRING_AGG(JSON_VALUE(p.text), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(json_payload.request.query.parts)) p)
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.userIamPrincipal'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.useriamprincipal')
+  ) AS user_email,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logMetadata.methodName'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logmetadata.methodname')
+  ) AS method_name,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.query.text'),
+    (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(json_payload), '$.request.query.parts')) p),
+    JSON_VALUE(JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.query'), '$.text'),
+    (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.query'), '$.parts')) p),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.query')
   ) AS user_query,
-  JSON_VALUE(json_payload.serviceTextReply) AS assistant_response,
-  JSON_VALUE(json_payload.response.answer.name) AS answer_name,
-  JSON_VALUE(json_payload.response.answer.state) AS answer_state
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.serviceTextReply'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.servicetextreply')
+  ) AS assistant_response,
+  JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.answer.name') AS answer_name,
+  JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.answer.state') AS answer_state
 FROM ${logsSource}
 WHERE log_name LIKE "%gemini_enterprise_user_activity%"
-  AND JSON_VALUE(json_payload.logMetadata.methodName) IN ("StreamAssist", "Assist")
+  AND COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logMetadata.methodName'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logmetadata.methodname')
+  ) IN ("StreamAssist", "Assist")
 QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id ORDER BY timestamp DESC) = 1;`;
             }
 
@@ -256,7 +271,10 @@ SELECT
   ) AS method_name,
   COALESCE(
     JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query.text'),
-    (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(jsonPayload), '$.request.query.parts')) p)
+    (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(jsonPayload), '$.request.query.parts')) p),
+    JSON_VALUE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query'), '$.text'),
+    (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query'), '$.parts')) p),
+    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query')
   ) AS user_query,
   COALESCE(
     JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.serviceTextReply'),
@@ -312,17 +330,32 @@ LIMIT 100;`
 SELECT
   timestamp,
   COALESCE(trace, insert_id) AS trace,
-  JSON_VALUE(json_payload.userIamPrincipal) AS user_email,
-  JSON_VALUE(json_payload.logMetadata.methodName) AS method_name,
-  JSON_VALUE(json_payload.request.query) AS search_query,
-  JSON_VALUE(json_payload.response.attributionToken) AS attribution_token,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.userIamPrincipal'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.useriamprincipal')
+  ) AS user_email,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logMetadata.methodName'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logmetadata.methodname')
+  ) AS method_name,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.query'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.searchQuery')
+  ) AS search_query,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.attributionToken'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.attributiontoken')
+  ) AS attribution_token,
   ARRAY(
-    SELECT JSON_VALUE(r.id)
-    FROM UNNEST(JSON_QUERY_ARRAY(json_payload.response.results)) r
+    SELECT JSON_VALUE(r, '$.id')
+    FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(json_payload), '$.response.results')) r
   ) AS result_ids
 FROM ${logsSource}
 WHERE log_name LIKE "%gemini_enterprise_user_activity%"
-  AND JSON_VALUE(json_payload.logMetadata.methodName) = "Search"
+  AND COALESCE(
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logMetadata.methodName'),
+    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logmetadata.methodname')
+  ) = "Search"
 QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id ORDER BY timestamp DESC) = 1;`;
             }
 

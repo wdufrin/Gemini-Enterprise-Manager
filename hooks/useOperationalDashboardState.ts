@@ -146,6 +146,7 @@ export function useOperationalDashboardState({
     const brokenViewsRef = useRef<Map<string, string>>(new Map());
     const [stubViews, setStubViews] = useState<Set<string>>(new Set());
     const stubViewsRef = useRef<Set<string>>(new Set());
+    const autoRepairedViewsRef = useRef<Set<string>>(new Set());
 
     const executeBigQueryWithPolling = useCallback(
         async (targetProject: string, query: string): Promise<BigQueryQueryResponse> => {
@@ -246,6 +247,27 @@ export function useOperationalDashboardState({
         );
     };
 
+    const isMissingSourceTableError = (msg: string) => {
+        const lower = msg.toLowerCase();
+        return (
+            lower.includes('does not match any table') ||
+            lower.includes('not found: table') ||
+            lower.includes('was not found in location')
+        );
+    };
+
+    const isViewSchemaError = (msg: string) => {
+        const lower = msg.toLowerCase();
+        return (
+            lower.includes('cannot resolve field') ||
+            lower.includes('cannot access field') ||
+            lower.includes('unrecognized name') ||
+            lower.includes('no matching signature') ||
+            lower.includes('field name') ||
+            lower.includes('does not match any table')
+        );
+    };
+
     useEffect(() => {
         setLiveData({});
         setViewRows({});
@@ -256,6 +278,7 @@ export function useOperationalDashboardState({
         brokenViewsRef.current = new Map();
         setStubViews(new Set());
         stubViewsRef.current = new Set();
+        autoRepairedViewsRef.current = new Set();
         setSchemaValidationReport(null);
     }, [datasetId]);
 
@@ -316,6 +339,103 @@ export function useOperationalDashboardState({
         [currentDatasetTables]
     );
 
+    const executeCreateViewWithFallback = useCallback(
+        async (targetViewId: string): Promise<{ usedEmptyFallback: boolean }> => {
+            const viewDef = OPERATIONAL_VIEWS[targetViewId];
+            if (!viewDef || !projectId || !datasetId) {
+                return { usedEmptyFallback: false };
+            }
+
+            // Ensure upstream view exists when creating v_user_connector_usage_30d
+            if (
+                targetViewId === 'v_user_connector_usage_30d' &&
+                !installedViews.has('v_user_connector_usage') &&
+                !tableNames.has('v_user_connector_usage')
+            ) {
+                await executeCreateViewWithFallback('v_user_connector_usage');
+            }
+
+            const primaryDdl = viewDef.getDdl(projectId, datasetId, tableNames);
+            try {
+                await runBigQueryQuery(projectId, primaryDdl);
+                stubViewsRef.current.delete(targetViewId);
+                setStubViews((prev) => {
+                    if (!prev.has(targetViewId)) return prev;
+                    const next = new Set(prev);
+                    next.delete(targetViewId);
+                    return next;
+                });
+                return { usedEmptyFallback: false };
+            } catch (primaryErr: unknown) {
+                const primaryMsg =
+                    primaryErr instanceof Error ? primaryErr.message : String(primaryErr || '');
+                if (!isMissingSourceTableError(primaryMsg)) {
+                    throw primaryErr;
+                }
+
+                // 1. Retry by toggling between un-suffixed partitioned table and `_*` date-sharded wildcard
+                // in case local `tableNames` state was stale relative to BigQuery.
+                const alternateDdl = toggleWildcardInDdl(primaryDdl);
+                if (alternateDdl && alternateDdl !== primaryDdl) {
+                    try {
+                        await runBigQueryQuery(projectId, alternateDdl);
+                        stubViewsRef.current.delete(targetViewId);
+                        setStubViews((prev) => {
+                            if (!prev.has(targetViewId)) return prev;
+                            const next = new Set(prev);
+                            next.delete(targetViewId);
+                            return next;
+                        });
+                        return { usedEmptyFallback: false };
+                    } catch (altErr: unknown) {
+                        const altMsg =
+                            altErr instanceof Error ? altErr.message : String(altErr || '');
+                        if (!isMissingSourceTableError(altMsg)) {
+                            throw altErr;
+                        }
+                    }
+                }
+
+                // 2. Neither the un-suffixed table nor any `_YYYYMMDD` fragment exists yet
+                // (e.g., a newly created log sink before Cloud Logging flushes the first log entry).
+                // Provision an empty schema-compatible view so the view and downstream queries succeed,
+                // and track it in stubViews so it is not falsely badged as LIVE until base tables arrive.
+                const emptyDdl = getEmptyViewDdl(projectId, datasetId, targetViewId);
+                if (emptyDdl) {
+                    await runBigQueryQuery(projectId, emptyDdl);
+                    stubViewsRef.current.add(targetViewId);
+                    setStubViews((prev) => new Set(prev).add(targetViewId));
+                    return { usedEmptyFallback: true };
+                }
+
+                throw primaryErr;
+            }
+        },
+        [projectId, datasetId, installedViews, tableNames]
+    );
+
+    const queryViewWithAutoRepair = useCallback(
+        async (viewId: string, querySql: string, fallbackQuerySql?: string): Promise<BigQueryQueryResponse> => {
+            try {
+                return await executeBigQueryWithPolling(projectId, querySql);
+            } catch (initialErr) {
+                const initialMsg = toErrorMessage(initialErr);
+                if (isViewSchemaError(initialMsg) && !autoRepairedViewsRef.current.has(viewId)) {
+                    autoRepairedViewsRef.current.add(viewId);
+                    try {
+                        await executeCreateViewWithFallback(viewId);
+                        return await executeBigQueryWithPolling(projectId, fallbackQuerySql || querySql);
+                    } catch {
+                        // Auto-repair failed (e.g., read-only IAM permissions); surface original BigQuery error
+                        throw initialErr;
+                    }
+                }
+                throw initialErr;
+            }
+        },
+        [projectId, executeBigQueryWithPolling, executeCreateViewWithFallback]
+    );
+
     const fetchViewRows = useCallback(
         async (viewId: string) => {
             if (!projectId || !datasetId || !OPERATIONAL_VIEWS[viewId]) return;
@@ -330,7 +450,7 @@ export function useOperationalDashboardState({
                 const actualQuery = actualView !== viewId
                     ? query.replace(new RegExp(`\\.${viewId}\`?`, 'g'), `.${actualView}\``)
                     : query;
-                const res = await executeBigQueryWithPolling(projectId, actualQuery);
+                const res = await queryViewWithAutoRepair(viewId, actualQuery, query);
                 const fields = res?.schema?.fields || [];
                 const rows = (res?.rows || []).map((r: BigQueryTableRow) => {
                     const obj: Record<string, unknown> = {};
@@ -342,6 +462,13 @@ export function useOperationalDashboardState({
                     return obj;
                 });
 
+                brokenViewsRef.current.delete(viewId);
+                setBrokenViews((prev) => {
+                    if (!prev.has(viewId)) return prev;
+                    const next = new Map(prev);
+                    next.delete(viewId);
+                    return next;
+                });
                 setViewRows((prev) => ({ ...prev, [viewId]: rows }));
             } catch (err) {
                 console.warn(`[OperationalAnalytics] Could not fetch rows for ${viewId}:`, err);
@@ -357,7 +484,7 @@ export function useOperationalDashboardState({
                 setRowsLoading((prev) => ({ ...prev, [viewId]: false }));
             }
         },
-        [projectId, datasetId, currentDatasetTables.length, installedViews, installedViewsMap, executeBigQueryWithPolling]
+        [projectId, datasetId, currentDatasetTables.length, installedViews, installedViewsMap, queryViewWithAutoRepair]
     );
 
     useEffect(() => {
@@ -385,7 +512,7 @@ export function useOperationalDashboardState({
                         const queryDaily = `SELECT CAST(event_time AS DATE) as dt, COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             GROUP BY dt ORDER BY dt ASC;`;
-                        const res = await executeBigQueryWithPolling(projectId, queryDaily);
+                        const res = await queryViewWithAutoRepair('v_consolidated_user_activity', queryDaily);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedDaily = rows.map((r: BigQueryTableRow) => ({
                             date: String(r.f?.[0]?.v || ''),
@@ -398,7 +525,7 @@ export function useOperationalDashboardState({
                             COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             GROUP BY agent ORDER BY cnt DESC LIMIT 6;`;
-                        const resAgents = await executeBigQueryWithPolling(projectId, queryAgents);
+                        const resAgents = await queryViewWithAutoRepair('v_consolidated_user_activity', queryAgents);
                         const parsedAgents = ((resAgents?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
                             name: String(r.f?.[0]?.v || 'Default'),
                             value: parseInt(String(r.f?.[1]?.v || '0'), 10)
@@ -444,7 +571,7 @@ export function useOperationalDashboardState({
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             WHERE agent_name IS NOT NULL
                             GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 8;`;
-                        const res = await executeBigQueryWithPolling(projectId, queryTokens);
+                        const res = await queryViewWithAutoRepair('v_gemini_genai_telemetry', queryTokens);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedTokens = rows.map((r: BigQueryTableRow) => ({
                             agent: String(r.f?.[0]?.v || 'Unknown'),
@@ -460,7 +587,7 @@ export function useOperationalDashboardState({
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             WHERE tool_calls IS NOT NULL AND tool_calls != ''
                             GROUP BY tool ORDER BY cnt DESC LIMIT 6;`;
-                        const resTools = await executeBigQueryWithPolling(projectId, queryTools);
+                        const resTools = await queryViewWithAutoRepair('v_gemini_genai_telemetry', queryTools);
                         const parsedTools = ((resTools?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
                             tool: String(r.f?.[0]?.v || ''),
                             count: parseInt(String(r.f?.[1]?.v || '0'), 10)
@@ -509,7 +636,7 @@ export function useOperationalDashboardState({
                             COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             GROUP BY connector_name ORDER BY cnt DESC LIMIT 6;`;
-                        const res = await executeBigQueryWithPolling(projectId, queryUsage);
+                        const res = await queryViewWithAutoRepair(connectorViewKey, queryUsage);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedUsage = rows.map((r: BigQueryTableRow) => ({
                             connector: String(r.f?.[0]?.v || ''),
@@ -523,7 +650,7 @@ export function useOperationalDashboardState({
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             WHERE user_email IS NOT NULL AND user_email != ''
                             GROUP BY user_email ORDER BY cnt DESC LIMIT 5;`;
-                        const resUsers = await executeBigQueryWithPolling(projectId, queryTopUsers);
+                        const resUsers = await queryViewWithAutoRepair(connectorViewKey, queryTopUsers);
                         const parsedTopUsers = ((resUsers?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
                             user: String(r.f?.[0]?.v || ''),
                             calls: parseInt(String(r.f?.[1]?.v || '0'), 10)
@@ -566,7 +693,7 @@ export function useOperationalDashboardState({
                             COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             GROUP BY finish_reason ORDER BY cnt DESC;`;
-                        const res = await executeBigQueryWithPolling(projectId, queryChoices);
+                        const res = await queryViewWithAutoRepair('v_consolidated_ai_choices', queryChoices);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedChoices = rows.map((r: BigQueryTableRow) => ({
                             name: String(r.f?.[0]?.v || 'UNKNOWN'),
@@ -613,7 +740,7 @@ export function useOperationalDashboardState({
                         FROM \`${projectId}.${datasetId}.${actualView}\`
                         GROUP BY agent_name
                         ORDER BY total DESC;`;
-                        const res = await executeBigQueryWithPolling(projectId, query);
+                        const res = await queryViewWithAutoRepair('v_agent_feedback', query);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedFeedback = rows.map((r: BigQueryTableRow) => ({
                             agent: String(r.f?.[0]?.v || 'General'),
@@ -671,7 +798,7 @@ export function useOperationalDashboardState({
         } finally {
             setLiveDataLoading(false);
         }
-    }, [projectId, datasetId, installedViews, installedViewsMap, executeBigQueryWithPolling]);
+    }, [projectId, datasetId, installedViews, installedViewsMap, queryViewWithAutoRepair]);
 
     useEffect(() => {
         fetchLiveData();
@@ -819,89 +946,6 @@ export function useOperationalDashboardState({
             setIsValidatingSchema(false);
         }
     }, [projectId, datasetId, installedViews, installedViewsMap, tableNames, executeBigQueryWithPolling]);
-
-    const isMissingSourceTableError = (msg: string) => {
-        const lower = msg.toLowerCase();
-        return (
-            lower.includes('does not match any table') ||
-            lower.includes('not found: table') ||
-            lower.includes('was not found in location')
-        );
-    };
-
-    const executeCreateViewWithFallback = async (
-        targetViewId: string
-    ): Promise<{ usedEmptyFallback: boolean }> => {
-        const viewDef = OPERATIONAL_VIEWS[targetViewId];
-        if (!viewDef || !projectId || !datasetId) {
-            return { usedEmptyFallback: false };
-        }
-
-        // Ensure upstream view exists when creating v_user_connector_usage_30d
-        if (
-            targetViewId === 'v_user_connector_usage_30d' &&
-            !installedViews.has('v_user_connector_usage') &&
-            !tableNames.has('v_user_connector_usage')
-        ) {
-            await executeCreateViewWithFallback('v_user_connector_usage');
-        }
-
-        const primaryDdl = viewDef.getDdl(projectId, datasetId, tableNames);
-        try {
-            await runBigQueryQuery(projectId, primaryDdl);
-            stubViewsRef.current.delete(targetViewId);
-            setStubViews((prev) => {
-                if (!prev.has(targetViewId)) return prev;
-                const next = new Set(prev);
-                next.delete(targetViewId);
-                return next;
-            });
-            return { usedEmptyFallback: false };
-        } catch (primaryErr: unknown) {
-            const primaryMsg =
-                primaryErr instanceof Error ? primaryErr.message : String(primaryErr || '');
-            if (!isMissingSourceTableError(primaryMsg)) {
-                throw primaryErr;
-            }
-
-            // 1. Retry by toggling between un-suffixed partitioned table and `_*` date-sharded wildcard
-            // in case local `tableNames` state was stale relative to BigQuery.
-            const alternateDdl = toggleWildcardInDdl(primaryDdl);
-            if (alternateDdl && alternateDdl !== primaryDdl) {
-                try {
-                    await runBigQueryQuery(projectId, alternateDdl);
-                    stubViewsRef.current.delete(targetViewId);
-                    setStubViews((prev) => {
-                        if (!prev.has(targetViewId)) return prev;
-                        const next = new Set(prev);
-                        next.delete(targetViewId);
-                        return next;
-                    });
-                    return { usedEmptyFallback: false };
-                } catch (altErr: unknown) {
-                    const altMsg =
-                        altErr instanceof Error ? altErr.message : String(altErr || '');
-                    if (!isMissingSourceTableError(altMsg)) {
-                        throw altErr;
-                    }
-                }
-            }
-
-            // 2. Neither the un-suffixed table nor any `_YYYYMMDD` fragment exists yet
-            // (e.g., a newly created log sink before Cloud Logging flushes the first log entry).
-            // Provision an empty schema-compatible view so the view and downstream queries succeed,
-            // and track it in stubViews so it is not falsely badged as LIVE until base tables arrive.
-            const emptyDdl = getEmptyViewDdl(projectId, datasetId, targetViewId);
-            if (emptyDdl) {
-                await runBigQueryQuery(projectId, emptyDdl);
-                stubViewsRef.current.add(targetViewId);
-                setStubViews((prev) => new Set(prev).add(targetViewId));
-                return { usedEmptyFallback: true };
-            }
-
-            throw primaryErr;
-        }
-    };
 
     const handleCreateView = async (viewId: string) => {
         if (!projectId || !datasetId) return;

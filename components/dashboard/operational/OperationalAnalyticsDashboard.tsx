@@ -574,7 +574,15 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                 ) : (
                     <IndividualViewDetail
                         viewId={activeViewId}
-                        data={viewRows[activeViewId] || (installedViews.has(activeViewId) ? [] : (FALLBACK_SNAPSHOT.rows[activeViewId] || []))}
+                        data={
+                            brokenViews.has(activeViewId) &&
+                            (!viewRows[activeViewId] || viewRows[activeViewId].length === 0)
+                                ? FALLBACK_SNAPSHOT.rows[activeViewId] || []
+                                : viewRows[activeViewId] ||
+                                  (installedViews.has(activeViewId)
+                                      ? []
+                                      : FALLBACK_SNAPSHOT.rows[activeViewId] || [])
+                        }
                         projectId={projectId}
                         datasetId={datasetId}
                         installedViews={installedViews}

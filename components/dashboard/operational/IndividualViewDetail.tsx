@@ -293,7 +293,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
                     data={data}
                     onRowClick={onRowClick}
                     isLoading={isLoading}
-                    isSimulated={!isInstalled}
+                    isSimulated={!isInstalled || brokenViews.has(viewId)}
                 />
             </div>
         </div>

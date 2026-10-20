@@ -40,7 +40,7 @@ WITH unified_calls AS (
     JSON_VALUE(p, "$.name") AS tool_name,
     "Agent Tool" AS connector_type
   FROM ${logsSource} t,
-  UNNEST(JSON_QUERY_ARRAY(t.json_payload, '$."gen_ai.output.messages"')) m,
+  UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(t.json_payload), '$."gen_ai.output.messages"')) m,
   UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
   WHERE t.log_name LIKE '%gen_ai.client.inference.operation.details%'
     AND JSON_VALUE(p, "$.name") IS NOT NULL
@@ -52,21 +52,30 @@ WITH unified_calls AS (
     t.timestamp,
     t.insert_id AS call_id,
     COALESCE(
-      REGEXP_EXTRACT(JSON_VALUE(t.json_payload, "$.logMetadata.name"), r"/engines/([a-zA-Z0-9_-]+?)(?:[-_][0-9]{10,})"),
-      REGEXP_EXTRACT(JSON_VALUE(t.json_payload, "$.logMetadata.name"), r"/engines/([^/]+)")
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(t.json_payload), "$.logMetadata.name"), JSON_VALUE(TO_JSON_STRING(t.json_payload), "$.logmetadata.name")), r"/engines/([a-zA-Z0-9_-]+?)(?:[-_][0-9]{10,})"),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(t.json_payload), "$.logMetadata.name"), JSON_VALUE(TO_JSON_STRING(t.json_payload), "$.logmetadata.name")), r"/engines/([^/]+)")
     ) AS tool_name,
     "Search Data Source" AS connector_type
   FROM ${logsSource} t
   WHERE t.log_name LIKE '%gemini_enterprise_user_activity%'
-    AND JSON_VALUE(t.json_payload, "$.logMetadata.methodName") = "Search"
+    AND COALESCE(
+      JSON_VALUE(TO_JSON_STRING(t.json_payload), "$.logMetadata.methodName"),
+      JSON_VALUE(TO_JSON_STRING(t.json_payload), "$.logmetadata.methodname")
+    ) = "Search"
 ),
 user_map AS (
   SELECT
     trace,
-    JSON_VALUE(json_payload.userIamPrincipal) AS user_email
+    COALESCE(
+      JSON_VALUE(TO_JSON_STRING(json_payload), '$.userIamPrincipal'),
+      JSON_VALUE(TO_JSON_STRING(json_payload), '$.useriamprincipal')
+    ) AS user_email
   FROM ${logsSource}
   WHERE log_name LIKE "%gemini_enterprise_user_activity%"
-    AND JSON_VALUE(json_payload.userIamPrincipal) IS NOT NULL
+    AND COALESCE(
+      JSON_VALUE(TO_JSON_STRING(json_payload), '$.userIamPrincipal'),
+      JSON_VALUE(TO_JSON_STRING(json_payload), '$.useriamprincipal')
+    ) IS NOT NULL
   QUALIFY ROW_NUMBER() OVER(PARTITION BY trace ORDER BY timestamp DESC) = 1
 )
 SELECT
