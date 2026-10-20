@@ -355,9 +355,19 @@ export function useOperationalDashboardState({
                 await executeCreateViewWithFallback('v_user_connector_usage');
             }
 
+            const runDdlQuery = async (ddlSql: string) => {
+                const res = await runBigQueryQuery(projectId, ddlSql);
+                if (res?.error || (res?.errors && res.errors.length > 0)) {
+                    throw new Error(
+                        res.error?.message || res.errors?.[0]?.message || 'Failed to create BigQuery view'
+                    );
+                }
+                return res;
+            };
+
             const primaryDdl = viewDef.getDdl(projectId, datasetId, tableNames);
             try {
-                await runBigQueryQuery(projectId, primaryDdl);
+                await runDdlQuery(primaryDdl);
                 stubViewsRef.current.delete(targetViewId);
                 setStubViews((prev) => {
                     if (!prev.has(targetViewId)) return prev;
@@ -378,7 +388,7 @@ export function useOperationalDashboardState({
                 const alternateDdl = toggleWildcardInDdl(primaryDdl);
                 if (alternateDdl && alternateDdl !== primaryDdl) {
                     try {
-                        await runBigQueryQuery(projectId, alternateDdl);
+                        await runDdlQuery(alternateDdl);
                         stubViewsRef.current.delete(targetViewId);
                         setStubViews((prev) => {
                             if (!prev.has(targetViewId)) return prev;
@@ -402,7 +412,7 @@ export function useOperationalDashboardState({
                 // and track it in stubViews so it is not falsely badged as LIVE until base tables arrive.
                 const emptyDdl = getEmptyViewDdl(projectId, datasetId, targetViewId);
                 if (emptyDdl) {
-                    await runBigQueryQuery(projectId, emptyDdl);
+                    await runDdlQuery(emptyDdl);
                     stubViewsRef.current.add(targetViewId);
                     setStubViews((prev) => new Set(prev).add(targetViewId));
                     return { usedEmptyFallback: true };

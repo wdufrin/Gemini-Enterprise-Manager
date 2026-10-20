@@ -79,7 +79,7 @@ WITH raw_inferences AS (
       SELECT STRING_AGG(
         CONCAT(
           JSON_VALUE(p, '$.name'),
-          IF(JSON_QUERY(p, '$.arguments') IS NOT NULL, CONCAT('(', TO_JSON_STRING(JSON_QUERY(p, '$.arguments')), ')'), '')
+          IF(JSON_QUERY(p, '$.arguments') IS NOT NULL, CONCAT('(', JSON_QUERY(p, '$.arguments'), ')'), '')
         ),
         '; '
       )
@@ -150,13 +150,16 @@ FROM ranked_steps;`;
                 ? `SELECT
     trace,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+      JSON_VALUE(payload, '$.userIamPrincipal'),
+      JSON_VALUE(payload, '$.useriamprincipal')
     ) AS user_email
-  FROM ${sinkActivity.tableRef}
+  FROM (
+    SELECT timestamp, trace, TO_JSON_STRING(jsonPayload) AS payload
+    FROM ${sinkActivity.tableRef}
+  )
   WHERE COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+    JSON_VALUE(payload, '$.userIamPrincipal'),
+    JSON_VALUE(payload, '$.useriamprincipal')
   ) IS NOT NULL
   QUALIFY ROW_NUMBER() OVER(PARTITION BY trace ORDER BY timestamp DESC) = 1`
                 : `SELECT CAST(NULL AS STRING) AS trace, CAST(NULL AS STRING) AS user_email FROM (SELECT 1) WHERE FALSE`;
@@ -168,20 +171,30 @@ WITH raw_inferences AS (
     t.trace,
     t.spanId AS span_id,
     t.insertId AS insert_id,
-    JSON_VALUE(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.conversation.id"') AS conversation_id,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.agent.name"'),
+      JSON_VALUE(t.payload, '$.gen_ai_conversation_id'),
+      JSON_VALUE(t.payload, '$."gen_ai.conversation.id"')
+    ) AS conversation_id,
+    COALESCE(
+      JSON_VALUE(t.payload, '$.gen_ai_agent_name'),
+      JSON_VALUE(t.payload, '$."gen_ai.agent.name"'),
       'root_agent'
     ) AS raw_agent_name,
     (
       SELECT STRING_AGG(JSON_VALUE(p, '$.content'), '\\n')
-      FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.input.messages"')) m,
+      FROM UNNEST(COALESCE(
+        JSON_QUERY_ARRAY(t.payload, '$.gen_ai_input_messages'),
+        JSON_QUERY_ARRAY(t.payload, '$."gen_ai.input.messages"')
+      )) m,
       UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
       WHERE JSON_VALUE(p, '$.content') IS NOT NULL
     ) AS user_prompt,
     (
       SELECT STRING_AGG(JSON_VALUE(p, '$.content'), '\\n')
-      FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.output.messages"')) m,
+      FROM UNNEST(COALESCE(
+        JSON_QUERY_ARRAY(t.payload, '$.gen_ai_output_messages'),
+        JSON_QUERY_ARRAY(t.payload, '$."gen_ai.output.messages"')
+      )) m,
       UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
       WHERE JSON_VALUE(p, '$.content') IS NOT NULL
     ) AS model_response,
@@ -189,21 +202,34 @@ WITH raw_inferences AS (
       SELECT STRING_AGG(
         CONCAT(
           JSON_VALUE(p, '$.name'),
-          IF(JSON_QUERY(p, '$.arguments') IS NOT NULL, CONCAT('(', TO_JSON_STRING(JSON_QUERY(p, '$.arguments')), ')'), '')
+          IF(JSON_QUERY(p, '$.arguments') IS NOT NULL, CONCAT('(', JSON_QUERY(p, '$.arguments'), ')'), '')
         ),
         '; '
       )
-      FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.output.messages"')) m,
+      FROM UNNEST(COALESCE(
+        JSON_QUERY_ARRAY(t.payload, '$.gen_ai_output_messages'),
+        JSON_QUERY_ARRAY(t.payload, '$."gen_ai.output.messages"')
+      )) m,
       UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
       WHERE JSON_VALUE(p, '$.name') IS NOT NULL
     ) AS tool_calls,
-    CAST(JSON_VALUE(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.usage.input_tokens"') AS INT64) AS input_tokens,
-    CAST(JSON_VALUE(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.usage.output_tokens"') AS INT64) AS output_tokens,
+    CAST(COALESCE(
+      JSON_VALUE(t.payload, '$.gen_ai_usage_input_tokens'),
+      JSON_VALUE(t.payload, '$."gen_ai.usage.input_tokens"')
+    ) AS INT64) AS input_tokens,
+    CAST(COALESCE(
+      JSON_VALUE(t.payload, '$.gen_ai_usage_output_tokens'),
+      JSON_VALUE(t.payload, '$."gen_ai.usage.output_tokens"')
+    ) AS INT64) AS output_tokens,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.response.finish_reasons"[0]'),
+      JSON_VALUE(t.payload, '$.gen_ai_response_finish_reasons[0]'),
+      JSON_VALUE(t.payload, '$."gen_ai.response.finish_reasons"[0]'),
       'stop'
     ) AS finish_reason
-  FROM ${sinkInference.tableRef} t
+  FROM (
+    SELECT timestamp, trace, spanId, insertId, TO_JSON_STRING(jsonPayload) AS payload
+    FROM ${sinkInference.tableRef}
+  ) t
   QUALIFY ROW_NUMBER() OVER(PARTITION BY t.insertId ORDER BY t.timestamp DESC) = 1
 ),
 user_map AS (
@@ -465,88 +491,95 @@ LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
 
             const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
             return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback\` AS
-WITH feedback_events AS (
+WITH raw_activity AS (
+  SELECT timestamp, insertId, trace, TO_JSON_STRING(jsonPayload) AS payload
+  FROM ${sinkActivity.tableRef}
+),
+parsed_events AS (
   SELECT
     timestamp AS event_time,
+    insertId,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
+      JSON_VALUE(payload, '$.userIamPrincipal'),
+      JSON_VALUE(payload, '$.useriamprincipal')
     ) AS user_email,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
+      JSON_VALUE(payload, '$.request.userEvent.eventType'),
+      JSON_VALUE(payload, '$.request.userevent.eventtype')
+    ) AS event_type,
+    COALESCE(
+      JSON_VALUE(payload, '$.request.userEvent.feedback.feedbackType'),
+      JSON_VALUE(payload, '$.request.userevent.feedback.feedbacktype')
     ) AS feedback,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.reasons[0]'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.reasons[0]'),
+      JSON_VALUE(payload, '$.request.userEvent.feedback.reasons[0]'),
+      JSON_VALUE(payload, '$.request.userevent.feedback.reasons[0]'),
       'REASON_UNSPECIFIED'
     ) AS reason,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.comment'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.comment')
+      JSON_VALUE(payload, '$.request.userEvent.feedback.comment'),
+      JSON_VALUE(payload, '$.request.userevent.feedback.comment')
     ) AS comment,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken')
-    ) AS assist_token,
+      JSON_VALUE(payload, '$.request.userEvent.feedback.conversationInfo.assistToken'),
+      JSON_VALUE(payload, '$.request.userevent.feedback.conversationinfo.assisttoken')
+    ) AS fb_assist_token,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.agentspaceInfo.agentInfo.name'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.agentspaceinfo.agentinfo.name'),
-      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.engine'), JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.engine')), r'/engines/([^/]+)')
-    ) AS fallback_agent_name
-  FROM ${sinkActivity.tableRef}
+      JSON_VALUE(payload, '$.request.userEvent.agentspaceInfo.agentInfo.name'),
+      JSON_VALUE(payload, '$.request.userevent.agentspaceinfo.agentinfo.name'),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(payload, '$.request.userEvent.engine'), JSON_VALUE(payload, '$.request.userevent.engine')), r'/engines/([^/]+)')
+    ) AS fallback_agent_name,
+    COALESCE(
+      JSON_VALUE(payload, '$.response.assistToken'),
+      JSON_VALUE(payload, '$.response.assisttoken')
+    ) AS resp_assist_token,
+    COALESCE(
+      JSON_VALUE(payload, '$.response.agentInfo.displayName'),
+      JSON_VALUE(payload, '$.response.agentinfo.displayname'),
+      JSON_VALUE(payload, '$.request.agent.displayName'),
+      JSON_VALUE(payload, '$.request.agent.displayname')
+    ) AS resp_agent_name
+  FROM raw_activity
   WHERE COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.eventType'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.eventtype')
+    JSON_VALUE(payload, '$.request.userEvent.eventType'),
+    JSON_VALUE(payload, '$.request.userevent.eventtype')
   ) = 'add-feedback'
-  QUALIFY ROW_NUMBER() OVER(
-    PARTITION BY 
-      COALESCE(
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken'),
-        insertId
-      ),
-      COALESCE(
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
-      )
-    ORDER BY timestamp DESC
-  ) = 1
-),
-interaction_events AS (
-  SELECT
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
-    ) AS assist_token,
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.displayName'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.displayname'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayName'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayname')
-    ) AS agent_name
-  FROM ${sinkActivity.tableRef}
-  WHERE COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+  OR COALESCE(
+    JSON_VALUE(payload, '$.response.assistToken'),
+    JSON_VALUE(payload, '$.response.assisttoken')
   ) IS NOT NULL
-  QUALIFY ROW_NUMBER() OVER(
-    PARTITION BY COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
-    )
-    ORDER BY timestamp DESC
-  ) = 1
+),
+enriched_events AS (
+  SELECT
+    event_time,
+    insertId,
+    user_email,
+    event_type,
+    feedback,
+    reason,
+    comment,
+    fb_assist_token,
+    COALESCE(
+      MAX(IF(resp_assist_token IS NOT NULL, resp_agent_name, NULL)) OVER(
+        PARTITION BY COALESCE(fb_assist_token, resp_assist_token)
+      ),
+      fallback_agent_name
+    ) AS agent_name
+  FROM parsed_events
 )
 SELECT
-  COALESCE(i.agent_name, f.fallback_agent_name) AS agent_name,
-  f.feedback,
-  f.reason,
-  f.comment,
-  f.event_time,
-  f.user_email
-FROM feedback_events f
-LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
+  agent_name,
+  feedback,
+  reason,
+  comment,
+  event_time,
+  user_email
+FROM enriched_events
+WHERE event_type = 'add-feedback'
+QUALIFY ROW_NUMBER() OVER(
+  PARTITION BY COALESCE(fb_assist_token, insertId), feedback
+  ORDER BY event_time DESC
+) = 1;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   agent_name,
@@ -598,8 +631,8 @@ WITH feedback_events AS (
       JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userevent.feedback.feedbacktype')
     ) AS feedback_type,
     COALESCE(
-      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(json_payload), '$.request.userEvent.feedback.reasons')),
-      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(json_payload), '$.request.userevent.feedback.reasons'))
+      JSON_QUERY(TO_JSON_STRING(json_payload), '$.request.userEvent.feedback.reasons'),
+      JSON_QUERY(TO_JSON_STRING(json_payload), '$.request.userevent.feedback.reasons')
     ) AS feedback_reasons,
     COALESCE(
       JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userEvent.feedback.comment'),
@@ -691,105 +724,125 @@ LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
 
             const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
             return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_admin_feedback_review\` AS
-WITH feedback_events AS (
+WITH raw_activity AS (
+  SELECT timestamp, insertId, trace, jsonPayload, TO_JSON_STRING(jsonPayload) AS payload
+  FROM ${sinkActivity.tableRef}
+),
+parsed_events AS (
   SELECT
     timestamp AS feedback_time,
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
-    ) AS user_email,
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
-    ) AS feedback_type,
-    COALESCE(
-      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.reasons')),
-      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.reasons'))
-    ) AS feedback_reasons,
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.comment'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.comment')
-    ) AS feedback_comment,
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken')
-    ) AS assist_token,
-    insertId AS insert_id
-  FROM ${sinkActivity.tableRef}
-  WHERE COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.eventType'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.eventtype')
-  ) = 'add-feedback'
-  QUALIFY ROW_NUMBER() OVER(
-    PARTITION BY 
-      COALESCE(
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken'),
-        insertId
-      ),
-      COALESCE(
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
-      )
-    ORDER BY timestamp DESC
-  ) = 1
-),
-interaction_events AS (
-  SELECT
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
-    ) AS assist_token,
+    insertId AS insert_id,
     trace,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.displayName'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.displayname'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayName'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayname'),
-      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.name'), JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.name')), r'/engines/([^/]+)')
-    ) AS agent_name,
+      JSON_VALUE(payload, '$.userIamPrincipal'),
+      JSON_VALUE(payload, '$.useriamprincipal')
+    ) AS user_email,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.serviceTextReply'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.servicetextreply'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.replies[0].content.text'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.replies[0].groundedContent.content.text'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.replies[0].groundedcontent.content.text')
-    ) AS response_text,
+      JSON_VALUE(payload, '$.request.userEvent.eventType'),
+      JSON_VALUE(payload, '$.request.userevent.eventtype')
+    ) AS event_type,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query.text'),
-      (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(jsonPayload), '$.request.query.parts')) p),
-      JSON_VALUE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query'), '$.text'),
-      (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query'), '$.parts')) p),
+      JSON_VALUE(payload, '$.request.userEvent.feedback.feedbackType'),
+      JSON_VALUE(payload, '$.request.userevent.feedback.feedbacktype')
+    ) AS feedback_type,
+    COALESCE(
+      JSON_QUERY(payload, '$.request.userEvent.feedback.reasons'),
+      JSON_QUERY(payload, '$.request.userevent.feedback.reasons')
+    ) AS feedback_reasons,
+    COALESCE(
+      JSON_VALUE(payload, '$.request.userEvent.feedback.comment'),
+      JSON_VALUE(payload, '$.request.userevent.feedback.comment')
+    ) AS feedback_comment,
+    COALESCE(
+      JSON_VALUE(payload, '$.request.userEvent.feedback.conversationInfo.assistToken'),
+      JSON_VALUE(payload, '$.request.userevent.feedback.conversationinfo.assisttoken')
+    ) AS fb_assist_token,
+    COALESCE(
+      JSON_VALUE(payload, '$.request.userEvent.agentspaceInfo.agentInfo.name'),
+      JSON_VALUE(payload, '$.request.userevent.agentspaceinfo.agentinfo.name'),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(payload, '$.request.userEvent.engine'), JSON_VALUE(payload, '$.request.userevent.engine')), r'/engines/([^/]+)')
+    ) AS fallback_agent_name,
+    COALESCE(
+      JSON_VALUE(payload, '$.response.assistToken'),
+      JSON_VALUE(payload, '$.response.assisttoken')
+    ) AS resp_assist_token,
+    COALESCE(
+      JSON_VALUE(payload, '$.response.agentInfo.displayName'),
+      JSON_VALUE(payload, '$.response.agentinfo.displayname'),
+      JSON_VALUE(payload, '$.request.agent.displayName'),
+      JSON_VALUE(payload, '$.request.agent.displayname'),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(payload, '$.logMetadata.name'), JSON_VALUE(payload, '$.logmetadata.name')), r'/engines/([^/]+)')
+    ) AS resp_agent_name,
+    COALESCE(
+      JSON_VALUE(payload, '$.serviceTextReply'),
+      JSON_VALUE(payload, '$.servicetextreply'),
+      JSON_VALUE(payload, '$.response.answer.replies[0].content.text'),
+      JSON_VALUE(payload, '$.response.answer.replies[0].groundedContent.content.text'),
+      JSON_VALUE(payload, '$.response.answer.replies[0].groundedcontent.content.text')
+    ) AS resp_text,
+    COALESCE(
+      JSON_VALUE(payload, '$.request.query.text'),
+      (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(payload, '$.request.query.parts')) p),
+      JSON_VALUE(JSON_VALUE(payload, '$.request.query'), '$.text'),
+      (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(JSON_VALUE(payload, '$.request.query'), '$.parts')) p),
       JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.searchInfo.searchQuery'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.searchinfo.searchquery')
-    ) AS prompt
-  FROM ${sinkActivity.tableRef}
+      JSON_VALUE(payload, '$.request.userEvent.searchInfo.searchQuery'),
+      JSON_VALUE(payload, '$.request.userevent.searchinfo.searchquery')
+    ) AS resp_prompt
+  FROM raw_activity
   WHERE COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+    JSON_VALUE(payload, '$.request.userEvent.eventType'),
+    JSON_VALUE(payload, '$.request.userevent.eventtype')
+  ) = 'add-feedback'
+  OR COALESCE(
+    JSON_VALUE(payload, '$.response.assistToken'),
+    JSON_VALUE(payload, '$.response.assisttoken')
   ) IS NOT NULL
-  QUALIFY ROW_NUMBER() OVER(
-    PARTITION BY COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
-    )
-    ORDER BY timestamp DESC
-  ) = 1
+),
+enriched_events AS (
+  SELECT
+    feedback_time,
+    insert_id,
+    user_email,
+    event_type,
+    feedback_type,
+    feedback_reasons,
+    feedback_comment,
+    fb_assist_token AS assist_token,
+    COALESCE(
+      MAX(IF(resp_assist_token IS NOT NULL, resp_agent_name, NULL)) OVER(
+        PARTITION BY COALESCE(fb_assist_token, resp_assist_token)
+      ),
+      fallback_agent_name
+    ) AS agent_name,
+    MAX(IF(resp_assist_token IS NOT NULL, resp_prompt, NULL)) OVER(
+      PARTITION BY COALESCE(fb_assist_token, resp_assist_token)
+    ) AS prompt,
+    MAX(IF(resp_assist_token IS NOT NULL, resp_text, NULL)) OVER(
+      PARTITION BY COALESCE(fb_assist_token, resp_assist_token)
+    ) AS response,
+    MAX(IF(resp_assist_token IS NOT NULL, trace, NULL)) OVER(
+      PARTITION BY COALESCE(fb_assist_token, resp_assist_token)
+    ) AS trace
+  FROM parsed_events
 )
 SELECT
-  f.feedback_time,
-  f.user_email,
-  i.agent_name,
-  f.feedback_type,
-  f.feedback_reasons,
-  f.feedback_comment,
-  i.prompt,
-  i.response_text AS response,
-  f.assist_token,
-  i.trace
-FROM feedback_events f
-LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
+  feedback_time,
+  user_email,
+  agent_name,
+  feedback_type,
+  feedback_reasons,
+  feedback_comment,
+  prompt,
+  response,
+  assist_token,
+  trace
+FROM enriched_events
+WHERE event_type = 'add-feedback'
+QUALIFY ROW_NUMBER() OVER(
+  PARTITION BY COALESCE(assist_token, insert_id), feedback_type
+  ORDER BY feedback_time DESC
+) = 1;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   COALESCE(agent_name, 'General Assistant') AS agent_name,
@@ -842,8 +895,8 @@ WITH feedback_events AS (
       JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userevent.feedback.feedbacktype')
     ) AS feedback_type,
     COALESCE(
-      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(json_payload), '$.request.userEvent.feedback.reasons')),
-      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(json_payload), '$.request.userevent.feedback.reasons'))
+      JSON_QUERY(TO_JSON_STRING(json_payload), '$.request.userEvent.feedback.reasons'),
+      JSON_QUERY(TO_JSON_STRING(json_payload), '$.request.userevent.feedback.reasons')
     ) AS feedback_reasons,
     COALESCE(
       JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userEvent.feedback.comment'),
@@ -936,106 +989,133 @@ LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
 
             const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
             return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_agent_feedback_detailed\` AS
-WITH feedback_events AS (
+WITH raw_activity AS (
+  SELECT timestamp, insertId, trace, jsonPayload, TO_JSON_STRING(jsonPayload) AS payload
+  FROM ${sinkActivity.tableRef}
+),
+parsed_events AS (
   SELECT
     timestamp AS feedback_time,
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
-    ) AS user_email,
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
-    ) AS feedback_type,
-    COALESCE(
-      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.reasons')),
-      TO_JSON_STRING(JSON_QUERY(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.reasons'))
-    ) AS feedback_reasons,
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.comment'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.comment')
-    ) AS feedback_comment,
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken')
-    ) AS assist_token
-  FROM ${sinkActivity.tableRef}
-  WHERE COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.eventType'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.eventtype')
-  ) = 'add-feedback'
-  QUALIFY ROW_NUMBER() OVER(
-    PARTITION BY 
-      COALESCE(
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.conversationInfo.assistToken'),
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.conversationinfo.assisttoken'),
-        insertId
-      ),
-      COALESCE(
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.feedback.feedbackType'),
-        JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.feedback.feedbacktype')
-      )
-    ORDER BY timestamp DESC
-  ) = 1
-),
-interaction_events AS (
-  SELECT
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
-    ) AS assist_token,
+    insertId AS insert_id,
     trace,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.serviceTextReply'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.servicetextreply'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.replies[0].content.text')
-    ) AS result,
+      JSON_VALUE(payload, '$.userIamPrincipal'),
+      JSON_VALUE(payload, '$.useriamprincipal')
+    ) AS user_email,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.displayName'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.displayname'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayName'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayname')
-    ) AS underlying_agent_name,
+      JSON_VALUE(payload, '$.request.userEvent.eventType'),
+      JSON_VALUE(payload, '$.request.userevent.eventtype')
+    ) AS event_type,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agentsSpec.agentSpecs[0].agentId'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agentsspec.agentspecs[0].agentid'),
-      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.agent'), JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.agent')), r'/agents/([^/]+)')
-    ) AS underlying_agent_id,
-    REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.name'), JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.name')), r'/engines/([^/]+)') AS gemini_enterprise_app_id,
+      JSON_VALUE(payload, '$.request.userEvent.feedback.feedbackType'),
+      JSON_VALUE(payload, '$.request.userevent.feedback.feedbacktype')
+    ) AS feedback_type,
     COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query.text'),
-      (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(jsonPayload), '$.request.query.parts')) p),
-      JSON_VALUE(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query'), '$.text'),
-      (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query'), '$.parts')) p),
+      JSON_QUERY(payload, '$.request.userEvent.feedback.reasons'),
+      JSON_QUERY(payload, '$.request.userevent.feedback.reasons')
+    ) AS feedback_reasons,
+    COALESCE(
+      JSON_VALUE(payload, '$.request.userEvent.feedback.comment'),
+      JSON_VALUE(payload, '$.request.userevent.feedback.comment')
+    ) AS feedback_comment,
+    COALESCE(
+      JSON_VALUE(payload, '$.request.userEvent.feedback.conversationInfo.assistToken'),
+      JSON_VALUE(payload, '$.request.userevent.feedback.conversationinfo.assisttoken')
+    ) AS fb_assist_token,
+    COALESCE(
+      JSON_VALUE(payload, '$.request.userEvent.agentspaceInfo.agentInfo.name'),
+      JSON_VALUE(payload, '$.request.userevent.agentspaceinfo.agentinfo.name'),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(payload, '$.request.userEvent.engine'), JSON_VALUE(payload, '$.request.userevent.engine')), r'/engines/([^/]+)')
+    ) AS fallback_agent_name,
+    COALESCE(
+      JSON_VALUE(payload, '$.response.assistToken'),
+      JSON_VALUE(payload, '$.response.assisttoken')
+    ) AS resp_assist_token,
+    COALESCE(
+      JSON_VALUE(payload, '$.serviceTextReply'),
+      JSON_VALUE(payload, '$.servicetextreply'),
+      JSON_VALUE(payload, '$.response.answer.replies[0].content.text')
+    ) AS resp_result,
+    COALESCE(
+      JSON_VALUE(payload, '$.response.agentInfo.displayName'),
+      JSON_VALUE(payload, '$.response.agentinfo.displayname'),
+      JSON_VALUE(payload, '$.request.agent.displayName'),
+      JSON_VALUE(payload, '$.request.agent.displayname')
+    ) AS resp_underlying_agent_name,
+    COALESCE(
+      JSON_VALUE(payload, '$.request.agentsSpec.agentSpecs[0].agentId'),
+      JSON_VALUE(payload, '$.request.agentsspec.agentspecs[0].agentid'),
+      REGEXP_EXTRACT(COALESCE(JSON_VALUE(payload, '$.response.agentInfo.agent'), JSON_VALUE(payload, '$.response.agentinfo.agent')), r'/agents/([^/]+)')
+    ) AS resp_underlying_agent_id,
+    REGEXP_EXTRACT(COALESCE(JSON_VALUE(payload, '$.logMetadata.name'), JSON_VALUE(payload, '$.logmetadata.name')), r'/engines/([^/]+)') AS resp_app_id,
+    COALESCE(
+      JSON_VALUE(payload, '$.request.query.text'),
+      (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(payload, '$.request.query.parts')) p),
+      JSON_VALUE(JSON_VALUE(payload, '$.request.query'), '$.text'),
+      (SELECT STRING_AGG(JSON_VALUE(p, '$.text'), '\\n') FROM UNNEST(JSON_QUERY_ARRAY(JSON_VALUE(payload, '$.request.query'), '$.parts')) p),
       JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.query')
-    ) AS prompt
-  FROM ${sinkActivity.tableRef}
+    ) AS resp_prompt
+  FROM raw_activity
   WHERE COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
+    JSON_VALUE(payload, '$.request.userEvent.eventType'),
+    JSON_VALUE(payload, '$.request.userevent.eventtype')
+  ) = 'add-feedback'
+  OR COALESCE(
+    JSON_VALUE(payload, '$.response.assistToken'),
+    JSON_VALUE(payload, '$.response.assisttoken')
   ) IS NOT NULL
-  QUALIFY ROW_NUMBER() OVER(
-    PARTITION BY COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assistToken'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.assisttoken')
-    )
-    ORDER BY timestamp DESC
-  ) = 1
+),
+enriched_events AS (
+  SELECT
+    feedback_time,
+    insert_id,
+    user_email,
+    event_type,
+    feedback_type,
+    feedback_reasons,
+    feedback_comment,
+    fb_assist_token AS assist_token,
+    COALESCE(
+      MAX(IF(resp_assist_token IS NOT NULL, resp_underlying_agent_name, NULL)) OVER(
+        PARTITION BY COALESCE(fb_assist_token, resp_assist_token)
+      ),
+      fallback_agent_name
+    ) AS underlying_agent_name,
+    MAX(IF(resp_assist_token IS NOT NULL, resp_underlying_agent_id, NULL)) OVER(
+      PARTITION BY COALESCE(fb_assist_token, resp_assist_token)
+    ) AS underlying_agent_id,
+    COALESCE(
+      MAX(IF(resp_assist_token IS NOT NULL, resp_app_id, NULL)) OVER(
+        PARTITION BY COALESCE(fb_assist_token, resp_assist_token)
+      ),
+      fallback_agent_name
+    ) AS gemini_enterprise_app_id,
+    MAX(IF(resp_assist_token IS NOT NULL, resp_prompt, NULL)) OVER(
+      PARTITION BY COALESCE(fb_assist_token, resp_assist_token)
+    ) AS prompt,
+    MAX(IF(resp_assist_token IS NOT NULL, resp_result, NULL)) OVER(
+      PARTITION BY COALESCE(fb_assist_token, resp_assist_token)
+    ) AS result
+  FROM parsed_events
 )
 SELECT
-  f.feedback_time,
-  f.user_email,
-  i.underlying_agent_name,
-  i.underlying_agent_id,
-  i.gemini_enterprise_app_id,
-  f.feedback_type,
-  f.feedback_reasons,
-  f.feedback_comment,
-  i.prompt,
-  i.result,
-  f.assist_token
-FROM feedback_events f
-LEFT JOIN interaction_events i ON f.assist_token = i.assist_token;`;
+  feedback_time,
+  user_email,
+  underlying_agent_name,
+  underlying_agent_id,
+  gemini_enterprise_app_id,
+  feedback_type,
+  feedback_reasons,
+  feedback_comment,
+  prompt,
+  result,
+  assist_token
+FROM enriched_events
+WHERE event_type = 'add-feedback'
+QUALIFY ROW_NUMBER() OVER(
+  PARTITION BY COALESCE(assist_token, insert_id), feedback_type
+  ORDER BY feedback_time DESC
+) = 1;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   COALESCE(underlying_agent_name, 'General Assistant') AS agent_name,

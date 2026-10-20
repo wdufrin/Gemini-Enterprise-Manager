@@ -52,13 +52,36 @@ export const hasShardedTable = (
   return list.some((t) => t.startsWith(prefix));
 };
 
+export const getShardedTables = (
+  tables: Set<string> | string[] | undefined,
+  baseTable: string,
+  maxShards: number = 90,
+): string[] => {
+  if (!tables) return [];
+  const list = tables instanceof Set ? Array.from(tables) : tables;
+  const prefix = `${baseTable}_`;
+  return list
+    .filter((t) => {
+      if (!t.startsWith(prefix)) return false;
+      const suffix = t.slice(prefix.length);
+      return /^\d{8}$/.test(suffix);
+    })
+    .sort((a, b) => b.localeCompare(a))
+    .slice(0, maxShards);
+};
+
 /**
  * Resolves the appropriate BigQuery table reference for a Cloud Logging sink table.
- * - Uses `${baseTable}_*` ONLY when date-sharded fragments (`${baseTable}_YYYYMMDD`)
- *   exist in `tables` and the un-suffixed partitioned base table does not exist.
+ * - When multiple date-sharded fragments (`${baseTable}_YYYYMMDD`) exist in `tables` and
+ *   the un-suffixed partitioned base table does not exist, builds a per-shard `UNION ALL`
+ *   subquery that serializes each shard's `jsonPayload` independently via
+ *   `PARSE_JSON(TO_JSON_STRING(jsonPayload))`. This avoids BigQuery wildcard (`_*`)
+ *   cross-shard STRUCT unification failures (e.g. `Cannot resolve field 'parts' inside
+ *   leaf column 'jsonPayload.request.query' of type STRING`) and prevents wildcard scans
+ *   from dropping nested STRUCT fields absent from the newest daily shard.
+ * - Uses `${baseTable}_*` when only a single shard or non-date suffix exists.
  * - Uses `${baseTable}` (without trailing `_*`) when the un-suffixed partitioned table
- *   exists OR when no date-sharded fragments exist, preventing BigQuery from failing with:
- *   `<project>:<dataset>.<baseTable>_* does not match any table.`
+ *   exists OR when no date-sharded fragments exist.
  */
 export const resolveSinkTable = (
   projectId: string,
@@ -67,8 +90,22 @@ export const resolveSinkTable = (
   tables?: Set<string> | string[],
 ): { tableRef: string; isWildcard: boolean; hasAnyTable: boolean } => {
   const hasExact = hasTable(tables, baseTable);
-  const hasShards = hasShardedTable(tables, baseTable);
+  const shardTables = getShardedTables(tables, baseTable);
+  const hasShards = shardTables.length > 0 || hasShardedTable(tables, baseTable);
   const useWildcard = !hasExact && hasShards;
+
+  if (useWildcard && shardTables.length > 1) {
+    const unionBranches = shardTables.map((t) => {
+      const suffix = t.slice(baseTable.length + 1);
+      return `SELECT timestamp, insertId, trace, spanId, severity, PARSE_JSON(TO_JSON_STRING(jsonPayload)) AS jsonPayload, '${suffix}' AS _TABLE_SUFFIX FROM \`${projectId}.${dataset}.${t}\``;
+    });
+    return {
+      tableRef: `(\n    ${unionBranches.join('\n    UNION ALL\n    ')}\n  )`,
+      isWildcard: true,
+      hasAnyTable: true,
+    };
+  }
+
   const tableName = useWildcard ? `${baseTable}_*` : baseTable;
   return {
     tableRef: `\`${projectId}.${dataset}.${tableName}\``,

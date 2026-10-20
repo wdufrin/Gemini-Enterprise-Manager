@@ -313,5 +313,54 @@ describe('useOperationalDashboardState hook', () => {
         expect(result.current.actionMessage?.type).toBe('success');
         expect(onRefreshTables).toHaveBeenCalledTimes(2);
     });
+
+    it('generates per-shard UNION ALL with PARSE_JSON(TO_JSON_STRING(jsonPayload)) instead of wildcard _* when multiple date-sharded sink tables exist', () => {
+        const multiShardTables = new Set([
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260831',
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260912',
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20261020',
+        ]);
+
+        for (const viewId of ['v_agent_feedback', 'v_admin_feedback_review', 'v_agent_feedback_detailed']) {
+            const ddl = OPERATIONAL_VIEWS[viewId].getDdl('test-project', 'test_dataset', multiShardTables);
+            expect(ddl).not.toContain('discoveryengine_googleapis_com_gemini_enterprise_user_activity_*');
+            expect(ddl).toContain('PARSE_JSON(TO_JSON_STRING(jsonPayload)) AS jsonPayload');
+            expect(ddl).toContain('UNION ALL');
+            expect(ddl).toContain('discoveryengine_googleapis_com_gemini_enterprise_user_activity_20261020');
+            expect(ddl).toContain('discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260912');
+            expect(ddl).toContain('discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260831');
+        }
+    });
+
+    it('rejects view creation when runBigQueryQuery returns an embedded error object in the response payload', async () => {
+        vi.mocked(apiService.runBigQueryQuery).mockImplementation(async (_proj: string, sql: string) => {
+            if (sql.includes('CREATE OR REPLACE VIEW')) {
+                return {
+                    error: {
+                        code: 400,
+                        message: "Cannot resolve field 'parts' inside leaf column 'jsonPayload.request.query' of type STRING",
+                    },
+                };
+            }
+            return { jobComplete: true, rows: [] };
+        });
+
+        const { result } = renderHook(() =>
+            useOperationalDashboardState({
+                projectId: 'test-project',
+                projectNumber: '123456',
+                datasetId: 'test_dataset',
+                tables: MOCK_TABLES,
+            })
+        );
+
+        await act(async () => {
+            await result.current.handleCreateView('v_agent_feedback');
+        });
+
+        expect(result.current.installedViews.has('v_agent_feedback')).toBe(false);
+        expect(result.current.actionMessage?.type).toBe('error');
+        expect(result.current.actionMessage?.text).toContain("Cannot resolve field 'parts'");
+    });
 });
 

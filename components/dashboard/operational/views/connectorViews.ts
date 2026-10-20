@@ -107,6 +107,31 @@ GROUP BY user_email, connector_name, connector_type;`;
             const includeInference = sinkInference.hasAnyTable || !sinkActivity.hasAnyTable;
             const includeActivity = sinkActivity.hasAnyTable || !sinkInference.hasAnyTable;
 
+            const rawActivityCte = includeActivity
+                ? `raw_activity AS (
+  SELECT
+    timestamp,
+    insertId,
+    trace,
+    COALESCE(
+      JSON_VALUE(payload, "$.logMetadata.methodName"),
+      JSON_VALUE(payload, "$.logmetadata.methodname")
+    ) AS method_name,
+    COALESCE(
+      JSON_VALUE(payload, "$.logMetadata.name"),
+      JSON_VALUE(payload, "$.logmetadata.name")
+    ) AS log_name_val,
+    COALESCE(
+      JSON_VALUE(payload, '$.userIamPrincipal'),
+      JSON_VALUE(payload, '$.useriamprincipal')
+    ) AS user_email
+  FROM (
+    SELECT timestamp, insertId, trace, TO_JSON_STRING(jsonPayload) AS payload
+    FROM ${sinkActivity.tableRef}
+  )
+),\n`
+                : '';
+
             const inferenceSql = `SELECT
     t.trace,
     t.timestamp,
@@ -117,58 +142,58 @@ GROUP BY user_email, connector_name, connector_type;`;
       TO_HEX(SHA256(CONCAT(COALESCE(t.trace, ''), CAST(t.timestamp AS STRING), JSON_VALUE(p, "$.name"))))
     ) AS call_id,
     JSON_VALUE(p, "$.name") AS tool_name,
-    "Agent Tool" AS connector_type
-  FROM ${sinkInference.tableRef} t,
-  UNNEST(JSON_QUERY_ARRAY(TO_JSON_STRING(t.jsonPayload), '$."gen_ai.output.messages"')) m,
+    "Agent Tool" AS connector_type,
+    CAST(NULL AS STRING) AS raw_user_email
+  FROM (
+    SELECT trace, timestamp, spanId, insertId, TO_JSON_STRING(jsonPayload) AS payload
+    FROM ${sinkInference.tableRef}
+  ) t,
+  UNNEST(COALESCE(
+    JSON_QUERY_ARRAY(t.payload, '$.gen_ai_output_messages'),
+    JSON_QUERY_ARRAY(t.payload, '$."gen_ai.output.messages"')
+  )) m,
   UNNEST(JSON_QUERY_ARRAY(m, '$.parts')) p
   WHERE JSON_VALUE(p, "$.name") IS NOT NULL`;
 
             const activitySql = `SELECT
     t.trace,
-    t.timestamp,
-    t.insertId AS call_id,
-    COALESCE(
-      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logMetadata.name"), JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logmetadata.name")), r"/engines/([a-zA-Z0-9_-]+?)(?:[-_][0-9]{10,})"),
-      REGEXP_EXTRACT(COALESCE(JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logMetadata.name"), JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logmetadata.name")), r"/engines/([^/]+)")
+    IF(t.method_name = "Search", t.timestamp, CAST(NULL AS TIMESTAMP)) AS timestamp,
+    IF(t.method_name = "Search", t.insertId, CAST(NULL AS STRING)) AS call_id,
+    IF(
+      t.method_name = "Search",
+      COALESCE(
+        REGEXP_EXTRACT(t.log_name_val, r"/engines/([a-zA-Z0-9_-]+?)(?:[-_][0-9]{10,})"),
+        REGEXP_EXTRACT(t.log_name_val, r"/engines/([^/]+)")
+      ),
+      CAST(NULL AS STRING)
     ) AS tool_name,
-    "Search Data Source" AS connector_type
-  FROM ${sinkActivity.tableRef} t
-  WHERE COALESCE(
-    JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logMetadata.methodName"),
-    JSON_VALUE(TO_JSON_STRING(t.jsonPayload), "$.logmetadata.methodname")
-  ) = "Search"`;
+    "Search Data Source" AS connector_type,
+    t.user_email AS raw_user_email
+  FROM raw_activity t
+  WHERE t.method_name = "Search" OR t.user_email IS NOT NULL`;
 
             const unifiedCallsBody =
                 includeInference && includeActivity
-                    ? `${inferenceSql}\n\n  UNION DISTINCT\n\n  ${activitySql}`
+                    ? `${inferenceSql}\n\n  UNION ALL\n\n  ${activitySql}`
                     : includeInference
                         ? inferenceSql
                         : activitySql;
 
-            const userMapBody = includeActivity
-                ? `SELECT
-    trace,
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
-      JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
-    ) AS user_email
-  FROM ${sinkActivity.tableRef}
-  WHERE COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal')
-  ) IS NOT NULL
-  QUALIFY ROW_NUMBER() OVER(PARTITION BY trace ORDER BY timestamp DESC) = 1`
-                : `SELECT CAST(NULL AS STRING) AS trace, CAST(NULL AS STRING) AS user_email FROM (SELECT 1) WHERE FALSE`;
-
             return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_user_connector_usage\` AS
-WITH unified_calls AS (
+WITH ${rawActivityCte}unified_calls AS (
   ${unifiedCallsBody}
 ),
-user_map AS (
-  ${userMapBody}
+attributed_calls AS (
+  SELECT
+    call_id,
+    timestamp,
+    tool_name,
+    connector_type,
+    MAX(raw_user_email) OVER(PARTITION BY trace) AS user_email
+  FROM unified_calls
 )
 SELECT
-  COALESCE(u.user_email, "Unattributed Service / Job") AS user_email,
+  COALESCE(c.user_email, "Unattributed Service / Job") AS user_email,
   c.connector_type,
   INITCAP(REPLACE(
     REGEXP_REPLACE(
@@ -185,8 +210,7 @@ SELECT
   MIN(c.timestamp) AS first_used_at,
   MAX(c.timestamp) AS last_used_at,
   STRING_AGG(DISTINCT c.tool_name, ", ") AS tools_used
-FROM unified_calls c
-LEFT JOIN user_map u ON c.trace = u.trace
+FROM attributed_calls c
 WHERE c.tool_name IS NOT NULL
   AND NOT REGEXP_CONTAINS(c.tool_name, r"^(selfawareness|generate_memories|transfer_to|tool_code_executor|invalid_tool_call|google:python)")
 GROUP BY user_email, connector_name, connector_type;`;
