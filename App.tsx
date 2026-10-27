@@ -22,10 +22,12 @@ import Sidebar from './components/Sidebar';
 import ErrorBoundary from './components/ErrorBoundary';
 import Spinner from './components/Spinner';
 import { pageToRoute, routeToPage } from './utils/routeUtils';
-import { Page, ReasoningEngine, UserProfile, ServiceAgentValidation, UserPermissionsValidation } from './types';
+import { Page, ReasoningEngine, UserProfile, ServiceAgentValidation, UserPermissionsValidation, ProjectEnrollmentStatus } from './types';
+import { ProjectEnrollmentProvider } from './context/ProjectEnrollmentContext';
 import AccessTokenInput from './components/AccessTokenInput';
 import { initGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
+import { probeProjectEnrollment, clearCachedProjectEnrollment } from './services/api/project';
 import Breadcrumbs from './components/Breadcrumbs';
 import HeaderProjectInput from './components/HeaderProjectInput';
 import HelpButton from './components/HelpButton';
@@ -155,6 +157,7 @@ const InnerApp: React.FC = () => {
   const [apiValidationResult, setApiValidationResult] = useState<{ enabled: string[]; disabled: string[] } | null>(null);
   const [serviceAgentValidation, setServiceAgentValidation] = useState<ServiceAgentValidation | null>(null);
   const [userPermissionsValidation, setUserPermissionsValidation] = useState<UserPermissionsValidation | null>(null);
+  const [projectEnrollment, setProjectEnrollment] = useState<ProjectEnrollmentStatus | null>(null);
   const [isGrantingServiceAgent, setIsGrantingServiceAgent] = useState(false);
   const [serviceAgentActionFeedback, setServiceAgentActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -208,6 +211,8 @@ const InnerApp: React.FC = () => {
     setApiValidationResult(null);
     setServiceAgentValidation(null);
     setUserPermissionsValidation(null);
+    setProjectEnrollment(null);
+    clearCachedProjectEnrollment();
     sessionStorage.removeItem('agentspace-accessToken');
     sessionStorage.removeItem('agentspace-userProfile');
   }, []);
@@ -421,6 +426,8 @@ const InnerApp: React.FC = () => {
 
     if (!identifier) {
       setProjectId('');
+      setProjectEnrollment(null);
+      clearCachedProjectEnrollment();
       sessionStorage.removeItem('agentspace-projectId');
       return;
     }
@@ -431,10 +438,24 @@ const InnerApp: React.FC = () => {
       setProjectId(projectDetails.projectId);
       sessionStorage.setItem('agentspace-projectId', projectDetails.projectId);
       setApiValidationResult(null);
+      if (isGapiReady) {
+        probeProjectEnrollment(projectDetails.projectId || projectDetails.projectNumber)
+          .then((enrollmentStatus) => setProjectEnrollment(enrollmentStatus))
+          .catch(() => {
+            // probeProjectEnrollment handles per-probe errors internally
+          });
+      }
     } catch (e) {
       console.error('Failed to resolve project details', e);
       if (/^\d+$/.test(identifier)) {
         setProjectNumber(identifier);
+      }
+      if (isGapiReady) {
+        probeProjectEnrollment(identifier)
+          .then((enrollmentStatus) => setProjectEnrollment(enrollmentStatus))
+          .catch(() => {
+            // probeProjectEnrollment handles per-probe errors internally
+          });
       }
     }
   };
@@ -446,6 +467,7 @@ const InnerApp: React.FC = () => {
     setApiValidationResult(null);
     setServiceAgentValidation(null);
     setUserPermissionsValidation(null);
+    setProjectEnrollment(null);
     setServiceAgentActionFeedback(null);
     setApisToEnable(new Set());
     setApiEnablementLogs([]);
@@ -458,6 +480,9 @@ const InnerApp: React.FC = () => {
       setApiValidationResult(result.apis);
       setServiceAgentValidation(result.serviceAgent);
       setUserPermissionsValidation(result.userPermissions);
+      if (result.enrollment) {
+        setProjectEnrollment(result.enrollment);
+      }
     } catch (err: unknown) {
       setGapiError(`Validation check failed: ${toErrorMessage(err)}. Ensure the Service Usage API is enabled.`);
     } finally {
@@ -600,6 +625,7 @@ const InnerApp: React.FC = () => {
         apiValidationResult={apiValidationResult}
         serviceAgentValidation={serviceAgentValidation}
         userPermissionsValidation={userPermissionsValidation}
+        projectEnrollment={projectEnrollment}
         isGrantingServiceAgent={isGrantingServiceAgent}
         serviceAgentActionFeedback={serviceAgentActionFeedback}
         onGrantServiceAgent={handleGrantServiceAgent}
@@ -614,7 +640,12 @@ const InnerApp: React.FC = () => {
   }
 
   return (
-    <>
+    <ProjectEnrollmentProvider
+      projectId={projectId}
+      projectNumber={projectNumber}
+      isGapiReady={isGapiReady}
+      initialEnrollment={projectEnrollment}
+    >
       <div className="flex h-screen w-full overflow-hidden bg-gray-900 text-gray-100 font-sans">
         <Sidebar
           currentPage={currentPage}
@@ -749,7 +780,7 @@ const InnerApp: React.FC = () => {
         onGoogleSignIn={handleGoogleSignIn}
         onSetAccessToken={handleSetAccessToken}
       />
-    </>
+    </ProjectEnrollmentProvider>
   );
 };
 

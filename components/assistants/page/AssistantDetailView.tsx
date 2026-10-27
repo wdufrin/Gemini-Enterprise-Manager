@@ -30,6 +30,7 @@ import ProvisionedRedirectList from '../vanity/ProvisionedRedirectList';
 import ConnectedDataStorePermissions from '../ConnectedDataStorePermissions';
 import UserMemoriesViewer from '../UserMemoriesViewer';
 import SkillsViewer from '../SkillsViewer';
+import { useProjectEnrollment } from '../../../context/ProjectEnrollmentContext';
 
 export type AssistantDetailTab =
   | 'overview'
@@ -84,6 +85,7 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
 }) => {
   // Declared before the early return below so hook order stays stable.
   const [redirectRefreshToken, setRedirectRefreshToken] = useState(0);
+  const { isGoogleInternal } = useProjectEnrollment();
 
   if (!selectedRow.assistant) return null;
 
@@ -166,11 +168,15 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
                 { key: 'overview', label: 'Overview' },
                 { key: 'agents', label: 'Agents' },
                 { key: 'skills', label: 'Skills', badge: 'Capabilities' },
-                {
-                  key: 'memories',
-                  label: 'User Memories',
-                  badge: 'Personalization',
-                },
+                ...(isGoogleInternal
+                  ? [
+                      {
+                        key: 'memories',
+                        label: 'User Memories',
+                        badge: 'Internal',
+                      },
+                    ]
+                  : []),
                 {
                   key: 'datastores',
                   label: 'Connected DataStores',
@@ -241,7 +247,7 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
               />
             )}
 
-            {activeTab === 'memories' && (
+            {activeTab === 'memories' && isGoogleInternal && (
               <UserMemoriesViewer
                 config={currentConfig}
                 userProfile={userProfile}

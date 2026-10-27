@@ -30,7 +30,7 @@ import {
   DISCOVERY_API_VERSION,
   DISCOVERY_API_BETA,
 } from "../core";
-import { getProjectNumber } from "../project";
+import { getProjectNumber, getCachedProjectEnrollment } from "../project";
 
 export const getWidgetConfig = async (name: string, config: Config) => {
   const { projectId, appLocation } = config;
@@ -139,20 +139,69 @@ export const getAssistant = async (name: string, config: Config) => {
   );
 };
 
+/**
+ * Strips GOOGLE_INTERNAL and TRUSTED_TESTER fields from an Assistant update payload and updateMask
+ * when the target project is known not to be enrolled in those visibility labels.
+ */
+export const sanitizeAssistantUpdateForEnrollment = (
+  payload: Partial<Assistant>,
+  updateMask: string[],
+  projectId?: string,
+): { sanitizedPayload: Partial<Assistant>; sanitizedMask: string[] } => {
+  const enrollment = getCachedProjectEnrollment(projectId);
+  if (!enrollment) {
+    return { sanitizedPayload: payload, sanitizedMask: updateMask };
+  }
+
+  const sanitizedPayload: Record<string, unknown> = { ...payload };
+  let sanitizedMask = [...updateMask];
+
+  if (!enrollment.googleInternal) {
+    delete sanitizedPayload.agentReasoningHidden;
+    delete sanitizedPayload.toolConfig;
+    sanitizedMask = sanitizedMask.filter(
+      (field) =>
+        field !== "agentReasoningHidden" &&
+        field !== "agent_reasoning_hidden" &&
+        field !== "toolConfig" &&
+        field !== "tool_config",
+    );
+  }
+
+  if (!enrollment.googleInternal && !enrollment.trustedTester) {
+    delete sanitizedPayload.vertexAiSearchToolConfig;
+    sanitizedMask = sanitizedMask.filter(
+      (field) =>
+        field !== "vertexAiSearchToolConfig" &&
+        field !== "vertex_ai_search_tool_config",
+    );
+  }
+
+  return {
+    sanitizedPayload: sanitizedPayload as Partial<Assistant>,
+    sanitizedMask,
+  };
+};
+
 export const updateAssistant = async (
   name: string,
   payload: Partial<Assistant>,
   updateMask: string[],
   config: Config,
 ) => {
+  const { sanitizedPayload, sanitizedMask } = sanitizeAssistantUpdateForEnrollment(
+    payload,
+    updateMask,
+    config.projectId,
+  );
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}?updateMask=${updateMask.join(",")}`;
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}?updateMask=${sanitizedMask.join(",")}`;
   return gapiRequest<Assistant>(
     url,
     "PATCH",
     config.projectId,
     undefined,
-    payload,
+    sanitizedPayload,
   );
 };
 
@@ -195,6 +244,12 @@ export const listUserMemories = async (
   pageToken?: string,
 ): Promise<ListMemoriesResponse> => {
   const { projectId, appLocation, collectionId, appId, engineName, projectNumber } = config;
+  const enrollment = getCachedProjectEnrollment(projectId || projectNumber);
+  if (enrollment && !enrollment.googleInternal) {
+    throw new Error(
+      "KnowledgeGraphService.ListMemories (/engines/*/memories) is restricted to GOOGLE_INTERNAL projects and is not available for external customer projects.",
+    );
+  }
   const baseUrl = getDiscoveryEngineUrl(appLocation);
 
   let parentPath: string;
@@ -232,6 +287,12 @@ export const deleteUserMemory = async (
   memoryName: string,
   config: Config,
 ): Promise<Record<string, unknown>> => {
+  const enrollment = getCachedProjectEnrollment(config.projectId);
+  if (enrollment && !enrollment.googleInternal) {
+    throw new Error(
+      "KnowledgeGraphService.DeleteMemory (/engines/*/memories/*) is restricted to GOOGLE_INTERNAL projects and is not available for external customer projects.",
+    );
+  }
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
   const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${memoryName}`;
   return gapiRequest<Record<string, unknown>>(

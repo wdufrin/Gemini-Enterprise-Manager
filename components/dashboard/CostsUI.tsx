@@ -15,18 +15,324 @@ interface HydratedProjectLicense extends Partial<LicenseConfig> {
     displayName?: string;
 }
 
+export type GeminiEnterpriseEdition =
+    | 'Standard'
+    | 'Plus'
+    | 'Standard Emerging Market'
+    | 'EDU'
+    | 'EDU Pro'
+    | 'Frontline Worker'
+    | 'Frontline Starter';
+
+export interface EditionQuotaSpec {
+    label: string;
+    tasksAndActions: number;
+    textAnswerGen: number;
+    imageGen: number;
+    videoGen: number;
+    grounding: number;
+    webGrounding: number;
+    agentCreation: number;
+    ideaGeneration: number;
+    deepResearch: number;
+    storageGiB: number;
+    devToolsCreditsMonthlyUsd: number;
+    supportsSingleUserLimit: boolean;
+    monitoringTier: 'Standard' | 'Plus';
+}
+
+export const DEFAULT_SINGLE_USER_MULTIPLIER = 10;
+
+export const EDITION_QUOTA_SPECS: Record<GeminiEnterpriseEdition, EditionQuotaSpec> = {
+    Standard: {
+        label: 'Standard',
+        tasksAndActions: 160,
+        textAnswerGen: 160,
+        imageGen: 5,
+        videoGen: 2,
+        grounding: 160,
+        webGrounding: 160,
+        agentCreation: 1,
+        ideaGeneration: 1,
+        deepResearch: 3,
+        storageGiB: 30,
+        devToolsCreditsMonthlyUsd: 10,
+        supportsSingleUserLimit: true,
+        monitoringTier: 'Standard',
+    },
+    Plus: {
+        label: 'Plus',
+        tasksAndActions: 200,
+        textAnswerGen: 200,
+        imageGen: 10,
+        videoGen: 3,
+        grounding: 200,
+        webGrounding: 200,
+        agentCreation: 10,
+        ideaGeneration: 1,
+        deepResearch: 10,
+        storageGiB: 75,
+        devToolsCreditsMonthlyUsd: 15,
+        supportsSingleUserLimit: true,
+        monitoringTier: 'Plus',
+    },
+    'Standard Emerging Market': {
+        label: 'Standard Emerging Market',
+        tasksAndActions: 40,
+        textAnswerGen: 40,
+        imageGen: 0,
+        videoGen: 0,
+        grounding: 40,
+        webGrounding: 40,
+        agentCreation: 1,
+        ideaGeneration: 1,
+        deepResearch: 1,
+        storageGiB: 10,
+        devToolsCreditsMonthlyUsd: 0,
+        supportsSingleUserLimit: true,
+        monitoringTier: 'Standard',
+    },
+    EDU: {
+        label: 'EDU',
+        tasksAndActions: 40,
+        textAnswerGen: 40,
+        imageGen: 2,
+        videoGen: 1,
+        grounding: 40,
+        webGrounding: 40,
+        agentCreation: 1,
+        ideaGeneration: 1,
+        deepResearch: 1,
+        storageGiB: 5,
+        devToolsCreditsMonthlyUsd: 0,
+        supportsSingleUserLimit: false,
+        monitoringTier: 'Standard',
+    },
+    'EDU Pro': {
+        label: 'EDU Pro',
+        tasksAndActions: 200,
+        textAnswerGen: 200,
+        imageGen: 10,
+        videoGen: 3,
+        grounding: 200,
+        webGrounding: 200,
+        agentCreation: 10,
+        ideaGeneration: 1,
+        deepResearch: 10,
+        storageGiB: 50,
+        devToolsCreditsMonthlyUsd: 0,
+        supportsSingleUserLimit: false,
+        monitoringTier: 'Plus',
+    },
+    'Frontline Worker': {
+        label: 'Frontline Worker',
+        tasksAndActions: 40,
+        textAnswerGen: 40,
+        imageGen: 2,
+        videoGen: 1,
+        grounding: 40,
+        webGrounding: 40,
+        agentCreation: 0,
+        ideaGeneration: 0,
+        deepResearch: 1,
+        storageGiB: 2,
+        devToolsCreditsMonthlyUsd: 0,
+        supportsSingleUserLimit: false,
+        monitoringTier: 'Standard',
+    },
+    'Frontline Starter': {
+        label: 'Frontline Starter',
+        tasksAndActions: 20,
+        textAnswerGen: 20,
+        imageGen: 0,
+        videoGen: 0,
+        grounding: 20,
+        webGrounding: 20,
+        agentCreation: 0,
+        ideaGeneration: 0,
+        deepResearch: 0,
+        storageGiB: 2,
+        devToolsCreditsMonthlyUsd: 0,
+        supportsSingleUserLimit: false,
+        monitoringTier: 'Standard',
+    },
+};
+
+export const resolveEditionFromTier = (tier?: string, configName?: string): GeminiEnterpriseEdition => {
+    const normalized = (tier || '').toUpperCase().trim();
+    if (normalized === 'GEMINI_ENTERPRISE_PLUS' || normalized.includes('AGENTS_ENTERPRISE_PLUS')) {
+        return 'Plus';
+    }
+    if (normalized.includes('EDU_PRO')) {
+        return 'EDU Pro';
+    }
+    if (normalized.includes('EDU')) {
+        return 'EDU';
+    }
+    if (normalized.includes('EMERGING')) {
+        return 'Standard Emerging Market';
+    }
+    if (normalized.includes('FRONTLINE_STARTER')) {
+        return 'Frontline Starter';
+    }
+    if (normalized.includes('FRONTLINE')) {
+        return 'Frontline Worker';
+    }
+    if (configName && configName.endsWith('internal_only_agent_space')) {
+        return 'Standard';
+    }
+    return 'Standard';
+};
+
+export const validateSingleUserMultiplier = (
+    rawInput: unknown
+): { valid: boolean; value: number; error?: string } => {
+    const trimmed = typeof rawInput === 'string' ? rawInput.trim() : rawInput;
+    if (trimmed === '' || trimmed === null || trimmed === undefined) {
+        return {
+            valid: false,
+            value: DEFAULT_SINGLE_USER_MULTIPLIER,
+            error: 'Multiplier is required and must be a whole number of 1 or greater (defaults to 10).',
+        };
+    }
+
+    const parsed = typeof trimmed === 'number' ? trimmed : Number(trimmed);
+    if (!Number.isFinite(parsed) || Number.isNaN(parsed)) {
+        return {
+            valid: false,
+            value: DEFAULT_SINGLE_USER_MULTIPLIER,
+            error: 'Multiplier must be a valid whole number of 1 or greater.',
+        };
+    }
+
+    if (!Number.isInteger(parsed)) {
+        return {
+            valid: false,
+            value: Math.max(1, Math.floor(parsed)),
+            error: 'Multiplier must be a whole number (decimals are not supported).',
+        };
+    }
+
+    if (parsed < 1) {
+        return {
+            valid: false,
+            value: 1,
+            error: 'Multiplier must be 1 or greater.',
+        };
+    }
+
+    return { valid: true, value: parsed };
+};
+
+export interface CalculatedEditionQuotas {
+    tasksAndActions: number;
+    textAnswerGen: number;
+    imageGen: number;
+    videoGen: number;
+    grounding: number;
+    webGrounding: number;
+    agentCreation: number;
+    ideaGeneration: number;
+    deepResearch: number;
+    storageGiB: number;
+    devToolsCreditsMonthlyUsd: number;
+    devToolsCreditsWeeklyUsd: number;
+    singleUserLimitActive: boolean;
+    effectiveMultiplier: number;
+    usersToExhaustPool: number;
+    singleUserCaps: {
+        tasksAndActions: number;
+        textAnswerGen: number;
+        imageGen: number;
+        videoGen: number;
+        grounding: number;
+        webGrounding: number;
+        agentCreation: number;
+        ideaGeneration: number;
+        deepResearch: number;
+    } | null;
+}
+
+export const calculateEditionQuotas = (
+    edition: GeminiEnterpriseEdition,
+    licenses: number | '',
+    singleUserLimitEnabled: boolean = false,
+    singleUserMultiplierInput: unknown = DEFAULT_SINGLE_USER_MULTIPLIER
+): CalculatedEditionQuotas => {
+    const spec = EDITION_QUOTA_SPECS[edition] || EDITION_QUOTA_SPECS.Standard;
+    const numLicenses = Math.max(0, Number(licenses) || 0);
+    const { value: effectiveMultiplier } = validateSingleUserMultiplier(singleUserMultiplierInput);
+    const singleUserLimitActive = Boolean(singleUserLimitEnabled && spec.supportsSingleUserLimit);
+
+    const pooled = {
+        tasksAndActions: numLicenses * spec.tasksAndActions,
+        textAnswerGen: numLicenses * spec.textAnswerGen,
+        imageGen: numLicenses * spec.imageGen,
+        videoGen: numLicenses * spec.videoGen,
+        grounding: numLicenses * spec.grounding,
+        webGrounding: numLicenses * spec.webGrounding,
+        agentCreation: numLicenses * spec.agentCreation,
+        ideaGeneration: numLicenses * spec.ideaGeneration,
+        deepResearch: numLicenses * spec.deepResearch,
+        storageGiB: numLicenses * spec.storageGiB,
+        devToolsCreditsMonthlyUsd: numLicenses * spec.devToolsCreditsMonthlyUsd,
+        devToolsCreditsWeeklyUsd: (numLicenses * spec.devToolsCreditsMonthlyUsd) / 4,
+    };
+
+    const computeCap = (perSeat: number, pooledTotal: number): number => {
+        if (perSeat <= 0) return 0;
+        const rawCap = perSeat * effectiveMultiplier;
+        return numLicenses > 0 ? Math.min(rawCap, pooledTotal) : rawCap;
+    };
+
+    const singleUserCaps = singleUserLimitActive
+        ? {
+              tasksAndActions: computeCap(spec.tasksAndActions, pooled.tasksAndActions),
+              textAnswerGen: computeCap(spec.textAnswerGen, pooled.textAnswerGen),
+              imageGen: computeCap(spec.imageGen, pooled.imageGen),
+              videoGen: computeCap(spec.videoGen, pooled.videoGen),
+              grounding: computeCap(spec.grounding, pooled.grounding),
+              webGrounding: computeCap(spec.webGrounding, pooled.webGrounding),
+              agentCreation: computeCap(spec.agentCreation, pooled.agentCreation),
+              ideaGeneration: computeCap(spec.ideaGeneration, pooled.ideaGeneration),
+              deepResearch: computeCap(spec.deepResearch, pooled.deepResearch),
+          }
+        : null;
+
+    const usersToExhaustPool =
+        singleUserLimitActive && numLicenses > 0
+            ? Math.max(1, Math.ceil(numLicenses / effectiveMultiplier))
+            : 0;
+
+    return {
+        ...pooled,
+        singleUserLimitActive,
+        effectiveMultiplier,
+        usersToExhaustPool,
+        singleUserCaps,
+    };
+};
+
 interface QuotaCardProps {
     title: string;
     value: number;
     usage?: number;
     unit: string;
     tooltip?: string;
+    singleUserCap?: number;
+    multiplier?: number;
 }
 
 const CostsUI: React.FC<Props> = ({ projectNumber }) => {
-    const [edition, setEdition] = useState<'Standard' | 'Plus'>('Standard');
+    const [edition, setEdition] = useState<GeminiEnterpriseEdition>('Standard');
     const [licenses, setLicenses] = useState<number | ''>('');
     const [showInstructions, setShowInstructions] = useState(false);
+
+    // Single-User Quota Limit (GA — Oct 22, 2026) state
+    const [singleUserLimitEnabled, setSingleUserLimitEnabled] = useState<boolean>(false);
+    const [singleUserMultiplierRaw, setSingleUserMultiplierRaw] = useState<string>(
+        String(DEFAULT_SINGLE_USER_MULTIPLIER)
+    );
 
     // API State
     const [billingAccounts, setBillingAccounts] = useState<BillingAccount[]>([]);
@@ -42,7 +348,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
 
     // Monitoring State
     const [usageMetrics, setUsageMetrics] = useState<Record<string, number | undefined> | null>(null);
-    const [isFetchingMetrics, setIsFetchingMetrics] = useState(false);
+    const [, setIsFetchingMetrics] = useState(false);
     const [metricsError, setMetricsError] = useState<string | null>(null);
 
     // Fetch Billing Accounts
@@ -78,14 +384,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
 
         const selectedConfig = availableConfigs.find(c => c.name === configName);
         if (selectedConfig) {
-            // Set Edition
-            if (selectedConfig.subscriptionTier === 'GEMINI_ENTERPRISE_PLUS') {
-                 setEdition('Plus');
-            } else if (selectedConfig.subscriptionTier === 'GEMINI_ENTERPRISE') {
-                 setEdition('Standard');
-            } else if (configName.endsWith('internal_only_agent_space')) {
-                 setEdition('Standard'); // Fallback for the special internal ID
-            }
+            setEdition(resolveEditionFromTier(selectedConfig.subscriptionTier, configName));
 
             // Calculate total licenses across all distributed projects
             let totalLicenses = 0;
@@ -153,11 +452,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
 
         const selectedLicense = projectLicenses.find(l => l.name === licenseName);
         if (selectedLicense) {
-            if (selectedLicense.subscriptionTier === 'GEMINI_ENTERPRISE_PLUS') {
-                 setEdition('Plus');
-            } else {
-                 setEdition('Standard');
-            }
+            setEdition(resolveEditionFromTier(selectedLicense.subscriptionTier, selectedLicense.name));
             setLicenses(
                 selectedLicense.allocatedCount !== undefined && selectedLicense.allocatedCount > 0
                     ? selectedLicense.allocatedCount
@@ -235,11 +530,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     const first = hydratedLicenses[0];
                     setSelectedProjectLicense(prev => {
                         if (!prev) {
-                            if (first.subscriptionTier === 'GEMINI_ENTERPRISE_PLUS') {
-                                setEdition('Plus');
-                            } else {
-                                setEdition('Standard');
-                            }
+                            setEdition(resolveEditionFromTier(first.subscriptionTier, first.name));
                             if (first.allocatedCount && first.allocatedCount > 0) {
                                 setLicenses(first.allocatedCount);
                             }
@@ -260,43 +551,23 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
         fetchProjectLicenses();
     }, [projectNumber]);
 
-    const quotas = useMemo(() => {
-        const multipliers = {
-            Standard: {
-                tasksAndActions: 160,
-                textAnswerGen: 160,
-                imageGen: 5,
-                videoGen: 2,
-                grounding: 160,
-                webGrounding: 160,
-                ideaGeneration: 1,
-                deepResearch: 3
-            },
-            Plus: {
-                tasksAndActions: 200,
-                textAnswerGen: 200,
-                imageGen: 10,
-                videoGen: 3,
-                grounding: 200,
-                webGrounding: 200,
-                ideaGeneration: 1,
-                deepResearch: 10
-            }
-        };
+    const multiplierValidation = useMemo(
+        () => validateSingleUserMultiplier(singleUserMultiplierRaw),
+        [singleUserMultiplierRaw]
+    );
 
-        const m = multipliers[edition];
-        const numLicenses = Number(licenses) || 0;
-        return {
-            tasksAndActions: numLicenses * m.tasksAndActions,
-            textAnswerGen: numLicenses * m.textAnswerGen,
-            imageGen: numLicenses * m.imageGen,
-            videoGen: numLicenses * m.videoGen,
-            grounding: numLicenses * m.grounding,
-            webGrounding: numLicenses * m.webGrounding,
-            ideaGeneration: numLicenses * m.ideaGeneration,
-            deepResearch: numLicenses * m.deepResearch
-        };
-    }, [edition, licenses]);
+    const currentEditionSpec = EDITION_QUOTA_SPECS[edition] || EDITION_QUOTA_SPECS.Standard;
+
+    const quotas = useMemo(
+        () =>
+            calculateEditionQuotas(
+                edition,
+                licenses,
+                singleUserLimitEnabled,
+                singleUserMultiplierRaw
+            ),
+        [edition, licenses, singleUserLimitEnabled, singleUserMultiplierRaw]
+    );
 
     // Fetch Live Usage Metrics
     useEffect(() => {
@@ -331,7 +602,8 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     }
                 };
 
-                const currentMap = edition === 'Plus' ? metricMap.Plus : metricMap.Standard;
+                const monitoringTier = EDITION_QUOTA_SPECS[edition]?.monitoringTier || 'Standard';
+                const currentMap = monitoringTier === 'Plus' ? metricMap.Plus : metricMap.Standard;
                 
                 // Fetch all discovery engine usage metrics individually using Promise.allSettled
                 // Note: The monitoring API strictly limits TimeSeries queries to a single metric.type per request.
@@ -407,10 +679,11 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
         fetchMetrics();
     }, [projectNumber, edition, selectedLocation]);
 
-    const QuotaCard: React.FC<QuotaCardProps> = ({ title, value, usage, unit, tooltip }) => {
+    const QuotaCard: React.FC<QuotaCardProps> = ({ title, value, usage, unit, tooltip, singleUserCap, multiplier }) => {
         const isUnavailable = usage === undefined || usage === null;
         const noLicenses = licenses === '';
         const percentage = !isUnavailable && value > 0 ? Math.min(100, Math.round((usage / value) * 100)) : 0;
+        const showSingleUserCap = singleUserCap !== undefined && singleUserCap > 0 && multiplier !== undefined;
         return (
         <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700 flex flex-col justify-between min-w-0">
             <div className="flex items-start justify-between mb-2">
@@ -426,6 +699,17 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 <span className="text-gray-500 text-sm font-medium whitespace-nowrap">/ {noLicenses ? '-' : value.toLocaleString()}</span>
                 {unit && <span className="text-gray-400 text-xs xl:text-sm whitespace-nowrap">{unit}</span>}
             </div>
+            {showSingleUserCap && (
+                <div
+                    data-testid="single-user-cap-badge"
+                    className="mt-2.5 flex items-center justify-between gap-2 bg-indigo-950/60 border border-indigo-700/60 rounded px-2.5 py-1 text-xs text-indigo-200"
+                >
+                    <span>Max per user ({multiplier}x):</span>
+                    <span className="font-semibold text-indigo-300">
+                        {singleUserCap.toLocaleString()} {unit}
+                    </span>
+                </div>
+            )}
             {!isUnavailable && !noLicenses && (
                 <div className="mt-3 w-full bg-gray-700 rounded-full h-1.5 border border-gray-600">
                     <div 
@@ -435,11 +719,14 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 </div>
             )}
             {isUnavailable && (
-                <p className="mt-2 text-[11px] text-gray-500">Requires monitoring.timeSeries.list</p>
+                <p className="mt-2 text-[11px] text-gray-500">Requires monitoring.timeSeries.list &amp; serviceconsumermanagement.quota.get</p>
             )}
         </div>
         );
     };
+
+    const noLicenses = licenses === '';
+    const numLicenses = Number(licenses) || 0;
 
     return (
         <div className="space-y-6">
@@ -447,8 +734,8 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                 <h2 className="text-lg font-semibold text-white mb-4">Quota Configuration</h2>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                     <p className="text-gray-400 text-sm max-w-2xl">
-                        Calculate your pooled Gemini Enterprise quota based on your subscription tier and user licenses.
-                        Actual usage can be monitored via Google Cloud Metrics Explorer.
+                        Calculate your pooled Gemini Enterprise quota and single-user quota limits based on your subscription tier and user licenses.
+                        Actual usage can be monitored via the Usage &amp; Spending console or Google Cloud Metrics Explorer.
                     </p>
                     <button 
                         onClick={() => setShowInstructions(!showInstructions)}
@@ -457,19 +744,24 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        How to Check Usage in Console
+                        How to Check Usage &amp; Configure Limits
                     </button>
                 </div>
 
                 {showInstructions && (
-                    <div className="mb-6 bg-gray-900 border border-gray-700 p-4 rounded-lg text-sm text-gray-300">
-                        <ol className="list-decimal list-inside space-y-2">
-                            <li>In the Google Cloud console, go to the <a href="https://console.cloud.google.com/gemini-enterprise/user-license" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Gemini Enterprise &gt; Manage users</a> page.</li>
-                            <li>Select the <strong>Multi-region</strong> of the licenses.</li>
-                            <li>Click <strong>View quota usage</strong>.</li>
-                            <li>In the Gemini Enterprise Quota Usage pane that opens, select your product edition from the Subscription tier list.</li>
-                        </ol>
-                        <p className="mt-3 text-gray-400">The dashboard populates the quotas and shows the absolute and the percentage usage of each quota.</p>
+                    <div className="mb-6 bg-gray-900 border border-gray-700 p-4 rounded-lg text-sm text-gray-300 space-y-3">
+                        <div>
+                            <p className="font-semibold text-white mb-1.5">View Usage &amp; Configure Single-User Quota Limits (GA):</p>
+                            <ol className="list-decimal list-inside space-y-1.5">
+                                <li>In the Google Cloud console, go to the <a href="https://console.cloud.google.com/gemini-enterprise/usage-and-spending" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Gemini Enterprise &gt; Usage &amp; Spending</a> page (or <a href="https://console.cloud.google.com/gemini-enterprise/user-license" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Manage users</a>).</li>
+                                <li>Select the <strong>Usage</strong> tab and choose the <strong>location</strong> and <strong>Subscription tier</strong>.</li>
+                                <li>To cap individual user consumption from the shared pool (Standard, Plus, and Standard Emerging Market), go to <strong>Feature usage &gt; Limit any single-user&apos;s quota</strong>, toggle <strong>Status</strong> to <strong>Enabled</strong>, and set a whole-number <strong>Multiplier</strong> (&ge; 1, defaults to 10).</li>
+                                <li>Click <strong>Save changes</strong>.</li>
+                            </ol>
+                        </div>
+                        <p className="text-xs text-gray-400 border-t border-gray-800 pt-2">
+                            <strong>Required IAM Permissions:</strong> <code className="text-gray-300">monitoring.timeSeries.list</code> (without this, usage displays as <code className="text-gray-300">0</code>) and <code className="text-gray-300">serviceconsumermanagement.quota.get</code> (without this, quota limits display as <code className="text-gray-300">Unknown</code>).
+                        </p>
                     </div>
                 )}
                 {error && (
@@ -548,7 +840,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                                         <option value="">Select Profile (Optional)</option>
                                         {licenseConfigs.map((config) => (
                                             <option key={config.name} value={config.name}>
-                                                {config.name.split('/').pop()} ({config.subscriptionTier === 'GEMINI_ENTERPRISE_PLUS' ? 'Plus' : 'Standard'})
+                                                {config.name.split('/').pop()} ({resolveEditionFromTier(config.subscriptionTier, config.name)})
                                             </option>
                                         ))}
                                     </select>
@@ -574,19 +866,26 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     )}
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1.5">Gemini Enterprise Edition</label>
-                        <select 
+                        <label htmlFor="gemini-edition-select" className="block text-sm font-medium text-gray-400 mb-1.5">Gemini Enterprise Edition</label>
+                        <select
+                            id="gemini-edition-select"
+                            aria-label="Gemini Enterprise Edition"
                             value={edition} 
-                            onChange={(e) => setEdition(e.target.value as 'Standard' | 'Plus')}
+                            onChange={(e) => setEdition(e.target.value as GeminiEnterpriseEdition)}
                             className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]"
                         >
-                            <option value="Standard">Standard</option>
-                            <option value="Plus">Plus</option>
+                            {Object.keys(EDITION_QUOTA_SPECS).map((edKey) => (
+                                <option key={edKey} value={edKey}>
+                                    {edKey}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1.5">Number of User Licenses</label>
-                        <input 
+                        <label htmlFor="user-licenses-input" className="block text-sm font-medium text-gray-400 mb-1.5">Number of User Licenses</label>
+                        <input
+                            id="user-licenses-input"
+                            aria-label="Number of User Licenses"
                             type="number" 
                             min="1"
                             value={licenses} 
@@ -598,23 +897,129 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         />
                     </div>
                 </div>
+
+                {/* Single-User Quota Limit (GA — Oct 22, 2026) Simulator */}
+                <div className="mt-5 pt-5 border-t border-gray-700">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-start gap-3">
+                            <input
+                                id="single-user-limit-toggle"
+                                data-testid="single-user-limit-toggle"
+                                type="checkbox"
+                                checked={singleUserLimitEnabled}
+                                onChange={(e) => setSingleUserLimitEnabled(e.target.checked)}
+                                className="mt-1 h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <label htmlFor="single-user-limit-toggle" className="text-sm font-semibold text-white cursor-pointer">
+                                        Limit any single-user&apos;s quota
+                                    </label>
+                                    <span className="bg-blue-900/60 border border-blue-700 text-blue-300 text-[11px] font-medium px-2 py-0.5 rounded">
+                                        GA
+                                    </span>
+                                </div>
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                    Caps any individual user&apos;s daily usage from the shared edition pool to <code className="text-gray-300">per_user_quota &times; multiplier</code> (defaults to 10x). Does not apply to AI developer tools.
+                                </p>
+                            </div>
+                        </div>
+
+                        {singleUserLimitEnabled && currentEditionSpec.supportsSingleUserLimit && (
+                            <div className="flex flex-wrap items-center gap-3">
+                                <div className="flex items-center gap-2">
+                                    <label htmlFor="single-user-multiplier-input" className="text-xs font-medium text-gray-300 whitespace-nowrap">
+                                        Multiplier (&ge; 1):
+                                    </label>
+                                    <input
+                                        id="single-user-multiplier-input"
+                                        data-testid="single-user-multiplier-input"
+                                        aria-label="Single-User Quota Multiplier"
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        value={singleUserMultiplierRaw}
+                                        onChange={(e) => setSingleUserMultiplierRaw(e.target.value)}
+                                        className="w-24 bg-gray-700 border border-gray-600 rounded px-2.5 py-1 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    {[1, 5, 10, 20].map((preset) => (
+                                        <button
+                                            key={preset}
+                                            type="button"
+                                            onClick={() => setSingleUserMultiplierRaw(String(preset))}
+                                            className={`px-2 py-1 rounded text-xs font-medium border transition-colors ${
+                                                quotas.effectiveMultiplier === preset && multiplierValidation.valid
+                                                    ? 'bg-blue-600 border-blue-500 text-white'
+                                                    : 'bg-gray-700 hover:bg-gray-600 border-gray-600 text-gray-300'
+                                            }`}
+                                        >
+                                            {preset}x
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {singleUserLimitEnabled && !currentEditionSpec.supportsSingleUserLimit && (
+                        <div
+                            data-testid="single-user-unsupported-edition-warning"
+                            role="alert"
+                            className="mt-3 bg-amber-900/30 border border-amber-800 p-3 rounded text-amber-200 text-xs"
+                        >
+                            Single-user quota limits are only supported for <strong>Standard</strong>, <strong>Plus</strong>, and <strong>Standard Emerging Market</strong> editions in Google Cloud Console. {edition} uses standard edition pooling.
+                        </div>
+                    )}
+
+                    {singleUserLimitEnabled && currentEditionSpec.supportsSingleUserLimit && !multiplierValidation.valid && (
+                        <div
+                            data-testid="multiplier-validation-error"
+                            role="alert"
+                            className="mt-3 bg-red-900/30 border border-red-800 p-2.5 rounded text-red-300 text-xs"
+                        >
+                            {multiplierValidation.error} Using fallback multiplier of {quotas.effectiveMultiplier}x.
+                        </div>
+                    )}
+
+                    {quotas.singleUserLimitActive && (
+                        <div
+                            data-testid="single-user-limit-summary"
+                            className="mt-3 bg-indigo-950/40 border border-indigo-800/70 rounded-lg p-3 text-xs text-indigo-200 flex flex-wrap items-center justify-between gap-2"
+                        >
+                            <div>
+                                <strong>Active Cap Formula:</strong> Per-User Daily Quota &times; <strong>{quotas.effectiveMultiplier}x</strong> (tracked independently across Assistant queries, No-code agent tools, Image generation, Video generation, and Deep Research).
+                            </div>
+                            {!noLicenses && numLicenses > 0 && (
+                                <span className="bg-indigo-900/60 border border-indigo-700 px-2.5 py-1 rounded text-indigo-100 font-medium whitespace-nowrap">
+                                    {quotas.effectiveMultiplier >= numLicenses
+                                        ? `Multiplier (${quotas.effectiveMultiplier}x) ≥ seats (${numLicenses}): 1 user can consume 100% of pool`
+                                        : `Min ${quotas.usersToExhaustPool} max-cap users required to exhaust daily pool`}
+                                </span>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
 
             <div className="bg-gray-900 border border-gray-800 p-6 rounded-lg shadow-inner">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-lg font-semibold text-white">Gemini Enterprise Quota Usage</h2>
-                    <span className="bg-gray-700 text-gray-300 text-xs px-2 py-1 rounded">Project Level</span>
+                    <span className="bg-gray-700 text-gray-300 text-xs px-2 py-1 rounded">Project Level ({edition})</span>
                 </div>
 
                 {/* Data & Actions Section */}
                 <div className="mb-6 pb-6 border-b border-gray-700/50">
-                    <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider">Data & actions</h3>
+                    <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider">Data &amp; actions</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <QuotaCard 
                             title="Tasks and actions" 
                             value={quotas.tasksAndActions} 
                             usage={usageMetrics?.tasksAndActions}
                             unit="tasks / day" 
+                            singleUserCap={quotas.singleUserCaps?.tasksAndActions}
+                            multiplier={quotas.effectiveMultiplier}
                             tooltip="Pooled daily limit for connector actions and tool executions (160/day per Standard seat, 200/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/tasks_and_actions_tier_enterprise*_regional/usage"
                         />
                     </div>
@@ -622,13 +1027,15 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
 
                 {/* Unified Search & Assistant Section */}
                 <div className="mb-6 pb-6 border-b border-gray-700/50">
-                    <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider">Unified search & assistant</h3>
+                    <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider">Unified search &amp; assistant</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <QuotaCard 
                             title="Text answer generation" 
                             value={quotas.textAnswerGen} 
                             usage={usageMetrics?.textAnswerGen}
                             unit="generations / day" 
+                            singleUserCap={quotas.singleUserCaps?.textAnswerGen}
+                            multiplier={quotas.effectiveMultiplier}
                             tooltip="Pooled daily limit for grounded assistant text answers and search summaries (160/day per Standard seat, 200/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/text_answer_gen_tier_enterprise*_regional/usage"
                         />
                         <QuotaCard 
@@ -636,20 +1043,26 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             value={quotas.imageGen} 
                             usage={usageMetrics?.imageGen}
                             unit="images / day" 
-                            tooltip="Pooled daily limit for enterprise image generations (5/day per Standard seat, 10/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/image_gen_tier_enterprise*_regional/usage"
+                            singleUserCap={quotas.singleUserCaps?.imageGen}
+                            multiplier={quotas.effectiveMultiplier}
+                            tooltip="Pooled daily limit for enterprise image generations (5/day per Standard seat, 10/day per Plus seat; overage-only on Standard Emerging Market). Metric: discoveryengine.googleapis.com/quota/image_gen_tier_enterprise*_regional/usage"
                         />
                         <QuotaCard 
                             title="Video generation" 
                             value={quotas.videoGen} 
                             usage={usageMetrics?.videoGen}
                             unit="videos / day" 
-                            tooltip="Pooled daily limit for enterprise video generations (2/day per Standard seat, 3/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/video_gen_numbers_tier_enterprise*_regional/usage"
+                            singleUserCap={quotas.singleUserCaps?.videoGen}
+                            multiplier={quotas.effectiveMultiplier}
+                            tooltip="Pooled daily limit for enterprise video generations (2/day per Standard seat, 3/day per Plus seat; overage-only on Standard Emerging Market). Metric: discoveryengine.googleapis.com/quota/video_gen_numbers_tier_enterprise*_regional/usage"
                         />
                         <QuotaCard 
                             title="Grounding with Google search" 
                             value={quotas.grounding} 
                             usage={usageMetrics?.grounding}
                             unit="queries / day" 
+                            singleUserCap={quotas.singleUserCaps?.grounding}
+                            multiplier={quotas.effectiveMultiplier}
                             tooltip="Pooled daily limit for queries grounded via Google Search (160/day per Standard seat, 200/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/grounding_with_search_tier_enterprise*_regional/usage"
                         />
                         <QuotaCard 
@@ -657,13 +1070,15 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             value={quotas.webGrounding} 
                             usage={usageMetrics?.webGrounding}
                             unit="queries / day" 
+                            singleUserCap={quotas.singleUserCaps?.webGrounding}
+                            multiplier={quotas.effectiveMultiplier}
                             tooltip="Pooled daily limit for enterprise web grounding queries (160/day per Standard seat, 200/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/web_grounding_for_enterprise_tier_enterprise*_regional/usage"
                         />
                     </div>
                 </div>
 
                 {/* Agents Section */}
-                <div className="mb-6">
+                <div className="mb-6 pb-6 border-b border-gray-700/50">
                     <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider">Agents</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <QuotaCard 
@@ -671,6 +1086,8 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             value={quotas.ideaGeneration} 
                             usage={usageMetrics?.ideaGeneration}
                             unit="ideas / day" 
+                            singleUserCap={quotas.singleUserCaps?.ideaGeneration}
+                            multiplier={quotas.effectiveMultiplier}
                             tooltip="Pooled daily limit for Idea Generation agent runs (1/day per Standard or Plus seat). Metric: discoveryengine.googleapis.com/quota/idea_gen_start_instance_tier_enterprise*_regional/usage"
                         />
                         <QuotaCard 
@@ -678,8 +1095,71 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             value={quotas.deepResearch} 
                             usage={usageMetrics?.deepResearch}
                             unit="queries / day" 
+                            singleUserCap={quotas.singleUserCaps?.deepResearch}
+                            multiplier={quotas.effectiveMultiplier}
                             tooltip="Pooled daily limit for multi-step Deep Research agent queries (3/day per Standard seat, 10/day per Plus seat). Metric: discoveryengine.googleapis.com/quota/deep_research_query_total_tier_enterprise*_regional/usage"
                         />
+                    </div>
+                </div>
+
+                {/* Calculated Edition Entitlements & Allocations Section */}
+                <div>
+                    <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider">
+                        Edition Entitlements &amp; Pooled Allocations (Calculated)
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700 flex flex-col justify-between">
+                            <div className="flex items-start justify-between mb-2">
+                                <h4 className="text-gray-300 text-sm font-semibold pr-2">No-code agent building tools (Create)</h4>
+                                <InfoTooltip text="Pooled daily limit for creating custom agents in Workflow Builder or registering external/custom agents (A2A, ADK, Dialogflow) in an app (1/day per Standard seat, 10/day per Plus seat)." />
+                            </div>
+                            <div className="flex items-baseline gap-1.5 mt-auto">
+                                <span data-testid="entitlement-agent-creation" className="text-2xl font-bold text-emerald-400">
+                                    {noLicenses ? '-' : quotas.agentCreation.toLocaleString()}
+                                </span>
+                                <span className="text-gray-400 text-xs">agents / day ({currentEditionSpec.agentCreation}/seat)</span>
+                            </div>
+                            {quotas.singleUserCaps && quotas.singleUserCaps.agentCreation > 0 && (
+                                <div className="mt-2.5 flex items-center justify-between gap-2 bg-indigo-950/60 border border-indigo-700/60 rounded px-2.5 py-1 text-xs text-indigo-200">
+                                    <span>Max per user ({quotas.effectiveMultiplier}x):</span>
+                                    <span className="font-semibold text-indigo-300">
+                                        {quotas.singleUserCaps.agentCreation.toLocaleString()} agents / day
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700 flex flex-col justify-between">
+                            <div className="flex items-start justify-between mb-2">
+                                <h4 className="text-gray-300 text-sm font-semibold pr-2">Storage + data indexing</h4>
+                                <InfoTooltip text="Pooled across all editions per project and location (30 GiB per Standard seat, 75 GiB per Plus seat). Excess storage automatically incurs $5 per GiB/month prorated overage charges." />
+                            </div>
+                            <div className="flex items-baseline gap-1.5 mt-auto">
+                                <span data-testid="entitlement-storage-gib" className="text-2xl font-bold text-emerald-400">
+                                    {noLicenses ? '-' : quotas.storageGiB.toLocaleString()}
+                                </span>
+                                <span className="text-gray-400 text-xs">GiB pooled ({currentEditionSpec.storageGiB} GiB/seat)</span>
+                            </div>
+                            <p className="mt-2 text-[11px] text-gray-400">Shared across all editions in project/location ($5/GiB/mo overage)</p>
+                        </div>
+
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700 flex flex-col justify-between">
+                            <div className="flex items-start justify-between mb-2">
+                                <h4 className="text-gray-300 text-sm font-semibold pr-2">AI developer tools credits</h4>
+                                <InfoTooltip text="Bundled credits for Google Antigravity, Antigravity for IDEs, and Android Studio ($10/mo per Standard seat, $15/mo per Plus seat). Enforced on a 7-day rolling basis as a shared weekly pool (monthly value ÷ 4 × seats). Single-user quota multipliers do not apply." />
+                            </div>
+                            <div className="flex items-baseline gap-1.5 mt-auto">
+                                <span data-testid="entitlement-devtools-weekly" className="text-2xl font-bold text-emerald-400">
+                                    {noLicenses || currentEditionSpec.devToolsCreditsMonthlyUsd === 0
+                                        ? '-'
+                                        : `$${quotas.devToolsCreditsWeeklyUsd.toLocaleString()}`}
+                                </span>
+                                <span className="text-gray-400 text-xs">
+                                    / 7-day pool ({noLicenses ? `$${currentEditionSpec.devToolsCreditsMonthlyUsd}/seat/mo` : `$${quotas.devToolsCreditsMonthlyUsd.toLocaleString()}/mo`})
+                                </span>
+                            </div>
+                            <p className="mt-2 text-[11px] text-gray-400">Exempt from single-user quota multiplier; resets every 7 days</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -688,9 +1168,17 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                  </svg>
-                 <div className="text-sm text-blue-200">
-                    <p className="font-semibold mb-1">How Quota Pooling Works</p>
-                    <p>All users in your plan share a single combined limit. For example, if your pooled quota is 1,600 Assistant queries per day, one power user could use 500 queries, leaving 1,100 queries for the remaining users. Individual usage is not capped at the per-user limit.</p>
+                 <div className="text-sm text-blue-200 space-y-1.5">
+                    <p className="font-semibold">How Quota Pooling, Single-User Limits &amp; PAYG Overages Work</p>
+                    <p>
+                        <strong>Edition Quota Pooling:</strong> Users within the same edition share a combined daily quota pool per project and location (resetting daily at midnight PT; AI developer tools reset on a 7-day rolling cycle). Storage and data indexing quotas combine into a single shared pool across all editions.
+                    </p>
+                    <p>
+                        <strong>Single-User Quota Limits (GA):</strong> By default, individual consumption is uncapped within the shared pool. Administrators can enable <em>Limit any single-user&apos;s quota</em> on the <strong>Usage &amp; Spending &gt; Usage</strong> page (supported for Standard, Plus, and Standard Emerging Market) with a whole-number multiplier (defaults to 10x) to prevent any single user from exhausting the edition&apos;s daily pool.
+                    </p>
+                    <p>
+                        <strong>Interaction with Overages:</strong> Single-user limits apply only while the edition&apos;s subscription pool has remaining capacity. Once the edition&apos;s shared pool is depleted, if <strong>Pay-as-you-go usage above quota</strong> is enabled, all users (including those who reached their single-user cap) continue uninterrupted at pay-as-you-go rates up to your configured monthly spend limit.
+                    </p>
                  </div>
              </div>
         </div>

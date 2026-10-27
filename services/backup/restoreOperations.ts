@@ -566,68 +566,97 @@ export async function executeRestoreNotebooks(
       recordCreated(outcome, newNotebookId);
 
       if (notebook.sources && notebook.sources.length > 0) {
-        const sourceRequests = notebook.sources.map((source: RestoredNotebookSource) => {
+        const sourceRequests: Record<string, unknown>[] = [];
+        for (const source of notebook.sources as any[]) {
           const sourcePayload: Record<string, unknown> = {};
           const sourceName = source.title || source.displayName || 'Restored Source';
-          if (source.metadata?.googleDocsMetadata) {
+          const gDocsMeta =
+            source.metadata?.googleDocsMetadata || source.metadata?.google_docs_metadata;
+          const ytMeta =
+            source.metadata?.youtubeMetadata || source.metadata?.youtube_metadata;
+          const asMeta =
+            source.metadata?.agentspaceMetadata || source.metadata?.agentspace_metadata;
+          const webMeta =
+            source.metadata?.webpageMetadata || source.metadata?.webpage_metadata;
+
+          const extractedText =
+            source.content ||
+            source.text ||
+            source.markdownString ||
+            source.markdown_string ||
+            (typeof source.plainText === 'string'
+              ? source.plainText
+              : source.plainText?.text || source.plainText?.content) ||
+            api.extractTextFromTailwindDoc(source.tailwindDoc || source.tailwind_doc) ||
+            source.userContent?.textContent?.content;
+
+          if (gDocsMeta?.documentId) {
             sourcePayload.googleDriveContent = {
               sourceName,
-              documentId: source.metadata.googleDocsMetadata.documentId,
-              mimeType:
-                source.metadata.googleDocsMetadata.mimeType ||
-                'application/vnd.google-apps.document',
+              documentId: gDocsMeta.documentId,
+              mimeType: gDocsMeta.mimeType || 'application/vnd.google-apps.document',
             };
-          } else if (source.metadata?.youtubeMetadata) {
-            sourcePayload.videoContent = {
-              youtubeUrl:
-                source.metadata.youtubeMetadata.youtubeUrl ||
-                source.metadata.youtubeMetadata.uri ||
-                source.metadata.youtubeMetadata.url,
-            };
-          } else if (source.metadata?.agentspaceMetadata) {
-            sourcePayload.agentspaceContent = {
-              documentName: source.metadata.agentspaceMetadata.documentName,
-            };
-          } else if (
-            source.metadata?.webpageMetadata ||
-            source.webScrapeConfig ||
-            source.url
-          ) {
+          } else if (ytMeta) {
+            const youtubeUrl =
+              ytMeta.youtubeUrl ||
+              ytMeta.uri ||
+              ytMeta.url ||
+              (ytMeta.videoId ? `https://www.youtube.com/watch?v=${ytMeta.videoId}` : undefined);
+            if (youtubeUrl) {
+              sourcePayload.videoContent = { youtubeUrl };
+            }
+          } else if (asMeta) {
+            if (extractedText) {
+              sourcePayload.textContent = {
+                sourceName,
+                content: extractedText,
+              };
+            } else if (asMeta.documentName) {
+              sourcePayload.agentspaceContent = {
+                documentName: asMeta.documentName,
+              };
+            }
+          } else if (webMeta?.webpageUrl || source.webScrapeConfig?.url || source.url) {
             sourcePayload.webContent = {
               sourceName,
               url:
-                source.metadata?.webpageMetadata?.webpageUrl ||
+                webMeta?.webpageUrl ||
                 source.url ||
                 (source.webScrapeConfig && source.webScrapeConfig.url),
             };
-          } else {
+          } else if (extractedText) {
             sourcePayload.textContent = {
               sourceName,
-              content:
-                source.content ||
-                source.text ||
-                `[Restored Source: ${source.name || sourceName}]`,
+              content: extractedText,
             };
+          } else {
+            addLog(
+              `      - WARNING: Skipping metadata-only source '${sourceName}' (no content, tailwindDoc, or URL in backup JSON; manual re-upload required).`
+            );
+            continue;
           }
-          return sourcePayload;
-        });
 
-        try {
-          await api.batchCreateNotebookSources(apiConfig, newNotebookId, sourceRequests);
-          addLog(`      - SUCCESS: Batch created ${sourceRequests.length} sources.`);
-        } catch (srcErr: unknown) {
-          const reason = toErrorMessage(srcErr);
-          addLog(
-            `      - ERROR: Failed to batch create sources for notebook '${newNotebookId}': ${reason}`
-          );
-          // The notebook exists but is empty, which is a data-loss outcome the
-          // operator has to know about.
-          recordFailure(
-            outcome,
-            'Notebook sources',
-            newNotebookId,
-            reason
-          );
+          if (Object.keys(sourcePayload).length > 0) {
+            sourceRequests.push(sourcePayload);
+          }
+        }
+
+        if (sourceRequests.length > 0) {
+          try {
+            await api.batchCreateNotebookSources(apiConfig, newNotebookId, sourceRequests);
+            addLog(`      - SUCCESS: Batch created ${sourceRequests.length} sources.`);
+          } catch (srcErr: unknown) {
+            const reason = toErrorMessage(srcErr);
+            addLog(
+              `      - ERROR: Failed to batch create sources for notebook '${newNotebookId}': ${reason}`
+            );
+            recordFailure(
+              outcome,
+              'Notebook sources',
+              newNotebookId,
+              reason
+            );
+          }
         }
       }
     } catch (err: unknown) {

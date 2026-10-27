@@ -24,6 +24,12 @@ import {
   isLegacyAuthorizationsDeprecationError,
   normalizeLowCodeAgentDefinitionForDeploy,
   formatLowCodeValidationErrors,
+  bulkEditSharePublishAgents,
+  parseAgentOwnerRemapCsv,
+  generateAgentOwnerRemapTemplateCsv,
+  parseAgentBulkFieldsCsv,
+  generateAgentBulkFieldsTemplateCsv,
+  extractAgentCurrentModelHint,
 } from './agents';
 import { Agent, Config } from '../../../types';
 
@@ -1418,7 +1424,265 @@ describe('agents API - shareAgent and Admin Publish & Share for User', () => {
       /Agent has validation errors \(agent\.low_code_agent_definition\.nodes\[1\]: Agent node with ID 'orphan_node' is disconnected/i,
     );
   });
+
+  it('bulkEditSharePublishAgents executes bulk metadata edit, deploy/publish, sharingScope, IAM bindings, and lifecycle transition with gapiRequest verification', async () => {
+    const lowCodeAgent: Agent = {
+      name: 'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/lc-1',
+      displayName: 'Sales Low-Code Bot',
+      description: 'Drafts sales emails.',
+      state: 'DISABLED',
+      sharingConfig: { scope: 'RESTRICTED' },
+      lowCodeAgentDefinition: {
+        rootAgentId: 'root_1',
+        nodes: [
+          {
+            id: 'root_1',
+            displayName: 'Sales Node',
+            llmAgentNode: {
+              instruction: 'Draft sales emails.',
+              model: 'gemini-2.5-flash',
+            },
+          },
+        ],
+      },
+    };
+
+    vi.mocked(core.gapiRequest).mockImplementation(async (url: string, method?: string, _proj?: string, _params?: unknown, body?: unknown) => {
+      if (url.endsWith(':getIamPolicy')) {
+        return { bindings: [] };
+      }
+      if (url.endsWith(':setIamPolicy')) {
+        return (body as { policy?: unknown })?.policy || { bindings: [] };
+      }
+      if (url.endsWith(':deployLowCode')) {
+        return {};
+      }
+      if (url.endsWith(':enableAgent')) {
+        return { ...lowCodeAgent, state: 'ENABLED' };
+      }
+      if (method === 'PATCH') {
+        return {
+          ...lowCodeAgent,
+          ...(body as Partial<Agent>),
+        };
+      }
+      return lowCodeAgent;
+    });
+
+    const res = await bulkEditSharePublishAgents(
+      [lowCodeAgent],
+      {
+        publishDrafts: true,
+        lifecycleAction: 'ENABLE',
+        sharingScope: 'ALL_USERS',
+        sharedPrincipals: ['alice@example.com', 'group:sales@example.com'],
+        sharedPrincipalMode: 'APPEND',
+        descriptionMode: 'PREFIX',
+        descriptionText: '[Enterprise]',
+        observabilityEnabled: 'ENABLE',
+        lowCodeModel: 'gemini-3.8-flash',
+      },
+      mockConfig,
+    );
+
+    expect(res.total).toBe(1);
+    expect(res.updated).toBe(1);
+    expect(res.failed).toBe(0);
+    expect(res.outcomes[0].status).toBe('updated');
+    expect(res.outcomes[0].actionsApplied).toEqual(
+      expect.arrayContaining([
+        'Updated description (prefix)',
+        'Updated observability (enabled=true, sensitiveLogging=false)',
+        'Set Low-Code LLM model to gemini-3.8-flash',
+        'Deployed Low-Code draft (:deployLowCode)',
+        'Set sharing scope to ALL_USERS',
+        'Granted roles/discoveryengine.agentUser (2 principals)',
+        'Enabled agent (:enableAgent)',
+      ]),
+    );
+
+    // Negative / adversarial check: malformed IAM principal throws before any RPC is made
+    vi.clearAllMocks();
+    await expect(
+      bulkEditSharePublishAgents(
+        [lowCodeAgent],
+        {
+          sharingScope: 'RESTRICTED',
+          sharedPrincipals: ['bad_principal_without_domain'],
+        },
+        mockConfig,
+      ),
+    ).rejects.toThrow(/Invalid IAM principal/i);
+    expect(core.gapiRequest).not.toHaveBeenCalled();
+  });
+
+  it('parseAgentOwnerRemapCsv and parseAgentBulkFieldsCsv match agents by ID, resource name, or display name and reject invalid owner principals', () => {
+    const agentA: Agent = {
+      name: 'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/agent-alpha',
+      displayName: 'Alpha Support Agent',
+      description: 'Original Alpha description',
+      state: 'ENABLED',
+      lowCodeAgentDefinition: {
+        ownerName: 'old-alpha@example.com',
+        rootAgentId: 'r1',
+        nodes: [{ id: 'r1', displayName: 'Root', llmAgentNode: { instruction: 'Help', model: 'gemini-2.5-flash' } }],
+      },
+    };
+    const agentB: Agent = {
+      name: 'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/agent-beta',
+      displayName: 'Beta Analytics Bot',
+      description: 'Original Beta description',
+      state: 'ENABLED',
+    };
+
+    expect(extractAgentCurrentModelHint(agentA)).toBe('gemini-2.5-flash');
+    expect(extractAgentCurrentModelHint(agentB)).toBe('');
+
+    // Generate template and verify headers
+    const ownerTemplate = generateAgentOwnerRemapTemplateCsv([agentA, agentB]);
+    expect(ownerTemplate).toContain('agent_id,display_name,current_owner,new_owner');
+    expect(ownerTemplate).toContain('agent-alpha,Alpha Support Agent,old-alpha@example.com,old-alpha@example.com');
+
+    // Parse 2-column & 4-column owner CSV with an unmatched agent and an invalid group: owner
+    const csvInput = [
+      'agent_id,new_owner',
+      'agent-alpha,alice-new@example.com',
+      '"Beta Analytics Bot",principal://iam.googleapis.com/locations/global/workforcePools/pool-1/subject/bob-subject',
+      'nonexistent-agent,nobody@example.com',
+      'agent-alpha,group:groups-cannot-own-agents@example.com',
+    ].join('\n');
+
+    const parsedOwners = parseAgentOwnerRemapCsv(csvInput, [agentA, agentB]);
+    expect(parsedOwners.matchedAgentNames).toHaveLength(2);
+    expect(parsedOwners.matchedMap[agentA.name]).toBe('user:alice-new@example.com');
+    expect(parsedOwners.matchedMap[agentB.name]).toBe(
+      'principal://iam.googleapis.com/locations/global/workforcePools/pool-1/subject/bob-subject',
+    );
+    expect(parsedOwners.unmatchedRows).toHaveLength(1);
+    expect(parsedOwners.unmatchedRows[0]).toContain('nonexistent-agent');
+    expect(parsedOwners.validationErrors).toHaveLength(1);
+    expect(parsedOwners.validationErrors[0]).toMatch(/Row 5.*Agent ownership can only be transferred to a single user identity/i);
+
+    // Multi-field CSV template and parser
+    const bulkTemplate = generateAgentBulkFieldsTemplateCsv([agentA], 'all');
+    expect(bulkTemplate).toContain(
+      'agent_id,display_name,current_owner,new_owner,new_description,new_display_name,new_model',
+    );
+
+    const multiCsv = [
+      'agent_id,new_owner,new_display_name,new_description,new_model',
+      'agent-alpha,lead-eng@example.com,"Alpha Concierge v2","Updated description from CSV",gemini-3.8-pro',
+      'unknown-id,lead@example.com,"Ghost","Desc",gemini-2.5-pro',
+    ].join('\n');
+
+    const parsedMulti = parseAgentBulkFieldsCsv(multiCsv, [agentA, agentB]);
+    expect(parsedMulti.matchedAgentNames).toEqual([agentA.name]);
+    expect(parsedMulti.ownerRemapByAgent[agentA.name]).toBe('user:lead-eng@example.com');
+    expect(parsedMulti.displayNameRemapByAgent[agentA.name]).toBe('Alpha Concierge v2');
+    expect(parsedMulti.descriptionRemapByAgent[agentA.name]).toBe('Updated description from CSV');
+    expect(parsedMulti.lowCodeModelRemapByAgent[agentA.name]).toBe('gemini-3.8-pro');
+    expect(parsedMulti.unmatchedRows).toHaveLength(1);
+    expect(parsedMulti.unmatchedRows[0]).toContain('unknown-id');
+  });
+
+  it('bulkEditSharePublishAgents executes per-agent ownerRemapByAgent, displayNameRemapByAgent, descriptionRemapByAgent, and lowCodeModelRemapByAgent', async () => {
+    const lowCodeAgent: Agent = {
+      name: 'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/lc-remap-1',
+      displayName: 'Original Bot Name',
+      description: 'Original Bot Description',
+      state: 'ENABLED',
+      lowCodeAgentDefinition: {
+        rootAgentId: 'root_1',
+        nodes: [
+          {
+            id: 'root_1',
+            displayName: 'Root',
+            llmAgentNode: {
+              instruction: 'Assist users.',
+              model: 'gemini-2.5-flash',
+            },
+          },
+        ],
+      },
+    };
+
+    vi.mocked(core.gapiRequest).mockImplementation(async (url: string, method?: string, _proj?: string, _params?: unknown, body?: unknown) => {
+      if (url.endsWith(':transferAgentOwner')) {
+        return { name: lowCodeAgent.name };
+      }
+      if (url.endsWith(':deployLowCode')) {
+        return {};
+      }
+      if (method === 'PATCH') {
+        return {
+          ...lowCodeAgent,
+          ...(body as Partial<Agent>),
+        };
+      }
+      return lowCodeAgent;
+    });
+
+    const result = await bulkEditSharePublishAgents(
+      [lowCodeAgent],
+      {
+        ownerRemapByAgent: {
+          [lowCodeAgent.name]: 'new-owner@example.com',
+        },
+        previousOwnerDisposition: 'REMOVE',
+        displayNameRemapByAgent: {
+          [lowCodeAgent.name]: 'Remapped Bot Name',
+        },
+        descriptionRemapByAgent: {
+          [lowCodeAgent.name]: 'Remapped Bot Description',
+        },
+        lowCodeModelRemapByAgent: {
+          [lowCodeAgent.name]: 'gemini-3.8-pro',
+        },
+      },
+      mockConfig,
+    );
+
+    expect(result.updated).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.outcomes[0].actionsApplied).toEqual(
+      expect.arrayContaining([
+        'Updated display name to "Remapped Bot Name"',
+        'Updated description (per-agent override)',
+        'Set Low-Code LLM model to gemini-3.8-pro',
+        'Transferred ownership to user:new-owner@example.com (:transferAgentOwner)',
+      ]),
+    );
+
+    // Verify :transferAgentOwner was called with normalized user: principal and REMOVE
+    const transferCall = vi
+      .mocked(core.gapiRequest)
+      .mock.calls.find(([url]) => String(url).endsWith(':transferAgentOwner'));
+    expect(transferCall).toBeDefined();
+    expect(transferCall?.[4]).toEqual({
+      targetPrincipal: {
+        principal: 'user:new-owner@example.com',
+      },
+      previousOwnerDisposition: 'REMOVE',
+    });
+
+    // Negative / adversarial test: invalid per-agent owner in ownerRemapByAgent throws before any RPC
+    vi.clearAllMocks();
+    await expect(
+      bulkEditSharePublishAgents(
+        [lowCodeAgent],
+        {
+          ownerRemapByAgent: {
+            [lowCodeAgent.name]: 'group:invalid-group-owner@example.com',
+          },
+        },
+        mockConfig,
+      ),
+    ).rejects.toThrow(/Agent ownership can only be transferred to a single user identity/i);
+    expect(core.gapiRequest).not.toHaveBeenCalled();
+  });
 });
+
+
 
 
 

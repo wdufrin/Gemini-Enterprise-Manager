@@ -23,6 +23,11 @@ import {
   TransferAgentOwnerOptions,
   AdminPublishAndShareOptions,
   AdminPublishAndShareResult,
+  BulkEditSharePublishOptions,
+  BulkEditSharePublishAgentOutcome,
+  BulkEditSharePublishResult,
+  AgentOwnerRemapCsvParseResult,
+  AgentBulkFieldCsvParseResult,
   IamPolicy,
   LowCodeAgentDefinition,
   LowCodeValidationError,
@@ -2277,3 +2282,1444 @@ export const createPromptChip = async (
     payload,
   );
 };
+
+const isBulkPermissionError = (err: unknown): boolean => {
+  const msg = ((err as Error)?.message || String(err)).toLowerCase();
+  return (
+    msg.includes("403") ||
+    msg.includes("permission_denied") ||
+    msg.includes("permission denied") ||
+    msg.includes("does not have permission") ||
+    msg.includes("not the owner")
+  );
+};
+
+/**
+ * Bulk-applies Edit, Share, and Publish operations across selected Gemini Enterprise agents.
+ *
+ * Capabilities:
+ * 1. **Bulk Metadata & Settings Edit**:
+ *    - Description update (`PREFIX`, `SUFFIX`, `REPLACE`)
+ *    - Observability (`observabilityEnabled`, `sensitiveLoggingEnabled`)
+ *    - Low-Code / Workflow LLM model selection (`lowCodeModel`)
+ * 2. **Bulk Publish & Lifecycle State**:
+ *    - Deploys Low-Code drafts (`:deployLowCode`) or publishes Workflow/Skill drafts (`:publish`)
+ *    - Transitions lifecycle state (`ENABLE` via `:enableAgent`, `DISABLE` via `:disableAgent`)
+ * 3. **Bulk Share & IAM Access**:
+ *    - Configures `sharingConfig.scope` (`ALL_USERS`, `RESTRICTED`, or withdraws to `PRIVATE` via `:withdrawAgent`)
+ *    - Automatically handles `PRIVATE` employee-made agents (via in-place `:initIamPolicy` -> `:requestAgentReview`,
+ *      or Admin clone + publish + share + owner transfer back to the original creator if blocked by 403)
+ *    - Grants or replaces `roles/discoveryengine.agentUser` IAM bindings (`:setIamPolicy`)
+ */
+const splitCsvLine = (line: string): string[] => {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if ((ch === "," || ch === "\t") && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current.trim());
+  return result;
+};
+
+const AGENT_KEY_HEADER_ALIASES = new Set([
+  "agent",
+  "agent_id",
+  "agentid",
+  "agent_name",
+  "agentname",
+  "resource_name",
+  "resourcename",
+  "name",
+  "id",
+  "display_name",
+  "displayname",
+  "source_owner",
+  "current_owner",
+]);
+
+const OWNER_HEADER_ALIASES = new Set([
+  "owner",
+  "owner_id",
+  "ownerid",
+  "new_owner",
+  "newowner",
+  "target_owner",
+  "targetowner",
+  "owner_email",
+  "owneremail",
+  "email",
+  "principal",
+  "target_principal",
+  "targetprincipal",
+]);
+
+/**
+ * Generates a downloadable CSV template pre-populated with the current custom agents,
+ * their short IDs, display names, current owners, and an editable `new_owner` column.
+ */
+export const generateAgentOwnerRemapTemplateCsv = (agents: Agent[]): string => {
+  const escapeCsvCell = (val: string): string => {
+    if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+      return `"${val.replace(/"/g, '""')}"`;
+    }
+    return val;
+  };
+  const header = "agent_id,display_name,current_owner,new_owner";
+  const rows = agents
+    .filter((a) => !isGoogleManagedAgent(a))
+    .map((a) => {
+      const shortId = a.name.split("/").pop() || a.name;
+      const currentOwner = extractAgentOwnerHint(a) || "";
+      return [
+        escapeCsvCell(shortId),
+        escapeCsvCell(a.displayName || shortId),
+        escapeCsvCell(currentOwner),
+        escapeCsvCell(currentOwner),
+      ].join(",");
+    });
+  return [header, ...rows].join("\n");
+};
+
+/**
+ * Parses a CSV string mapping agents (by `agent_id`, full `agent.name`, `display_name`, or `current_owner`)
+ * to a target owner ID/email/principal, validates each target owner via `formatTransferTargetPrincipal`,
+ * and returns the matched agent map plus any unmatched rows or validation errors.
+ */
+export const parseAgentOwnerRemapCsv = (
+  csvText: string,
+  availableAgents: Agent[],
+): AgentOwnerRemapCsvParseResult => {
+  const matchedMap: Record<string, string> = {};
+  const matchedAgentNamesSet = new Set<string>();
+  const unmatchedRows: string[] = [];
+  const validationErrors: string[] = [];
+
+  const rawLines = (csvText || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith("#"));
+
+  if (rawLines.length === 0) {
+    return {
+      matchedMap,
+      matchedAgentNames: [],
+      unmatchedRows: [],
+      validationErrors: ["CSV input is empty."],
+    };
+  }
+
+  let startIdx = 0;
+  let agentKeyCol = 0;
+  let ownerCol = 1;
+
+  const firstRowCols = splitCsvLine(rawLines[0]);
+  const normalizedHeaders = firstRowCols.map((c) =>
+    c.toLowerCase().replace(/[\s-]+/g, "_"),
+  );
+
+  const detectedAgentCol = normalizedHeaders.findIndex((h) =>
+    AGENT_KEY_HEADER_ALIASES.has(h),
+  );
+  // Prefer explicit new_owner / target_owner / owner_id over current_owner
+  const explicitNewOwnerCol = normalizedHeaders.findIndex((h) =>
+    [
+      "new_owner",
+      "newowner",
+      "target_owner",
+      "targetowner",
+      "owner_id",
+      "ownerid",
+      "owner",
+      "owner_email",
+      "target_principal",
+      "principal",
+    ].includes(h),
+  );
+  const fallbackOwnerCol =
+    explicitNewOwnerCol >= 0
+      ? explicitNewOwnerCol
+      : normalizedHeaders.findIndex((h) => OWNER_HEADER_ALIASES.has(h));
+
+  if (detectedAgentCol >= 0 || fallbackOwnerCol >= 0) {
+    startIdx = 1;
+    if (detectedAgentCol >= 0) agentKeyCol = detectedAgentCol;
+    if (fallbackOwnerCol >= 0 && fallbackOwnerCol !== agentKeyCol) {
+      ownerCol = fallbackOwnerCol;
+    } else if (firstRowCols.length >= 2) {
+      ownerCol = agentKeyCol === 0 ? 1 : 0;
+    }
+  }
+
+  const customAgents = availableAgents.filter((a) => !isGoogleManagedAgent(a));
+
+  for (let lineIdx = startIdx; lineIdx < rawLines.length; lineIdx++) {
+    const lineNum = lineIdx + 1;
+    const cols = splitCsvLine(rawLines[lineIdx]);
+    if (cols.length < 2) {
+      validationErrors.push(
+        `Row ${lineNum}: Expected at least 2 columns (agent_id, new_owner), found "${rawLines[lineIdx]}".`,
+      );
+      continue;
+    }
+
+    const rawAgentKey = (cols[agentKeyCol] || "").trim();
+    const rawTargetOwner = (cols[ownerCol] || "").trim();
+
+    if (!rawAgentKey) {
+      validationErrors.push(`Row ${lineNum}: Missing agent identifier.`);
+      continue;
+    }
+    if (!rawTargetOwner) {
+      // Allow empty new_owner in template rows where user didn't fill in a remap
+      continue;
+    }
+
+    let formattedOwner: string;
+    try {
+      formattedOwner = formatTransferTargetPrincipal(rawTargetOwner);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      validationErrors.push(`Row ${lineNum} (${rawAgentKey}): ${msg}`);
+      continue;
+    }
+
+    const keyLower = rawAgentKey.toLowerCase();
+    const normalizedOwnerKey = keyLower.replace(/^user:/i, "");
+
+    const matchedAgents = customAgents.filter((a) => {
+      const fullNameLower = (a.name || "").toLowerCase();
+      const shortIdLower = (a.name?.split("/").pop() || "").toLowerCase();
+      const displayLower = (a.displayName || "").trim().toLowerCase();
+      const currentOwnerLower = (extractAgentOwnerHint(a) || "")
+        .trim()
+        .toLowerCase()
+        .replace(/^user:/i, "");
+
+      return (
+        fullNameLower === keyLower ||
+        shortIdLower === keyLower ||
+        (displayLower && displayLower === keyLower) ||
+        (currentOwnerLower && currentOwnerLower === normalizedOwnerKey)
+      );
+    });
+
+    if (matchedAgents.length === 0) {
+      unmatchedRows.push(`Row ${lineNum}: "${rawAgentKey}" -> ${formattedOwner}`);
+      continue;
+    }
+
+    for (const agent of matchedAgents) {
+      matchedMap[agent.name] = formattedOwner;
+      matchedAgentNamesSet.add(agent.name);
+    }
+  }
+
+  return {
+    matchedMap,
+    matchedAgentNames: Array.from(matchedAgentNamesSet),
+    unmatchedRows,
+    validationErrors,
+  };
+};
+
+/**
+ * Extracts the current LLM model configured on a Low-Code or Workflow agent, if any.
+ */
+export const extractAgentCurrentModelHint = (agent: Agent): string => {
+  const lowCodeNodes =
+    agent.lowCodeAgentDefinition?.nodes ||
+    agent.lowCodeAgentDefinition?.deployedNodes ||
+    [];
+  for (const node of lowCodeNodes) {
+    if (node.llmAgentNode?.model) {
+      return node.llmAgentNode.model;
+    }
+  }
+  const wfNodes = agent.workflowAgentDefinition?.agentFlow?.nodes || [];
+  for (const node of wfNodes) {
+    if (node.agentNode?.model) {
+      return node.agentNode.model;
+    }
+  }
+  return "";
+};
+
+/**
+ * Generates a downloadable multi-field CSV template for the Bulk Edit Wizard
+ * (`owner`, `description`, `display_name`, `model`, or `all` combined).
+ */
+export const generateAgentBulkFieldsTemplateCsv = (
+  agents: Agent[],
+  fieldType: "owner" | "description" | "display_name" | "model" | "all" = "all",
+): string => {
+  const escapeCsvCell = (val: string): string => {
+    if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+      return `"${val.replace(/"/g, '""')}"`;
+    }
+    return val;
+  };
+  const customAgents = agents.filter((a) => !isGoogleManagedAgent(a));
+
+  if (fieldType === "owner") {
+    return generateAgentOwnerRemapTemplateCsv(customAgents);
+  }
+  if (fieldType === "description") {
+    const header = "agent_id,display_name,current_description,new_description";
+    const rows = customAgents.map((a) => {
+      const shortId = a.name.split("/").pop() || a.name;
+      const curDesc =
+        a.description || a.lowCodeAgentDefinition?.draftDescription || "";
+      return [
+        escapeCsvCell(shortId),
+        escapeCsvCell(a.displayName || shortId),
+        escapeCsvCell(curDesc),
+        escapeCsvCell(curDesc),
+      ].join(",");
+    });
+    return [header, ...rows].join("\n");
+  }
+  if (fieldType === "display_name") {
+    const header = "agent_id,current_display_name,new_display_name";
+    const rows = customAgents.map((a) => {
+      const shortId = a.name.split("/").pop() || a.name;
+      return [
+        escapeCsvCell(shortId),
+        escapeCsvCell(a.displayName || shortId),
+        escapeCsvCell(a.displayName || shortId),
+      ].join(",");
+    });
+    return [header, ...rows].join("\n");
+  }
+  if (fieldType === "model") {
+    const header = "agent_id,display_name,current_model,new_model";
+    const rows = customAgents.map((a) => {
+      const shortId = a.name.split("/").pop() || a.name;
+      const curModel = extractAgentCurrentModelHint(a);
+      return [
+        escapeCsvCell(shortId),
+        escapeCsvCell(a.displayName || shortId),
+        escapeCsvCell(curModel),
+        escapeCsvCell(curModel),
+      ].join(",");
+    });
+    return [header, ...rows].join("\n");
+  }
+
+  const header =
+    "agent_id,display_name,current_owner,new_owner,new_description,new_display_name,new_model";
+  const rows = customAgents.map((a) => {
+    const shortId = a.name.split("/").pop() || a.name;
+    const currentOwner = extractAgentOwnerHint(a) || "";
+    const curDesc =
+      a.description || a.lowCodeAgentDefinition?.draftDescription || "";
+    const curModel = extractAgentCurrentModelHint(a);
+    return [
+      escapeCsvCell(shortId),
+      escapeCsvCell(a.displayName || shortId),
+      escapeCsvCell(currentOwner),
+      escapeCsvCell(currentOwner),
+      escapeCsvCell(curDesc),
+      escapeCsvCell(a.displayName || shortId),
+      escapeCsvCell(curModel),
+    ].join(",");
+  });
+  return [header, ...rows].join("\n");
+};
+
+/**
+ * Parses a CSV mapping agents to one or more editable fields (`new_owner`, `new_description`,
+ * `new_display_name`, `new_model`) or a 2-column headerless CSV for the specified `defaultField`.
+ */
+export const parseAgentBulkFieldsCsv = (
+  csvText: string,
+  availableAgents: Agent[],
+  defaultField: "owner" | "description" | "display_name" | "model" = "owner",
+): AgentBulkFieldCsvParseResult => {
+  const ownerRemapByAgent: Record<string, string> = {};
+  const displayNameRemapByAgent: Record<string, string> = {};
+  const descriptionRemapByAgent: Record<string, string> = {};
+  const lowCodeModelRemapByAgent: Record<string, string> = {};
+  const matchedAgentNamesSet = new Set<string>();
+  const unmatchedRows: string[] = [];
+  const validationErrors: string[] = [];
+
+  const rawLines = (csvText || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith("#"));
+
+  if (rawLines.length === 0) {
+    return {
+      ownerRemapByAgent,
+      displayNameRemapByAgent,
+      descriptionRemapByAgent,
+      lowCodeModelRemapByAgent,
+      matchedAgentNames: [],
+      unmatchedRows: [],
+      validationErrors: ["CSV input is empty."],
+    };
+  }
+
+  const firstRowCols = splitCsvLine(rawLines[0]);
+  const normalizedHeaders = firstRowCols.map((c) =>
+    c.toLowerCase().replace(/[\s-]+/g, "_"),
+  );
+
+  const detectedAgentCol = normalizedHeaders.findIndex((h) =>
+    [
+      "agent",
+      "agent_id",
+      "agentid",
+      "agent_name",
+      "agentname",
+      "resource_name",
+      "resourcename",
+      "name",
+      "id",
+    ].includes(h),
+  );
+  const ownerCol = normalizedHeaders.findIndex((h) =>
+    [
+      "new_owner",
+      "newowner",
+      "target_owner",
+      "targetowner",
+      "owner_id",
+      "ownerid",
+      "owner",
+      "owner_email",
+      "target_principal",
+    ].includes(h),
+  );
+  const descCol = normalizedHeaders.findIndex((h) =>
+    [
+      "new_description",
+      "newdescription",
+      "target_description",
+      "description",
+      "desc",
+    ].includes(h),
+  );
+  const displayNameCol = normalizedHeaders.findIndex((h) =>
+    [
+      "new_display_name",
+      "newdisplayname",
+      "target_display_name",
+      "new_name",
+    ].includes(h),
+  );
+  const modelCol = normalizedHeaders.findIndex((h) =>
+    ["new_model", "newmodel", "target_model", "model", "llm_model"].includes(h),
+  );
+
+  const hasRecognizedHeader =
+    detectedAgentCol >= 0 ||
+    ownerCol >= 0 ||
+    descCol >= 0 ||
+    displayNameCol >= 0 ||
+    modelCol >= 0;
+
+  // If pure owner CSV or defaultField === 'owner' with only owner columns, delegate to parseAgentOwnerRemapCsv when appropriate
+  if (
+    defaultField === "owner" &&
+    descCol < 0 &&
+    displayNameCol < 0 &&
+    modelCol < 0
+  ) {
+    const ownerRes = parseAgentOwnerRemapCsv(csvText, availableAgents);
+    return {
+      ownerRemapByAgent: ownerRes.matchedMap,
+      displayNameRemapByAgent,
+      descriptionRemapByAgent,
+      lowCodeModelRemapByAgent,
+      matchedAgentNames: ownerRes.matchedAgentNames,
+      unmatchedRows: ownerRes.unmatchedRows,
+      validationErrors: ownerRes.validationErrors,
+    };
+  }
+
+  const startIdx = hasRecognizedHeader ? 1 : 0;
+  const agentKeyIdx = detectedAgentCol >= 0 ? detectedAgentCol : 0;
+  const customAgents = availableAgents.filter((a) => !isGoogleManagedAgent(a));
+
+  for (let lineIdx = startIdx; lineIdx < rawLines.length; lineIdx++) {
+    const lineNum = lineIdx + 1;
+    const cols = splitCsvLine(rawLines[lineIdx]);
+    if (cols.length < 2) {
+      validationErrors.push(
+        `Row ${lineNum}: Expected at least 2 columns, found "${rawLines[lineIdx]}".`,
+      );
+      continue;
+    }
+
+    const rawAgentKey = (cols[agentKeyIdx] || "").trim();
+    if (!rawAgentKey) {
+      validationErrors.push(`Row ${lineNum}: Missing agent identifier.`);
+      continue;
+    }
+
+    const keyLower = rawAgentKey.toLowerCase();
+    const matchedAgents = customAgents.filter((a) => {
+      const fullNameLower = (a.name || "").toLowerCase();
+      const shortIdLower = (a.name?.split("/").pop() || "").toLowerCase();
+      const displayLower = (a.displayName || "").trim().toLowerCase();
+      return (
+        fullNameLower === keyLower ||
+        shortIdLower === keyLower ||
+        (displayLower && displayLower === keyLower)
+      );
+    });
+
+    if (matchedAgents.length === 0) {
+      unmatchedRows.push(`Row ${lineNum}: "${rawAgentKey}"`);
+      continue;
+    }
+
+    const rawOwner =
+      ownerCol >= 0
+        ? (cols[ownerCol] || "").trim()
+        : !hasRecognizedHeader && defaultField === "owner"
+          ? (cols[1] || "").trim()
+          : "";
+    const rawDesc =
+      descCol >= 0
+        ? (cols[descCol] || "").trim()
+        : !hasRecognizedHeader && defaultField === "description"
+          ? (cols[1] || "").trim()
+          : "";
+    const rawDisplay =
+      displayNameCol >= 0
+        ? (cols[displayNameCol] || "").trim()
+        : !hasRecognizedHeader && defaultField === "display_name"
+          ? (cols[1] || "").trim()
+          : "";
+    const rawModel =
+      modelCol >= 0
+        ? (cols[modelCol] || "").trim()
+        : !hasRecognizedHeader && defaultField === "model"
+          ? (cols[1] || "").trim()
+          : "";
+
+    let formattedOwner: string | undefined;
+    if (rawOwner) {
+      try {
+        formattedOwner = formatTransferTargetPrincipal(rawOwner);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        validationErrors.push(`Row ${lineNum} (${rawAgentKey}): ${msg}`);
+        continue;
+      }
+    }
+
+    for (const agent of matchedAgents) {
+      let rowApplied = false;
+      if (formattedOwner) {
+        ownerRemapByAgent[agent.name] = formattedOwner;
+        rowApplied = true;
+      }
+      if (rawDesc) {
+        descriptionRemapByAgent[agent.name] = rawDesc;
+        rowApplied = true;
+      }
+      if (rawDisplay) {
+        displayNameRemapByAgent[agent.name] = rawDisplay;
+        rowApplied = true;
+      }
+      if (rawModel) {
+        lowCodeModelRemapByAgent[agent.name] = rawModel;
+        rowApplied = true;
+      }
+      if (rowApplied) {
+        matchedAgentNamesSet.add(agent.name);
+      }
+    }
+  }
+
+  return {
+    ownerRemapByAgent,
+    displayNameRemapByAgent,
+    descriptionRemapByAgent,
+    lowCodeModelRemapByAgent,
+    matchedAgentNames: Array.from(matchedAgentNamesSet),
+    unmatchedRows,
+    validationErrors,
+  };
+};
+
+/**
+ * Resolves a per-agent string override from a map keyed by full `agent.name`, short `agentId`, or `displayName`.
+ */
+const resolveAgentMapOverride = (
+  agent: Agent,
+  map?: Record<string, string>,
+): string | undefined => {
+  if (!map) return undefined;
+  const shortId = agent.name?.split("/").pop() || "";
+  const displayName = (agent.displayName || "").trim();
+  const direct =
+    map[agent.name] ??
+    (shortId ? map[shortId] : undefined) ??
+    (displayName ? map[displayName] : undefined);
+  if (direct !== undefined && direct.trim() !== "") {
+    return direct.trim();
+  }
+  const nameLower = (agent.name || "").toLowerCase();
+  const shortLower = shortId.toLowerCase();
+  const displayLower = displayName.toLowerCase();
+  for (const [k, v] of Object.entries(map)) {
+    const trimmedVal = (v || "").trim();
+    if (!trimmedVal) continue;
+    const kLower = k.trim().toLowerCase();
+    if (
+      kLower === nameLower ||
+      (shortLower && kLower === shortLower) ||
+      (displayLower && kLower === displayLower)
+    ) {
+      return trimmedVal;
+    }
+  }
+  return undefined;
+};
+
+/**
+ * Resolves the target owner override for a given agent from `options.ownerRemapByAgent` or `options.defaultTargetOwner`.
+ */
+const resolveMappedOwnerForAgent = (
+  agent: Agent,
+  options: BulkEditSharePublishOptions,
+): string | undefined => {
+  const fromMap = resolveAgentMapOverride(agent, options.ownerRemapByAgent);
+  if (fromMap) return fromMap;
+  if (options.defaultTargetOwner && options.defaultTargetOwner.trim()) {
+    return options.defaultTargetOwner.trim();
+  }
+  return undefined;
+};
+
+export const bulkEditSharePublishAgents = async (
+  agents: Agent[],
+  options: BulkEditSharePublishOptions,
+  config: Config,
+): Promise<BulkEditSharePublishResult> => {
+  if (!Array.isArray(agents) || agents.length === 0) {
+    throw new Error("At least one agent must be selected for bulk update.");
+  }
+
+  const autoClaimOn403 = Boolean(
+    options.autoClaimOwnershipOn403 ?? options.claimOwnershipOn403,
+  );
+  const previousOwnerDisposition =
+    options.previousOwnerDisposition || "KEEP_AS_AGENT_USER";
+
+  // Validate shared principals upfront so malformed principals fail fast before mutating resources
+  const normalizedPrincipals: string[] = [];
+  if (
+    options.sharingScope !== "PRIVATE" &&
+    Array.isArray(options.sharedPrincipals) &&
+    options.sharedPrincipals.length > 0
+  ) {
+    for (const raw of options.sharedPrincipals) {
+      const trimmed = (raw || "").trim();
+      if (!trimmed) continue;
+      normalizedPrincipals.push(formatSharedIamPrincipal(trimmed));
+    }
+  }
+
+  // Validate any mapped target owners upfront so invalid owner principals (e.g. group:, domain:) fail fast
+  const validatedOwnerByAgentName: Record<string, string> = {};
+  for (const agent of agents) {
+    if (isGoogleManagedAgent(agent)) continue;
+    const rawTargetOwner = resolveMappedOwnerForAgent(agent, options);
+    if (rawTargetOwner) {
+      validatedOwnerByAgentName[agent.name] =
+        formatTransferTargetPrincipal(rawTargetOwner);
+    }
+  }
+
+  const hasPerAgentDescriptions =
+    options.descriptionRemapByAgent &&
+    Object.values(options.descriptionRemapByAgent).some((v) =>
+      Boolean((v || "").trim()),
+    );
+
+  if (
+    options.descriptionMode &&
+    options.descriptionMode !== "UNCHANGED" &&
+    !(options.descriptionText || "").trim() &&
+    !hasPerAgentDescriptions
+  ) {
+    throw new Error(
+      "Description text is required when a description update mode (Prefix, Suffix, or Replace) is selected.",
+    );
+  }
+
+  const result: BulkEditSharePublishResult = {
+    total: agents.length,
+    updated: 0,
+    skipped: 0,
+    failed: 0,
+    outcomes: [],
+  };
+
+  for (let i = 0; i < agents.length; i++) {
+    const item = agents[i];
+    const displayName =
+      item.displayName || item.name?.split("/").pop() || "Agent";
+
+    try {
+      if (isGoogleManagedAgent(item)) {
+        // Google built-in agents only support enable/disable lifecycle state changes
+        if (
+          options.lifecycleAction === "ENABLE" ||
+          options.lifecycleAction === "DISABLE"
+        ) {
+          const agentName = resolveFullAgentResourceName(item.name, config);
+          const actionsApplied: string[] = [];
+          if (
+            options.lifecycleAction === "ENABLE" &&
+            item.state !== "ENABLED"
+          ) {
+            await enableAgent(agentName, config);
+            actionsApplied.push("Enabled agent (:enableAgent)");
+          } else if (
+            options.lifecycleAction === "DISABLE" &&
+            item.state !== "DISABLED"
+          ) {
+            await disableAgent(agentName, config);
+            actionsApplied.push("Disabled agent (:disableAgent)");
+          }
+
+          const outcome: BulkEditSharePublishAgentOutcome = {
+            agentName: item.name,
+            displayName,
+            status: actionsApplied.length > 0 ? "updated" : "skipped",
+            actionsApplied,
+          };
+          if (actionsApplied.length > 0) result.updated++;
+          else result.skipped++;
+          result.outcomes.push(outcome);
+          options.onProgress?.(i + 1, agents.length, outcome);
+          continue;
+        }
+
+        const outcome: BulkEditSharePublishAgentOutcome = {
+          agentName: item.name,
+          displayName,
+          status: "skipped",
+          actionsApplied: [],
+          warning:
+            "Skipped Google-managed built-in agent (protected from metadata/sharing mutations).",
+        };
+        result.skipped++;
+        result.outcomes.push(outcome);
+        options.onProgress?.(i + 1, agents.length, outcome);
+        continue;
+      }
+
+      let currentAgent: Agent = await getAgent(item.name, config).catch(
+        () => item,
+      );
+      let currentAgentName = resolveFullAgentResourceName(
+        currentAgent.name,
+        config,
+      );
+      const mappedTargetOwner = validatedOwnerByAgentName[item.name];
+      let ownerTransferred = false;
+      const actionsApplied: string[] = [];
+      const warnings: string[] = [];
+      let ownershipClaimed = false;
+      let wasCloned = false;
+
+      const claimOwnershipIfAllowed = async (): Promise<boolean> => {
+        if (
+          ownershipClaimed ||
+          !autoClaimOn403 ||
+          currentAgent.state === "PRIVATE"
+        ) {
+          return false;
+        }
+        await transferAgentOwner(
+          currentAgentName,
+          { toSelf: true, previousOwnerDisposition: "KEEP_AS_AGENT_USER" },
+          config,
+        );
+        ownershipClaimed = true;
+        actionsApplied.push("Claimed ownership (:transferAgentOwner)");
+        return true;
+      };
+
+      // Step 1: Build metadata / settings PATCH payload
+      const patchPayload: Partial<Agent> = {};
+      let hasPatchChanges = false;
+
+      // 1a-0. Per-agent Display Name override
+      const perAgentDisplayName = resolveAgentMapOverride(
+        item,
+        options.displayNameRemapByAgent,
+      );
+      if (
+        perAgentDisplayName &&
+        perAgentDisplayName !== (currentAgent.displayName || "").trim()
+      ) {
+        patchPayload.displayName = perAgentDisplayName;
+        hasPatchChanges = true;
+        actionsApplied.push(`Updated display name to "${perAgentDisplayName}"`);
+      }
+
+      // 1a. Description update (per-agent override takes priority over uniform mode)
+      const perAgentDescription = resolveAgentMapOverride(
+        item,
+        options.descriptionRemapByAgent,
+      );
+      if (perAgentDescription !== undefined) {
+        const existingDesc = (
+          currentAgent.description ||
+          currentAgent.lowCodeAgentDefinition?.draftDescription ||
+          ""
+        ).trim();
+        if (perAgentDescription !== existingDesc) {
+          patchPayload.description = perAgentDescription;
+          if (currentAgent.lowCodeAgentDefinition) {
+            patchPayload.lowCodeAgentDefinition = {
+              ...(patchPayload.lowCodeAgentDefinition ||
+                currentAgent.lowCodeAgentDefinition),
+              draftDescription: perAgentDescription,
+            };
+          }
+          hasPatchChanges = true;
+          actionsApplied.push("Updated description (per-agent override)");
+        }
+      } else if (
+        options.descriptionMode &&
+        options.descriptionMode !== "UNCHANGED" &&
+        options.descriptionText !== undefined
+      ) {
+        const text = options.descriptionText.trim();
+        const existingDesc = (
+          currentAgent.description ||
+          currentAgent.lowCodeAgentDefinition?.draftDescription ||
+          ""
+        ).trim();
+
+        let nextDesc = existingDesc;
+        if (options.descriptionMode === "REPLACE") {
+          nextDesc = text;
+        } else if (options.descriptionMode === "PREFIX") {
+          nextDesc = existingDesc.startsWith(text)
+            ? existingDesc
+            : existingDesc
+              ? `${text} ${existingDesc}`
+              : text;
+        } else if (options.descriptionMode === "SUFFIX") {
+          nextDesc = existingDesc.endsWith(text)
+            ? existingDesc
+            : existingDesc
+              ? `${existingDesc} ${text}`
+              : text;
+        }
+
+        if (nextDesc !== existingDesc) {
+          patchPayload.description = nextDesc;
+          if (currentAgent.lowCodeAgentDefinition) {
+            patchPayload.lowCodeAgentDefinition = {
+              ...(patchPayload.lowCodeAgentDefinition ||
+                currentAgent.lowCodeAgentDefinition),
+              draftDescription: nextDesc,
+            };
+          }
+          hasPatchChanges = true;
+          actionsApplied.push(
+            `Updated description (${options.descriptionMode.toLowerCase()})`,
+          );
+        }
+      }
+
+      // 1b. Observability config update
+      const obsEnabledOpt = options.observabilityEnabled || "UNCHANGED";
+      const sensLoggingOpt = options.sensitiveLoggingEnabled || "UNCHANGED";
+      if (obsEnabledOpt !== "UNCHANGED" || sensLoggingOpt !== "UNCHANGED") {
+        const currentObs = currentAgent.observabilityConfig || {};
+        const nextObsEnabled =
+          obsEnabledOpt === "ENABLE"
+            ? true
+            : obsEnabledOpt === "DISABLE"
+              ? false
+              : Boolean(currentObs.observabilityEnabled);
+        const nextSensEnabled =
+          sensLoggingOpt === "ENABLE"
+            ? true
+            : sensLoggingOpt === "DISABLE"
+              ? false
+              : Boolean(currentObs.sensitiveLoggingEnabled);
+
+        if (
+          nextObsEnabled !== Boolean(currentObs.observabilityEnabled) ||
+          nextSensEnabled !== Boolean(currentObs.sensitiveLoggingEnabled)
+        ) {
+          patchPayload.observabilityConfig = {
+            observabilityEnabled: nextObsEnabled,
+            sensitiveLoggingEnabled: nextSensEnabled,
+          };
+          hasPatchChanges = true;
+          actionsApplied.push(
+            `Updated observability (enabled=${nextObsEnabled}, sensitiveLogging=${nextSensEnabled})`,
+          );
+        }
+      }
+
+      // 1c. Low-Code / Workflow LLM Model update (per-agent override takes priority over uniform lowCodeModel)
+      const perAgentModel = resolveAgentMapOverride(
+        item,
+        options.lowCodeModelRemapByAgent,
+      );
+      const effectiveModelOption =
+        perAgentModel !== undefined
+          ? perAgentModel === "__AUTO__"
+            ? ""
+            : perAgentModel
+          : options.lowCodeModel !== undefined &&
+              options.lowCodeModel !== "__UNCHANGED__" &&
+              options.lowCodeModel !== "UNCHANGED"
+            ? options.lowCodeModel
+            : undefined;
+
+      if (effectiveModelOption !== undefined) {
+        const targetModel = effectiveModelOption;
+        if (currentAgent.lowCodeAgentDefinition) {
+          const baseDef: LowCodeAgentDefinition = JSON.parse(
+            JSON.stringify(
+              patchPayload.lowCodeAgentDefinition ||
+                currentAgent.lowCodeAgentDefinition,
+            ),
+          );
+          if (
+            (!baseDef.nodes || baseDef.nodes.length === 0) &&
+            Array.isArray(baseDef.deployedNodes) &&
+            baseDef.deployedNodes.length > 0
+          ) {
+            baseDef.nodes = JSON.parse(JSON.stringify(baseDef.deployedNodes));
+          }
+          if (Array.isArray(baseDef.nodes) && baseDef.nodes.length > 0) {
+            let modelChanged = false;
+            for (const node of baseDef.nodes) {
+              if (node.llmAgentNode) {
+                if ((node.llmAgentNode.model || "") !== targetModel) {
+                  node.llmAgentNode.model = targetModel;
+                  modelChanged = true;
+                }
+              }
+            }
+            if (modelChanged) {
+              patchPayload.lowCodeAgentDefinition = baseDef;
+              hasPatchChanges = true;
+              actionsApplied.push(
+                targetModel
+                  ? `Set Low-Code LLM model to ${targetModel}`
+                  : "Reset Low-Code LLM model to Auto (Engine Default)",
+              );
+            }
+          }
+        } else if (currentAgent.workflowAgentDefinition?.agentFlow?.nodes) {
+          const baseWf = JSON.parse(
+            JSON.stringify(
+              patchPayload.workflowAgentDefinition ||
+                currentAgent.workflowAgentDefinition,
+            ),
+          );
+          let modelChanged = false;
+          for (const node of baseWf.agentFlow?.nodes || []) {
+            if (node.agentNode) {
+              if ((node.agentNode.model || "") !== targetModel) {
+                node.agentNode.model = targetModel;
+                modelChanged = true;
+              }
+            }
+          }
+          if (modelChanged) {
+            patchPayload.workflowAgentDefinition = baseWf;
+            hasPatchChanges = true;
+            actionsApplied.push(
+              targetModel
+                ? `Set Workflow LLM model to ${targetModel}`
+                : "Reset Workflow LLM model to Auto (Engine Default)",
+            );
+          }
+        }
+      }
+
+      if (hasPatchChanges) {
+        try {
+          currentAgent = await updateAgent(currentAgent, patchPayload, config);
+        } catch (patchErr: unknown) {
+          if (
+            isBulkPermissionError(patchErr) &&
+            (await claimOwnershipIfAllowed())
+          ) {
+            currentAgent = await updateAgent(
+              currentAgent,
+              patchPayload,
+              config,
+            );
+          } else if (isLegacyAuthorizationsDeprecationError(patchErr)) {
+            const migRes = await migrateLegacyAgentAuthorizations(
+              currentAgent,
+              config,
+              {
+                patchPayload,
+                deleteLegacyAgent: options.deleteOriginalPrivateClone !== false,
+              },
+            );
+            currentAgent = migRes.agent;
+            currentAgentName = resolveFullAgentResourceName(
+              currentAgent.name,
+              config,
+            );
+            wasCloned = !migRes.inPlace;
+            actionsApplied.push(
+              "Migrated deprecated agent.authorizations to authorizationConfig",
+            );
+          } else {
+            throw patchErr;
+          }
+        }
+      }
+
+      // Step 2: Publish / Deploy Drafts (when publishDrafts is enabled or model/instructions were patched on a no-code agent)
+      const isNoCodeOrWorkflow = Boolean(
+        currentAgent.lowCodeAgentDefinition ||
+          currentAgent.workflowAgentDefinition ||
+          currentAgent.agentDesignerAgentDefinition ||
+          currentAgent.skillAgentDefinition,
+      );
+      const shouldPublish =
+        Boolean(options.publishDrafts) ||
+        Boolean(
+          patchPayload.lowCodeAgentDefinition ||
+            patchPayload.workflowAgentDefinition,
+        );
+
+      const desiredScope = options.sharingScope || "UNCHANGED";
+      const isCurrentlyPrivate =
+        currentAgent.state === "PRIVATE" || !currentAgent.state;
+
+      // Special fast-path: If the agent is PRIVATE and we are sharing it (ALL_USERS or RESTRICTED),
+      // attempt in-place share first; if blocked by 403 (Admin acting on another user's private agent),
+      // run `adminPublishAndShareForUser` so it clones, deploys, shares, and transfers ownership back to the original creator or mapped owner!
+      if (
+        isCurrentlyPrivate &&
+        (desiredScope === "ALL_USERS" || desiredScope === "RESTRICTED")
+      ) {
+        let sharedInPlace = false;
+        try {
+          currentAgent = await shareAgent(currentAgentName, config);
+          sharedInPlace = true;
+          actionsApplied.push(
+            "Published & shared PRIVATE agent in-place (:requestAgentReview -> :enableAgent)",
+          );
+          if (desiredScope === "ALL_USERS") {
+            currentAgent = await updateAgent(
+              currentAgent,
+              { sharingConfig: { scope: "ALL_USERS" } },
+              config,
+            );
+            actionsApplied.push("Set sharing scope to ALL_USERS");
+          }
+        } catch (shareErr: unknown) {
+          if (isBulkPermissionError(shareErr)) {
+            let targetOwner: string | undefined = mappedTargetOwner || undefined;
+            if (!targetOwner) {
+              const detectedCreator = extractAgentOwnerHint(currentAgent);
+              if (detectedCreator) {
+                try {
+                  targetOwner = formatTransferTargetPrincipal(detectedCreator);
+                } catch {
+                  // Invalid creator hint; proceed without transferring ownership
+                  targetOwner = undefined;
+                }
+              }
+            }
+            const adminShareRes = await adminPublishAndShareForUser(
+              currentAgent,
+              {
+                displayName: currentAgent.displayName,
+                sharingScope: desiredScope,
+                sharedPrincipals: normalizedPrincipals,
+                keepAdminAsOwner: !targetOwner,
+                targetOwnerPrincipal: targetOwner,
+                previousOwnerDisposition,
+                deleteOriginalPrivateAgent: Boolean(
+                  options.deleteOriginalPrivateClone,
+                ),
+              },
+              config,
+            );
+            currentAgent = adminShareRes.agent;
+            currentAgentName = resolveFullAgentResourceName(
+              currentAgent.name,
+              config,
+            );
+            wasCloned = adminShareRes.wasCloned;
+            if (adminShareRes.transferredTo) {
+              ownerTransferred = true;
+            }
+            actionsApplied.push(
+              `Admin cloned, published & shared (${desiredScope})${adminShareRes.transferredTo ? ` -> owner ${adminShareRes.transferredTo}` : ""}`,
+            );
+            sharedInPlace = false;
+          } else {
+            throw shareErr;
+          }
+        }
+
+        if (!sharedInPlace) {
+          // adminPublishAndShareForUser already applied sharingScope, normalizedPrincipals, and owner transfer
+          if (
+            options.lifecycleAction === "DISABLE" &&
+            currentAgent.state !== "DISABLED"
+          ) {
+            currentAgent = await disableAgent(currentAgentName, config);
+            actionsApplied.push("Disabled agent (:disableAgent)");
+          }
+          const outcome: BulkEditSharePublishAgentOutcome = {
+            agentName: currentAgent.name,
+            displayName,
+            status: actionsApplied.length > 0 ? "updated" : "skipped",
+            actionsApplied,
+            wasCloned,
+            ownershipClaimed,
+            warning: warnings.length > 0 ? warnings.join("; ") : undefined,
+          };
+          if (actionsApplied.length > 0) result.updated++;
+          else result.skipped++;
+          result.outcomes.push(outcome);
+          options.onProgress?.(i + 1, agents.length, outcome);
+          continue;
+        }
+      } else {
+        // Standard Publish / Deploy step
+        if (shouldPublish && isNoCodeOrWorkflow) {
+          try {
+            if (currentAgent.lowCodeAgentDefinition) {
+              await deployLowCodeWithAutoRepair(currentAgent, config);
+              actionsApplied.push("Deployed Low-Code draft (:deployLowCode)");
+            } else {
+              await publishAgent(currentAgentName, config, {
+                publishMode: "PUBLISH",
+              });
+              actionsApplied.push("Published agent revision (:publish)");
+            }
+          } catch (pubErr: unknown) {
+            if (
+              isBulkPermissionError(pubErr) &&
+              (await claimOwnershipIfAllowed())
+            ) {
+              if (currentAgent.lowCodeAgentDefinition) {
+                await deployLowCodeWithAutoRepair(currentAgent, config);
+                actionsApplied.push("Deployed Low-Code draft (:deployLowCode)");
+              } else {
+                await publishAgent(currentAgentName, config, {
+                  publishMode: "PUBLISH",
+                });
+                actionsApplied.push("Published agent revision (:publish)");
+              }
+            } else if (isCurrentlyPrivate && isBulkPermissionError(pubErr)) {
+              // Admin publishing a PRIVATE agent while keeping it PRIVATE (or transferring to mapped owner)
+              const adminPrivRes = await adminPublishAndShareForUser(
+                currentAgent,
+                {
+                  displayName: currentAgent.displayName,
+                  sharingScope: mappedTargetOwner ? "RESTRICTED" : "PRIVATE",
+                  keepAdminAsOwner: !mappedTargetOwner,
+                  targetOwnerPrincipal: mappedTargetOwner,
+                  previousOwnerDisposition,
+                  deleteOriginalPrivateAgent: Boolean(
+                    options.deleteOriginalPrivateClone,
+                  ),
+                },
+                config,
+              );
+              currentAgent = adminPrivRes.agent;
+              currentAgentName = resolveFullAgentResourceName(
+                currentAgent.name,
+                config,
+              );
+              wasCloned = adminPrivRes.wasCloned;
+              if (adminPrivRes.transferredTo) {
+                ownerTransferred = true;
+              }
+              actionsApplied.push(
+                adminPrivRes.transferredTo
+                  ? `Admin cloned, published & transferred owner to ${adminPrivRes.transferredTo}`
+                  : "Admin cloned & published private draft (kept PRIVATE)",
+              );
+            } else {
+              throw pubErr;
+            }
+          }
+        }
+
+        // Step 3: Sharing Scope transition on already-shared or non-private agents
+        if (desiredScope === "PRIVATE") {
+          if (currentAgent.state !== "PRIVATE") {
+            if (isNoCodeOrWorkflow) {
+              currentAgent = await withdrawAgent(currentAgentName, config, {
+                autoClaimOwnership: autoClaimOn403,
+              });
+              actionsApplied.push(
+                "Withdrew agent to PRIVATE (:withdrawAgent)",
+              );
+            } else {
+              currentAgent = await updateAgent(
+                currentAgent,
+                { sharingConfig: { scope: "PRIVATE" } },
+                config,
+              );
+              actionsApplied.push("Set sharing scope to PRIVATE");
+            }
+          }
+        } else if (
+          desiredScope === "ALL_USERS" ||
+          desiredScope === "RESTRICTED"
+        ) {
+          const currentScope =
+            currentAgent.sharingConfig?.scope === "ALL_USERS"
+              ? "ALL_USERS"
+              : "RESTRICTED";
+          if (currentScope !== desiredScope) {
+            try {
+              currentAgent = await updateAgent(
+                currentAgent,
+                { sharingConfig: { scope: desiredScope } },
+                config,
+              );
+              actionsApplied.push(`Set sharing scope to ${desiredScope}`);
+            } catch (scopeErr: unknown) {
+              if (
+                isBulkPermissionError(scopeErr) &&
+                (await claimOwnershipIfAllowed())
+              ) {
+                currentAgent = await updateAgent(
+                  currentAgent,
+                  { sharingConfig: { scope: desiredScope } },
+                  config,
+                );
+                actionsApplied.push(`Set sharing scope to ${desiredScope}`);
+              } else if (isLegacyAuthorizationsDeprecationError(scopeErr)) {
+                const migRes = await migrateLegacyAgentAuthorizations(
+                  currentAgent,
+                  config,
+                  {
+                    sharingScope: desiredScope,
+                    deleteLegacyAgent:
+                      options.deleteOriginalPrivateClone !== false,
+                  },
+                );
+                currentAgent = migRes.agent;
+                currentAgentName = resolveFullAgentResourceName(
+                  currentAgent.name,
+                  config,
+                );
+                wasCloned = !migRes.inPlace;
+                actionsApplied.push(
+                  `Migrated legacy authorizations & set sharing scope to ${desiredScope}`,
+                );
+              } else {
+                throw scopeErr;
+              }
+            }
+          }
+        }
+      }
+
+      // Step 4: Apply IAM `roles/discoveryengine.agentUser` bindings if principals were provided
+      if (
+        normalizedPrincipals.length > 0 &&
+        desiredScope !== "PRIVATE" &&
+        currentAgent.state !== "PRIVATE"
+      ) {
+        const currentPolicy: IamPolicy = await getAgentIamPolicy(
+          currentAgentName,
+          config,
+        ).catch(() => ({ bindings: [] }));
+        const bindings = [...(currentPolicy.bindings || [])];
+        const agentUserRole = "roles/discoveryengine.agentUser";
+        const idx = bindings.findIndex((b) => b.role === agentUserRole);
+        const mode = options.sharedPrincipalMode || "APPEND";
+
+        if (idx >= 0) {
+          const nextMembers =
+            mode === "REPLACE"
+              ? Array.from(new Set(normalizedPrincipals))
+              : Array.from(
+                  new Set([
+                    ...(bindings[idx].members || []),
+                    ...normalizedPrincipals,
+                  ]),
+                );
+          bindings[idx] = {
+            ...bindings[idx],
+            members: nextMembers,
+          };
+        } else {
+          bindings.push({
+            role: agentUserRole,
+            members: Array.from(new Set(normalizedPrincipals)),
+          });
+        }
+
+        await setAgentIamPolicy(
+          currentAgentName,
+          { ...currentPolicy, bindings },
+          config,
+        );
+        actionsApplied.push(
+          `${mode === "REPLACE" ? "Replaced" : "Granted"} roles/discoveryengine.agentUser (${normalizedPrincipals.length} principal${normalizedPrincipals.length === 1 ? "" : "s"})`,
+        );
+      }
+
+      // Step 5: Lifecycle Action (ENABLE / DISABLE)
+      if (options.lifecycleAction === "ENABLE") {
+        const refreshed = await getAgent(currentAgentName, config).catch(
+          () => currentAgent,
+        );
+        if (refreshed.state === "DISABLED" || refreshed.state === "SUSPENDED") {
+          currentAgent = await enableAgent(currentAgentName, config);
+          actionsApplied.push("Enabled agent (:enableAgent)");
+        }
+      } else if (options.lifecycleAction === "DISABLE") {
+        const refreshed = await getAgent(currentAgentName, config).catch(
+          () => currentAgent,
+        );
+        if (refreshed.state === "ENABLED") {
+          currentAgent = await disableAgent(currentAgentName, config);
+          actionsApplied.push("Disabled agent (:disableAgent)");
+        }
+      }
+
+      // Step 6: Execute Owner Remapping (`:transferAgentOwner` or Admin Clone-Share-Transfer for PRIVATE agents)
+      if (mappedTargetOwner && !ownerTransferred) {
+        const currentlyPrivateNow =
+          currentAgent.state === "PRIVATE" || !currentAgent.state;
+        if (currentlyPrivateNow) {
+          // Discovery Engine rejects :transferAgentOwner on PRIVATE agents.
+          // Attempt in-place share first, or fall back to adminPublishAndShareForUser if 403.
+          try {
+            currentAgent = await shareAgent(currentAgentName, config);
+            await transferAgentOwner(
+              currentAgentName,
+              {
+                toSelf: false,
+                targetPrincipal: mappedTargetOwner,
+                previousOwnerDisposition,
+              },
+              config,
+            );
+            ownerTransferred = true;
+            actionsApplied.push(
+              `Shared PRIVATE agent & transferred ownership to ${mappedTargetOwner} (:transferAgentOwner)`,
+            );
+          } catch (privTransferErr: unknown) {
+            if (isBulkPermissionError(privTransferErr)) {
+              const adminRes = await adminPublishAndShareForUser(
+                currentAgent,
+                {
+                  displayName: currentAgent.displayName,
+                  sharingScope:
+                    desiredScope === "ALL_USERS" ? "ALL_USERS" : "RESTRICTED",
+                  sharedPrincipals: normalizedPrincipals,
+                  keepAdminAsOwner: false,
+                  targetOwnerPrincipal: mappedTargetOwner,
+                  previousOwnerDisposition,
+                  deleteOriginalPrivateAgent: Boolean(
+                    options.deleteOriginalPrivateClone,
+                  ),
+                },
+                config,
+              );
+              currentAgent = adminRes.agent;
+              currentAgentName = resolveFullAgentResourceName(
+                currentAgent.name,
+                config,
+              );
+              wasCloned = adminRes.wasCloned;
+              ownerTransferred = true;
+              actionsApplied.push(
+                `Admin cloned, shared & transferred ownership to ${mappedTargetOwner}`,
+              );
+            } else {
+              throw privTransferErr;
+            }
+          }
+        } else {
+          await transferAgentOwner(
+            currentAgentName,
+            {
+              toSelf: false,
+              targetPrincipal: mappedTargetOwner,
+              previousOwnerDisposition,
+            },
+            config,
+          );
+          ownerTransferred = true;
+          actionsApplied.push(
+            `Transferred ownership to ${mappedTargetOwner} (:transferAgentOwner)`,
+          );
+        }
+      }
+
+      const outcome: BulkEditSharePublishAgentOutcome = {
+        agentName: currentAgent.name,
+        displayName,
+        status: actionsApplied.length > 0 ? "updated" : "skipped",
+        actionsApplied,
+        wasCloned,
+        ownershipClaimed,
+        warning: warnings.length > 0 ? warnings.join("; ") : undefined,
+      };
+      if (actionsApplied.length > 0) {
+        result.updated++;
+      } else {
+        result.skipped++;
+      }
+      result.outcomes.push(outcome);
+      options.onProgress?.(i + 1, agents.length, outcome);
+    } catch (err: unknown) {
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      const cleanMsg = rawMsg.includes("[ORIGINAL ERROR]")
+        ? rawMsg
+            .split("[ORIGINAL ERROR]")[0]
+            .trim()
+            .replace(/\(\s*$/, "")
+            .trim()
+        : rawMsg;
+
+      const outcome: BulkEditSharePublishAgentOutcome = {
+        agentName: item.name,
+        displayName,
+        status: "failed",
+        actionsApplied: [],
+        error: cleanMsg,
+      };
+      result.failed++;
+      result.outcomes.push(outcome);
+      options.onProgress?.(i + 1, agents.length, outcome);
+    }
+  }
+
+  return result;
+};
+

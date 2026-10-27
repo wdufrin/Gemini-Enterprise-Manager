@@ -16,6 +16,7 @@
 
 import React from 'react';
 import { CitationMappingRuleItem, DynamicToolItem } from './types';
+import { useProjectEnrollment } from '../../../context/ProjectEnrollmentContext';
 
 interface DiscoveredToolsSectionProps {
   instanceUri: string;
@@ -50,18 +51,33 @@ export const DiscoveredToolsSection: React.FC<DiscoveredToolsSectionProps> = ({
   citationMappings = [],
   onConfigureToolCitations,
 }) => {
+  const { isGoogleInternal } = useProjectEnrollment();
   const hasDefaultCitationRule = citationMappings.some((r) => r.toolName === '');
   return (
     <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-800 space-y-4">
-      <div className="border-b border-gray-800 pb-2 flex justify-between items-center">
+      <div className="border-b border-gray-800 pb-2 flex flex-wrap justify-between items-center gap-2">
         <div>
           <h4 className="text-sm font-bold text-gray-200 uppercase tracking-wider">
-            MCP Server Endpoint & Discovered Tools
+            MCP Server Endpoint &amp; Discovered Tools
           </h4>
           <p className="text-xs text-gray-400">
             Configure server URL and toggle individual tools to enable or disable actions.
           </p>
         </div>
+        <span
+          className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+            isGoogleInternal
+              ? 'bg-purple-950/70 text-purple-300 border-purple-800'
+              : 'bg-gray-950 text-gray-300 border-gray-700'
+          }`}
+          title={
+            isGoogleInternal
+              ? 'Google Internal project: supports both native :refreshDataConnectorTools RPC and direct MCP JSON-RPC discovery.'
+              : 'Standard Customer project: uses direct MCP JSON-RPC discovery + public dynamic_tools / bap_config fields (:refreshDataConnectorTools is GOOGLE_INTERNAL).'
+          }
+        >
+          {isGoogleInternal ? 'Discovery: Internal RPC + Direct MCP' : 'Discovery: Direct MCP (dynamic_tools)'}
+        </span>
       </div>
 
       {/* Instance URI */}

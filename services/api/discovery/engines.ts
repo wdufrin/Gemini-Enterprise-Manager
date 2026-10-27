@@ -21,6 +21,7 @@ import {
   DISCOVERY_API_VERSION,
   DISCOVERY_API_BETA,
 } from "../core";
+import { getCachedProjectEnrollment } from "../project";
 
 export const listDiscoveryEngines = async (
   config: Config,
@@ -176,6 +177,38 @@ export const createEngine = async (
   return gapiRequest<Operation<AppEngine>>(url, "POST", projectId, undefined, payload);
 };
 
+/**
+ * Strips GOOGLE_INTERNAL fields from an Engine update payload and updateMask
+ * when the target project is known not to be enrolled in GOOGLE_INTERNAL.
+ */
+export const sanitizeEngineUpdateForEnrollment = (
+  payload: Partial<AppEngine> | Record<string, unknown>,
+  updateMask: string[],
+  projectId?: string,
+): { sanitizedPayload: Partial<AppEngine> | Record<string, unknown>; sanitizedMask: string[] } => {
+  const enrollment = getCachedProjectEnrollment(projectId);
+  if (!enrollment || enrollment.googleInternal) {
+    return { sanitizedPayload: payload, sanitizedMask: updateMask };
+  }
+
+  const sanitizedPayload: Record<string, unknown> = { ...payload };
+  delete sanitizedPayload.includeCrossDomainDocuments;
+  delete sanitizedPayload.allowMultipleDataStoresSearchEngine;
+  delete sanitizedPayload.effectiveFeatures;
+
+  const sanitizedMask = updateMask.filter(
+    (field) =>
+      field !== "includeCrossDomainDocuments" &&
+      field !== "include_cross_domain_documents" &&
+      field !== "allowMultipleDataStoresSearchEngine" &&
+      field !== "allow_multiple_data_stores_search_engine" &&
+      field !== "effectiveFeatures" &&
+      field !== "effective_features",
+  );
+
+  return { sanitizedPayload, sanitizedMask };
+};
+
 export const updateEngine = async (
   name: string,
   payload: Partial<AppEngine> | Record<string, unknown>,
@@ -187,14 +220,19 @@ export const updateEngine = async (
     appLocation,
     collectionId = "default_collection",
   } = config;
+  const { sanitizedPayload, sanitizedMask } = sanitizeEngineUpdateForEnrollment(
+    payload,
+    updateMask,
+    projectId,
+  );
   const baseUrl = getDiscoveryEngineUrl(appLocation);
 
   const resourcePath = name.startsWith("projects/")
     ? name
     : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${name}`;
 
-  const url = `${baseUrl}/${DISCOVERY_API_BETA}/${resourcePath}?updateMask=${updateMask.join(",")}`;
-  return gapiRequest<AppEngine>(url, "PATCH", projectId, undefined, payload);
+  const url = `${baseUrl}/${DISCOVERY_API_BETA}/${resourcePath}?updateMask=${sanitizedMask.join(",")}`;
+  return gapiRequest<AppEngine>(url, "PATCH", projectId, undefined, sanitizedPayload);
 };
 
 export const getEngineIamPolicy = async (name: string, config: Config): Promise<IamPolicy> => {

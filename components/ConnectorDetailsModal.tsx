@@ -28,6 +28,7 @@ import {
 } from './connectors/connectorDiagnostics';
 import { getConnectorCloneEligibility } from './connectors/duplicate/duplicateFieldUtils';
 import { toErrorMessage } from '../utils/errors';
+import { useProjectEnrollment } from '../context/ProjectEnrollmentContext';
 
 interface ConnectorDetailsModalProps {
   isOpen: boolean;
@@ -65,6 +66,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const { isGoogleInternal } = useProjectEnrollment();
 
   useModalA11y({
     isOpen,
@@ -103,7 +105,9 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
       const collId = parts[parts.indexOf('collections') + 1] || config.collectionId;
       const connectorConfig = { ...config, projectId: projId, appLocation: loc, collectionId: collId };
 
-      if (typeof api.refreshDataConnectorTools === 'function') {
+      // :refreshDataConnectorTools has method_visibility = GOOGLE_INTERNAL in data_connector_service.proto.
+      // Only invoke it when the active project is enrolled in GOOGLE_INTERNAL; otherwise use direct MCP discovery.
+      if (isGoogleInternal && typeof api.refreshDataConnectorTools === 'function') {
         try {
           const rpcResult = await api.refreshDataConnectorTools(connector.name, connectorConfig);
           const refreshedConnector =

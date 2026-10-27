@@ -307,6 +307,76 @@ export interface AdminPublishAndShareResult {
   stepsCompleted: string[];
 }
 
+export interface AgentOwnerRemapCsvParseResult {
+  matchedMap: Record<string, string>; // key: full agent.name -> formatted or raw target owner email/principal
+  matchedAgentNames: string[];
+  unmatchedRows: string[];
+  validationErrors: string[];
+}
+
+export interface AgentBulkFieldCsvParseResult {
+  ownerRemapByAgent: Record<string, string>;
+  displayNameRemapByAgent: Record<string, string>;
+  descriptionRemapByAgent: Record<string, string>;
+  lowCodeModelRemapByAgent: Record<string, string>;
+  matchedAgentNames: string[];
+  unmatchedRows: string[];
+  validationErrors: string[];
+}
+
+export interface BulkEditSharePublishOptions {
+  // 1. Publish & Lifecycle State
+  publishDrafts?: boolean;
+  lifecycleAction?: 'NONE' | 'ENABLE' | 'DISABLE';
+  autoClaimOwnershipOn403?: boolean;
+  claimOwnershipOn403?: boolean;
+  deleteOriginalPrivateClone?: boolean;
+
+  // 2. Sharing Scope, IAM Bindings & Owner Remapping
+  sharingScope?: 'UNCHANGED' | 'ALL_USERS' | 'RESTRICTED' | 'PRIVATE';
+  sharedPrincipals?: string[];
+  sharedPrincipalMode?: 'APPEND' | 'REPLACE';
+  ownerRemapByAgent?: Record<string, string>; // Map of agent.name, trailing agentId, or displayName -> target owner email/principal
+  defaultTargetOwner?: string; // Optional uniform target owner applied if not overridden in ownerRemapByAgent
+  previousOwnerDisposition?: PreviousOwnerDisposition;
+
+  // 3. Bulk Edit Metadata & Settings (Global or Per-Agent / CSV overrides)
+  displayNameRemapByAgent?: Record<string, string>;
+  descriptionRemapByAgent?: Record<string, string>;
+  descriptionMode?: 'UNCHANGED' | 'PREFIX' | 'SUFFIX' | 'REPLACE';
+  descriptionText?: string;
+  observabilityEnabled?: 'UNCHANGED' | 'ENABLE' | 'DISABLE';
+  sensitiveLoggingEnabled?: 'UNCHANGED' | 'ENABLE' | 'DISABLE';
+  lowCodeModel?: string; // '__UNCHANGED__' or undefined means unchanged; '' means reset to Auto; string model ID sets node models
+  lowCodeModelRemapByAgent?: Record<string, string>;
+
+  onProgress?: (
+    completed: number,
+    total: number,
+    latest: BulkEditSharePublishAgentOutcome,
+  ) => void;
+}
+
+export interface BulkEditSharePublishAgentOutcome {
+  agentName: string;
+  displayName: string;
+  status: 'updated' | 'skipped' | 'failed';
+  actionsApplied: string[];
+  wasCloned?: boolean;
+  ownershipClaimed?: boolean;
+  warning?: string;
+  error?: string;
+}
+
+export interface BulkEditSharePublishResult {
+  total: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  outcomes: BulkEditSharePublishAgentOutcome[];
+}
+
+
 export interface AgentViewResponse {
   agentView?: {
     agentType?: string;
@@ -939,10 +1009,37 @@ export interface UserPermissionsValidation {
   notice?: string;
 }
 
+export type EnrollmentCategoryId =
+  | 'googleInternal'
+  | 'trustedTester'
+  | 'notebookLmApiUser'
+  | 'agentRegistryEnabled';
+
+export interface ProjectEnrollmentCategory {
+  id: EnrollmentCategoryId;
+  label: string;
+  visibilityTag: string;
+  enrolled: boolean;
+  probed: boolean;
+  reason: string;
+  gatedFeatures: string[];
+}
+
+export interface ProjectEnrollmentStatus {
+  projectId: string;
+  checkedAt: string;
+  googleInternal: boolean;
+  trustedTester: boolean;
+  notebookLmApiUser: boolean;
+  agentRegistryEnabled: boolean;
+  categories: ProjectEnrollmentCategory[];
+}
+
 export interface ComprehensiveValidationResult {
   apis: { enabled: string[]; disabled: string[] };
   serviceAgent: ServiceAgentValidation | null;
   userPermissions: UserPermissionsValidation | null;
+  enrollment?: ProjectEnrollmentStatus | null;
 }
 
 export interface UserMemory {

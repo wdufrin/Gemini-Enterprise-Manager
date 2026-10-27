@@ -20,6 +20,8 @@ import {
   UserPermissionsValidation,
   UserPermissionItem,
   ComprehensiveValidationResult,
+  ProjectEnrollmentStatus,
+  ProjectEnrollmentCategory,
   IamPolicy,
   IamBinding,
   Operation,
@@ -357,20 +359,253 @@ export const validateUserPermissions = async (
   }
 };
 
+const enrollmentCache = new Map<string, ProjectEnrollmentStatus>();
+let lastActiveProjectId: string | null = null;
+
+export const getCachedProjectEnrollment = (
+  projectId?: string,
+): ProjectEnrollmentStatus | null => {
+  const key = projectId || lastActiveProjectId;
+  if (!key) return null;
+  return enrollmentCache.get(key) || null;
+};
+
+export const setCachedProjectEnrollment = (
+  status: ProjectEnrollmentStatus,
+): void => {
+  if (!status.projectId) return;
+  lastActiveProjectId = status.projectId;
+  enrollmentCache.set(status.projectId, status);
+};
+
+export const clearCachedProjectEnrollment = (): void => {
+  enrollmentCache.clear();
+  lastActiveProjectId = null;
+};
+
+/**
+ * Probes the active GCP project's visibility and preview allowlist enrollments
+ * against Google Cloud ESF (`GOOGLE_INTERNAL`, `TRUSTED_TESTER`,
+ * `NLME_API_USER` / `SPARK_PREVIEW`, and `agentregistry.googleapis.com`).
+ */
+export const probeProjectEnrollment = async (
+  projectId: string,
+): Promise<ProjectEnrollmentStatus> => {
+  let googleInternal = false;
+  let googleInternalProbed = false;
+  let googleInternalReason =
+    "Standard external customer project (GOOGLE_INTERNAL fields filtered by ESF).";
+
+  try {
+    const projectRes = await gapiRequest<Record<string, unknown>>(
+      `https://discoveryengine.googleapis.com/v1alpha/projects/${projectId}`,
+      "GET",
+      projectId,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+    googleInternalProbed = true;
+    const customerCfg = projectRes?.customerProvidedConfig as
+      | Record<string, unknown>
+      | undefined;
+    const hasInternalFields =
+      projectRes?.experienceState !== undefined ||
+      projectRes?.documentSizeQuota !== undefined ||
+      projectRes?.quotaUsageAndLimit !== undefined ||
+      projectRes?.vpcScConfig !== undefined ||
+      projectRes?.oauthClientId !== undefined ||
+      customerCfg?.optOutDisableDataStoreServing !== undefined;
+
+    if (hasInternalFields) {
+      googleInternal = true;
+      googleInternalReason =
+        "Verified GOOGLE_INTERNAL visibility fields returned by Discovery Engine Project API.";
+    }
+  } catch (err: unknown) {
+    googleInternal = false;
+    googleInternalProbed = false;
+    googleInternalReason = `Could not inspect Discovery Engine Project resource (${toErrorMessage(err)}); defaulting to external customer mode.`;
+  }
+
+  // 2. TRUSTED_TESTER / ASSISTANT_USER check
+  let trustedTester = false;
+  let trustedTesterProbed = false;
+  let trustedTesterReason =
+    "Project is not enrolled in TRUSTED_TESTER / ASSISTANT_USER allowlist.";
+
+  if (googleInternal) {
+    trustedTester = true;
+    trustedTesterProbed = true;
+    trustedTesterReason =
+      "Implicitly granted via GOOGLE_INTERNAL project visibility.";
+  } else {
+    try {
+      await gapiRequest<Record<string, unknown>>(
+        `https://discoveryengine.googleapis.com/v1alpha/projects/${projectId}/locations/global:listConnectorSources`,
+        "POST",
+        projectId,
+        undefined,
+        { pageSize: 1 },
+        undefined,
+        true,
+      );
+      trustedTester = true;
+      trustedTesterProbed = true;
+      trustedTesterReason =
+        "Verified TRUSTED_TESTER visibility via DataConnectorService.ListConnectorSources.";
+    } catch (err: unknown) {
+      trustedTester = false;
+      trustedTesterProbed = true;
+      trustedTesterReason = `Not enrolled in TRUSTED_TESTER allowlist (${toErrorMessage(err)}).`;
+    }
+  }
+
+  // 3. NLME_API_USER / SPARK_PREVIEW check (NotebookLM :interactSources)
+  let notebookLmApiUser = false;
+  let notebookLmProbed = false;
+  let notebookLmReason =
+    "Project is not enrolled in NLME_API_USER / SPARK_PREVIEW allowlist.";
+
+  if (googleInternal) {
+    notebookLmApiUser = true;
+    notebookLmProbed = true;
+    notebookLmReason =
+      "Implicitly granted via GOOGLE_INTERNAL project visibility.";
+  } else {
+    try {
+      await gapiRequest<Record<string, unknown>>(
+        `https://discoveryengine.googleapis.com/v1alpha/projects/${projectId}/locations/global/notebooks/_enrollment_probe_:interactSources`,
+        "POST",
+        projectId,
+        undefined,
+        {},
+        undefined,
+        true,
+      );
+      notebookLmApiUser = true;
+      notebookLmProbed = true;
+      notebookLmReason =
+        "Verified NLME_API_USER / SPARK_PREVIEW visibility via NotebookService.InteractSources.";
+    } catch (err: unknown) {
+      const msg = toErrorMessage(err);
+      notebookLmProbed = true;
+      // If ESF passes the request through VISIBILITY_FILTER to the backend,
+      // the backend returns 400 INVALID_ARGUMENT or a structured resource error
+      // referencing '_enrollment_probe_'. If ESF blocks the method at the visibility
+      // filter layer, it returns 403 PERMISSION_DENIED or a generic 404 method error.
+      const reachedBackend =
+        msg.includes("400") ||
+        msg.includes("INVALID_ARGUMENT") ||
+        msg.includes("_enrollment_probe_");
+      if (reachedBackend) {
+        notebookLmApiUser = true;
+        notebookLmReason =
+          "Verified NLME_API_USER / SPARK_PREVIEW visibility (request passed ESF visibility filter).";
+      } else {
+        notebookLmApiUser = false;
+        notebookLmReason = `Not enrolled in NLME_API_USER / SPARK_PREVIEW allowlist (${msg}).`;
+      }
+    }
+  }
+
+  // 4. Cloud Agent Registry API enablement check
+  const agentRegistryEnabled = await checkServiceEnabled(
+    projectId,
+    "agentregistry.googleapis.com",
+  );
+  const agentRegistryReason = agentRegistryEnabled
+    ? "agentregistry.googleapis.com is enabled on this project."
+    : "agentregistry.googleapis.com is disabled on this project.";
+
+  const categories: ProjectEnrollmentCategory[] = [
+    {
+      id: "googleInternal",
+      label: "Google Internal (GOOGLE_INTERNAL)",
+      visibilityTag: "GOOGLE_INTERNAL",
+      enrolled: googleInternal,
+      probed: googleInternalProbed,
+      reason: googleInternalReason,
+      gatedFeatures: [
+        "Native Connector Tool Refresh RPC (:refreshDataConnectorTools)",
+        "Engine User Memories (KnowledgeGraphService /memories)",
+        "Assistant Policy: agentReasoningHidden & toolConfig",
+        "Engine: effectiveFeatures & includeCrossDomainDocuments",
+      ],
+    },
+    {
+      id: "trustedTester",
+      label: "Trusted Tester & Assistant Preview (TRUSTED_TESTER)",
+      visibilityTag: "TRUSTED_TESTER, ASSISTANT_USER",
+      enrolled: trustedTester,
+      probed: trustedTesterProbed,
+      reason: trustedTesterReason,
+      gatedFeatures: [
+        "Assistant: vertexAiSearchToolConfig & mapsGroundingType",
+        "DataConnector: connectorTools & supportsDynamicToolFetching",
+        "WidgetConfig: actionConnector, starterTier, desktopEnabled",
+      ],
+    },
+    {
+      id: "notebookLmApiUser",
+      label: "NotebookLM Source Interaction (NLME_API_USER / SPARK_PREVIEW)",
+      visibilityTag: "NLME_API_USER, SPARK_PREVIEW",
+      enrolled: notebookLmApiUser,
+      probed: notebookLmProbed,
+      reason: notebookLmReason,
+      gatedFeatures: [
+        "NotebookLM Interactive Source Chat (:interactSources)",
+      ],
+    },
+    {
+      id: "agentRegistryEnabled",
+      label: "Cloud Agent & Skills Registry (v1alpha)",
+      visibilityTag: "agentregistry.googleapis.com",
+      enrolled: agentRegistryEnabled,
+      probed: true,
+      reason: agentRegistryReason,
+      gatedFeatures: [
+        "Skills Registry CRUD (createSkill, updateSkill, deleteSkill)",
+        "MCP Server & Endpoint Registry Discovery",
+      ],
+    },
+  ];
+
+  const status: ProjectEnrollmentStatus = {
+    projectId,
+    checkedAt: new Date().toISOString(),
+    googleInternal,
+    trustedTester,
+    notebookLmApiUser,
+    agentRegistryEnabled,
+    categories,
+  };
+
+  setCachedProjectEnrollment(status);
+  return status;
+};
+
 export const runComprehensiveProjectValidation = async (
   projectId: string,
   projectNumber: string,
 ): Promise<ComprehensiveValidationResult> => {
-  const [apis, serviceAgent, userPermissions] = await Promise.all([
+  const [apis, serviceAgent, userPermissions, enrollment] = await Promise.all([
     validateEnabledApis(projectId),
     checkDiscoveryEngineServiceAgent(projectId, projectNumber),
     validateUserPermissions(projectId),
+    probeProjectEnrollment(projectId),
   ]);
+
+  if (projectNumber && projectNumber !== projectId) {
+    enrollmentCache.set(projectNumber, enrollment);
+  }
 
   return {
     apis,
     serviceAgent,
     userPermissions,
+    enrollment,
   };
 };
 
@@ -391,6 +626,10 @@ export const checkServiceEnabled = async (
       `https://serviceusage.googleapis.com/v1/projects/${projectId}/services/${serviceName}`,
       "GET",
       projectId,
+      undefined,
+      undefined,
+      undefined,
+      true,
     );
     return response.state === "ENABLED";
   } catch (e) {

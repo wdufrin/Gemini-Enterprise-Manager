@@ -364,9 +364,51 @@ export async function backupNotebooks(
       const rawNotebook = await api.getNotebook(apiConfig, notebookId);
       const fullSources: NotebookSource[] = [];
       for (const source of rawNotebook.sources || []) {
-        const sourceId = source.name?.split('/').pop() || '';
+        const sourceId = source.name?.split('/').pop() || (source as any).sourceId?.id || '';
         try {
-          const fullSource = await api.getNotebookSource(apiConfig, notebookId, sourceId);
+          const fullSource: any = await api.getNotebookSource(apiConfig, notebookId, sourceId);
+          let extractedText =
+            fullSource.content ||
+            fullSource.text ||
+            fullSource.markdownString ||
+            fullSource.markdown_string ||
+            (typeof fullSource.plainText === 'string'
+              ? fullSource.plainText
+              : fullSource.plainText?.text || fullSource.plainText?.content) ||
+            api.extractTextFromTailwindDoc(fullSource.tailwindDoc || fullSource.tailwind_doc);
+
+          const hasLinkOrDrive = Boolean(
+            fullSource.metadata?.googleDocsMetadata ||
+            fullSource.metadata?.google_docs_metadata ||
+            fullSource.metadata?.youtubeMetadata ||
+            fullSource.metadata?.youtube_metadata ||
+            fullSource.metadata?.webpageMetadata ||
+            fullSource.metadata?.webpage_metadata ||
+            fullSource.webScrapeConfig?.url ||
+            fullSource.url
+          );
+
+          if (!extractedText && !hasLinkOrDrive && sourceId) {
+            try {
+              const fallbackText = await api.interactNotebookSource(
+                apiConfig,
+                notebookId,
+                sourceId,
+                'Output the complete, verbatim text content of this source document from start to finish. Do not summarize, do not add introductory headings like "Excerpts from...", and do not omit any paragraphs or sections.'
+              );
+              if (fallbackText) {
+                extractedText = fallbackText;
+              }
+            } catch (interactErr: unknown) {
+              addLog(
+                `  - Warning: Could not extract fallback text via interactSources for source ${sourceId}: ${toErrorMessage(interactErr)}`
+              );
+            }
+          }
+
+          if (extractedText) {
+            fullSource.content = extractedText;
+          }
           fullSources.push(fullSource);
         } catch (sourceErr: unknown) {
           addLog(

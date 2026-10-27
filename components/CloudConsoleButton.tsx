@@ -31,8 +31,9 @@ const CloudConsoleButton: React.FC<CloudConsoleButtonProps> = ({ currentPage, pr
             case Page.MODEL_ARMOR:
                 return `https://console.cloud.google.com/security/model-armor?project=${projectId}`;
             case Page.LICENSE:
-            case Page.GE_QUOTA_USAGE:
                 return `https://console.cloud.google.com/gemini-enterprise/user-license?project=${projectId}`;
+            case Page.GE_QUOTA_USAGE:
+                return `https://console.cloud.google.com/gemini-enterprise/usage-and-spending?project=${projectId}`;
             case Page.AUTHORIZATIONS:
                 return `https://console.cloud.google.com/gen-app-builder/authorizations?project=${projectId}`;
             case Page.MCP_SERVERS:

@@ -19,6 +19,7 @@ import { Config } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import { useProjectEnrollment } from '../../context/ProjectEnrollmentContext';
 
 interface NotebookListViewerProps {
   config: Config;
@@ -30,6 +31,7 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
   const [selectedNotebook, setSelectedNotebook] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { isNotebookLmApiUser } = useProjectEnrollment();
 
   useModalA11y({
     isOpen: !!selectedNotebook,
@@ -101,15 +103,31 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-700">
+      <div className="flex flex-wrap justify-between items-center gap-3 bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-700">
         <div>
-          <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-400" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
-              <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-            </svg>
-            NotebookLM Projects ({notebooks.length})
-          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-400" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
+                <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
+              </svg>
+              NotebookLM Projects ({notebooks.length})
+            </h3>
+            <span
+              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                isNotebookLmApiUser
+                  ? 'bg-green-950/50 text-green-300 border-green-800'
+                  : 'bg-gray-900 text-gray-400 border-gray-700'
+              }`}
+              title={
+                isNotebookLmApiUser
+                  ? 'Project is enrolled in NLME_API_USER / SPARK_PREVIEW / GOOGLE_INTERNAL: Notebook source interaction (:interactSources) is active.'
+                  : 'Standard customer project: Notebook metadata viewing is active; :interactSources is gated (requires NLME_API_USER / SPARK_PREVIEW).'
+              }
+            >
+              {isNotebookLmApiUser ? 'Source Interaction: Enabled' : 'Read-Only Metadata (:interactSources Gated)'}
+            </span>
+          </div>
           <p className="text-sm text-gray-400 mt-1">Recently viewed notebooks in this environment.</p>
         </div>
         <button

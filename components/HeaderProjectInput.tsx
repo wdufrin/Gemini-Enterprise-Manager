@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as api from '../services/apiService';
+import { useProjectEnrollment } from '../context/ProjectEnrollmentContext';
 
 interface HeaderProjectInputProps {
   projectId: string;
@@ -28,10 +29,24 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showGatePopover, setShowGatePopover] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const { enrollment, isProbingEnrollment, isGoogleInternal, isTrustedTester, refreshEnrollment } = useProjectEnrollment();
 
   useEffect(() => {
     setInputValue(projectId || projectNumber);
   }, [projectId, projectNumber]);
+
+  useEffect(() => {
+    if (!showGatePopover) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+        setShowGatePopover(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showGatePopover]);
 
   const handleResolve = async () => {
     const trimmedValue = inputValue.trim();
@@ -109,25 +124,101 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
     );
   }
 
+  const tierLabel = isProbingEnrollment
+    ? 'Checking Gates...'
+    : isGoogleInternal
+      ? 'Google Internal'
+      : isTrustedTester
+        ? 'Trusted Tester'
+        : 'Customer Tier';
+
+  const tierBadgeClasses = isProbingEnrollment
+    ? 'bg-gray-800 text-gray-400 border-gray-700'
+    : isGoogleInternal
+      ? 'bg-purple-900/40 text-purple-300 border-purple-700/70 hover:bg-purple-900/60'
+      : isTrustedTester
+        ? 'bg-blue-900/40 text-blue-300 border-blue-700/70 hover:bg-blue-900/60'
+        : 'bg-gray-800/80 text-gray-300 border-gray-700 hover:bg-gray-700';
+
   return (
-    <button
-      type="button"
-      className="flex items-center space-x-1.5 group cursor-pointer text-left bg-transparent border-0 p-0 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded min-w-0"
-      onClick={() => setIsEditing(true)}
-      aria-label={`Active project: ${projectId || 'Not Set'}. Click to change.`}
-    >
-      <span className="text-xs font-medium text-gray-400 group-hover:text-gray-300 shrink-0">Project:</span>
-      <div className="flex items-baseline gap-1 min-w-0" title="Click to change">
-        <span className="text-xs sm:text-sm font-bold text-white group-hover:text-blue-300 font-mono truncate max-w-[160px] xl:max-w-[240px]">{projectId || 'Not Set'}</span>
-        {projectNumber && projectId && projectNumber !== projectId && (
-          <span className="text-[11px] text-gray-500 font-mono hidden lg:inline shrink-0">({projectNumber})</span>
-        )}
-      </div>
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-gray-500 group-hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" viewBox="0 0 20 20" fill="currentColor">
-        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-      </svg>
-    </button>
+    <div className="relative flex items-center gap-2 min-w-0" ref={popoverRef}>
+      <button
+        type="button"
+        className="flex items-center space-x-1.5 group cursor-pointer text-left bg-transparent border-0 p-0 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded min-w-0"
+        onClick={() => setIsEditing(true)}
+        aria-label={`Active project: ${projectId || 'Not Set'}. Click to change.`}
+      >
+        <span className="text-xs font-medium text-gray-400 group-hover:text-gray-300 shrink-0">Project:</span>
+        <div className="flex items-baseline gap-1 min-w-0" title="Click to change">
+          <span className="text-xs sm:text-sm font-bold text-white group-hover:text-blue-300 font-mono truncate max-w-[160px] xl:max-w-[240px]">{projectId || 'Not Set'}</span>
+          {projectNumber && projectId && projectNumber !== projectId && (
+            <span className="text-[11px] text-gray-500 font-mono hidden lg:inline shrink-0">({projectNumber})</span>
+          )}
+        </div>
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-gray-500 group-hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+        </svg>
+      </button>
+
+      {(projectId || projectNumber) && (
+        <button
+          type="button"
+          onClick={() => setShowGatePopover((prev) => !prev)}
+          title="View Project Visibility & Allowlist Feature Gates"
+          className={`hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors shrink-0 ${tierBadgeClasses}`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${isGoogleInternal ? 'bg-purple-400' : isTrustedTester ? 'bg-blue-400' : 'bg-gray-400'}`} />
+          <span>{tierLabel}</span>
+        </button>
+      )}
+
+      {showGatePopover && enrollment && (
+        <div className="absolute top-full left-0 mt-2 w-80 sm:w-96 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-3.5 z-50 space-y-2.5 text-xs">
+          <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+            <div>
+              <h4 className="font-bold text-white text-xs">Project Feature Gates</h4>
+              <p className="text-[10px] text-gray-400 font-mono">{enrollment.projectId}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refreshEnrollment()}
+              disabled={isProbingEnrollment}
+              className="text-[10px] px-2 py-1 bg-gray-800 hover:bg-gray-700 text-blue-300 rounded border border-gray-700 transition-colors disabled:opacity-50"
+            >
+              {isProbingEnrollment ? 'Probing...' : 'Re-check'}
+            </button>
+          </div>
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            {enrollment.categories.map((cat) => (
+              <div
+                key={cat.id}
+                className={`p-2 rounded border ${
+                  cat.enrolled
+                    ? 'bg-green-950/20 border-green-900/50'
+                    : 'bg-gray-950/60 border-gray-800'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-gray-200 text-[11px]">{cat.label}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                      cat.enrolled
+                        ? 'bg-green-900/50 text-green-300'
+                        : 'bg-gray-800 text-gray-400'
+                    }`}
+                  >
+                    {cat.enrolled ? 'Shown' : 'Hidden'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">{cat.reason}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
 export default HeaderProjectInput;
+

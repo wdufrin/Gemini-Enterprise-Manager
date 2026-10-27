@@ -21,8 +21,8 @@ import fs from 'fs'
 import path from 'path'
 
 // Ensure docs screenshots are available under public/docs/assets for in-app User Guide
-const docsAssetsSrc = path.resolve(__dirname, 'docs/assets');
-const docsAssetsDest = path.resolve(__dirname, 'public/docs/assets');
+const docsAssetsSrc = path.resolve(import.meta.dirname, 'docs/assets');
+const docsAssetsDest = path.resolve(import.meta.dirname, 'public/docs/assets');
 if (fs.existsSync(docsAssetsSrc)) {
   fs.mkdirSync(docsAssetsDest, { recursive: true });
   fs.cpSync(docsAssetsSrc, docsAssetsDest, { recursive: true });

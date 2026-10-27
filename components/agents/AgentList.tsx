@@ -28,6 +28,7 @@ interface AgentListProps {
   onTestAgent?: (agent: Agent) => void;
   onRegisterNew: () => void;
   onOpenBulkDatasources?: () => void;
+  onOpenBulkEditSharePublish?: () => void;
   onToggleAgentStatus: (agent: Agent) => void;
   togglingAgentId?: string | null;
   deletingAgentIds: Set<string>;
@@ -108,6 +109,7 @@ const AgentList: React.FC<AgentListProps> = ({
   onTestAgent,
   onRegisterNew, 
   onOpenBulkDatasources,
+  onOpenBulkEditSharePublish,
   onToggleAgentStatus, 
   togglingAgentId, 
   deletingAgentIds, 
@@ -312,8 +314,9 @@ const AgentList: React.FC<AgentListProps> = ({
                 <button
                   type="button"
                   onClick={onOpenBulkDatasources}
+                  data-testid="open-bulk-update-selected-btn"
                   className="px-3.5 py-2 bg-cyan-900/60 text-cyan-200 border border-cyan-600/60 text-sm font-semibold rounded-md hover:bg-cyan-800/70 flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
-                  title="Bulk update or migrate Data Connectors and Data Stores for the selected agents"
+                  title="Open Bulk Update workspace (IAM & Sharing, Agent Settings, and Data Connectors / Data Stores) for the selected agents"
                 >
                   <span>Bulk Update Selected ({selectedAgents.size})</span>
                 </button>
@@ -325,6 +328,24 @@ const AgentList: React.FC<AgentListProps> = ({
                 Delete Selected
               </button>
             </>
+          )}
+
+          {/* Bulk Edit / Share / Publish Button */}
+          {agents.length > 0 && onOpenBulkEditSharePublish && (
+            <button
+              type="button"
+              onClick={onOpenBulkEditSharePublish}
+              data-testid="open-bulk-edit-share-publish-btn"
+              className="px-3.5 py-2 bg-indigo-900/70 hover:bg-indigo-800/80 text-indigo-200 border border-indigo-600/60 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              title="Bulk edit metadata/model, share (All Users / Restricted / Private & IAM principals), or publish/deploy selected agents"
+            >
+              <svg className="w-4 h-4 text-indigo-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              <span>
+                Bulk Edit / Share / Publish{selectedAgents.size > 0 ? ` (${selectedAgents.size})` : ''}
+              </span>
+            </button>
           )}
 
           {/* Column Visibility Picker */}

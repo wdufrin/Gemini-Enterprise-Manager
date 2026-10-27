@@ -19,6 +19,7 @@ import {
   UserProfile,
   ServiceAgentValidation,
   UserPermissionsValidation,
+  ProjectEnrollmentStatus,
 } from '../../types';
 import AccessTokenInput from '../AccessTokenInput';
 import ProjectInput from '../ProjectInput';
@@ -47,6 +48,7 @@ interface AuthWelcomeScreenProps {
   apiValidationResult: { enabled: string[]; disabled: string[] } | null;
   serviceAgentValidation: ServiceAgentValidation | null;
   userPermissionsValidation: UserPermissionsValidation | null;
+  projectEnrollment?: ProjectEnrollmentStatus | null;
   isGrantingServiceAgent: boolean;
   serviceAgentActionFeedback: { type: 'success' | 'error'; message: string } | null;
   onGrantServiceAgent: () => void;
@@ -78,6 +80,7 @@ export const AuthWelcomeScreen: React.FC<AuthWelcomeScreenProps> = ({
   apiValidationResult,
   serviceAgentValidation,
   userPermissionsValidation,
+  projectEnrollment = null,
   isGrantingServiceAgent,
   serviceAgentActionFeedback,
   onGrantServiceAgent,
@@ -348,6 +351,7 @@ export const AuthWelcomeScreen: React.FC<AuthWelcomeScreenProps> = ({
               apiValidationResult={apiValidationResult}
               serviceAgentValidation={serviceAgentValidation}
               userPermissionsValidation={userPermissionsValidation}
+              projectEnrollment={projectEnrollment}
               isGrantingServiceAgent={isGrantingServiceAgent}
               serviceAgentActionFeedback={serviceAgentActionFeedback}
               onGrantServiceAgent={onGrantServiceAgent}

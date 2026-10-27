@@ -18,6 +18,7 @@ import React, { useState } from 'react';
 import {
   ServiceAgentValidation,
   UserPermissionsValidation,
+  ProjectEnrollmentStatus,
 } from '../../types';
 
 interface ApiValidationPanelProps {
@@ -25,6 +26,7 @@ interface ApiValidationPanelProps {
   apiValidationResult: { enabled: string[]; disabled: string[] } | null;
   serviceAgentValidation: ServiceAgentValidation | null;
   userPermissionsValidation: UserPermissionsValidation | null;
+  projectEnrollment?: ProjectEnrollmentStatus | null;
   isGrantingServiceAgent: boolean;
   serviceAgentActionFeedback: { type: 'success' | 'error'; message: string } | null;
   onGrantServiceAgent: () => void;
@@ -40,6 +42,7 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
   apiValidationResult,
   serviceAgentValidation,
   userPermissionsValidation,
+  projectEnrollment = null,
   isGrantingServiceAgent,
   serviceAgentActionFeedback,
   onGrantServiceAgent,
@@ -51,13 +54,14 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
 }) => {
   const [showAllUserPermissions, setShowAllUserPermissions] = useState(false);
   const [activeValidationTab, setActiveValidationTab] = useState<
-    'all' | 'apis' | 'serviceAgent' | 'permissions'
+    'all' | 'apis' | 'serviceAgent' | 'permissions' | 'enrollment'
   >('all');
 
   if (
     !apiValidationResult &&
     !serviceAgentValidation &&
-    !userPermissionsValidation
+    !userPermissionsValidation &&
+    !projectEnrollment
   ) {
     return null;
   }
@@ -127,9 +131,10 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
   return (
     <div className="mt-6 space-y-4">
       {/* Validation Section Tabs */}
-      <div className="flex border-b border-gray-700 gap-1 pb-1">
+      <div className="flex flex-wrap border-b border-gray-700 gap-1 pb-1">
         {[
           { id: 'all', label: 'All Checks' },
+          { id: 'enrollment', label: 'Feature Gates' },
           { id: 'serviceAgent', label: 'Service Agent' },
           { id: 'permissions', label: 'User Access' },
           {
@@ -151,6 +156,99 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
           </button>
         ))}
       </div>
+
+      {/* 0. Project Visibility & Feature Gates */}
+      {(activeValidationTab === 'all' ||
+        activeValidationTab === 'enrollment') &&
+        projectEnrollment && (
+          <div className="p-4 bg-gray-900/60 rounded-lg border border-gray-700/80 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5 text-purple-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  />
+                </svg>
+                <h4 className="text-sm font-bold text-white">
+                  Project Visibility &amp; Allowlist Feature Gates
+                </h4>
+              </div>
+              <span
+                className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border self-start sm:self-auto ${
+                  projectEnrollment.googleInternal
+                    ? 'bg-purple-900/50 text-purple-200 border-purple-700'
+                    : projectEnrollment.trustedTester
+                      ? 'bg-blue-900/50 text-blue-200 border-blue-700'
+                      : 'bg-gray-800 text-gray-300 border-gray-600'
+                }`}
+              >
+                {projectEnrollment.googleInternal
+                  ? '🟣 Google Internal Project'
+                  : projectEnrollment.trustedTester
+                    ? '🔵 Trusted Tester Project'
+                    : '⚪ Standard Customer Project'}
+              </span>
+            </div>
+
+            <p className="text-xs text-gray-400">
+              Options and API fields restricted by Google Cloud Producer Visibility labels (
+              <code className="text-gray-300">GOOGLE_INTERNAL</code>,{' '}
+              <code className="text-gray-300">TRUSTED_TESTER</code>,{' '}
+              <code className="text-gray-300">NLME_API_USER</code>) are automatically shown or hidden in the UI based on this project&apos;s enrollment.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+              {projectEnrollment.categories.map((cat) => (
+                <div
+                  key={cat.id}
+                  className={`p-3 rounded-lg border text-xs space-y-1.5 ${
+                    cat.enrolled
+                      ? 'bg-green-950/20 border-green-900/50'
+                      : 'bg-gray-950/60 border-gray-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-gray-200">{cat.label}</span>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border shrink-0 ${
+                        cat.enrolled
+                          ? 'bg-green-900/50 text-green-300 border-green-700'
+                          : 'bg-gray-800 text-gray-400 border-gray-700'
+                      }`}
+                    >
+                      {cat.enrolled ? 'Shown / Active' : 'Hidden / Gated'}
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-mono text-purple-300/90">
+                    Visibility Label: {cat.visibilityLabel}
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    {cat.reason}
+                  </p>
+                  <div className="pt-1 flex flex-wrap gap-1">
+                    {cat.affectedFeatures.map((feat) => (
+                      <span
+                        key={feat}
+                        className="text-[10px] bg-gray-900 text-gray-300 px-1.5 py-0.5 rounded border border-gray-800"
+                      >
+                        {feat}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
       {/* 1. Discovery Engine Service Agent Check */}
       {(activeValidationTab === 'all' ||

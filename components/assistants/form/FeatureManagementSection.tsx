@@ -16,6 +16,7 @@
 
 import React, { useState } from 'react';
 import InfoTooltip from '../../InfoTooltip';
+import { useProjectEnrollment } from '../../../context/ProjectEnrollmentContext';
 
 export interface FeatureManagementSectionProps {
   enableEndUserAgentCreation: boolean;
@@ -52,6 +53,8 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
   vertexAiSearchToolConfig,
   handleChange,
 }) => {
+  const { isTrustedTester } = useProjectEnrollment();
+
   return (
     <>
       <CollapsibleSection title="Feature Management">
@@ -98,24 +101,26 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection title="Advanced Configuration">
-        <div className="space-y-3 p-4 bg-gray-900/30 rounded-md">
-          <div>
-            <label htmlFor="vertexAiSearchToolConfig" className="flex items-center text-sm font-medium text-gray-300 mb-1">
-              Vertex AI Search Tool Config (JSON)
-              <InfoTooltip text="Raw JSON configuration for the Vertex AI Search Tool. Caution: Invalid JSON here can break the search functionality." />
-            </label>
-            <textarea
-              id="vertexAiSearchToolConfig"
-              name="vertexAiSearchToolConfig"
-              value={vertexAiSearchToolConfig}
-              onChange={handleChange}
-              rows={5}
-              className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm font-mono text-xs text-white px-3 py-2"
-            />
+      {isTrustedTester && (
+        <CollapsibleSection title="Advanced Configuration (Trusted Tester)">
+          <div className="space-y-3 p-4 bg-gray-900/30 rounded-md">
+            <div>
+              <label htmlFor="vertexAiSearchToolConfig" className="flex items-center text-sm font-medium text-gray-300 mb-1">
+                Vertex AI Search Tool Config (JSON)
+                <InfoTooltip text="Raw JSON configuration for the Vertex AI Search Tool (restricted to TRUSTED_TESTER / GOOGLE_INTERNAL projects). Caution: Invalid JSON here can break the search functionality." />
+              </label>
+              <textarea
+                id="vertexAiSearchToolConfig"
+                name="vertexAiSearchToolConfig"
+                value={vertexAiSearchToolConfig}
+                onChange={handleChange}
+                rows={5}
+                className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm font-mono text-xs text-white px-3 py-2"
+              />
+            </div>
           </div>
-        </div>
-      </CollapsibleSection>
+        </CollapsibleSection>
+      )}
     </>
   );
 };
