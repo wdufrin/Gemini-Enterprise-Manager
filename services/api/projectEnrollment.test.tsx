@@ -33,15 +33,15 @@ describe('Project Enrollment Gate Check & Allowlist Visibility Guards', () => {
           name: 'projects/123456',
           experienceState: 'EXPERIENCE_STATE_ENABLED',
           documentSizeQuota: { maxDocSizeBytes: 1000 },
-        } as any;
+        } as never;
       }
       if (url.includes(':listConnectorSources')) {
-        return { connectorSources: [{ dataSource: 'jira' }] } as any;
+        return { connectorSources: [{ dataSource: 'jira' }] } as never;
       }
       if (url.includes('/services/agentregistry.googleapis.com')) {
-        return { state: 'ENABLED' } as any;
+        return { state: 'ENABLED' } as never;
       }
-      return {} as any;
+      return {} as never;
     });
 
     const status = await probeProjectEnrollment('internal-proj');
@@ -64,7 +64,7 @@ describe('Project Enrollment Gate Check & Allowlist Visibility Guards', () => {
           name: 'projects/999999',
           serviceTermsMap: {},
           configurableBillingThreshold: 100,
-        } as any;
+        } as never;
       }
       if (url.includes(':listConnectorSources')) {
         throw new Error('403 PERMISSION_DENIED: Method ListConnectorSources is restricted to TRUSTED_TESTER');
@@ -73,9 +73,9 @@ describe('Project Enrollment Gate Check & Allowlist Visibility Guards', () => {
         throw new Error('403 PERMISSION_DENIED: Method InteractSources is not available for this consumer project');
       }
       if (url.includes('/services/agentregistry.googleapis.com')) {
-        return { state: 'DISABLED' } as any;
+        return { state: 'DISABLED' } as never;
       }
-      return {} as any;
+      return {} as never;
     });
 
     const status = await probeProjectEnrollment('customer-proj');
@@ -90,7 +90,7 @@ describe('Project Enrollment Gate Check & Allowlist Visibility Guards', () => {
   it('detects NLME_API_USER enrollment when :interactSources returns 404 Notebook Not Found (passed ESF visibility filter)', async () => {
     vi.spyOn(core, 'gapiRequest').mockImplementation(async (url: string) => {
       if (url.endsWith('/v1alpha/projects/nlme-proj')) {
-        return { name: 'projects/888888' } as any;
+        return { name: 'projects/888888' } as never;
       }
       if (url.includes(':listConnectorSources')) {
         throw new Error('403 PERMISSION_DENIED: not enrolled in TRUSTED_TESTER');
@@ -99,9 +99,9 @@ describe('Project Enrollment Gate Check & Allowlist Visibility Guards', () => {
         throw new Error('404 NOT_FOUND: Notebook __gem_enrollment_probe__ was not found');
       }
       if (url.includes('/services/agentregistry.googleapis.com')) {
-        return { state: 'DISABLED' } as any;
+        return { state: 'DISABLED' } as never;
       }
-      return {} as any;
+      return {} as never;
     });
 
     const status = await probeProjectEnrollment('nlme-proj');
@@ -127,9 +127,9 @@ describe('Project Enrollment Gate Check & Allowlist Visibility Guards', () => {
         displayName: 'Customer Assistant',
         enableEndUserAgentCreation: true,
         agentReasoningHidden: true,
-        toolConfig: { custom: true } as any,
-        vertexAiSearchToolConfig: { engine: 'test' } as any,
-      } as any,
+        toolConfig: { custom: true } as never,
+        vertexAiSearchToolConfig: { engine: 'test' } as never,
+      } as never,
       [
         'displayName',
         'enableEndUserAgentCreation',

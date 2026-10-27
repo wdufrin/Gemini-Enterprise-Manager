@@ -132,7 +132,7 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
     <div className="mt-6 space-y-4">
       {/* Validation Section Tabs */}
       <div className="flex flex-wrap border-b border-gray-700 gap-1 pb-1">
-        {[
+        {([
           { id: 'all', label: 'All Checks' },
           { id: 'enrollment', label: 'Feature Gates' },
           { id: 'serviceAgent', label: 'Service Agent' },
@@ -141,11 +141,11 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
             id: 'apis',
             label: `APIs (${apiValidationResult?.enabled.length || 0}/13)`,
           },
-        ].map((tab) => (
+        ] as const).map((tab) => (
           <button
             key={tab.id}
             type="button"
-            onClick={() => setActiveValidationTab(tab.id as any)}
+            onClick={() => setActiveValidationTab(tab.id)}
             className={`px-3 py-1.5 text-xs font-semibold rounded-t-md transition-colors ${
               activeValidationTab === tab.id
                 ? 'bg-gray-800 text-blue-400 border-t-2 border-blue-500'

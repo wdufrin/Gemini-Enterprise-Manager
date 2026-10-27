@@ -100,54 +100,65 @@ export const interactNotebookSource = async (
   return cleaned.trim();
 };
 
-export const extractTextFromTailwindDoc = (doc: any): string => {
+export const extractTextFromTailwindDoc = (doc: unknown): string => {
   if (!doc) return "";
   if (typeof doc === "string") return doc;
+  if (typeof doc !== "object") return "";
+  const d = doc as Record<string, unknown>;
   let text = "";
-  if (typeof doc.text === "string" && doc.text.trim()) {
-    text += doc.text;
-  } else if (typeof doc.content === "string" && doc.content.trim()) {
-    text += doc.content;
+  if (typeof d.text === "string" && d.text.trim()) {
+    text += d.text;
+  } else if (typeof d.content === "string" && d.content.trim()) {
+    text += d.content;
   }
-  if (Array.isArray(doc.chunks)) {
-    for (const chunk of doc.chunks) {
+  if (Array.isArray(d.chunks)) {
+    for (const chunk of d.chunks as unknown[]) {
       if (typeof chunk === "string") text += chunk + "\n";
       else if (chunk && typeof chunk === "object") {
-        const chunkText = chunk.text || chunk.content || chunk.rawText || chunk.markdown || "";
+        const c = chunk as Record<string, unknown>;
+        const chunkText = c.text || c.content || c.rawText || c.markdown || "";
         if (typeof chunkText === "string" && chunkText) text += chunkText + "\n";
-        else if (chunk.body || chunk.paragraph) text += extractTextFromTailwindDoc(chunk) + "\n";
+        else if (c.body || c.paragraph) text += extractTextFromTailwindDoc(c) + "\n";
       }
     }
   }
+  const bodyObj = d.body as Record<string, unknown> | undefined;
   const blockList =
-    doc.body?.content ||
-    doc.sections ||
-    doc.blocks ||
-    (Array.isArray(doc.content) ? doc.content : undefined);
+    bodyObj?.content ||
+    d.sections ||
+    d.blocks ||
+    (Array.isArray(d.content) ? d.content : undefined);
   if (Array.isArray(blockList)) {
-    for (const block of blockList) {
-      if (typeof block === "string") text += block + "\n";
-      else if (block?.paragraph?.elements) {
-        for (const el of block.paragraph.elements) {
-          if (el.textRun?.content) text += el.textRun.content;
+    for (const rawBlock of blockList as unknown[]) {
+      if (typeof rawBlock === "string") text += rawBlock + "\n";
+      else if (rawBlock && typeof rawBlock === "object") {
+        const block = rawBlock as Record<string, unknown>;
+        const paragraph = block.paragraph as { elements?: Array<{ textRun?: { content?: string } }> } | undefined;
+        const codeBlock = (block.codeBlock || block.code_block) as { content?: string } | undefined;
+        const table = block.table as {
+          tableRows?: Array<{ tableCells?: Array<{ content?: unknown }>; table_cells?: Array<{ content?: unknown }> }>;
+          table_rows?: Array<{ tableCells?: Array<{ content?: unknown }>; table_cells?: Array<{ content?: unknown }> }>;
+        } | undefined;
+        if (paragraph?.elements) {
+          for (const el of paragraph.elements) {
+            if (el.textRun?.content) text += el.textRun.content;
+          }
+        } else if (typeof codeBlock?.content === "string") {
+          text += codeBlock.content + "\n";
+        } else if (table?.tableRows || table?.table_rows) {
+          const rows = table.tableRows || table.table_rows || [];
+          for (const row of rows) {
+            const cells = row?.tableCells || row?.table_cells || [];
+            const cellTexts = cells
+              .map((c: { content?: unknown }) => extractTextFromTailwindDoc({ content: c?.content }))
+              .filter(Boolean);
+            if (cellTexts.length > 0) text += cellTexts.join(" | ") + "\n";
+          }
+        } else if (typeof block.text === "string") {
+          text += block.text + "\n";
+        } else if (typeof block.content === "string") {
+          text += block.content + "\n";
         }
-      } else if (typeof block?.codeBlock?.content === "string") {
-        text += block.codeBlock.content + "\n";
-      } else if (typeof block?.code_block?.content === "string") {
-        text += block.code_block.content + "\n";
-      } else if (block?.table?.tableRows || block?.table?.table_rows) {
-        const rows = block.table.tableRows || block.table.table_rows || [];
-        for (const row of rows) {
-          const cells = row?.tableCells || row?.table_cells || [];
-          const cellTexts = cells
-            .map((c: any) => extractTextFromTailwindDoc({ content: c?.content }))
-            .filter(Boolean);
-          if (cellTexts.length > 0) text += cellTexts.join(" | ") + "\n";
-        }
-      } else if (typeof block?.text === "string") {
-        text += block.text + "\n";
-      } else if (typeof block?.content === "string") {
-        text += block.content + "\n";
       }
     }
   }

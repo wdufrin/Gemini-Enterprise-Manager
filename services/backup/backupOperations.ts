@@ -364,17 +364,19 @@ export async function backupNotebooks(
       const rawNotebook = await api.getNotebook(apiConfig, notebookId);
       const fullSources: NotebookSource[] = [];
       for (const source of rawNotebook.sources || []) {
-        const sourceId = source.name?.split('/').pop() || (source as any).sourceId?.id || '';
+        const rawSource = source as NotebookSource & { sourceId?: { id?: string } };
+        const sourceId = rawSource.name?.split('/').pop() || rawSource.sourceId?.id || '';
         try {
-          const fullSource: any = await api.getNotebookSource(apiConfig, notebookId, sourceId);
+          const fullSource = (await api.getNotebookSource(apiConfig, notebookId, sourceId)) as NotebookSource & Record<string, unknown>;
+          const plainTextVal = fullSource.plainText as string | { text?: string; content?: string } | undefined;
           let extractedText =
-            fullSource.content ||
-            fullSource.text ||
-            fullSource.markdownString ||
-            fullSource.markdown_string ||
-            (typeof fullSource.plainText === 'string'
-              ? fullSource.plainText
-              : fullSource.plainText?.text || fullSource.plainText?.content) ||
+            (fullSource.content as string | undefined) ||
+            (fullSource.text as string | undefined) ||
+            (fullSource.markdownString as string | undefined) ||
+            (fullSource.markdown_string as string | undefined) ||
+            (typeof plainTextVal === 'string'
+              ? plainTextVal
+              : plainTextVal?.text || plainTextVal?.content) ||
             api.extractTextFromTailwindDoc(fullSource.tailwindDoc || fullSource.tailwind_doc);
 
           const hasLinkOrDrive = Boolean(
