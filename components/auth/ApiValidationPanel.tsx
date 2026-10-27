@@ -229,13 +229,13 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
                     </span>
                   </div>
                   <div className="text-[10px] font-mono text-purple-300/90">
-                    Visibility Label: {cat.visibilityLabel}
+                    Visibility Label: {cat.visibilityTag}
                   </div>
                   <p className="text-[11px] text-gray-400 leading-relaxed">
                     {cat.reason}
                   </p>
                   <div className="pt-1 flex flex-wrap gap-1">
-                    {cat.affectedFeatures.map((feat) => (
+                    {cat.gatedFeatures.map((feat) => (
                       <span
                         key={feat}
                         className="text-[10px] bg-gray-900 text-gray-300 px-1.5 py-0.5 rounded border border-gray-800"

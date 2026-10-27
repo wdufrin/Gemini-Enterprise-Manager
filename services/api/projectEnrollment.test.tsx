@@ -114,7 +114,7 @@ describe('Project Enrollment Gate Check & Allowlist Visibility Guards', () => {
   it('strips GOOGLE_INTERNAL and TRUSTED_TESTER fields from Assistant update payload and mask for standard customer projects', () => {
     setCachedProjectEnrollment({
       projectId: 'ext-customer',
-      probedAt: Date.now(),
+      checkedAt: new Date().toISOString(),
       googleInternal: false,
       trustedTester: false,
       notebookLmApiUser: false,
@@ -150,7 +150,7 @@ describe('Project Enrollment Gate Check & Allowlist Visibility Guards', () => {
   it('strips GOOGLE_INTERNAL fields from Engine update payload and mask for standard customer projects', () => {
     setCachedProjectEnrollment({
       projectId: 'ext-customer',
-      probedAt: Date.now(),
+      checkedAt: new Date().toISOString(),
       googleInternal: false,
       trustedTester: true,
       notebookLmApiUser: false,
@@ -181,7 +181,7 @@ describe('Project Enrollment Gate Check & Allowlist Visibility Guards', () => {
   it('explicitly rejects listUserMemories, deleteUserMemory, and interactNotebookSource when project is not enrolled', async () => {
     setCachedProjectEnrollment({
       projectId: 'ext-customer',
-      probedAt: Date.now(),
+      checkedAt: new Date().toISOString(),
       googleInternal: false,
       trustedTester: false,
       notebookLmApiUser: false,
@@ -212,7 +212,7 @@ describe('Project Enrollment Gate Check & Allowlist Visibility Guards', () => {
   it('hides Advanced Configuration (vertexAiSearchToolConfig) for standard customer projects and shows it for Trusted Tester / Google Internal projects', () => {
     const standardEnrollment = {
       projectId: 'std-proj',
-      probedAt: Date.now(),
+      checkedAt: new Date().toISOString(),
       googleInternal: false,
       trustedTester: false,
       notebookLmApiUser: false,
@@ -267,19 +267,20 @@ describe('Project Enrollment Gate Check & Allowlist Visibility Guards', () => {
   it('renders the Feature Gates tab and category cards in ApiValidationPanel and switches discovery badge in DiscoveredToolsSection', () => {
     const customerEnrollment = {
       projectId: 'cust-proj',
-      probedAt: Date.now(),
+      checkedAt: new Date().toISOString(),
       googleInternal: false,
       trustedTester: false,
       notebookLmApiUser: false,
       agentRegistryEnabled: true,
       categories: [
         {
-          id: 'GOOGLE_INTERNAL' as const,
+          id: 'googleInternal' as const,
           label: 'Google Internal (GOOGLE_INTERNAL)',
-          visibilityLabel: 'GOOGLE_INTERNAL',
+          visibilityTag: 'GOOGLE_INTERNAL',
           enrolled: false,
+          probed: true,
           reason: 'Hidden for external customer project.',
-          affectedFeatures: ['Engine User Memories'],
+          gatedFeatures: ['Engine User Memories'],
         },
       ],
     };

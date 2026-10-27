@@ -367,13 +367,24 @@ export async function backupNotebooks(
         const rawSource = source as NotebookSource & { sourceId?: { id?: string } };
         const sourceId = rawSource.name?.split('/').pop() || rawSource.sourceId?.id || '';
         try {
-          const fullSource = (await api.getNotebookSource(apiConfig, notebookId, sourceId)) as NotebookSource & Record<string, unknown>;
-          const plainTextVal = fullSource.plainText as string | { text?: string; content?: string } | undefined;
+          const fullSource = (await api.getNotebookSource(apiConfig, notebookId, sourceId)) as NotebookSource & {
+            content?: string;
+            text?: string;
+            markdownString?: string;
+            markdown_string?: string;
+            plainText?: string | { text?: string; content?: string };
+            tailwindDoc?: unknown;
+            tailwind_doc?: unknown;
+            metadata?: Record<string, unknown>;
+            webScrapeConfig?: { url?: string };
+            url?: string;
+          };
+          const plainTextVal = fullSource.plainText;
           let extractedText =
-            (fullSource.content as string | undefined) ||
-            (fullSource.text as string | undefined) ||
-            (fullSource.markdownString as string | undefined) ||
-            (fullSource.markdown_string as string | undefined) ||
+            fullSource.content ||
+            fullSource.text ||
+            fullSource.markdownString ||
+            fullSource.markdown_string ||
             (typeof plainTextVal === 'string'
               ? plainTextVal
               : plainTextVal?.text || plainTextVal?.content) ||
