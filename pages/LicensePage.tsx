@@ -26,7 +26,7 @@ import { PrunerDeploymentModal } from '../components/license/PrunerDeploymentMod
 export interface LicensePageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
-  onBuildTriggered?: (buildId: string) => void;
+  onBuildTriggered?: (buildId: string, projectId?: string) => void;
 }
 
 const LicensePage: React.FC<LicensePageProps> = ({
@@ -36,12 +36,17 @@ const LicensePage: React.FC<LicensePageProps> = ({
 }) => {
   const licenseState = useLicenseManagement(projectNumber);
 
+  const handleBuildTriggered = (buildId: string, buildProjectId?: string) => {
+    onBuildTriggered?.(buildId, buildProjectId);
+    void licenseState.fetchGroupServices();
+  };
+
   return (
     <div className="space-y-6">
       <LicenseModals
         projectNumber={projectNumber}
         apiConfig={licenseState.apiConfig}
-        onBuildTriggered={onBuildTriggered}
+        onBuildTriggered={handleBuildTriggered}
         jsonModalData={licenseState.jsonModalData}
         onCloseJsonModal={() => licenseState.setJsonModalData(null)}
         isPruneModalOpen={licenseState.isPruneModalOpen}
@@ -274,6 +279,7 @@ const LicensePage: React.FC<LicensePageProps> = ({
           servicesError={licenseState.servicesError}
           groupServices={licenseState.groupServices}
           lastRunTimes={licenseState.lastRunTimes}
+          serviceGroups={licenseState.serviceGroups}
           apiLicenseConfigs={licenseState.apiLicenseConfigs}
           onNewAssignment={() => {
             licenseState.setSelectedServiceForEdit(null);
@@ -290,7 +296,7 @@ const LicensePage: React.FC<LicensePageProps> = ({
           onClose={() => licenseState.setActiveTab('user_licenses')}
           projectNumber={projectNumber}
           currentConfig={licenseState.apiConfig}
-          onBuildTriggered={onBuildTriggered}
+          onBuildTriggered={handleBuildTriggered}
           onOpenManualPrune={() => licenseState.setIsPruneModalOpen(true)}
         />
       )}

@@ -1,7 +1,9 @@
 import os
 import json
 import time
+import threading
 import traceback
+import urllib.parse
 from datetime import datetime, timezone
 from flask import Flask, request, jsonify
 import google.auth
@@ -16,6 +18,13 @@ LOCATION = os.environ.get("LOCATION", "global")
 USER_STORE_ID = os.environ.get("USER_STORE_ID", "default_user_store")
 JOB_TYPE = os.environ.get("JOB_TYPE", "adder") # 'adder' or 'cleanup'
 PROJECT_NUMBER = os.environ.get("PROJECT_NUMBER")
+
+HTTP_TIMEOUT_SECONDS = int(os.environ.get("HTTP_TIMEOUT_SECONDS", "30"))
+MAX_HTTP_RETRIES = int(os.environ.get("MAX_HTTP_RETRIES", "3"))
+RETRY_BASE_DELAY_SECONDS = float(os.environ.get("HTTP_RETRY_BASE_DELAY", "0.5"))
+RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
+
+_JOB_LOCK = threading.Lock()
 
 # Precedence Ranking (Highest to Lowest)
 PRECEDENCE = [
@@ -35,6 +44,27 @@ PRECEDENCE = [
     "SUBSCRIPTION_TIER_EDU_EMERGING"
 ]
 
+def _invoke_http(session, method, url, **kwargs):
+    fn = getattr(session, method)
+    try:
+        return fn(url, timeout=HTTP_TIMEOUT_SECONDS, **kwargs)
+    except TypeError:
+        # Fallback for custom/test session doubles that do not accept a 'timeout' kwarg
+        return fn(url, **kwargs)
+
+def request_with_retry(session, method, url, **kwargs):
+    last_resp = None
+    for attempt in range(MAX_HTTP_RETRIES + 1):
+        resp = _invoke_http(session, method, url, **kwargs)
+        last_resp = resp
+        if resp.status_code not in RETRYABLE_STATUS_CODES or attempt == MAX_HTTP_RETRIES:
+            return resp
+        delay = RETRY_BASE_DELAY_SECONDS * (2 ** attempt)
+        print(f"Transient HTTP {resp.status_code} for {method.upper()} {url}; retrying in {delay:.2f}s (attempt {attempt + 1}/{MAX_HTTP_RETRIES})...")
+        if delay > 0:
+            time.sleep(delay)
+    return last_resp
+
 def load_config(session):
     gcs_uri = os.environ.get("CONFIG_GCS_URI")
     if not gcs_uri:
@@ -44,40 +74,50 @@ def load_config(session):
     parts = gcs_uri[5:].split("/", 1)
     bucket = parts[0]
     obj = parts[1] if len(parts) > 1 else ""
-    import urllib.parse
-    url = f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{urllib.parse.quote(obj, safe='')}?alt=media"
-    resp = session.get(url)
+    encoded_bucket = urllib.parse.quote(bucket, safe='')
+    encoded_obj = urllib.parse.quote(obj, safe='')
+    url = f"https://storage.googleapis.com/storage/v1/b/{encoded_bucket}/o/{encoded_obj}?alt=media"
+    resp = request_with_retry(session, "get", url)
     if resp.status_code != 200:
         raise Exception(f"Failed to read config from GCS: {resp.text}")
     return resp.json()
 
 def list_group_members(session, group_email):
-    url = f"https://admin.googleapis.com/admin/directory/v1/groups/{group_email}/members"
+    encoded_group = urllib.parse.quote(group_email.strip(), safe='')
+    url = f"https://admin.googleapis.com/admin/directory/v1/groups/{encoded_group}/members?includeDerivedMembership=true"
     members = []
     next_page_token = None
     while True:
         full_url = url
         if next_page_token:
-            full_url += f"?pageToken={next_page_token}"
-        resp = session.get(full_url)
+            full_url += f"&pageToken={urllib.parse.quote(next_page_token, safe='')}"
+        resp = request_with_retry(session, "get", full_url)
         if resp.status_code != 200:
             print(f"Error listing members for {group_email}: {resp.text}")
             if resp.status_code in (401, 403):
-                raise PermissionError(f"Directory API permission denied ({resp.status_code}): Ensure Cloud Run Service Account has Domain-Wide Delegation to query {group_email}.")
+                raise PermissionError(f"Directory API permission denied ({resp.status_code}): Ensure Cloud Run Service Account has Domain-Wide Delegation or Groups Reader role to query {group_email}.")
             raise RuntimeError(f"Unexpected Directory API error ({resp.status_code}): {resp.text}")
         data = resp.json()
-        print(f"Fetched raw members data: {data}")
-        members.extend(data.get("members", []))
+        page_members = data.get("members", [])
+        members.extend(page_members)
         next_page_token = data.get("nextPageToken")
         if not next_page_token:
             break
-    emails = [m["email"] for m in members if "email" in m]
-    print(f"Resolved emails for {group_email}: {emails}")
+    emails = [
+        m["email"].strip().lower()
+        for m in members
+        if m.get("type", "USER") == "USER"
+        and m.get("email")
+        and not m["email"].strip().lower().endswith(".gserviceaccount.com")
+    ]
+    print(f"Resolved {len(emails)} user members for {group_email} (from {len(members)} total directory entries)")
     return emails
 
 def has_member(session, group_email, user_email):
-    url = f"https://admin.googleapis.com/admin/directory/v1/groups/{group_email}/hasMember/{user_email}"
-    resp = session.get(url)
+    encoded_group = urllib.parse.quote(group_email.strip(), safe='')
+    encoded_user = urllib.parse.quote(user_email.strip(), safe='')
+    url = f"https://admin.googleapis.com/admin/directory/v1/groups/{encoded_group}/hasMember/{encoded_user}"
+    resp = request_with_retry(session, "get", url)
     if resp.status_code == 200:
         return resp.json().get("isMember", False)
     elif resp.status_code in (401, 403):
@@ -89,6 +129,7 @@ def has_member(session, group_email, user_email):
 def batch_update_licenses(session, base_url, parent, updates, update_mask_paths=None, delete_unassigned=None):
     """Updates licenses in batches of up to 100"""
     url = f"{base_url}/{parent}:batchUpdateUserLicenses"
+    batch_errors = []
     
     # Chunk updates into batches of 100
     for i in range(0, len(updates), 100):
@@ -103,18 +144,58 @@ def batch_update_licenses(session, base_url, parent, updates, update_mask_paths=
         }
         if delete_unassigned is not None:
             payload["deleteUnassignedUserLicenses"] = delete_unassigned
-        resp = session.post(url, json=payload)
+        resp = request_with_retry(session, "post", url, json=payload)
         if resp.status_code not in [200, 201]:
-            print(f"Failed to update batch: {resp.text}")
-            raise RuntimeError(f"batchUpdateUserLicenses failed ({resp.status_code}): {resp.text}")
-        else:
-            print(f"Successfully updated batch of {len(batch)} users.")
+            err_msg = f"batchUpdateUserLicenses chunk {i // 100 + 1} failed ({resp.status_code}): {resp.text}"
+            print(err_msg)
+            batch_errors.append(err_msg)
+            continue
+
+        # Check Long-Running Operation / response body for embedded error object
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict) and body.get("error"):
+            err_detail = body["error"]
+            err_msg = f"batchUpdateUserLicenses chunk {i // 100 + 1} returned LRO error: {json.dumps(err_detail)}"
+            print(err_msg)
+            batch_errors.append(err_msg)
+            continue
+
+        print(f"Successfully updated batch of {len(batch)} users.")
+
+    if batch_errors:
+        raise RuntimeError("; ".join(batch_errors))
 
 def get_highest_tier(tiers):
+    valid_tiers = [t for t in tiers if t]
+    if not valid_tiers:
+        return None
     for t in PRECEDENCE:
-        if t in tiers:
+        if t in valid_tiers:
             return t
-    return None
+    # Fallback for custom/API LicenseConfig resource IDs not in hardcoded PRECEDENCE
+    return sorted(valid_tiers)[0]
+
+def list_all_user_licenses(session, base_url, parent):
+    url = f"{base_url}/{parent}/userLicenses?pageSize=1000"
+    licensed_users = []
+    next_page_token = None
+    while True:
+        full_url = url
+        if next_page_token:
+            full_url += f"&pageToken={urllib.parse.quote(next_page_token, safe='')}"
+        resp = request_with_retry(session, "get", full_url)
+        if resp.status_code != 200:
+            print(f"Failed to list user licenses: {resp.text}")
+            raise RuntimeError(f"Failed to list user licenses ({resp.status_code}): {resp.text}")
+        data = resp.json()
+        licensed_users.extend(data.get("userLicenses", []))
+        next_page_token = data.get("nextPageToken")
+        if not next_page_token:
+            break
+    return licensed_users
 
 def run_adder(session, base_url, parent, config):
     print("Running Joiner workflow...")
@@ -129,22 +210,48 @@ def run_adder(session, base_url, parent, config):
             continue # Sharding or project filtering
             
         for ent in entitlements:
+            ent_location = ent.get("location")
+            if ent_location and ent_location != LOCATION:
+                continue
             tier = ent.get("subscription_tier")
+            if not tier:
+                continue
             groups = ent.get("groups", [])
             
             for group in groups:
+                if not group:
+                    continue
                 print(f"Listing members for group: {group}")
                 members = list_group_members(session, group)
                 for member in members:
                     if member not in user_entitlements:
                         user_entitlements[member] = set()
                     user_entitlements[member].add(tier)
-                    
+
+    if not user_entitlements:
+        print("No assignments to make.")
+        return
+
+    # Pre-fetch existing assigned licenses to skip redundant updates
+    already_assigned_tiers = {}
+    try:
+        existing_licenses = list_all_user_licenses(session, base_url, parent)
+        for ul in existing_licenses:
+            principal = (ul.get("userPrincipal") or "").strip().lower()
+            state = ul.get("licenseAssignmentState")
+            cfg_path = ul.get("licenseConfig") or ""
+            if principal and state == "ASSIGNED" and cfg_path:
+                already_assigned_tiers[principal] = cfg_path.split("/")[-1]
+    except Exception as e:
+        print(f"Warning: Could not pre-fetch existing userLicenses for diffing ({e}); proceeding with full assignment batch.")
+
     updates = []
     target_project = PROJECT_NUMBER or PROJECT_ID
     for user, tiers in user_entitlements.items():
         highest_tier = get_highest_tier(tiers)
         if highest_tier:
+            if already_assigned_tiers.get(user.strip().lower()) == highest_tier:
+                continue
             license_config = f"projects/{target_project}/locations/{LOCATION}/licenseConfigs/{highest_tier}"
             updates.append({
                 "userPrincipal": user,
@@ -152,53 +259,73 @@ def run_adder(session, base_url, parent, config):
             })
             
     if updates:
-        print(f"Applying {len(updates)} license assignments...")
-        batch_update_licenses(session, base_url, parent, updates)
+        print(f"Applying {len(updates)} license assignments ({len(user_entitlements) - len(updates)} already up to date)...")
+        batch_update_licenses(
+            session,
+            base_url,
+            parent,
+            updates,
+            update_mask_paths=["userPrincipal", "licenseConfig"],
+        )
     else:
         print("No assignments to make.")
 
 def run_cleanup(session, base_url, parent, config):
     print("Running Garbage Collection workflow...")
-    # 1. List all licensed users
-    url = f"{base_url}/{parent}/userLicenses"
-    licensed_users = []
-    next_page_token = None
-    while True:
-        full_url = url
-        if next_page_token:
-            full_url += f"?pageToken={next_page_token}"
-        resp = session.get(full_url)
-        if resp.status_code != 200:
-            print(f"Failed to list user licenses: {resp.text}")
-            raise RuntimeError(f"Failed to list user licenses ({resp.status_code}): {resp.text}")
-        data = resp.json()
-        licensed_users.extend(data.get("userLicenses", []))
-        next_page_token = data.get("nextPageToken")
-        if not next_page_token:
-            break
-            
-    # 2. Check entitlement for each user
+    # 1. Resolve entitled groups and managed tiers for this project & location FIRST
     projects_config = config.get("projects", {})
     valid_project_keys = {k for k in (PROJECT_ID, PROJECT_NUMBER) if k}
     entitled_groups = []
+    managed_tiers = set()
     for proj_id, entitlements in projects_config.items():
         if valid_project_keys and proj_id not in valid_project_keys:
             continue
         for ent in entitlements:
-            entitled_groups.extend(ent.get("groups", []))
+            ent_location = ent.get("location")
+            if ent_location and ent_location != LOCATION:
+                continue
+            tier = ent.get("subscription_tier")
+            if tier:
+                managed_tiers.add(tier)
+            for g in ent.get("groups", []):
+                if g and g not in entitled_groups:
+                    entitled_groups.append(g)
+
+    # Fail closed if no entitled groups are configured to prevent accidental mass revocation
+    if not entitled_groups:
+        raise RuntimeError(
+            f"Cleanup aborted: No entitled groups configured for project {PROJECT_ID}/{PROJECT_NUMBER} in location {LOCATION}. "
+            "Refusing to revoke all licenses."
+        )
+
+    # 2. Pre-fetch all entitled user members across entitled groups in O(G) calls
+    entitled_users = set()
+    for group in entitled_groups:
+        print(f"Resolving entitled members for group: {group}")
+        group_members = list_group_members(session, group)
+        entitled_users.update(group_members)
+
+    # 3. List all licensed users (pageSize=1000)
+    licensed_users = list_all_user_licenses(session, base_url, parent)
             
+    # 4. Check entitlement for each user managed by this configuration
     updates = []
     for ul in licensed_users:
         user = ul.get("userPrincipal")
-        if not user or ul.get("licenseAssignmentState") == "UNASSIGNED":
+        state = ul.get("licenseAssignmentState")
+        if not user or state in ("UNASSIGNED", "NO_LICENSE"):
             continue
+        if user.strip().lower().endswith(".gserviceaccount.com"):
+            continue
+
+        # Only revoke users whose licenseConfig belongs to a tier managed by this group config
+        if managed_tiers:
+            ul_config = ul.get("licenseConfig", "")
+            ul_tier = ul_config.split("/")[-1] if ul_config else ""
+            if ul_tier and ul_tier not in managed_tiers:
+                continue
         
-        # Check if user is in ANY entitled group
-        is_entitled = False
-        for group in entitled_groups:
-            if has_member(session, group, user):
-                is_entitled = True
-                break
+        is_entitled = user.strip().lower() in entitled_users
                 
         if not is_entitled:
             print(f"User {user} is no longer entitled. Revoking license.")
@@ -221,6 +348,8 @@ def run_cleanup(session, base_url, parent, config):
 
 @app.route("/", methods=["POST"])
 def handle_trigger():
+    if not _JOB_LOCK.acquire(blocking=False):
+        return jsonify({"status": "error", "message": f"Job {JOB_TYPE} is already running."}), 409
     try:
         scopes = [
             'https://www.googleapis.com/auth/cloud-platform',
@@ -232,6 +361,8 @@ def handle_trigger():
         
         config = load_config(authed_session)
         
+        if LOCATION not in ("global", "us", "eu"):
+            raise ValueError(f"Invalid LOCATION: {LOCATION}")
         v1_base = "https://discoveryengine.googleapis.com/v1"
         if LOCATION != "global":
             v1_base = f"https://{LOCATION}-discoveryengine.googleapis.com/v1"
@@ -251,6 +382,8 @@ def handle_trigger():
         print(f"FATAL ERROR: {e}")
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        _JOB_LOCK.release()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

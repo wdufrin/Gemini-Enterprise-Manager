@@ -22,6 +22,10 @@ import {
   DISCOVERY_API_BETA,
 } from "../core";
 import { getCachedProjectEnrollment } from "../project";
+import {
+  GOOGLE_INTERNAL_ENGINE_UPDATE_FIELDS,
+  isGoogleInternalEngineField,
+} from "./engineFieldVisibility";
 
 export const listDiscoveryEngines = async (
   config: Config,
@@ -192,18 +196,12 @@ export const sanitizeEngineUpdateForEnrollment = (
   }
 
   const sanitizedPayload: Record<string, unknown> = { ...payload };
-  delete sanitizedPayload.includeCrossDomainDocuments;
-  delete sanitizedPayload.allowMultipleDataStoresSearchEngine;
-  delete sanitizedPayload.effectiveFeatures;
+  GOOGLE_INTERNAL_ENGINE_UPDATE_FIELDS.forEach((field) => {
+    delete sanitizedPayload[field];
+  });
 
   const sanitizedMask = updateMask.filter(
-    (field) =>
-      field !== "includeCrossDomainDocuments" &&
-      field !== "include_cross_domain_documents" &&
-      field !== "allowMultipleDataStoresSearchEngine" &&
-      field !== "allow_multiple_data_stores_search_engine" &&
-      field !== "effectiveFeatures" &&
-      field !== "effective_features",
+    (field) => !isGoogleInternalEngineField(field),
   );
 
   return { sanitizedPayload, sanitizedMask };

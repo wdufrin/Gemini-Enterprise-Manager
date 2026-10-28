@@ -20,11 +20,17 @@ import { redactRequestBody, redactSensitive } from "../redaction";
 export const DISCOVERY_API_VERSION = "v1alpha";
 export const DISCOVERY_API_BETA = "v1beta";
 
+const VALID_DISCOVERY_LOCATION_PATTERN = /^[a-z0-9-]+$/;
+
 // Helper to determine base URL for Discovery Engine
 export const getDiscoveryEngineUrl = (location: string) => {
-  return location === "global"
+  const normalized = typeof location === "string" ? location.trim().toLowerCase() : "";
+  if (!normalized || !VALID_DISCOVERY_LOCATION_PATTERN.test(normalized)) {
+    throw new Error(`Invalid Discovery Engine location: "${location}"`);
+  }
+  return normalized === "global"
     ? "https://discoveryengine.googleapis.com"
-    : `https://${location}-discoveryengine.googleapis.com`;
+    : `https://${normalized}-discoveryengine.googleapis.com`;
 };
 
 export interface DebugLogPayload {

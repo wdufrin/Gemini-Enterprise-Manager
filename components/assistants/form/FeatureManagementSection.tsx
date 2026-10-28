@@ -22,6 +22,7 @@ export interface FeatureManagementSectionProps {
   enableEndUserAgentCreation: boolean;
   disableLocationContext: boolean;
   defaultWebGroundingToggleOff: boolean;
+  webGroundingType?: string;
   vertexAiSearchToolConfig: string;
   handleChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
 }
@@ -50,17 +51,19 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
   enableEndUserAgentCreation,
   disableLocationContext,
   defaultWebGroundingToggleOff,
+  webGroundingType,
   vertexAiSearchToolConfig,
   handleChange,
 }) => {
   const { isTrustedTester } = useProjectEnrollment();
+  const isWebGroundingDisabled = !webGroundingType || webGroundingType === 'WEB_GROUNDING_TYPE_DISABLED';
 
   return (
     <>
       <CollapsibleSection title="Feature Management">
         <div className="space-y-3 p-4 bg-gray-900/30 rounded-md">
           <label className="flex items-center space-x-3 cursor-pointer">
-            <div className="flex items-center">
+            <div className="flex items-center flex-wrap gap-1.5">
               <input
                 type="checkbox"
                 name="enableEndUserAgentCreation"
@@ -68,8 +71,11 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
                 onChange={handleChange}
                 className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
               />
-              <span className="text-sm text-gray-300 ml-3">Enable End-User Agent Creation</span>
-              <InfoTooltip text="Allows end-users to create their own custom agents within the chat interface." />
+              <span className="text-sm text-gray-300 ml-2">Enable End-User Agent Creation</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-800 text-gray-400 border border-gray-700">
+                v1alpha Legacy
+              </span>
+              <InfoTooltip text="Legacy v1alpha Assistant field. In modern Gemini Enterprise web apps, end-user Agent Builder access is governed by Engine-level 'no-code-agent-builder' and 'agent-gallery' features." />
             </div>
           </label>
           <label className="flex items-center space-x-3 cursor-pointer">
@@ -82,11 +88,11 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
                 className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300 ml-3">Disable Location Context</span>
-              <InfoTooltip text="Prevents the location context from being sent to the agent. useful for privacy or testing." />
+              <InfoTooltip text="Prevents the user's geographic location context (IP/device location) from being used in search and grounding." />
             </div>
           </label>
           <label className="flex items-center space-x-3 cursor-pointer">
-            <div className="flex items-center">
+            <div className="flex items-center flex-wrap gap-1.5">
               <input
                 type="checkbox"
                 name="defaultWebGroundingToggleOff"
@@ -94,8 +100,16 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
                 onChange={handleChange}
                 className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
               />
-              <span className="text-sm text-gray-300 ml-3">Default Web Grounding to Off</span>
-              <InfoTooltip text="Sets the default state of the Web Grounding toggle in the chat UI to 'Off'." />
+              <span className="text-sm text-gray-300 ml-2">Default Web Grounding to Off</span>
+              {isWebGroundingDisabled && (
+                <span
+                  className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-300 border border-amber-700/60"
+                  title="Web Grounding Type is currently Disabled. Enable Google Search or Enterprise Web Search above for this default toggle setting to take effect."
+                >
+                  Requires Web Grounding Enabled
+                </span>
+              )}
+              <InfoTooltip text="When Web Grounding (Google Search or Enterprise Web Search) is enabled on this assistant, sets the user-facing Web Grounding toggle in the chat UI to 'Off' by default so users must opt in per query." />
             </div>
           </label>
         </div>

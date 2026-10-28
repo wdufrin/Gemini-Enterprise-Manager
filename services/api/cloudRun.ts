@@ -123,3 +123,38 @@ export const triggerCloudRunServiceJob = async ({
   }
 };
 
+export interface CloudSchedulerJobStatus {
+  name?: string;
+  schedule?: string;
+  state?: string;
+  lastAttemptTime?: string;
+  scheduleTime?: string;
+  status?: {
+    code?: number;
+    message?: string;
+  };
+}
+
+export const getCloudSchedulerJob = async (
+  projectId: string,
+  region: string,
+  jobId: string,
+  quotaProjectId?: string,
+): Promise<CloudSchedulerJobStatus> => {
+  const jobName = `projects/${projectId}/locations/${region}/jobs/${jobId}`;
+  const url = `https://cloudscheduler.googleapis.com/v1/${jobName}`;
+  return gapiRequest<CloudSchedulerJobStatus>(url, "GET", quotaProjectId || projectId, undefined, undefined, undefined, true);
+};
+
+export const deleteCloudSchedulerJob = async (
+  projectId: string,
+  region: string,
+  jobId: string,
+  quotaProjectId?: string,
+): Promise<Record<string, unknown>> => {
+  const jobName = `projects/${projectId}/locations/${region}/jobs/${jobId}`;
+  const url = `https://cloudscheduler.googleapis.com/v1/${jobName}`;
+  return gapiRequest<Record<string, unknown>>(url, "DELETE", quotaProjectId || projectId, undefined, undefined, undefined, true);
+};
+
+

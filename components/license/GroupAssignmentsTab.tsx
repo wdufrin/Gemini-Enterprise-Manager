@@ -23,6 +23,7 @@ interface GroupAssignmentsTabProps {
   servicesError: string | null;
   groupServices: CloudRunServiceItem[];
   lastRunTimes: Record<string, string>;
+  serviceGroups?: Record<string, string[]>;
   apiLicenseConfigs: LicenseConfig[];
   onNewAssignment: () => void;
   onRunService: (serviceOrUrl?: CloudRunServiceItem | string) => void;
@@ -35,6 +36,7 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
   servicesError,
   groupServices,
   lastRunTimes,
+  serviceGroups = {},
   apiLicenseConfigs,
   onNewAssignment,
   onRunService,
@@ -86,6 +88,9 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
                     Subscription ID
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Groups
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Job Type
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
@@ -103,12 +108,21 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
                   const id = parts[parts.length - 1];
                   const runRegion = parts[3] || 'N/A';
                   const labels = service.labels || {};
-                  const geRegion = labels['ge-region'] || 'N/A';
-                  const geSku = labels['ge-sku'] || 'N/A';
-                  const jobType = labels['job-type'] || 'N/A';
+                  const env = service.template?.containers?.[0]?.env || [];
+                  const envTier = env.find((e) => e.name === 'SUBSCRIPTION_TIER')?.value;
+                  const envLocation = env.find((e) => e.name === 'LOCATION')?.value;
+                  const envJobType = env.find((e) => e.name === 'JOB_TYPE')?.value;
+                  const geRegion = envLocation || labels['ge-region'] || 'N/A';
+                  const geSku = envTier || labels['ge-sku'] || 'N/A';
+                  const jobType = envJobType || labels['job-type'] || 'N/A';
+                  const groupsList = serviceGroups[id];
+                  const groupsDisplay = groupsList && groupsList.length > 0 ? groupsList.join(', ') : 'N/A';
                   const lastRun = lastRunTimes[id] ? new Date(lastRunTimes[id]).toLocaleString() : 'N/A';
 
-                  const matchConfig = apiLicenseConfigs.find((c) => c.name.split('/').pop() === geSku);
+                  const matchConfig = apiLicenseConfigs.find((c) => {
+                    const cfgId = c.name.split('/').pop() || '';
+                    return cfgId === geSku || cfgId.toLowerCase() === geSku.toLowerCase();
+                  });
                   const expDate =
                     matchConfig && matchConfig.endDate && matchConfig.endDate.year
                       ? `${matchConfig.endDate.year}-${String(matchConfig.endDate.month || 1).padStart(2, '0')}-${String(
@@ -123,6 +137,9 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{geRegion}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
                         {geSku} {expDate ? `(Exp: ${expDate})` : ''}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-300 max-w-xs truncate" title={groupsDisplay}>
+                        {groupsDisplay}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{jobType}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{lastRun}</td>

@@ -18,7 +18,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppEngine, Config, LicenseConfig, WidgetConfig, WorkloadIdentityProvider } from '../types';
 import { toErrorMessage } from '../utils/errors';
 import * as api from '../services/apiService';
-import { FeatureDefinition, FEATURE_DEFS } from '../components/assistants/engine-details/featuresCatalog';
+import {
+    FeatureDefinition,
+    FEATURE_DEFS,
+    IGNORED_LEGACY_FEATURE_KEYS,
+    LEGACY_DISABLE_FEATURE_KEYS,
+} from '../components/assistants/engine-details/featuresCatalog';
 import {
     EnterpriseModel,
     STANDARD_ENTERPRISE_MODELS,
@@ -26,6 +31,14 @@ import {
     formatModelDisplayName,
     getModelDefaultDescription
 } from '../components/assistants/engine-details/modelsCatalog';
+import {
+    EngineControlsState,
+    buildControlsUpdate,
+    engineToControlsState,
+    validateControlsState,
+} from '../components/assistants/engine-details/engineControls';
+import { getCachedProjectEnrollment } from '../services/api/project';
+import { isGoogleInternalEngineField } from '../services/api/discovery/engineFieldVisibility';
 
 interface UseEngineDetailsFormParams {
     engine: AppEngine;
@@ -37,6 +50,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
     const [formData, setFormData] = useState({
         displayName: '',
         disableAnalytics: false,
+        includeCrossDomainDocuments: false,
         observabilityEnabled: false,
         sensitiveLoggingEnabled: false,
         marketplaceAgentVisibility: 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED',
@@ -68,6 +82,24 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
     const [projectLicenseConfigs, setProjectLicenseConfigs] = useState<LicenseConfig[]>([]);
     const [customFeatures, setCustomFeatures] = useState<string[]>([]);
     const [customModels, setCustomModels] = useState<string[]>([]);
+    const [engineControls, setEngineControls] = useState<EngineControlsState>(() => engineToControlsState(engine));
+
+    useEffect(() => {
+        setEngineControls(engineToControlsState(engine));
+    }, [engine]);
+
+    const handleEngineControlChange = useCallback(
+        <K extends keyof EngineControlsState>(field: K, value: EngineControlsState[K]) => {
+            setEngineControls(prev => ({ ...prev, [field]: value }));
+        },
+        [],
+    );
+
+    const engineControlErrors = useMemo(() => validateControlsState(engineControls), [engineControls]);
+
+    /** true = enrolled, false = probed and NOT enrolled, null = not probed yet (unknown). */
+    const cachedEnrollment = getCachedProjectEnrollment(config.projectId);
+    const googleInternalEnrollment: boolean | null = cachedEnrollment ? Boolean(cachedEnrollment.googleInternal) : null;
 
     const allDynamicFeatures = useMemo(() => {
         const result: FeatureDefinition[] = [...FEATURE_DEFS];
@@ -85,6 +117,8 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 displayName: `${cleanName} (Custom)`,
                 description: `Custom engine feature key (${k})`,
                 isInverted: isDisable,
+                visibility: 'INTERNAL',
+                visibilityNote: 'Custom uncataloged feature key',
                 category: 'Models & Intelligence',
                 isCustom: true
             });
@@ -276,10 +310,18 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         });
     }, [projectLicenseConfigs]);
 
+    const isSobiLocked =
+        engine.features?.['sobi'] === 'FEATURE_STATE_ON' ||
+        engine.effectiveFeatures?.['sobi'] === 'FEATURE_STATE_ON';
+
     useEffect(() => {
         setFormData({
             displayName: engine.displayName || '',
             disableAnalytics: engine.disableAnalytics || false,
+            includeCrossDomainDocuments: Boolean(
+                engine.includeCrossDomainDocuments ??
+                (engine.features?.['cross-domain-documents'] === 'FEATURE_STATE_ON')
+            ),
             observabilityEnabled: engine.observabilityConfig?.observabilityEnabled || false,
             sensitiveLoggingEnabled: engine.observabilityConfig?.sensitiveLoggingEnabled || false,
             marketplaceAgentVisibility: engine.marketplaceAgentVisibility || 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED',
@@ -295,17 +337,43 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         FEATURE_DEFS.forEach(f => {
             const apiVal = engine.features?.[f.key];
             if (f.isInverted) {
-                currentFeatures[f.key] = apiVal !== 'FEATURE_STATE_ON';
+                const positiveKey = f.key.replace(/^disable-/, '');
+                const positiveVal = engine.features?.[positiveKey];
+                const effectivePositiveVal = engine.effectiveFeatures?.[positiveKey];
+                if (positiveVal === 'FEATURE_STATE_ON' || positiveVal === 'FEATURE_STATE_OFF') {
+                    currentFeatures[f.key] = positiveVal === 'FEATURE_STATE_ON';
+                } else if (apiVal !== undefined) {
+                    currentFeatures[f.key] = apiVal !== 'FEATURE_STATE_ON';
+                } else if (effectivePositiveVal === 'FEATURE_STATE_ON' || effectivePositiveVal === 'FEATURE_STATE_OFF') {
+                    currentFeatures[f.key] = effectivePositiveVal === 'FEATURE_STATE_ON';
+                } else {
+                    currentFeatures[f.key] = true;
+                }
             } else {
-                currentFeatures[f.key] = apiVal === 'FEATURE_STATE_ON';
+                const disableKey = `disable-${f.key}`;
+                const disableVal = engine.features?.[disableKey];
+                const effectiveVal = engine.effectiveFeatures?.[f.key];
+                if (apiVal === 'FEATURE_STATE_ON' || apiVal === 'FEATURE_STATE_OFF') {
+                    currentFeatures[f.key] = apiVal === 'FEATURE_STATE_ON';
+                } else if (disableVal === 'FEATURE_STATE_ON' || disableVal === 'FEATURE_STATE_OFF') {
+                    currentFeatures[f.key] = disableVal !== 'FEATURE_STATE_ON';
+                } else if (effectiveVal === 'FEATURE_STATE_ON' || effectiveVal === 'FEATURE_STATE_OFF') {
+                    currentFeatures[f.key] = effectiveVal === 'FEATURE_STATE_ON';
+                } else {
+                    currentFeatures[f.key] = Boolean(f.defaultOn);
+                }
             }
         });
+
+        if (isSobiLocked) {
+            currentFeatures['sobi'] = true;
+        }
 
         const knownKeys = new Set(FEATURE_DEFS.map(f => f.key));
         const initialCustomKeys: string[] = [];
         if (engine.features) {
             Object.keys(engine.features).forEach(k => {
-                if (!knownKeys.has(k) && k !== 'disable-mobile-app-access' && k !== 'enable-qr-code-widget') {
+                if (!knownKeys.has(k) && !IGNORED_LEGACY_FEATURE_KEYS.has(k)) {
                     initialCustomKeys.push(k);
                     const isDisable = k.startsWith('disable-');
                     const apiVal = engine.features![k];
@@ -442,6 +510,9 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
     };
 
     const handleFeatureChange = (feature: string) => {
+        if (feature === 'sobi' && isSobiLocked) {
+            return;
+        }
         setFeatures(prev => ({
             ...prev,
             [feature]: !prev[feature]
@@ -525,6 +596,15 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 updateMask.push('disableAnalytics');
             }
 
+            const baselineCrossDomain = Boolean(
+                engine.includeCrossDomainDocuments ??
+                (engine.features?.['cross-domain-documents'] === 'FEATURE_STATE_ON')
+            );
+            if (formData.includeCrossDomainDocuments !== baselineCrossDomain) {
+                payload.includeCrossDomainDocuments = formData.includeCrossDomainDocuments;
+                updateMask.push('includeCrossDomainDocuments');
+            }
+
             if (formData.marketplaceAgentVisibility !== (engine.marketplaceAgentVisibility || 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED')) {
                 payload.marketplaceAgentVisibility = formData.marketplaceAgentVisibility;
                 updateMask.push('marketplaceAgentVisibility');
@@ -551,11 +631,20 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 updateMask.push('searchEngineConfig');
             }
 
+            if (engineControlErrors.length > 0) {
+                throw new Error(`Advanced Engine Controls: ${engineControlErrors.join(' ')}`);
+            }
+            const controlsUpdate = buildControlsUpdate(engine, engineControls);
+            Object.assign(payload, controlsUpdate.payload);
+            updateMask.push(...controlsUpdate.updateMask);
+
             const newFeaturesMap: Record<string, string> = { ...engine.features };
             let featuresChanged = false;
 
+            const legacyDisableSet = new Set<string>(LEGACY_DISABLE_FEATURE_KEYS);
+
             allDynamicFeatures.forEach(f => {
-                const isEnabled = features[f.key];
+                const isEnabled = f.key === 'sobi' && isSobiLocked ? true : Boolean(features[f.key]);
                 let apiState: string;
                 if (f.isInverted) {
                     apiState = isEnabled ? 'FEATURE_STATE_OFF' : 'FEATURE_STATE_ON';
@@ -567,6 +656,32 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                     newFeaturesMap[f.key] = apiState;
                     featuresChanged = true;
                 }
+
+                // Keep legacy positive/disable pairs synchronized in newFeaturesMap so backend
+                // SynchronizeLegacyFeatureToggles never rejects with INVALID_ARGUMENT.
+                if (f.isInverted) {
+                    const posKey = f.key.replace(/^disable-/, '');
+                    const posState = isEnabled ? 'FEATURE_STATE_ON' : 'FEATURE_STATE_OFF';
+                    if (newFeaturesMap[posKey] !== undefined && newFeaturesMap[posKey] !== posState) {
+                        newFeaturesMap[posKey] = posState;
+                        featuresChanged = true;
+                    }
+                } else if (legacyDisableSet.has(f.key)) {
+                    const disKey = `disable-${f.key}`;
+                    const disState = isEnabled ? 'FEATURE_STATE_OFF' : 'FEATURE_STATE_ON';
+                    if (newFeaturesMap[disKey] !== undefined && newFeaturesMap[disKey] !== disState) {
+                        newFeaturesMap[disKey] = disState;
+                        featuresChanged = true;
+                    }
+                }
+            });
+
+            // Remove migrated/invalid keys from engine.features if they existed previously
+            ['disable-skills', 'disable-canvas-workspace', 'cross-domain-documents'].forEach(obsoleteKey => {
+                if (newFeaturesMap[obsoleteKey] !== undefined) {
+                    delete newFeaturesMap[obsoleteKey];
+                    featuresChanged = true;
+                }
             });
 
             // If any previously existing custom feature was removed from customFeatures, turn it OFF
@@ -574,7 +689,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             const knownKeys = new Set(FEATURE_DEFS.map(f => f.key));
             if (engine.features) {
                 Object.keys(engine.features).forEach(k => {
-                    if (!knownKeys.has(k) && k !== 'disable-mobile-app-access' && k !== 'enable-qr-code-widget') {
+                    if (!knownKeys.has(k) && !IGNORED_LEGACY_FEATURE_KEYS.has(k)) {
                         if (!activeCustomKeys.has(k) && newFeaturesMap[k] !== 'FEATURE_STATE_OFF') {
                             newFeaturesMap[k] = 'FEATURE_STATE_OFF';
                             featuresChanged = true;
@@ -628,6 +743,15 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             if (!qrCodeEnabled && engine.mobileDeeplinkUrl) {
                 payload.mobileDeeplinkUrl = '';
                 updateMask.push('mobileDeeplinkUrl');
+            }
+
+            // Fail loudly rather than letting the API layer silently strip GOOGLE_INTERNAL
+            // fields (which would report success while saving nothing). Runs before any write.
+            const blockedFields = updateMask.filter(isGoogleInternalEngineField);
+            if (blockedFields.length > 0 && googleInternalEnrollment === false) {
+                throw new Error(
+                    `This project is not enrolled in GOOGLE_INTERNAL visibility, so these Engine fields cannot be saved: ${blockedFields.join(', ')}. Revert them to save your other changes.`,
+                );
             }
 
             let idpChanged = false;
@@ -741,6 +865,11 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         dynamicModels,
         legacyModels,
         activeMobileLink,
+        isSobiLocked,
+        engineControls,
+        engineControlErrors,
+        googleInternalEnrollment,
+        handleEngineControlChange,
         isSupportedIdpForQrCode: isSupportedIdpForQrCode(),
         isSubscriptionTierActive,
         handleChange,

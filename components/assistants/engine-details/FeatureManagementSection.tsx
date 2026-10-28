@@ -17,7 +17,7 @@
 import React, { useState, useMemo } from 'react';
 import CollapsibleSection from './CollapsibleSection';
 import InfoTooltip from '../../InfoTooltip';
-import { FeatureDefinition, FEATURE_CATEGORIES } from './featuresCatalog';
+import { FeatureDefinition, FEATURE_CATEGORIES, FEATURE_VISIBILITY_FILTERS, FeatureVisibilityFilter } from './featuresCatalog';
 
 interface FeatureManagementSectionProps {
     features: Record<string, boolean>;
@@ -26,6 +26,7 @@ interface FeatureManagementSectionProps {
     onRemoveCustomFeature?: (featureKey: string) => void;
     allDynamicFeatures: FeatureDefinition[];
     isDataStoreAclSupported?: boolean | null;
+    isSobiLocked?: boolean;
 }
 
 export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> = ({
@@ -34,11 +35,19 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
     onAddCustomFeature,
     onRemoveCustomFeature,
     allDynamicFeatures,
-    isDataStoreAclSupported
+    isDataStoreAclSupported,
+    isSobiLocked = false,
 }) => {
     const [featureSearchQuery, setFeatureSearchQuery] = useState('');
     const [featureCategory, setFeatureCategory] = useState<string>('All');
+    const [visibilityFilter, setVisibilityFilter] = useState<FeatureVisibilityFilter>('All');
     const [customFeatureInput, setCustomFeatureInput] = useState('');
+
+    const featureNameByKey = useMemo(() => {
+        const map = new Map<string, string>();
+        allDynamicFeatures.forEach(f => map.set(f.key, f.displayName));
+        return map;
+    }, [allDynamicFeatures]);
 
     const activeFeatureCount = useMemo(() => {
         return allDynamicFeatures.filter(f => features[f.key] === true).length;
@@ -47,13 +56,19 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
     const filteredFeatureDefs = useMemo(() => {
         return allDynamicFeatures.filter(f => {
             const matchesCategory = featureCategory === 'All' || f.category === featureCategory;
+            const matchesVisibility =
+                visibilityFilter === 'All' ||
+                (visibilityFilter === 'Customer (GA & Preview)' && (f.visibility === 'GA' || f.visibility === 'PREVIEW')) ||
+                (visibilityFilter === 'Customer GA Only' && f.visibility === 'GA') ||
+                (visibilityFilter === 'Preview / Allowlist' && f.visibility === 'PREVIEW') ||
+                (visibilityFilter === 'Internal / Unlaunched' && f.visibility === 'INTERNAL');
             const matchesSearch = !featureSearchQuery.trim() ||
                 f.displayName.toLowerCase().includes(featureSearchQuery.toLowerCase()) ||
                 f.key.toLowerCase().includes(featureSearchQuery.toLowerCase()) ||
                 f.description.toLowerCase().includes(featureSearchQuery.toLowerCase());
-            return matchesCategory && matchesSearch;
+            return matchesCategory && matchesVisibility && matchesSearch;
         });
-    }, [allDynamicFeatures, featureCategory, featureSearchQuery]);
+    }, [allDynamicFeatures, featureCategory, visibilityFilter, featureSearchQuery]);
 
     const handleAddCustom = () => {
         const key = customFeatureInput.trim();
@@ -61,6 +76,7 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
             onAddCustomFeature(key);
             setCustomFeatureInput('');
             setFeatureCategory('All');
+            setVisibilityFilter('All');
             setFeatureSearchQuery('');
         }
     };
@@ -68,7 +84,7 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
     return (
         <CollapsibleSection title="Feature Management">
             <div className="space-y-4 p-4 bg-gray-900/40 rounded-md border border-gray-700/80">
-                {/* Summary & Live Capabilities Header */}
+                {/* Summary & Visibility Filter Header */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-gray-700/60">
                     <div className="flex flex-wrap items-center gap-2">
                         <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-900/60 text-blue-300 border border-blue-700">
@@ -79,6 +95,22 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
                                 <span>🟢</span> DataStore-Level Direct ACLs: Active
                             </span>
                         )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                        {FEATURE_VISIBILITY_FILTERS.map(tier => (
+                            <button
+                                key={tier}
+                                type="button"
+                                onClick={() => setVisibilityFilter(tier)}
+                                className={`px-2 py-0.5 text-[11px] font-medium rounded border transition-colors ${
+                                    visibilityFilter === tier
+                                        ? 'bg-indigo-600/80 text-white border-indigo-500'
+                                        : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200 hover:border-gray-700'
+                                }`}
+                            >
+                                {tier}
+                            </button>
+                        ))}
                     </div>
                 </div>
 
@@ -114,51 +146,103 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
 
                 {/* Feature Cards Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-                    {filteredFeatureDefs.map(feature => (
-                        <label
-                            key={feature.key}
-                            className={`flex items-start space-x-2.5 p-3 rounded-lg border transition-all cursor-pointer ${
-                                features[feature.key]
-                                    ? 'bg-gray-800/90 border-blue-600/40 shadow-sm'
-                                    : 'bg-gray-900/60 border-gray-800 hover:border-gray-700'
-                            }`}
-                        >
-                            <input
-                                type="checkbox"
-                                checked={features[feature.key] || false}
-                                onChange={() => onFeatureChange(feature.key)}
-                                className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0 mt-0.5"
-                            />
-                            <div className="flex-grow min-w-0">
-                                <div className="flex items-center justify-between gap-1">
-                                    <span className="text-xs font-bold text-gray-200 truncate">{feature.displayName}</span>
-                                    <div className="flex items-center gap-1 flex-shrink-0">
-                                        <InfoTooltip text={feature.description} />
-                                        {feature.isCustom && onRemoveCustomFeature && (
-                                            <button
-                                                type="button"
-                                                title={`Remove custom flag ${feature.key}`}
-                                                onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    onRemoveCustomFeature(feature.key);
-                                                }}
-                                                className="text-gray-500 hover:text-red-400 p-0.5 rounded transition-colors"
+                    {filteredFeatureDefs.map(feature => {
+                        const isParentDisabled = Boolean(feature.parentKey && !features[feature.parentKey]);
+                        const isLockedOn = feature.key === 'sobi' && isSobiLocked;
+                        const tooltipParts = [feature.description];
+                        if (feature.visibilityNote) tooltipParts.push(feature.visibilityNote);
+                        if (feature.warning) tooltipParts.push(feature.warning);
+                        const tooltipText = tooltipParts.join(' — ');
+
+                        return (
+                            <label
+                                key={feature.key}
+                                className={`flex items-start space-x-2.5 p-3 rounded-lg border transition-all ${
+                                    isLockedOn
+                                        ? 'bg-gray-800/70 border-amber-600/40 cursor-not-allowed'
+                                        : isParentDisabled
+                                        ? 'bg-gray-900/40 border-gray-800/80 opacity-65 cursor-pointer'
+                                        : features[feature.key]
+                                        ? 'bg-gray-800/90 border-blue-600/40 shadow-sm cursor-pointer'
+                                        : 'bg-gray-900/60 border-gray-800 hover:border-gray-700 cursor-pointer'
+                                }`}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={features[feature.key] || false}
+                                    disabled={isLockedOn}
+                                    onChange={() => onFeatureChange(feature.key)}
+                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500 flex-shrink-0 mt-0.5 disabled:opacity-60"
+                                />
+                                <div className="flex-grow min-w-0">
+                                    <div className="flex items-center justify-between gap-1">
+                                        <span className="text-xs font-bold text-gray-200 truncate">{feature.displayName}</span>
+                                        <div className="flex items-center gap-1 flex-shrink-0">
+                                            <InfoTooltip text={tooltipText} />
+                                            {feature.isCustom && onRemoveCustomFeature && (
+                                                <button
+                                                    type="button"
+                                                    title={`Remove custom flag ${feature.key}`}
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        onRemoveCustomFeature(feature.key);
+                                                    }}
+                                                    className="text-gray-500 hover:text-red-400 p-0.5 rounded transition-colors"
+                                                >
+                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <span className="text-[10px] text-gray-500 font-mono block truncate mt-0.5">{feature.key}</span>
+                                    <div className="flex flex-wrap items-center gap-1 mt-1">
+                                        <span className="inline-block text-[9px] px-1.5 py-0.2 bg-gray-950/80 text-gray-400 rounded">
+                                            {feature.category}
+                                        </span>
+                                        {feature.visibility === 'GA' && (
+                                            <span className="inline-block text-[9px] px-1.5 py-0.2 bg-emerald-950/70 text-emerald-400 border border-emerald-800/50 rounded">
+                                                GA
+                                            </span>
+                                        )}
+                                        {feature.visibility === 'PREVIEW' && (
+                                            <span
+                                                title={feature.visibilityNote}
+                                                className="inline-block text-[9px] px-1.5 py-0.2 bg-purple-950/70 text-purple-300 border border-purple-800/50 rounded"
                                             >
-                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                                </svg>
-                                            </button>
+                                                Preview / Allowlist
+                                            </span>
+                                        )}
+                                        {feature.visibility === 'INTERNAL' && (
+                                            <span
+                                                title={feature.visibilityNote}
+                                                className="inline-block text-[9px] px-1.5 py-0.2 bg-rose-950/70 text-rose-300 border border-rose-800/50 rounded"
+                                            >
+                                                Internal / Unlaunched
+                                            </span>
+                                        )}
+                                        {isLockedOn && (
+                                            <span className="inline-block text-[9px] px-1.5 py-0.2 bg-amber-900/50 text-amber-300 border border-amber-700/60 rounded font-semibold">
+                                                Locked (Irreversible)
+                                            </span>
+                                        )}
+                                        {!isLockedOn && feature.warning && (
+                                            <span className="inline-block text-[9px] px-1.5 py-0.2 bg-amber-950/70 text-amber-400 border border-amber-800/50 rounded">
+                                                One-Way Lock
+                                            </span>
+                                        )}
+                                        {isParentDisabled && feature.parentKey && (
+                                            <span className="inline-block text-[9px] px-1.5 py-0.2 bg-yellow-950/60 text-yellow-400 border border-yellow-800/50 rounded">
+                                                Requires {featureNameByKey.get(feature.parentKey) || feature.parentKey}
+                                            </span>
                                         )}
                                     </div>
                                 </div>
-                                <span className="text-[10px] text-gray-500 font-mono block truncate mt-0.5">{feature.key}</span>
-                                <span className="inline-block mt-1 text-[9px] px-1.5 py-0.2 bg-gray-950/80 text-gray-400 rounded">
-                                    {feature.category}
-                                </span>
-                            </div>
-                        </label>
-                    ))}
+                            </label>
+                        );
+                    })}
                 </div>
 
                 {/* Custom Feature Key Injector */}

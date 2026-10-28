@@ -518,6 +518,7 @@ export interface AppEngine { // Renamed from Engine to avoid conflict with Reaso
     searchEngineConfig?: SearchEngineConfig;
     observabilityConfig?: { observabilityEnabled?: boolean; sensitiveLoggingEnabled?: boolean };
   features?: Record<string, string>; // Map of feature name to 'FEATURE_STATE_ON'|'FEATURE_STATE_OFF'
+  effectiveFeatures?: Record<string, string>; // Resolved effective features from Discovery Engine backend
   modelConfigs?: Record<string, string>; // Map of model name to 'MODEL_ENABLED'|'MODEL_DISABLED'
   mobileDeeplinkUrl?: string;
   widgetConfigConfigId?: string;
@@ -525,8 +526,60 @@ export interface AppEngine { // Renamed from Engine to avoid conflict with Reaso
   isExternalIdp?: boolean;
   cid?: string;
   disableAnalytics?: boolean;
+  includeCrossDomainDocuments?: boolean;
   marketplaceAgentVisibility?: string;
+  personalizationConfig?: EnginePersonalizationConfig;
+  agentCreationConfig?: EngineAgentCreationConfig;
+  agentControlConfig?: EngineAgentControlConfig;
+  globalFeatureToggleState?: EngineGlobalFeatureToggleState;
+  adminEmailNotificationsConfig?: EngineAdminEmailNotificationsConfig;
   [key: string]: unknown;
+}
+
+// ---- GOOGLE_INTERNAL top-level Engine controls (google3 v1main/engine.proto fields 49, 51, 52, 54, 56) ----
+
+/** Engine.GlobalFeatureToggleState — release channel for features not explicitly set in `features`. */
+export type EngineGlobalFeatureToggleState =
+  | 'GLOBAL_FEATURE_TOGGLE_STATE_UNSPECIFIED'
+  | 'DELAYED'
+  | 'SCHEDULED'
+  | 'GENERAL'
+  | 'EARLY';
+
+export interface EnginePersonalizationConfig {
+  /** Keys observed in Cloud Console: 'workspace_enterprise', 'data_cloud'. */
+  crossProductIntelligenceClientEnabledMap?: Record<string, boolean>;
+}
+
+export interface EngineAgentCreationConfig {
+  /** int64 in proto — serialized as a decimal string in proto3 JSON. */
+  maxUserAgentCount?: string | number;
+  maxInstanceAgentCount?: string | number;
+}
+
+export type EngineAgentApprovalMode = 'APPROVAL_MODE_UNSPECIFIED' | 'ALWAYS' | 'ABOVE_THRESHOLD' | 'NEVER';
+
+export interface EngineAgentSharingControl {
+  sharingEnabled?: boolean;
+  groupSharingEnabled?: boolean;
+  approvalMode?: EngineAgentApprovalMode;
+  approvalThresholdUserCount?: number;
+}
+
+export interface EngineAgentControlConfig {
+  personal?: { creationEnabled?: boolean };
+  coworker?: {
+    creationEnabled?: boolean;
+    /** e.g. 'user:alice@example.com', 'group:admins@example.com' */
+    allowedPrincipals?: string[];
+    sharing?: EngineAgentSharingControl;
+  };
+}
+
+export type EngineDigestFrequency = 'DIGEST_FREQUENCY_UNSPECIFIED' | 'OFF' | 'DAILY' | 'WEEKLY';
+
+export interface EngineAdminEmailNotificationsConfig {
+  digestFrequency?: EngineDigestFrequency;
 }
 
 export interface ScimTenant {
@@ -1173,6 +1226,17 @@ export interface ConfigAuditSummary {
 
 export interface DistributeModalData { billingAccountId: string; billingAccountLicenseConfigId: string; currentProjectNumber: string; }
 export interface RetractModalData { billingAccountId: string; billingAccountLicenseConfigId: string; licenseConfigName: string; allocatedCount: number; currentProjectNumber: string; }
-export interface GroupLicensingEditConfig { billing_account_id?: string; projects?: Record<string, Array<{ subscription_tier?: string; groups?: string[]; location?: string }>>; }
+export interface GroupLicensingEditConfig {
+  billing_account_id?: string;
+  projects?: Record<string, Array<{ subscription_tier?: string; groups?: string[]; location?: string }>>;
+  _editMeta?: {
+    runRegion?: string;
+    bucket?: string;
+    sku?: string;
+    location?: string;
+    userStoreId?: string;
+    projectId?: string;
+  };
+}
 export type { UserLicense, LicenseConfig, BillingAccount, BillingAccountLicenseConfig } from './components/license/types';
 export type { TimeSeries, TimeSeriesPoint, LoggingSink } from './services/api/monitoring';

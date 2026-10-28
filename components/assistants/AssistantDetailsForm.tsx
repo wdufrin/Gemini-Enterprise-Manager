@@ -132,6 +132,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
           enableEndUserAgentCreation={form.formData.enableEndUserAgentCreation}
           disableLocationContext={form.formData.disableLocationContext}
           defaultWebGroundingToggleOff={form.formData.defaultWebGroundingToggleOff}
+          webGroundingType={form.formData.webGroundingType}
           vertexAiSearchToolConfig={form.formData.vertexAiSearchToolConfig}
           handleChange={form.handleChange}
         />

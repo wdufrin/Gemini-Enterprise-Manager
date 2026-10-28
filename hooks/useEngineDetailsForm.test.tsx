@@ -19,6 +19,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useEngineDetailsForm } from './useEngineDetailsForm';
 import { AppEngine, Config, WidgetConfig, WorkloadIdentityProvider } from '../types';
 import * as api from '../services/apiService';
+import { setCachedProjectEnrollment, clearCachedProjectEnrollment } from '../services/api/project';
 
 vi.mock('../services/apiService', () => ({
   getIdpConfig: vi.fn(),
@@ -282,7 +283,7 @@ describe('useEngineDetailsForm hook — feature flags and custom flag management
     vi.mocked(api.updateEngine).mockResolvedValue(mockEngine);
   });
 
-  it('includes canonical flags like speech-to-text, projects, skill-sharing, and canvas-app-builder', async () => {
+  it('includes canonical flags and excludes duplicate/dead/invalid legacy keys from allDynamicFeatures', async () => {
     const { result } = renderHook(() =>
       useEngineDetailsForm({
         engine: mockEngine,
@@ -298,16 +299,158 @@ describe('useEngineDetailsForm hook — feature flags and custom flag management
     const featureKeys = result.current.allDynamicFeatures.map(f => f.key);
     expect(featureKeys).toContain('speech-to-text');
     expect(featureKeys).toContain('projects');
-    expect(featureKeys).toContain('disable-projects');
     expect(featureKeys).toContain('skill-sharing');
     expect(featureKeys).toContain('skill-sharing-without-admin-approval');
+    expect(featureKeys).toContain('canvas-workspace');
     expect(featureKeys).toContain('canvas-app-builder');
     expect(featureKeys).toContain('single-agent-orchestration');
     expect(featureKeys).toContain('multi-agent-orchestration');
+    expect(featureKeys).toContain('code-extraction');
+    expect(featureKeys).toContain('remote-vm');
+    expect(featureKeys).toContain('license-tier-badge');
+    expect(featureKeys).toContain('agent-marketplace');
+    expect(featureKeys).toContain('agent-scheduling');
+    expect(featureKeys).toContain('preview-agents');
     expect(featureKeys).toContain('sobi');
 
-    // And speech-to-text is initialized as true because it was in mockEngine.features
+    // Every catalog feature must have an explicit visibility tier ('GA' | 'PREVIEW' | 'INTERNAL')
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'agent-gallery')?.visibility).toBe('GA');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'speech-to-text')?.visibility).toBe('PREVIEW');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'sobi')?.visibility).toBe('INTERNAL');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'preview-agents')?.visibility).toBe('INTERNAL');
+
+    // Duplicate/dead/invalid keys must NOT appear in Feature Management
+    expect(featureKeys).not.toContain('disable-projects');
+    expect(featureKeys).not.toContain('disable-skills');
+    expect(featureKeys).not.toContain('disable-canvas-workspace');
+    expect(featureKeys).not.toContain('cross-domain-documents');
+    expect(featureKeys).not.toContain('disable-mobile-app-access');
+    expect(featureKeys).not.toContain('enable-qr-code-widget');
+
+    // speech-to-text is initialized as true because it was in mockEngine.features,
+    // and defaultOn features (code-extraction, license-tier-badge) default to true
     expect(result.current.features['speech-to-text']).toBe(true);
+    expect(result.current.features['code-extraction']).toBe(true);
+    expect(result.current.features['license-tier-badge']).toBe(true);
+  });
+
+  it('initializes canonical features from legacy disable-* keys without creating duplicate custom cards and synchronizes pairs on save', async () => {
+    const engineWithLegacyFlags: AppEngine = {
+      ...mockEngine,
+      features: {
+        'disable-projects': 'FEATURE_STATE_OFF',
+        'disable-canvas-workspace': 'FEATURE_STATE_OFF',
+        'disable-skills': 'FEATURE_STATE_ON',
+        'cross-domain-documents': 'FEATURE_STATE_ON',
+      },
+    };
+
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: engineWithLegacyFlags,
+        config: mockConfig,
+        onUpdateSuccess,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoadingIdp).toBe(false);
+    });
+
+    // Legacy disable-projects=OFF and disable-canvas-workspace=OFF initialize positive keys to true
+    expect(result.current.features['projects']).toBe(true);
+    expect(result.current.features['canvas-workspace']).toBe(true);
+    expect(result.current.formData.includeCrossDomainDocuments).toBe(true);
+
+    // None of the ignored legacy keys should appear as custom cards
+    const customKeys = result.current.allDynamicFeatures.filter(f => f.isCustom).map(f => f.key);
+    expect(customKeys).toEqual([]);
+
+    // Toggle projects OFF and submit
+    act(() => {
+      result.current.handleFeatureChange('projects');
+    });
+
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
+    });
+
+    // Both 'projects' and preexisting 'disable-projects' must be synchronized to non-conflicting states,
+    // and obsolete keys ('disable-skills', 'disable-canvas-workspace', 'cross-domain-documents') must be removed
+    const updateCall = vi.mocked(api.updateEngine).mock.calls[0];
+    const submittedFeatures = updateCall[1].features as Record<string, string>;
+    expect(submittedFeatures['projects']).toBe('FEATURE_STATE_OFF');
+    expect(submittedFeatures['disable-projects']).toBe('FEATURE_STATE_ON');
+    expect(submittedFeatures['canvas-workspace']).toBe('FEATURE_STATE_ON');
+    expect(submittedFeatures['disable-canvas-workspace']).toBeUndefined();
+    expect(submittedFeatures['disable-skills']).toBeUndefined();
+    expect(submittedFeatures['cross-domain-documents']).toBeUndefined();
+  });
+
+  it('enforces one-way lock on Project Sobi (sobi) when already enabled on the engine', async () => {
+    const sobiEnabledEngine: AppEngine = {
+      ...mockEngine,
+      features: {
+        sobi: 'FEATURE_STATE_ON',
+      },
+    };
+
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: sobiEnabledEngine,
+        config: mockConfig,
+        onUpdateSuccess,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoadingIdp).toBe(false);
+    });
+
+    expect(result.current.isSobiLocked).toBe(true);
+    expect(result.current.features['sobi']).toBe(true);
+
+    // Attempting to toggle sobi off must be rejected by the one-way lock guard
+    act(() => {
+      result.current.handleFeatureChange('sobi');
+    });
+
+    expect(result.current.features['sobi']).toBe(true);
+  });
+
+  it('persists includeCrossDomainDocuments as a top-level Engine field in updateMask', async () => {
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: mockEngine,
+        config: mockConfig,
+        onUpdateSuccess,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoadingIdp).toBe(false);
+    });
+
+    expect(result.current.formData.includeCrossDomainDocuments).toBe(false);
+
+    act(() => {
+      result.current.handleChange({
+        target: { name: 'includeCrossDomainDocuments', type: 'checkbox', checked: true },
+      } as unknown as React.ChangeEvent<HTMLInputElement>);
+    });
+
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
+    });
+
+    expect(api.updateEngine).toHaveBeenCalledWith(
+      mockEngine.name,
+      expect.objectContaining({
+        includeCrossDomainDocuments: true,
+      }),
+      expect.arrayContaining(['includeCrossDomainDocuments']),
+      mockConfig,
+    );
   });
 
   it('populates preexisting custom flags from engine.features into allDynamicFeatures and features state', async () => {
@@ -450,3 +593,122 @@ describe('useEngineDetailsForm hook — feature flags and custom flag management
     );
   });
 });
+
+describe('useEngineDetailsForm hook — advanced GOOGLE_INTERNAL engine controls', () => {
+  const mockEngine: AppEngine = {
+    name: 'projects/adv-proj/locations/global/collections/default_collection/engines/adv-1',
+    displayName: 'Adv',
+    solutionType: 'SOLUTION_TYPE_SEARCH',
+    globalFeatureToggleState: 'GENERAL',
+    agentControlConfig: { personal: { creationEnabled: true }, coworker: { creationEnabled: false } },
+  };
+  const mockConfig: Config = { projectId: 'adv-proj', appLocation: 'global', collectionId: 'default_collection', appId: 'adv-1' };
+
+  const seedEnrollment = (googleInternal: boolean) =>
+    setCachedProjectEnrollment({
+      projectId: 'adv-proj',
+      checkedAt: new Date().toISOString(),
+      googleInternal,
+      trustedTester: false,
+      notebookLmApiUser: false,
+      agentRegistryEnabled: false,
+      categories: [],
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearCachedProjectEnrollment();
+    vi.mocked(api.listLicenseConfigs).mockResolvedValue({ licenseConfigs: [] });
+    vi.mocked(api.getWidgetConfig).mockResolvedValue({ name: `${mockEngine.name}/widgetConfigs/w` } as WidgetConfig);
+    vi.mocked(api.getAclConfig).mockResolvedValue({ name: 'acl', idpConfig: { idpType: 'GSUITE' } });
+    vi.mocked(api.updateEngine).mockResolvedValue(mockEngine);
+  });
+
+  const render = async () => {
+    const hook = renderHook(() => useEngineDetailsForm({ engine: mockEngine, config: mockConfig, onUpdateSuccess: vi.fn() }));
+    await waitFor(() => expect(hook.result.current.isLoadingIdp).toBe(false));
+    return hook;
+  };
+
+  const submit = async (result: { current: ReturnType<typeof useEngineDetailsForm> }) => {
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
+    });
+  };
+
+  it('loads existing control values from the engine', async () => {
+    const { result } = await render();
+    expect(result.current.engineControls.releaseChannel).toBe('GENERAL');
+    expect(result.current.engineControls.coworkerCreationEnabled).toBe(false);
+    expect(result.current.googleInternalEnrollment).toBeNull();
+  });
+
+  it('sends only the changed controls in the updateMask for an enrolled project', async () => {
+    seedEnrollment(true);
+    const { result } = await render();
+    expect(result.current.googleInternalEnrollment).toBe(true);
+
+    act(() => {
+      result.current.handleEngineControlChange('releaseChannel', 'EARLY');
+      result.current.handleEngineControlChange('digestFrequency', 'WEEKLY');
+    });
+    await submit(result);
+
+    const [, payload, mask] = vi.mocked(api.updateEngine).mock.calls[0];
+    expect(mask).toEqual(expect.arrayContaining(['globalFeatureToggleState', 'adminEmailNotificationsConfig']));
+    expect(mask).not.toContain('agentControlConfig');
+    expect(mask).not.toContain('agentCreationConfig');
+    expect(mask).not.toContain('personalizationConfig');
+    expect(payload.globalFeatureToggleState).toBe('EARLY');
+    expect(payload.adminEmailNotificationsConfig).toEqual({ digestFrequency: 'WEEKLY' });
+    expect(result.current.error).toBeNull();
+  });
+
+  it('fails loudly and performs no writes when the project is known NOT to be GOOGLE_INTERNAL', async () => {
+    seedEnrollment(false);
+    const { result } = await render();
+
+    act(() => {
+      result.current.handleEngineControlChange('coworkerCreationEnabled', true);
+    });
+    await submit(result);
+
+    expect(api.updateEngine).not.toHaveBeenCalled();
+    expect(api.updateAclConfig).not.toHaveBeenCalled();
+    expect(api.updateWidgetConfig).not.toHaveBeenCalled();
+    expect(result.current.error).toContain('not enrolled in GOOGLE_INTERNAL');
+    expect(result.current.error).toContain('agentControlConfig');
+    expect(result.current.success).toBeNull();
+  });
+
+  it('still saves public fields for a non-enrolled project when no GOOGLE_INTERNAL control changed', async () => {
+    seedEnrollment(false);
+    const { result } = await render();
+
+    act(() => {
+      result.current.handleChange({ target: { name: 'displayName', value: 'Renamed', type: 'text' } } as unknown as React.ChangeEvent<HTMLInputElement>);
+    });
+    await submit(result);
+
+    const [, payload, mask] = vi.mocked(api.updateEngine).mock.calls[0];
+    expect(mask).toContain('displayName');
+    expect(payload.displayName).toBe('Renamed');
+    expect(mask.some(f => ['agentControlConfig', 'globalFeatureToggleState'].includes(f))).toBe(false);
+  });
+
+  it('blocks save with a validation error for a malformed coworker principal', async () => {
+    seedEnrollment(true);
+    const { result } = await render();
+
+    act(() => {
+      result.current.handleEngineControlChange('coworkerAllowedPrincipals', 'alice@example.com');
+    });
+    expect(result.current.engineControlErrors.length).toBeGreaterThan(0);
+    await submit(result);
+
+    expect(api.updateEngine).not.toHaveBeenCalled();
+    expect(result.current.error).toContain('Invalid coworker principal(s): alice@example.com');
+  });
+});
+
+

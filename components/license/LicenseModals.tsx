@@ -30,7 +30,7 @@ import { DistributeModalData, RetractModalData, GroupLicensingEditConfig } from 
 interface LicenseModalsProps {
   projectNumber: string;
   apiConfig: { appLocation: string; userStoreId: string };
-  onBuildTriggered?: (buildId: string) => void;
+  onBuildTriggered?: (buildId: string, projectId?: string) => void;
   // Json Modal
   jsonModalData: UserLicense | null;
   onCloseJsonModal: () => void;

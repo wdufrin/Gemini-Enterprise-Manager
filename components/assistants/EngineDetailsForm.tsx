@@ -20,6 +20,7 @@ import InfoTooltip from '../InfoTooltip';
 import PromptChipsTable from './PromptChipsTable';
 import CollapsibleSection from './engine-details/CollapsibleSection';
 import FeatureManagementSection from './engine-details/FeatureManagementSection';
+import AdvancedEngineControlsSection from './engine-details/AdvancedEngineControlsSection';
 import ModelConfigurationSection from './engine-details/ModelConfigurationSection';
 import SearchEngineConfigSection from './engine-details/SearchEngineConfigSection';
 import WebAppUiSettingsSection from './engine-details/WebAppUiSettingsSection';
@@ -60,6 +61,11 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
         dynamicModels,
         legacyModels,
         activeMobileLink,
+        isSobiLocked,
+        engineControls,
+        engineControlErrors,
+        googleInternalEnrollment,
+        handleEngineControlChange,
         isSupportedIdpForQrCode,
         isSubscriptionTierActive,
         handleChange,
@@ -111,19 +117,36 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
                     </select>
                 </div>
 
-                <div className="flex items-center space-x-3">
-                    <input
-                        type="checkbox"
-                        name="disableAnalytics"
-                        id="disableAnalytics"
-                        checked={Boolean(formData.disableAnalytics)}
-                        onChange={handleChange}
-                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <label htmlFor="disableAnalytics" className="flex items-center text-sm font-medium text-gray-300">
-                        Disable Analytics
-                        <InfoTooltip text="Disables the collection of analytics data for this engine." />
-                    </label>
+                <div className="flex flex-wrap items-center gap-6">
+                    <div className="flex items-center space-x-3">
+                        <input
+                            type="checkbox"
+                            name="disableAnalytics"
+                            id="disableAnalytics"
+                            checked={Boolean(formData.disableAnalytics)}
+                            onChange={handleChange}
+                            className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+                        />
+                        <label htmlFor="disableAnalytics" className="flex items-center text-sm font-medium text-gray-300">
+                            Disable Analytics
+                            <InfoTooltip text="Disables the collection of analytics data for this engine." />
+                        </label>
+                    </div>
+
+                    <div className="flex items-center space-x-3">
+                        <input
+                            type="checkbox"
+                            name="includeCrossDomainDocuments"
+                            id="includeCrossDomainDocuments"
+                            checked={Boolean(formData.includeCrossDomainDocuments)}
+                            onChange={handleChange}
+                            className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+                        />
+                        <label htmlFor="includeCrossDomainDocuments" className="flex items-center text-sm font-medium text-gray-300">
+                            Cross-Domain Document Grounding
+                            <InfoTooltip text="Top-level Engine setting (engine.includeCrossDomainDocuments). Allows users to ground responses on Google Workspace documents shared across different Workspace domains." />
+                        </label>
+                    </div>
                 </div>
 
                 <FeatureManagementSection
@@ -133,6 +156,14 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
                     onRemoveCustomFeature={handleRemoveCustomFeature}
                     allDynamicFeatures={allDynamicFeatures}
                     isDataStoreAclSupported={isDataStoreAclSupported}
+                    isSobiLocked={isSobiLocked}
+                />
+
+                <AdvancedEngineControlsSection
+                    controls={engineControls}
+                    errors={engineControlErrors}
+                    googleInternalEnrollment={googleInternalEnrollment}
+                    onChange={handleEngineControlChange}
                 />
 
                 <ModelConfigurationSection

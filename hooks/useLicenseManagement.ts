@@ -696,6 +696,7 @@ export function useLicenseManagement(projectNumber: string) {
     selectedServiceForEdit: groupLicensing.selectedServiceForEdit,
     setSelectedServiceForEdit: groupLicensing.setSelectedServiceForEdit,
     lastRunTimes: groupLicensing.lastRunTimes,
+    serviceGroups: groupLicensing.serviceGroups,
     handleEditService: groupLicensing.handleEditService,
     handleRunService: groupLicensing.handleRunService,
     confirmDeleteService: groupLicensing.confirmDeleteService,
