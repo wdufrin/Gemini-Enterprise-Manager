@@ -36,8 +36,20 @@ import {
 const isResourceLevelRole = (role?: string): boolean =>
   !!role && (RESOURCE_LEVEL_ROLES as readonly string[]).includes(role);
 
+export const isPublicIamPrincipal = (m: string): boolean => {
+  const normalized = m.trim().replace(/^user:/i, '').toLowerCase();
+  return normalized === 'allusers' || normalized === 'allauthenticatedusers';
+};
+
 export const formatMember = (m: string): string => {
   const trimmed = m.trim();
+  const withoutUserPrefix = trimmed.replace(/^user:/i, '');
+  if (withoutUserPrefix.toLowerCase() === 'allusers') {
+    return 'allUsers';
+  }
+  if (withoutUserPrefix.toLowerCase() === 'allauthenticatedusers') {
+    return 'allAuthenticatedUsers';
+  }
   if (
     trimmed.startsWith('principal://') ||
     trimmed.startsWith('principalSet://') ||

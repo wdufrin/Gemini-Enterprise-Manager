@@ -17,6 +17,7 @@
 import React, { useState, useRef } from 'react';
 import { Config, AppEngine } from '../../types';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import { formatMember } from '../../hooks/useDataStorePermissions';
 
 interface DataStorePermissionsScriptModalProps {
   isOpen: boolean;
@@ -53,7 +54,7 @@ const DataStorePermissionsScriptModal: React.FC<DataStorePermissionsScriptModalP
   const location = config.appLocation || 'global';
   const endpointPrefix = location === 'global' ? '' : `${location}-`;
   const appId = engine.name.split('/').pop() || 'App1';
-  const member = targetMember.includes(':') ? targetMember : `user:${targetMember}`;
+  const member = formatMember(targetMember);
 
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -125,6 +126,9 @@ def enable_project_datastore_access_control():
     print(f"[VERIFIED ✓] Resource Access Control ('dataStoreAccessControlEnabled=true') is active.")
 
 def grant_project_baseline_roles(member_str):
+    if member_str in ("allUsers", "allAuthenticatedUsers"):
+        print(f"\\n[SKIP] GCP Project IAM policies do not allow '{member_str}'; skipping project-level baseline roles.")
+        return
     print(f"\\n[Step A1] Granting predefined project baseline roles to '{member_str}'...")
     get_url = f"https://cloudresourcemanager.googleapis.com/v1/projects/{PROJECT_ID}:getIamPolicy"
     set_url = f"https://cloudresourcemanager.googleapis.com/v1/projects/{PROJECT_ID}:setIamPolicy"

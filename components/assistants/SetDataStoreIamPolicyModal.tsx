@@ -19,6 +19,7 @@ import { Config, IamPolicy, IamBinding } from '../../types';
 import * as api from '../../services/apiService';
 import { toErrorMessage } from '../../utils/errors';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import { formatMember } from '../../hooks/useDataStorePermissions';
 
 export type ResourceType = 'engine' | 'datastore' | 'connector' | 'entity';
 
@@ -87,6 +88,20 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
     updateBindings(bindings => [...bindings, { role: DEFAULT_ROLE, members: [] }]);
   };
 
+  const handleQuickGrantMember = (member: string, role: string = DEFAULT_ROLE) => {
+    const formatted = formatMember(member);
+    updateBindings(bindings => {
+      const targetIdx = bindings.findIndex(b => b.role === role && !b.condition);
+      if (targetIdx >= 0) {
+        const existingMembers = new Set(bindings[targetIdx].members || []);
+        existingMembers.add(formatted);
+        bindings[targetIdx].members = Array.from(existingMembers);
+        return bindings;
+      }
+      return [...bindings, { role, members: [formatted] }];
+    });
+  };
+
   const handleRemoveBinding = (index: number) => {
     updateBindings(bindings => bindings.filter((_, i) => i !== index));
   };
@@ -105,18 +120,13 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
     });
   };
 
-  const handleAddMember = (bindingIndex: number) => {
-    const rawInput = newMemberInputs[bindingIndex] || '';
+  const handleAddMember = (bindingIndex: number, explicitInput?: string) => {
+    const rawInput = explicitInput !== undefined ? explicitInput : (newMemberInputs[bindingIndex] || '');
     const membersToAdd = rawInput
       .split(/[\s,]+/)
       .map(m => m.trim())
       .filter(m => m !== '')
-      .map(m => {
-        if (!m.includes(':')) {
-          return `user:${m}`;
-        }
-        return m;
-      });
+      .map(formatMember);
 
     if (membersToAdd.length === 0) return;
 
@@ -127,7 +137,9 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
       binding.members = Array.from(existingMembers);
       return bindings;
     });
-    setNewMemberInputs(prev => ({ ...prev, [bindingIndex]: '' }));
+    if (explicitInput === undefined) {
+      setNewMemberInputs(prev => ({ ...prev, [bindingIndex]: '' }));
+    }
   };
 
   const handleConditionChange = (bindingIndex: number, field: 'title' | 'description' | 'expression', value: string) => {
@@ -270,15 +282,58 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
           </header>
 
           <main className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
-            <div className="bg-blue-900/20 border border-blue-800/60 p-3.5 rounded-lg text-xs text-blue-200">
-              <p className="font-semibold mb-1 uppercase tracking-wider text-blue-300">Gemini Enterprise Access Control Pattern (GA):</p>
-              <p className="mb-2">
+            <div className="bg-blue-900/20 border border-blue-800/60 p-3.5 rounded-lg text-xs text-blue-200 space-y-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <p className="font-semibold uppercase tracking-wider text-blue-300">
+                  Gemini Enterprise Access Control Pattern (GA):
+                </p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleQuickGrantMember('domain:example.com', DEFAULT_ROLE)}
+                    className="px-2.5 py-1 bg-emerald-700/80 hover:bg-emerald-600 text-white text-[11px] font-semibold rounded border border-emerald-500/60 transition-colors"
+                    title="Grant access to everyone in a Google Workspace / Cloud Identity domain"
+                  >
+                    + Grant Entire Domain (domain:...)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleQuickGrantMember(
+                        'principalSet://iam.googleapis.com/locations/global/workforcePools/POOL_ID/*',
+                        DEFAULT_ROLE
+                      )
+                    }
+                    className="px-2.5 py-1 bg-teal-700/80 hover:bg-teal-600 text-white text-[11px] font-semibold rounded border border-teal-500/60 transition-colors"
+                    title="Grant access to all users in a Workforce Identity Federation pool"
+                  >
+                    + Grant All Workforce Pool Users (/*)
+                  </button>
+                </div>
+              </div>
+              <p>
                 Assign <code>roles/discoveryengine.agentspaceUser</code> (User), <code>roles/discoveryengine.agentspaceAdmin</code> (Admin), or <code>roles/discoveryengine.agentspaceViewer</code> (Viewer) to principals to grant access to this resource.
               </p>
-              <div className="text-[11px] text-gray-400">
-                Supported Member Formats: <code>user:alice@example.com</code>, <code>group:analytics-team@example.com</code>, <code>serviceAccount:...</code>
+              <div className="text-[11px] text-gray-300 bg-gray-900/60 border border-gray-700/80 rounded p-2 space-y-1">
+                <div>
+                  <strong className="text-amber-300">Why <code>allUsers</code> is blocked on DataStores:</strong> Google Cloud IAM enforces <code>ONLY_SPECIFIC_MEMBERS</code> on Discovery Engine <code>DataStore</code>, <code>Collection</code>, and <code>Engine</code> resources (only <code>Agent</code> resources allow <code>allUsers</code>).
+                </div>
+                <div className="text-gray-400">
+                  <strong>To grant access to everyone in your organization:</strong> use <code>domain:yourdomain.com</code> (Google Workspace / Cloud Identity), <code>principalSet://iam.googleapis.com/locations/global/workforcePools/POOL_ID/*</code> (Workforce Identity Federation wildcard), or <code>group:everyone@yourdomain.com</code>.
+                </div>
               </div>
             </div>
+
+            {(editablePolicy.bindings || []).some(b =>
+              (b.members || []).some(m => m === 'allUsers' || m === 'allAuthenticatedUsers')
+            ) && (
+              <div
+                role="alert"
+                className="bg-amber-950/60 border border-amber-600/80 p-3 rounded-lg text-xs text-amber-200"
+              >
+                <strong>Cloud IAM Membership Restriction Warning:</strong> <code>allUsers</code> and <code>allAuthenticatedUsers</code> are rejected by Google Cloud IAM on Discovery Engine DataStores, Collections, and Engines (<code>Member allUsers is invalid due to membership type restrictions on the resource</code>). Use <code>domain:yourdomain.com</code> or <code>principalSet://iam.googleapis.com/locations/global/workforcePools/POOL_ID/*</code> instead to grant access to all users.
+              </div>
+            )}
 
             {(editablePolicy.bindings || []).map((binding: IamBinding, index: number) => (
               <div key={index} className="bg-gray-900/70 p-4 rounded-lg border border-gray-700 space-y-4">
@@ -358,7 +413,7 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
                   <div className="mt-3 flex items-center gap-2">
                     <input
                       type="text"
-                      placeholder="Add member (e.g. user:userA@example.com, group:team@example.com)"
+                      placeholder="Add member (e.g. user:userA@example.com, domain:example.com, group:team@example.com)"
                       value={newMemberInputs[index] || ''}
                       onChange={(e) => setNewMemberInputs(prev => ({ ...prev, [index]: e.target.value }))}
                       className="flex-grow bg-gray-800 border border-gray-600 rounded-md text-sm p-2 text-white"
@@ -376,6 +431,35 @@ const SetDataStoreIamPolicyModal: React.FC<SetDataStoreIamPolicyModalProps> = ({
                       className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 shrink-0 transition-colors"
                     >
                       Add Member
+                    </button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className="text-gray-400">Quick template:</span>
+                    <button
+                      type="button"
+                      onClick={() => setNewMemberInputs(prev => ({ ...prev, [index]: 'domain:example.com' }))}
+                      className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-emerald-300 border border-emerald-700/60 rounded font-mono transition-colors"
+                    >
+                      domain:example.com
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNewMemberInputs(prev => ({
+                          ...prev,
+                          [index]: 'principalSet://iam.googleapis.com/locations/global/workforcePools/POOL_ID/*',
+                        }))
+                      }
+                      className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-teal-300 border border-teal-700/60 rounded font-mono transition-colors"
+                    >
+                      principalSet://.../workforcePools/POOL_ID/*
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewMemberInputs(prev => ({ ...prev, [index]: 'group:all-users@example.com' }))}
+                      className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-blue-300 border border-blue-700/60 rounded font-mono transition-colors"
+                    >
+                      group:all-users@example.com
                     </button>
                   </div>
                 </div>

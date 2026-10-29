@@ -17,13 +17,14 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Collection, Config, DataStore } from '../types';
+import { Collection, Config, DataStore, IamPolicy } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import DataStoreList from '../components/datastores/DataStoreList';
 import DataStoreDetails from '../components/datastores/DataStoreDetails';
 import CreateDataStoreModal from '../components/datastores/CreateDataStoreModal';
 import EditDataStoreModal from '../components/datastores/EditDataStoreModal';
+import SetDataStoreIamPolicyModal from '../components/assistants/SetDataStoreIamPolicyModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 import { usePersistedConfig } from '../hooks/usePersistedConfig';
@@ -86,6 +87,10 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
   // State for editing
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [dataStoreToEdit, setDataStoreToEdit] = useState<DataStore | null>(null);
+
+  // State for direct DataStore IAM policy editing
+  const [iamTargetDataStore, setIamTargetDataStore] = useState<DataStore | null>(null);
+  const [iamTargetPolicy, setIamTargetPolicy] = useState<IamPolicy | null>(null);
 
   // Pagination State
   const [pageToken, setPageToken] = useState<string | undefined>(undefined);
@@ -334,6 +339,18 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
     }
   };
 
+  const handleManageIam = async (dataStore: DataStore) => {
+    setError(null);
+    const dsId = dataStore.name.split('/').pop() || dataStore.name;
+    try {
+      const policy = await api.getDataStoreIamPolicy(dsId, apiConfig);
+      setIamTargetDataStore(dataStore);
+      setIamTargetPolicy(policy || { etag: '', bindings: [] });
+    } catch (err: unknown) {
+      setError(`Failed to load IAM policy for '${dataStore.displayName}': ${toErrorMessage(err)}`);
+    }
+  };
+
   // Sorting Logic
   const handleSort = (key: SortKey) => {
       setSortConfig(prev => ({
@@ -380,6 +397,7 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
                 onDelete={handleRequestDelete}
                 isDeleting={deletingDataStoreIds.has(selectedDataStore.name)}
                 onEdit={handleRequestEdit}
+                onManageIam={handleManageIam}
             />
         );
     }
@@ -392,6 +410,7 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
             onSelectDataStore={handleSelectDataStore}
             onDeleteDataStore={handleRequestDelete}
             onEditDataStore={handleRequestEdit}
+            onManageIam={handleManageIam}
             deletingDataStoreIds={deletingDataStoreIds}
             selectedDataStores={selectedDataStores}
             onToggleSelect={handleToggleSelect}
@@ -475,6 +494,25 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
             config={apiConfig}
             dataStore={dataStoreToEdit}
           />
+          {iamTargetDataStore && (
+            <SetDataStoreIamPolicyModal
+              isOpen={!!iamTargetDataStore}
+              onClose={() => {
+                setIamTargetDataStore(null);
+                setIamTargetPolicy(null);
+              }}
+              onSuccess={() => {
+                setIamTargetDataStore(null);
+                setIamTargetPolicy(null);
+              }}
+              resourceId={iamTargetDataStore.name.split('/').pop() || iamTargetDataStore.name}
+              resourceDisplayName={iamTargetDataStore.displayName}
+              resourceType="datastore"
+              resourcePath={iamTargetDataStore.name}
+              config={apiConfig}
+              currentPolicy={iamTargetPolicy}
+            />
+          )}
           <div className="bg-gray-800 p-4 rounded-lg shadow-md">
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-lg font-semibold text-white">Configuration</h2>

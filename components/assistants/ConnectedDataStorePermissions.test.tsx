@@ -871,6 +871,148 @@ describe('GA Capabilities — Predefined Baseline Roles (agentspaceRestrictedUse
     });
     expect(mockOnSuccess).not.toHaveBeenCalled();
   });
+
+  it('grants organization-wide principals (domain: and workforcePools/*) and warns when allUsers is entered in SetDataStoreIamPolicyModal', async () => {
+    const mockOnSuccess = vi.fn();
+    vi.mocked(api.setDataStoreIamPolicy).mockResolvedValueOnce({
+      etag: 'etag-updated',
+      bindings: [
+        {
+          role: 'roles/discoveryengine.agentspaceUser',
+          members: [
+            'domain:example.com',
+            'principalSet://iam.googleapis.com/locations/global/workforcePools/POOL_ID/*',
+          ],
+        },
+      ],
+    });
+
+    render(
+      <SetDataStoreIamPolicyModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onSuccess={mockOnSuccess}
+        resourceId="DataStore1"
+        resourceDisplayName="DataStore 1"
+        resourceType="datastore"
+        resourcePath="projects/test-project/locations/global/collections/default_collection/dataStores/DataStore1"
+        config={mockConfig}
+        currentPolicy={{ etag: 'etag-123', bindings: [] }}
+      />
+    );
+
+    // Click the header '+ Grant Entire Domain (domain:...)' and '+ Grant All Workforce Pool Users (/*)' buttons
+    fireEvent.click(screen.getByRole('button', { name: /\+ Grant Entire Domain/i }));
+    fireEvent.click(screen.getByRole('button', { name: /\+ Grant All Workforce Pool Users/i }));
+
+    // Typing 'allUsers' should normalize to 'allUsers' (not 'user:allUsers') and surface the ONLY_SPECIFIC_MEMBERS warning
+    fireEvent.change(screen.getByPlaceholderText(/Add member/i), {
+      target: { value: 'allUsers' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Add Member/i }));
+
+    expect(
+      screen.getByText(/Member allUsers is invalid due to membership type restrictions on the resource/i)
+    ).toBeDefined();
+
+    // Remove allUsers before saving
+    fireEvent.click(screen.getByRole('button', { name: /Remove allUsers/i }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Policy/i }));
+
+    await waitFor(() => {
+      expect(api.setDataStoreIamPolicy).toHaveBeenCalledWith(
+        'DataStore1',
+        {
+          etag: 'etag-123',
+          bindings: [
+            {
+              role: 'roles/discoveryengine.agentspaceUser',
+              members: [
+                'domain:example.com',
+                'principalSet://iam.googleapis.com/locations/global/workforcePools/POOL_ID/*',
+              ],
+            },
+          ],
+        },
+        mockConfig
+      );
+    });
+    expect(mockOnSuccess).toHaveBeenCalled();
+  });
+
+  it('displays ONLY_SPECIFIC_MEMBERS warning when allUsers is entered in AccessGrantWizard and supports organization-wide domain:example.com sync', async () => {
+    const singleDsEngine: AppEngine = {
+      ...mockEngine,
+      dataStoreIds: ['DataStore1'],
+    };
+
+    render(
+      <ConnectedDataStorePermissions
+        engine={singleDsEngine}
+        config={mockConfig}
+        projectNumber="123456789"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /\+ domain:example\.com/i })).toBeDefined();
+    });
+
+    // Entering allUsers shows the ONLY_SPECIFIC_MEMBERS restriction alert
+    const memberInput = screen.getByPlaceholderText(/userA@example\.com/i);
+    fireEvent.change(memberInput, { target: { value: 'allUsers' } });
+    expect(screen.getByText(/Cloud IAM Restriction on DataStores:/i)).toBeDefined();
+
+    // Clear and click '+ domain:example.com'
+    fireEvent.change(memberInput, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /\+ domain:example\.com/i }));
+
+    // Ensure DataStore1 is checked in the wizard
+    const wizardSection = document.getElementById('wizard-section')!;
+    const ds1Label = Array.from(wizardSection.querySelectorAll('label')).find(el =>
+      el.textContent?.includes('DataStore1')
+    )!;
+    const ds1Checkbox = ds1Label.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    if (!ds1Checkbox.checked) {
+      fireEvent.click(ds1Checkbox);
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: /Apply & Sync Permissions/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Successfully synchronized DataStore permissions for 1 member\(s\)!/i)
+      ).toBeDefined();
+    });
+
+    expect(api.setEngineIamPolicy).toHaveBeenCalledWith(
+      mockEngine.name,
+      expect.objectContaining({
+        bindings: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'roles/discoveryengine.agentspaceUser',
+            members: ['domain:example.com'],
+          }),
+        ]),
+      }),
+      mockConfig
+    );
+    expect(api.setDataStoreIamPolicy).toHaveBeenCalledWith(
+      'DataStore1',
+      expect.objectContaining({
+        bindings: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'roles/discoveryengine.agentspaceUser',
+            members: ['domain:example.com'],
+          }),
+        ]),
+      }),
+      mockConfig
+    );
+  });
 });
+
+
 
 

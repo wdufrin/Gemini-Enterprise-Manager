@@ -161,13 +161,13 @@ describe('BYOMCPConfigTab', () => {
         'projects/test-project-123/locations/global/collections/default_collection/dataConnector',
         expect.objectContaining({
           actionConfig: expect.objectContaining({
-            actionParams: expect.objectContaining({
+            actionParams: {
               mcp_server_description: 'Updated Enterprise Search MCP Server',
-              instance_uri: 'https://mcp-server.example.com/mcp',
-            }),
+              mcp_agent_instructions: 'Original instructions for MCP tools.',
+            },
           }),
         }),
-        expect.arrayContaining(['action_config.action_params']),
+        ['action_config.action_params'],
         expect.objectContaining({
           projectId: 'test-project-123',
           appLocation: 'global',
@@ -353,6 +353,126 @@ describe('BYOMCPConfigTab', () => {
     // Return to "All Sections"
     fireEvent.click(screen.getByRole('button', { name: /All Sections/i }));
     expect(screen.getByDisplayValue('Test MCP Server description')).toBeInTheDocument();
+  });
+
+  it('saves citation_mappings on a BYOMCP Databricks OAuth connector without echoing OAuth parameters or OUTPUT_ONLY dynamic_tools', async () => {
+    const databricksConnector = {
+      name: 'projects/test-project-123/locations/global/collections/databricks_byomcp_col/dataConnector',
+      dataSource: 'custom_mcp',
+      state: 'ACTIVE' as const,
+      actionConfig: {
+        createBapConnection: true,
+        isActionConfigured: true,
+        serviceName: 'Custom MCP',
+        actionParams: {
+          mcp_server_description: 'Databricks Unity Catalog MCP Server',
+          instance_uri: 'https://adb-1234567890.12.azuredatabricks.net/api/2.0/mcp/functions/main/default',
+          auth_type: 'OAUTH',
+          auth_uri: 'https://adb-1234567890.12.azuredatabricks.net/oidc/v1/authorize',
+          token_uri: 'https://adb-1234567890.12.azuredatabricks.net/oidc/v1/token',
+          scopes: 'all-apis offline_access',
+          pkce_support_enabled: true,
+          client_secret_basic_override: false,
+          mcp_server_source: 'USER_DEFINED',
+        },
+      },
+      // Simulate GET response where dynamicTools is returned without bapConfig.enabledActions
+      dynamicTools: [
+        {
+          name: 'execute_sql_query',
+          displayName: 'Execute SQL Query',
+          description: 'Executes SQL against Databricks Unity Catalog',
+          enabled: true,
+        },
+      ],
+    };
+
+    vi.mocked(api.updateDataConnector).mockResolvedValueOnce(databricksConnector);
+
+    render(<BYOMCPConfigTab connector={databricksConnector} config={mockConfig} />);
+
+    // Ensure OAuth/system-managed keys (pkce_support_enabled, client_secret_basic_override, mcp_server_source) are NOT leaked into Custom Action Parameters
+    expect(screen.getByText(/Custom Action Parameters \(0\)/i)).toBeInTheDocument();
+
+    // Enable citation rule for execute_sql_query
+    const addCitationsBtn = screen.getByRole('button', { name: /\+ Citations/i });
+    fireEvent.click(addCitationsBtn);
+
+    const uriInput = screen.getByLabelText('uri pointer for execute_sql_query');
+    fireEvent.change(uriInput, { target: { value: '/manifest/table_url' } });
+
+    const titleInput = screen.getByLabelText('title pointer for execute_sql_query');
+    fireEvent.change(titleInput, { target: { value: '/manifest/table_name' } });
+
+    const saveBtn = screen.getByRole('button', { name: /Save Settings to Connector/i });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(api.updateDataConnector).toHaveBeenCalledTimes(1);
+    });
+
+    const [calledName, calledPayload, calledMask] = vi.mocked(api.updateDataConnector).mock.calls[0];
+    expect(calledName).toBe(databricksConnector.name);
+    expect(calledMask).toEqual(['action_config.action_params']);
+    expect(calledPayload).toEqual({
+      actionConfig: {
+        actionParams: {
+          mcp_server_description: 'Databricks Unity Catalog MCP Server',
+          citation_mappings: {
+            execute_sql_query: {
+              items: '/results',
+              uri: '/manifest/table_url',
+              title: '/manifest/table_name',
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('rejects partial OAuth credentials (client_id without client_secret) in Visual and Raw JSON modes', async () => {
+    render(<BYOMCPConfigTab connector={mockConnector} config={mockConfig} />);
+
+    // Expand Authentication & OAuth Settings section
+    fireEvent.click(screen.getByText(/Authentication & OAuth Settings/i));
+
+    // Visual mode: enter Client ID without Client Secret
+    const [clientIdInput, clientSecretInput] = screen.getAllByPlaceholderText(
+      /Leave blank to preserve existing credentials/i
+    );
+    fireEvent.change(clientIdInput, { target: { value: 'new-databricks-client-id' } });
+
+    const saveBtn = screen.getByRole('button', { name: /Save Settings to Connector/i });
+    fireEvent.click(saveBtn);
+
+    expect(api.updateDataConnector).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/Both Client ID and Client Secret are required when updating OAuth credentials/i)
+    ).toBeInTheDocument();
+
+    // Provide Client Secret as well and verify full OAuth re-auth payload is sent
+    vi.mocked(api.updateDataConnector).mockResolvedValueOnce(mockConnector);
+    fireEvent.change(clientSecretInput, { target: { value: 'new-databricks-client-secret' } });
+
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(api.updateDataConnector).toHaveBeenCalledTimes(1);
+    });
+
+    const [, reauthPayload] = vi.mocked(api.updateDataConnector).mock.calls[0];
+    expect(
+      (reauthPayload as { actionConfig: { actionParams: Record<string, unknown> } }).actionConfig
+        .actionParams
+    ).toMatchObject({
+      client_id: 'new-databricks-client-id',
+      client_secret: 'new-databricks-client-secret',
+      auth_type: 'OAUTH',
+      instance_uri: 'https://mcp-server.example.com/mcp',
+      auth_uri: 'https://accounts.google.com/o/oauth2/v2/auth',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      scopes: 'openid email',
+    });
   });
 });
 

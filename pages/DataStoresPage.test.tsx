@@ -170,4 +170,57 @@ describe('DataStoresPage, DataStoreDetails & QueryHistoryList (F7: Module 6 Data
     const rawPre = screen.getByTestId('raw-search-json-0');
     expect(rawPre.textContent).toContain('attr-token-xyz');
   });
+
+  it('opens SetDataStoreIamPolicyModal from DataStoreList IAM button and grants organization-wide domain access directly to the DataStore', async () => {
+    const getIamSpy = vi.spyOn(api, 'getDataStoreIamPolicy').mockResolvedValueOnce({
+      etag: 'ds-etag-init',
+      bindings: [],
+    });
+    const setIamSpy = vi.spyOn(api, 'setDataStoreIamPolicy').mockResolvedValueOnce({
+      etag: 'ds-etag-saved',
+      bindings: [
+        {
+          role: 'roles/discoveryengine.agentspaceUser',
+          members: ['domain:example.com'],
+        },
+      ],
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('Technical Service Manuals')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^IAM$/i }));
+
+    await waitFor(() => {
+      expect(getIamSpy).toHaveBeenCalledWith(
+        'ds-manuals-1',
+        expect.objectContaining({ projectId: '123456' })
+      );
+      expect(screen.getByText('Edit Resource IAM Policy')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /\+ Grant Entire Domain/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Save Policy/i }));
+
+    await waitFor(() => {
+      expect(setIamSpy).toHaveBeenCalledWith(
+        'ds-manuals-1',
+        {
+          etag: 'ds-etag-init',
+          bindings: [
+            {
+              role: 'roles/discoveryengine.agentspaceUser',
+              members: ['domain:example.com'],
+            },
+          ],
+        },
+        expect.objectContaining({ projectId: '123456' })
+      );
+    });
+  });
 });
+
+

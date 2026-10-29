@@ -24,6 +24,8 @@ import {
   InstructionPreset,
   CitationMappingRuleItem,
   KNOWN_ACTION_PARAM_KEYS,
+  OAUTH_ACTION_PARAM_KEYS,
+  SYSTEM_MANAGED_ACTION_PARAM_KEYS,
 } from '../components/connectors/byomcp/types';
 import {
   parseCitationMappingsFromApi,
@@ -31,6 +33,73 @@ import {
   validateCitationMappings,
   validateRawCitationMappingsObject,
 } from '../components/connectors/byomcp/citationPointerUtils';
+
+function buildInitialDynamicTools(connector?: DataConnector): DynamicToolItem[] {
+  if (!connector) return [];
+  const enabledActions: string[] = connector.bapConfig?.enabledActions || [];
+  const dynTools: DynamicToolItem[] = [];
+
+  if (Array.isArray(connector.dynamicTools) && connector.dynamicTools.length > 0) {
+    connector.dynamicTools.forEach(
+      (t: {
+        name: string;
+        displayName?: string;
+        description?: string;
+        enabled?: boolean;
+        inputSchema?: Record<string, unknown>;
+        outputSchema?: Record<string, unknown>;
+      }) => {
+        const isEnabled =
+          t.enabled !== undefined ? Boolean(t.enabled) : enabledActions.includes(t.name);
+        dynTools.push({
+          name: t.name,
+          displayName: t.displayName || t.name,
+          description: t.description || '',
+          enabled: isEnabled,
+          inputSchema: t.inputSchema,
+          outputSchema: t.outputSchema,
+        });
+      }
+    );
+  } else if (enabledActions.length > 0) {
+    enabledActions.forEach((act) => {
+      dynTools.push({
+        name: act,
+        displayName: act,
+        description: '',
+        enabled: true,
+      });
+    });
+  }
+  return dynTools;
+}
+
+export function sanitizeByomcpActionParamsForPatch(
+  rawActionParams: Record<string, unknown>
+): Record<string, unknown> {
+  const hasClientId =
+    typeof rawActionParams.client_id === 'string' && rawActionParams.client_id.trim().length > 0;
+  const hasClientSecret =
+    typeof rawActionParams.client_secret === 'string' &&
+    rawActionParams.client_secret.trim().length > 0;
+  const isReauth = hasClientId || hasClientSecret;
+  const isNoAuth = rawActionParams.auth_type === 'NO_AUTH';
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(rawActionParams)) {
+    if (SYSTEM_MANAGED_ACTION_PARAM_KEYS.has(key)) {
+      continue;
+    }
+    if (!isReauth && OAUTH_ACTION_PARAM_KEYS.has(key)) {
+      if (isNoAuth && (key === 'auth_type' || key === 'instance_uri')) {
+        sanitized[key] = value;
+      }
+      continue;
+    }
+    sanitized[key] = value;
+  }
+  return sanitized;
+}
 
 interface UseBYOMCPConfigProps {
   connector: DataConnector;
@@ -136,32 +205,7 @@ export function useBYOMCPConfig({
     setCustomActionParams(customList);
 
     // Dynamic Tools & Enabled Actions
-    const enabledActions: string[] = connector.bapConfig?.enabledActions || [];
-    const dynTools: DynamicToolItem[] = [];
-
-    if (Array.isArray(connector.dynamicTools) && connector.dynamicTools.length > 0) {
-      connector.dynamicTools.forEach((t: { name: string; displayName?: string; description?: string; enabled?: boolean; inputSchema?: Record<string, unknown>; outputSchema?: Record<string, unknown> }) => {
-        const isEnabled = t.enabled !== undefined ? Boolean(t.enabled) : enabledActions.includes(t.name);
-        dynTools.push({
-          name: t.name,
-          displayName: t.displayName || t.name,
-          description: t.description || '',
-          enabled: isEnabled,
-          inputSchema: t.inputSchema,
-          outputSchema: t.outputSchema,
-        });
-      });
-    } else if (enabledActions.length > 0) {
-      enabledActions.forEach((act) => {
-        dynTools.push({
-          name: act,
-          displayName: act,
-          description: '',
-          enabled: true,
-        });
-      });
-    }
-    setDynamicTools(dynTools);
+    setDynamicTools(buildInitialDynamicTools(connector));
 
     // Interval & Static IP
     setRefreshInterval(connector.refreshInterval || '86400s');
@@ -199,15 +243,8 @@ export function useBYOMCPConfig({
         if (actionConfig?.actionParams && Object.keys(actionConfig.actionParams).length > 0) {
           masks.add('action_config.action_params');
         }
-        if (Array.isArray(parsed.dynamicTools) && parsed.dynamicTools.length > 0) {
-          masks.add('dynamic_tools');
-        }
         if (parsed.bapConfig) {
           masks.add('bap_config');
-        }
-        const params = parsed.params as { instance_uri?: unknown } | undefined;
-        if (params?.instance_uri !== undefined) {
-          masks.add('params.instance_uri');
         }
         if (parsed.refreshInterval !== undefined) {
           masks.add('refresh_interval');
@@ -243,15 +280,26 @@ export function useBYOMCPConfig({
     const intervalChanged = refreshInterval !== origInterval;
     const staticIpChanged = staticIpEnabled !== origStaticIp;
 
-    const origEnabledActions = (connector?.bapConfig?.enabledActions || []).slice().sort().join(',');
-    const currentEnabledActions = dynamicTools.filter((t) => t.enabled).map((t) => t.name).slice().sort().join(',');
-    const toolsChanged = (
+    const origDynamicTools = buildInitialDynamicTools(connector);
+    const origEnabledActions = origDynamicTools
+      .filter((t) => t.enabled)
+      .map((t) => t.name)
+      .slice()
+      .sort()
+      .join(',');
+    const currentEnabledActions = dynamicTools
+      .filter((t) => t.enabled)
+      .map((t) => t.name)
+      .slice()
+      .sort()
+      .join(',');
+    const toolsChanged =
       origEnabledActions !== currentEnabledActions ||
-      dynamicTools.length !== (connector?.dynamicTools || []).length
-    );
+      dynamicTools.length !== origDynamicTools.length;
 
-    const customChanged = customActionParams.length > 0;
-    const authChanged = Boolean(clientId.trim());
+    const customChanged = customActionParams.some((item) => item.key.trim().length > 0);
+    const authChanged = Boolean(clientId.trim()) || Boolean(clientSecret.trim());
+    const noAuthUriChanged = authType === 'NO_AUTH' && uriChanged && Boolean(instanceUri.trim());
 
     // If no changes detected, default to updating action_params with current description & instructions
     const actionParamsChanged =
@@ -260,33 +308,39 @@ export function useBYOMCPConfig({
       citationMappingsChanged ||
       customChanged ||
       authChanged ||
-      (uriChanged && Boolean(origActionParams.instance_uri));
-    const hasAnyChange = actionParamsChanged || toolsChanged || uriChanged || intervalChanged || staticIpChanged;
+      noAuthUriChanged;
+    const hasAnyChange =
+      actionParamsChanged || toolsChanged || intervalChanged || staticIpChanged;
 
     const masks: string[] = [];
     const payload: Record<string, unknown> = {};
 
     // 1. Action Params
+    // IMPORTANT: On `custom_mcp` connectors, Discovery Engine's UpdateDataConnectorHandler
+    // treats ANY presence of an OAuth parameter (`instance_uri`, `auth_uri`, `token_uri`,
+    // `scopes`, `auth_uri_params`, `pkce_support_enabled`, `client_secret_basic_override`)
+    // in `action_config.action_params` as a credential rotation (`should_update_auth_config = true`)
+    // and invokes `GetDataConnectorAuthConfig`, which rejects the request with
+    // `400 INVALID_ARGUMENT ("Request contains an invalid argument.")` unless both
+    // `client_id` and `client_secret` are also supplied.
+    // When not rotating credentials (`!authChanged`), `PersistCustomMcpConfig` on the backend
+    // automatically preserves all stored OAuth and hidden fields (`auth_uri`, `token_uri`,
+    // `scopes`, `auth_uri_params`, `mcp_server_source`, `registry_mcp_server_name`,
+    // `credentials.instance_uri`). Therefore we only send view/edit action_params here.
     if (actionParamsChanged || !hasAnyChange) {
       masks.push('action_config.action_params');
-      const actionParamsPayload: Record<string, unknown> = {
-        ...(connector?.actionConfig?.actionParams || {}),
-      };
+      const actionParamsPayload: Record<string, unknown> = {};
 
       if (mcpServerDescription.trim()) {
         actionParamsPayload.mcp_server_description = mcpServerDescription.trim();
+      } else if (descChanged) {
+        actionParamsPayload.mcp_server_description = '';
       }
+
       if (mcpAgentInstructions.trim()) {
         actionParamsPayload.mcp_agent_instructions = mcpAgentInstructions.trim();
-      }
-      if (mcpServerSource.trim()) {
-        actionParamsPayload.mcp_server_source = mcpServerSource.trim();
-      }
-      if (registryMcpServerName.trim()) {
-        actionParamsPayload.registry_mcp_server_name = registryMcpServerName.trim();
-      }
-      if (instanceUri.trim()) {
-        actionParamsPayload.instance_uri = instanceUri.trim();
+      } else if (instChanged) {
+        actionParamsPayload.mcp_agent_instructions = '';
       }
 
       if (citationMappings.length > 0) {
@@ -294,71 +348,65 @@ export function useBYOMCPConfig({
       } else if (hadOrigCitationMappings) {
         // Sending empty object {} removes all citation mappings per Discovery Engine v1 spec
         actionParamsPayload.citation_mappings = {};
-      } else {
-        delete actionParamsPayload.citation_mappings;
       }
 
       if (authChanged) {
-        actionParamsPayload.client_id = clientId.trim();
+        if (clientId.trim()) actionParamsPayload.client_id = clientId.trim();
         if (clientSecret.trim()) actionParamsPayload.client_secret = clientSecret.trim();
         if (authType) actionParamsPayload.auth_type = authType;
+        if (instanceUri.trim()) actionParamsPayload.instance_uri = instanceUri.trim();
         if (scopes.trim()) actionParamsPayload.scopes = scopes.trim();
         if (authUri.trim()) actionParamsPayload.auth_uri = authUri.trim();
         if (tokenUri.trim()) actionParamsPayload.token_uri = tokenUri.trim();
-        if (authUriParams.trim()) actionParamsPayload.auth_uri_params = authUriParams.trim();
-      } else if (authType && authType !== 'OAUTH') {
-        actionParamsPayload.auth_type = authType;
+        if (authUriParams.trim()) {
+          const trimmedParams = authUriParams.trim();
+          actionParamsPayload.auth_uri_params = trimmedParams.startsWith('&')
+            ? trimmedParams
+            : `&${trimmedParams}`;
+        }
+        if (typeof origActionParams.pkce_support_enabled === 'boolean') {
+          actionParamsPayload.pkce_support_enabled = origActionParams.pkce_support_enabled;
+        }
+        if (typeof origActionParams.client_secret_basic_override === 'boolean') {
+          actionParamsPayload.client_secret_basic_override =
+            origActionParams.client_secret_basic_override;
+        }
+      } else if (authType === 'NO_AUTH' && uriChanged && instanceUri.trim()) {
+        actionParamsPayload.auth_type = 'NO_AUTH';
+        actionParamsPayload.instance_uri = instanceUri.trim();
       }
 
       customActionParams.forEach((item) => {
         const k = item.key.trim();
-        if (k) {
-          try {
-            actionParamsPayload[k] = JSON.parse(item.value);
-          } catch {
-            actionParamsPayload[k] = item.value;
-          }
+        if (!k || SYSTEM_MANAGED_ACTION_PARAM_KEYS.has(k)) return;
+        if (!authChanged && OAUTH_ACTION_PARAM_KEYS.has(k)) return;
+        try {
+          actionParamsPayload[k] = JSON.parse(item.value);
+        } catch {
+          actionParamsPayload[k] = item.value;
         }
       });
 
       payload.actionConfig = {
-        ...(connector?.actionConfig || {}),
         actionParams: actionParamsPayload,
       };
     }
 
-    // 2. Dynamic Tools
+    // 2. Dynamic Tools (via bap_config.enabled_actions; dynamic_tools itself is OUTPUT_ONLY)
     if (toolsChanged) {
-      masks.push('dynamic_tools');
       masks.push('bap_config');
-      payload.dynamicTools = dynamicTools.map((t) => ({
-        name: t.name,
-        displayName: t.displayName || t.name,
-        description: t.description || '',
-        enabled: t.enabled,
-      }));
       payload.bapConfig = {
-        ...(connector?.bapConfig || {}),
         enabledActions: dynamicTools.filter((t) => t.enabled).map((t) => t.name),
       };
     }
 
-    // 3. Instance URI
-    if (uriChanged && instanceUri.trim()) {
-      masks.push('params.instance_uri');
-      payload.params = {
-        ...(connector?.params || {}),
-        instance_uri: instanceUri.trim(),
-      };
-    }
-
-    // 4. Refresh Interval
+    // 3. Refresh Interval
     if (intervalChanged) {
       masks.push('refresh_interval');
       payload.refreshInterval = refreshInterval;
     }
 
-    // 5. Static IP
+    // 4. Static IP
     if (staticIpChanged) {
       masks.push('static_ip_enabled');
       payload.staticIpEnabled = staticIpEnabled;
@@ -721,6 +769,18 @@ export function useBYOMCPConfig({
       }
     }
 
+    if (
+      editorMode === 'visual' &&
+      authType === 'OAUTH' &&
+      (Boolean(clientId.trim()) || Boolean(clientSecret.trim())) &&
+      (!clientId.trim() || !clientSecret.trim())
+    ) {
+      setSaveError(
+        'Both Client ID and Client Secret are required when updating OAuth credentials.'
+      );
+      return;
+    }
+
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
@@ -733,11 +793,13 @@ export function useBYOMCPConfig({
 
       let payloadToSend: Record<string, unknown> = {};
       if (editorMode === 'json' && rawJsonText) {
-        payloadToSend = JSON.parse(rawJsonText);
+        const parsedJson = JSON.parse(rawJsonText) as Record<string, unknown>;
+        payloadToSend = { ...parsedJson };
         const rawActionConfig = payloadToSend.actionConfig as
           | { actionParams?: Record<string, unknown> }
           | undefined;
-        const rawCitations = rawActionConfig?.actionParams?.citation_mappings;
+        const rawActionParams = rawActionConfig?.actionParams;
+        const rawCitations = rawActionParams?.citation_mappings;
         if (rawCitations !== undefined) {
           const rawIssues = validateRawCitationMappingsObject(rawCitations).filter(
             (i) => i.severity === 'error'
@@ -747,6 +809,33 @@ export function useBYOMCPConfig({
             setIsSaving(false);
             return;
           }
+        }
+        if (rawActionParams && typeof rawActionParams === 'object') {
+          const hasClientId =
+            typeof rawActionParams.client_id === 'string' &&
+            rawActionParams.client_id.trim().length > 0;
+          const hasClientSecret =
+            typeof rawActionParams.client_secret === 'string' &&
+            rawActionParams.client_secret.trim().length > 0;
+          const rawAuthType =
+            typeof rawActionParams.auth_type === 'string'
+              ? rawActionParams.auth_type.trim()
+              : authType;
+          if (
+            rawAuthType !== 'NO_AUTH' &&
+            ('client_id' in rawActionParams || 'client_secret' in rawActionParams) &&
+            (!hasClientId || !hasClientSecret)
+          ) {
+            setSaveError(
+              'Both client_id and client_secret must be non-empty when re-authenticating OAuth in JSON mode.'
+            );
+            setIsSaving(false);
+            return;
+          }
+          payloadToSend.actionConfig = {
+            ...rawActionConfig,
+            actionParams: sanitizeByomcpActionParamsForPatch(rawActionParams),
+          };
         }
       } else {
         payloadToSend = targetedPayload;

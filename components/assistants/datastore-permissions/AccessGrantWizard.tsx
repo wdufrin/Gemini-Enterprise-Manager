@@ -240,15 +240,60 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
               )}
             </div>
             <p className="text-xs text-gray-400 mb-2">
-              Enter single email or comma-separated list. Accepts standard emails (e.g. <code>userA@example.com</code>) or workforce pool identifiers (e.g. <code>principal://...</code>).
+              Enter single principal or comma-separated list. Accepts standard emails (e.g. <code>userA@example.com</code>), Google Workspace domains (<code>domain:example.com</code>), groups (<code>group:all-users@example.com</code>), or Workforce Identity Pool wildcards (<code>principalSet://iam.googleapis.com/locations/global/workforcePools/POOL_ID/*</code>).
             </p>
             <input
               type="text"
               value={targetMembersInput}
               onChange={(e) => onChangeTargetMembers(e.target.value)}
-              placeholder="e.g., userA@example.com, principal://iam.googleapis.com/.../subject/user@domain.com"
+              placeholder="e.g., userA@example.com, domain:example.com, principalSet://iam.googleapis.com/locations/global/workforcePools/POOL_ID/*"
               className="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none"
             />
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-gray-400 mr-1">Grant to All Users in Org:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const parts = targetMembersInput.split(/[\s,]+/).filter(Boolean);
+                  onChangeTargetMembers(parts.length > 0 ? `${parts.join(', ')}, domain:example.com` : 'domain:example.com');
+                }}
+                className="px-2 py-0.5 text-[11px] font-mono bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-200 border border-emerald-700/60 rounded transition-colors"
+                title="Grant access to every user in a Google Workspace / Cloud Identity domain"
+              >
+                + domain:example.com
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const parts = targetMembersInput.split(/[\s,]+/).filter(Boolean);
+                  const preset = 'principalSet://iam.googleapis.com/locations/global/workforcePools/POOL_ID/*';
+                  onChangeTargetMembers(parts.length > 0 ? `${parts.join(', ')}, ${preset}` : preset);
+                }}
+                className="px-2 py-0.5 text-[11px] font-mono bg-teal-900/40 hover:bg-teal-800/60 text-teal-200 border border-teal-700/60 rounded transition-colors"
+                title="Grant access to all users in a Workforce Identity Federation pool"
+              >
+                + principalSet://.../workforcePools/POOL_ID/*
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const parts = targetMembersInput.split(/[\s,]+/).filter(Boolean);
+                  onChangeTargetMembers(parts.length > 0 ? `${parts.join(', ')}, group:all-users@example.com` : 'group:all-users@example.com');
+                }}
+                className="px-2 py-0.5 text-[11px] font-mono bg-blue-900/40 hover:bg-blue-800/60 text-blue-200 border border-blue-700/60 rounded transition-colors"
+                title="Grant access to a Google Group containing all users"
+              >
+                + group:all-users@example.com
+              </button>
+            </div>
+            {/\b(allUsers|allAuthenticatedUsers)\b/i.test(targetMembersInput) && (
+              <div
+                role="alert"
+                className="mt-2 text-xs text-amber-200 bg-amber-950/60 p-2.5 rounded-lg border border-amber-600/80"
+              >
+                <strong>Cloud IAM Restriction on DataStores:</strong> Google Cloud IAM enforces <code>ONLY_SPECIFIC_MEMBERS</code> on Discovery Engine <code>DataStore</code>, <code>Collection</code>, and <code>Engine</code> resources and rejects <code>allUsers</code> / <code>allAuthenticatedUsers</code> (unlike <code>Agent</code> resources, which allow <code>allUsers</code>). To grant access to everyone in your organization, use <code>domain:yourdomain.com</code>, <code>principalSet://iam.googleapis.com/locations/global/workforcePools/POOL_ID/*</code>, or <code>group:everyone@yourdomain.com</code>.
+              </div>
+            )}
             <div className="mt-2 text-[11px] text-blue-300 bg-blue-950/40 p-2.5 rounded-lg border border-blue-800/50 flex items-center gap-1.5">
               <span>⚡</span>
               <span>

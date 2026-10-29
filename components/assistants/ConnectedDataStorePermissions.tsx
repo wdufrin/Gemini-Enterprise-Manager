@@ -33,7 +33,7 @@ import {
   RevokeTarget,
   UserAccessDetails,
 } from './datastore-permissions/types';
-import { formatMember, useDataStorePermissions } from '../../hooks/useDataStorePermissions';
+import { formatMember, isPublicIamPrincipal, useDataStorePermissions } from '../../hooks/useDataStorePermissions';
 import { EnvironmentReadinessWizard } from './datastore-permissions/EnvironmentReadinessWizard';
 import { StepByStepGuide } from './datastore-permissions/StepByStepGuide';
 import { UserAccessInspector } from './datastore-permissions/UserAccessInspector';
@@ -269,38 +269,45 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         addLog(`Syncing Permissions for Member: ${member}`);
         addLog(`======================================================`);
 
-        // Step 1a: Project-level Gemini Enterprise Restricted User role binding
-        addLog(
-          `--- Step 1a: ${
-            wizardGrantProjectRole ? 'Granting' : 'Revoking'
-          } project-level predefined role '${AGENTSPACE_RESTRICTED_USER_ROLE}' ---`
-        );
-        const ok1a = await syncPolicyRMW(
-          `Project '${projectId}'`,
-          () => api.getProjectIamPolicy(projectId),
-          (p) => api.setProjectIamPolicy(projectId, p),
-          member,
-          AGENTSPACE_RESTRICTED_USER_ROLE,
-          wizardGrantProjectRole,
-          isDryRun,
-          addLog
-        );
-        if (!ok1a) failedStepCount++;
-
-        // Step 1b: Project-level Gemini Enterprise NotebookLM User role binding
-        if (wizardGrantNotebookLmRole) {
-          addLog(`--- Step 1b: Granting '${NOTEBOOK_LM_USER_ROLE}' on Project '${projectId}' ---`);
-          const ok1b = await syncPolicyRMW(
-            `Project '${projectId}' (NotebookLM)`,
+        // Step 1a & 1b: Project-level role bindings (skipped for allUsers / allAuthenticatedUsers as GCP Cloud Resource Manager forbids public principals on Project IAM policies)
+        if (isPublicIamPrincipal(member)) {
+          addLog(
+            `[SKIP] Step 1a/1b: GCP Project IAM policies do not allow '${member}' on project-level bindings. Applying resource-level IAM directly to App Engine and DataStores.`
+          );
+        } else {
+          // Step 1a: Project-level Gemini Enterprise Restricted User role binding
+          addLog(
+            `--- Step 1a: ${
+              wizardGrantProjectRole ? 'Granting' : 'Revoking'
+            } project-level predefined role '${AGENTSPACE_RESTRICTED_USER_ROLE}' ---`
+          );
+          const ok1a = await syncPolicyRMW(
+            `Project '${projectId}'`,
             () => api.getProjectIamPolicy(projectId),
             (p) => api.setProjectIamPolicy(projectId, p),
             member,
-            NOTEBOOK_LM_USER_ROLE,
-            true,
+            AGENTSPACE_RESTRICTED_USER_ROLE,
+            wizardGrantProjectRole,
             isDryRun,
             addLog
           );
-          if (!ok1b) failedStepCount++;
+          if (!ok1a) failedStepCount++;
+
+          // Step 1b: Project-level Gemini Enterprise NotebookLM User role binding
+          if (wizardGrantNotebookLmRole) {
+            addLog(`--- Step 1b: Granting '${NOTEBOOK_LM_USER_ROLE}' on Project '${projectId}' ---`);
+            const ok1b = await syncPolicyRMW(
+              `Project '${projectId}' (NotebookLM)`,
+              () => api.getProjectIamPolicy(projectId),
+              (p) => api.setProjectIamPolicy(projectId, p),
+              member,
+              NOTEBOOK_LM_USER_ROLE,
+              true,
+              isDryRun,
+              addLog
+            );
+            if (!ok1b) failedStepCount++;
+          }
         }
 
         // Step 2: App Engine role binding

@@ -25,6 +25,7 @@ interface DataStoreListProps {
   onSelectDataStore: (dataStore: DataStore) => void;
   onDeleteDataStore: (dataStore: DataStore) => void;
   onEditDataStore: (dataStore: DataStore) => void;
+  onManageIam?: (dataStore: DataStore) => void;
   deletingDataStoreIds: Set<string>;
   selectedDataStores: Set<string>;
   onToggleSelect: (name: string) => void;
@@ -56,6 +57,7 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
   onSelectDataStore, 
   onDeleteDataStore, 
   onEditDataStore,
+  onManageIam,
   deletingDataStoreIds,
   selectedDataStores,
   onToggleSelect,
@@ -185,6 +187,16 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
                         >
                             Edit
                         </button>
+                        {onManageIam && (
+                          <button
+                            onClick={() => onManageIam(store)}
+                            className="font-semibold text-amber-400 hover:text-amber-300 disabled:text-gray-500"
+                            disabled={isDeleting}
+                            title={`Manage direct IAM policy for ${store.displayName}`}
+                          >
+                            IAM
+                          </button>
+                        )}
                         <button
                             onClick={() => onDeleteDataStore(store)}
                             className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500"

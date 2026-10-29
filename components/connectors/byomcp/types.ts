@@ -100,18 +100,35 @@ export interface CitationMappingRuleItem {
   id: string;
 }
 
-export const KNOWN_ACTION_PARAM_KEYS = new Set([
-  'mcp_server_description',
-  'mcp_agent_instructions',
+export const OAUTH_ACTION_PARAM_KEYS = new Set([
   'instance_uri',
   'auth_type',
+  'auth_key',
   'scopes',
   'auth_uri',
   'token_uri',
   'auth_uri_params',
   'client_id',
   'client_secret',
+  'refresh_token',
+  'pkce_support_enabled',
+  'client_secret_basic_override',
+]);
+
+export const SYSTEM_MANAGED_ACTION_PARAM_KEYS = new Set([
   'mcp_server_source',
   'registry_mcp_server_name',
-  'citation_mappings',
+  'requires_prod_creds',
+  'tool_list',
+  'use_agent_gateway_egress',
+  'agent_gateway_engine',
 ]);
+
+export const KNOWN_ACTION_PARAM_KEYS = new Set([
+  'mcp_server_description',
+  'mcp_agent_instructions',
+  'citation_mappings',
+  ...OAUTH_ACTION_PARAM_KEYS,
+  ...SYSTEM_MANAGED_ACTION_PARAM_KEYS,
+]);
+

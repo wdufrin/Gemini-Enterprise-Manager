@@ -28,6 +28,7 @@ interface DataStoreDetailsProps {
     onBack: () => void;
     onDelete: (dataStore: DataStore) => void;
     onEdit: (dataStore: DataStore) => void;
+    onManageIam?: (dataStore: DataStore) => void;
     isDeleting: boolean;
 }
 
@@ -40,7 +41,7 @@ const DetailItem: React.FC<{ label: string; value: string | string[] | undefined
     </div>
 );
 
-const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, onBack, onDelete, onEdit, isDeleting }) => {
+const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, onBack, onDelete, onEdit, onManageIam, isDeleting }) => {
     const [documents, setDocuments] = useState<Document[]>([]);
     const [isLoadingDocs, setIsLoadingDocs] = useState(false);
     const [docsError, setDocsError] = useState<string | null>(null);
@@ -301,6 +302,15 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
                 >
                     Edit
                 </button>
+                {onManageIam && (
+                    <button
+                        onClick={() => onManageIam(dataStore)}
+                        disabled={isDeleting}
+                        className="px-5 py-2.5 bg-amber-600 text-white font-semibold rounded-md hover:bg-amber-700 disabled:bg-amber-800"
+                    >
+                        IAM Permissions
+                    </button>
+                )}
                 <button
                     onClick={() => onDelete(dataStore)}
                     disabled={isDeleting}
