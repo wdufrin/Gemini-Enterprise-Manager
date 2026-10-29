@@ -327,6 +327,115 @@ describe("callMcpTool live tool probing and security boundaries", () => {
       callMcpTool("my-project", "https://gm-figma-mcp.example.com/mcp", "validate_slide_brand_compliance"),
     ).rejects.toThrow(/Missing required argument: slide_spec_json/);
   });
+
+  it("does not send X-Goog-User-Project to Cloud Run (*.run.app) MCP servers so CORS preflight is not broken", async () => {
+    const { callMcpTool } = await import("./mcp");
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { content: [{ type: "text", text: "{}" }] },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callMcpTool(
+      "my-project",
+      "https://gm-figma-mcp-12345.us-central1.run.app/mcp",
+      "get_brand_design_system",
+      { brand_name: "General Motors" },
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      { headers: Record<string, string> },
+    ];
+    expect(init.headers["Authorization"]).toBe("Bearer FAKE-OAUTH-TOKEN-FOR-TESTS");
+    expect(init.headers["X-Goog-User-Project"]).toBeUndefined();
+  });
+
+  it("retries with a CORS-safelisted simple request when application/json POST fails with a CORS TypeError", async () => {
+    const { callMcpTool } = await import("./mcp");
+    let callCount = 0;
+    const fetchMock = vi.fn(async (_url: string, init?: { headers?: Record<string, string> }) => {
+      callCount++;
+      if (callCount === 1) {
+        // Simulate browser aborting preflighted application/json request due to CORS
+        throw new TypeError("Failed to fetch");
+      }
+      expect(init?.headers?.["Content-Type"]).toBe("text/plain;charset=UTF-8");
+      return jsonResponse({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          content: [{ type: "text", text: '{"results":[{"link":"https://gm.com/1","name":"GM Brand Spec"}]}' }],
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await callMcpTool(
+      "my-project",
+      "https://gm-figma-mcp-12345.us-central1.run.app/mcp",
+      "get_brand_design_system",
+      {},
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(res).toEqual({
+      content: [{ type: "text", text: '{"results":[{"link":"https://gm.com/1","name":"GM Brand Spec"}]}' }],
+    });
+  });
+
+  it("falls back to same-origin /api/mcp-proxy when both direct and simple browser fetch fail due to missing Access-Control-Allow-Origin", async () => {
+    const { callMcpTool } = await import("./mcp");
+    const fetchMock = vi.fn(async (url: string, init?: { body?: string }) => {
+      if (url.startsWith("https://")) {
+        // Target MCP server emits no CORS headers at all
+        throw new TypeError("Failed to fetch");
+      }
+      expect(url).toBe("/api/mcp-proxy");
+      const proxyReq = JSON.parse(init?.body || "{}") as {
+        targetUrl: string;
+        payload: { method: string; params: { name: string } };
+      };
+      expect(proxyReq.targetUrl).toBe("https://gm-figma-mcp-12345.us-central1.run.app/mcp");
+      expect(proxyReq.payload.method).toBe("tools/call");
+      expect(proxyReq.payload.params.name).toBe("get_brand_design_system");
+
+      return jsonResponse({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          content: [
+            {
+              type: "text",
+              text: '{"source":"Figma","data":{"$schema":"https://tr.designtokens.org/format/"}}',
+            },
+          ],
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await callMcpTool(
+      "my-project",
+      "https://gm-figma-mcp-12345.us-central1.run.app/mcp",
+      "get_brand_design_system",
+      { brand_name: "General Motors" },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(res).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '{"source":"Figma","data":{"$schema":"https://tr.designtokens.org/format/"}}',
+        },
+      ],
+    });
+  });
 });
+
 
 

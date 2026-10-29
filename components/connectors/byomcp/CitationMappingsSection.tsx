@@ -21,6 +21,8 @@ import {
   previewCitationExtraction,
   extractCandidatePointersFromSample,
   synthesizeSampleJsonFromRule,
+  synthesizeSampleToolArgumentsFromInputSchema,
+  synthesizeSampleJsonFromOutputSchema,
   SAMPLE_MCP_RESPONSE_PRESETS,
   SampleMcpResponsePreset,
 } from './citationPointerUtils';
@@ -202,8 +204,13 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
     setProbeError(null);
     setProbeSuccessNote(null);
 
+    const discoveredTool = dynamicTools.find((t) => t.name === toolToCall);
+    const synthesizedArgs = synthesizeSampleToolArgumentsFromInputSchema(
+      discoveredTool?.inputSchema
+    );
+
     try {
-      const liveResult = await onProbeLiveTool(toolToCall, {});
+      const liveResult = await onProbeLiveTool(toolToCall, synthesizedArgs);
       const formattedJson = JSON.stringify(liveResult, null, 2);
       setSampleJsonText(formattedJson);
       setActivePresetId('live_tool_response');
@@ -231,7 +238,39 @@ export const CitationMappingsSection: React.FC<CitationMappingsSectionProps> = (
         setProbeSuccessNote(`Fetched live response from "${toolToCall}".`);
       }
     } catch (err: unknown) {
+      // If the discovered tool has an `outputSchema`, fall back to synthesizing a sample
+      // response from its schema and auto-detecting pointers from that schema!
+      const schemaFallbackJson = synthesizeSampleJsonFromOutputSchema(
+        discoveredTool?.outputSchema
+      );
+      if (schemaFallbackJson) {
+        setSampleJsonText(schemaFallbackJson);
+        setActivePresetId('live_tool_response');
+        setShowLivePreview(true);
+        const schema = extractCandidatePointersFromSample(schemaFallbackJson);
+        if (schema) {
+          const targetIdx = citationMappings.findIndex((r) => r.toolName === toolToCall);
+          if (targetIdx >= 0) {
+            onUpdateCitationMapping(targetIdx, {
+              ...citationMappings[targetIdx],
+              ...schema.recommendedRule,
+            });
+          } else {
+            onAddCitationMapping({
+              toolName: toolToCall,
+              ...schema.recommendedRule,
+            });
+          }
+          setPreviewToolName(toolToCall);
+          setProbeSuccessNote(
+            `Live call to "${toolToCall}" was unavailable, so pointers were auto-discovered from the tool's declared outputSchema (${schema.fieldCandidates.length} fields).`
+          );
+          return;
+        }
+      }
+
       const msg = err instanceof Error ? err.message : String(err);
+      setShowLivePreview(true);
       setProbeError(msg || `Failed to call tool "${toolToCall}" on MCP server.`);
     } finally {
       setIsProbingTool(false);

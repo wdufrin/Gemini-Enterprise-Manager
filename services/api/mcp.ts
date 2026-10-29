@@ -63,6 +63,88 @@ const readMcpBody = async (res: Response): Promise<Record<string, unknown>> => {
   return JSON.parse(last) as Record<string, unknown>;
 };
 
+/**
+ * Executes a JSON-RPC POST against a custom/BYOMCP `https://` endpoint with a
+ * three-tier CORS resilience strategy:
+ *
+ *   1. Direct browser `fetch()` with standard `application/json` +
+ *      `Accept: application/json, text/event-stream` (and `Authorization` on
+ *      trusted Google hosts). Note: `X-Goog-User-Project` is intentionally NOT
+ *      sent to `*.run.app` or `*.cloudfunctions.net` because custom Cloud Run
+ *      MCP servers do not use Google API quota projects and never whitelist
+ *      `X-Goog-User-Project` in `Access-Control-Allow-Headers`, which otherwise
+ *      guarantees a CORS preflight failure.
+ *   2. If the browser rejects (1) with a CORS/network `TypeError` (e.g., the
+ *      server answers `POST` with `Access-Control-Allow-Origin: *` but fails
+ *      the `OPTIONS` preflight triggered by `Content-Type: application/json`
+ *      or `Authorization`), retry with a CORS-safelisted "simple" request
+ *      (`Content-Type: text/plain;charset=UTF-8`, no custom headers).
+ *   3. If the browser still rejects (2) with a CORS `TypeError` (because the
+ *      target MCP server emits no `Access-Control-Allow-Origin` header at all,
+ *      which is the default for FastMCP / Python MCP SDK servers), route the
+ *      request through the same-origin `/api/mcp-proxy` server middleware.
+ */
+const fetchCustomMcpWithCorsFallback = async (
+  mcpEndpointUrl: string,
+  payload: Record<string, unknown>,
+  headers: Record<string, string>,
+): Promise<Response> => {
+  const bodyStr = JSON.stringify(payload);
+  let initialCorsError: unknown;
+
+  try {
+    return await fetch(mcpEndpointUrl, {
+      method: "POST",
+      headers,
+      body: bodyStr,
+    });
+  } catch (err: unknown) {
+    if (!(err instanceof TypeError)) {
+      throw err;
+    }
+    initialCorsError = err;
+  }
+
+  // Tier 2: Retry with a CORS-safelisted simple request (no OPTIONS preflight)
+  // if the initial request included non-safelisted headers (application/json or Authorization).
+  try {
+    return await fetch(mcpEndpointUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        Accept: "application/json, text/event-stream",
+      },
+      body: bodyStr,
+    });
+  } catch (simpleErr: unknown) {
+    if (!(simpleErr instanceof TypeError)) {
+      throw simpleErr;
+    }
+  }
+
+  // Tier 3: Fall back to same-origin server proxy (`/api/mcp-proxy`), which
+  // executes the request from Node.js outside browser CORS restrictions and
+  // handles MCP Streamable HTTP `Mcp-Session-Id` negotiation if required.
+  try {
+    const proxyRes = await fetch("/api/mcp-proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        targetUrl: mcpEndpointUrl,
+        payload,
+        headers,
+      }),
+    });
+    if (proxyRes && typeof proxyRes.ok === "boolean" && proxyRes.status !== 404) {
+      return proxyRes;
+    }
+  } catch {
+    // Proxy unavailable in pure static/unit-test environments; rethrow original CORS error below.
+  }
+
+  throw initialCorsError;
+};
+
 export const listMcpTools = async (
   projectId: string,
   mcpEndpointUrl: string,
@@ -133,6 +215,7 @@ export const listMcpTools = async (
 
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
       };
 
       if (isTrustedGoogleHost) {
@@ -141,16 +224,13 @@ export const listMcpTools = async (
         if (token) {
           headers["Authorization"] = `Bearer ${token}`;
         }
-        if (projectId) {
-          headers["X-Goog-User-Project"] = projectId;
-        }
       }
 
-      const res = await fetch(mcpEndpointUrl, {
-        method: "POST",
+      const res = await fetchCustomMcpWithCorsFallback(
+        mcpEndpointUrl,
+        payload,
         headers,
-        body: JSON.stringify(payload),
-      });
+      );
 
       if (!res.ok) {
         throw new Error(`HTTP Error ${res.status}: ${await res.text()}`);
@@ -210,29 +290,34 @@ export const callMcpTool = async (
     },
   };
 
-  const isTrustedGoogleHost = mayReceiveGoogleCredentials(mcpEndpointUrl);
-  const headers: Record<string, string> = {
-    "Content-Type": isGoogleApiEndpoint(mcpEndpointUrl)
-      ? "text/plain;charset=UTF-8"
-      : "application/json",
-  };
+  let res: Response;
+  if (isGoogleApiEndpoint(mcpEndpointUrl)) {
+    res = await fetch(mcpEndpointUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      body: JSON.stringify(payload),
+    });
+  } else {
+    const isTrustedGoogleHost = mayReceiveGoogleCredentials(mcpEndpointUrl);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    };
 
-  if (isTrustedGoogleHost && !isGoogleApiEndpoint(mcpEndpointUrl)) {
-    const client = await getGapiClient();
-    const token = client.getToken()?.access_token;
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
+    if (isTrustedGoogleHost) {
+      const client = await getGapiClient();
+      const token = client.getToken()?.access_token;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
     }
-    if (projectId) {
-      headers["X-Goog-User-Project"] = projectId;
-    }
+
+    res = await fetchCustomMcpWithCorsFallback(
+      mcpEndpointUrl,
+      payload,
+      headers,
+    );
   }
-
-  const res = await fetch(mcpEndpointUrl, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
-  });
 
   if (!res.ok) {
     throw new Error(

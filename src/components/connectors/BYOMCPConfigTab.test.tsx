@@ -576,6 +576,109 @@ describe('citationPointerUtils (RFC 6901 & citation_mappings validation and eval
     expect(preview.chips[0].hasValidChip).toBe(true);
     expect(preview.chips[0].uri).toContain('https://docs.google.com/presentation/d/');
   });
+
+  it('auto-discovers citation pointers from a live MCP tool with synthesized inputSchema arguments and falls back to outputSchema when offline', async () => {
+    const connectorWithSchemas = {
+      name: 'projects/test-project-123/locations/global/collections/default_collection/dataConnector',
+      dataSource: 'custom_mcp',
+      state: 'ACTIVE' as const,
+      params: {
+        instance_uri: 'https://gm-figma-mcp.us-central1.run.app/mcp',
+      },
+      actionConfig: {
+        createBapConnection: true,
+        actionParams: {
+          instance_uri: 'https://gm-figma-mcp.us-central1.run.app/mcp',
+        },
+      },
+      dynamicTools: [
+        {
+          name: 'get_brand_design_system',
+          displayName: 'Get Brand Design System',
+          description: 'Fetches brand tokens',
+          enabled: true,
+          inputSchema: {
+            type: 'object',
+            required: ['brand_name'],
+            properties: {
+              brand_name: { type: 'string' },
+            },
+          },
+          outputSchema: {
+            type: 'object',
+            properties: {
+              results: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    figma_url: { type: 'string' },
+                    component_title: { type: 'string' },
+                    component_id: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    // 1. Live call succeeds and receives synthesized { brand_name: 'General Motors' }
+    vi.mocked(api.callMcpTool).mockResolvedValueOnce({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            status: 'success',
+            source: 'Figma Enterprise Design System API',
+            data: {
+              $schema: 'https://tr.designtokens.org/format/',
+              figmaFileKey: 'gm-corp-brand-system-2026-v4',
+            },
+          }),
+        },
+      ],
+    });
+
+    render(<BYOMCPConfigTab connector={connectorWithSchemas} config={mockConfig} />);
+
+    // Add tool rule via "+ Citations" button
+    const addCitationsBtn = screen.getByRole('button', { name: /\+ Citations/i });
+    fireEvent.click(addCitationsBtn);
+
+    // Click "Auto-Discover from Live Tool"
+    const autoDiscoverBtn = screen.getByRole('button', {
+      name: /Auto-Discover from Live Tool/i,
+    });
+    fireEvent.click(autoDiscoverBtn);
+
+    await waitFor(() => {
+      expect(api.callMcpTool).toHaveBeenCalledWith(
+        'test-project-123',
+        'https://gm-figma-mcp.us-central1.run.app/mcp',
+        'get_brand_design_system',
+        { brand_name: 'General Motors' }
+      );
+      expect(
+        screen.getByLabelText('uri pointer for get_brand_design_system')
+      ).toHaveValue('/data/$schema');
+    });
+
+    // 2. When live call fails (e.g. offline/unreachable), falls back to outputSchema
+    vi.mocked(api.callMcpTool).mockRejectedValueOnce(new Error('Failed to fetch'));
+    fireEvent.click(autoDiscoverBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText('uri pointer for get_brand_design_system')
+      ).toHaveValue('/figma_url');
+      expect(
+        screen.getByText(/pointers were auto-discovered from the tool's declared outputSchema/i)
+      ).toBeInTheDocument();
+    });
+  });
 });
+
 
 

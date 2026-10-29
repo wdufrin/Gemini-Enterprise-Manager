@@ -140,13 +140,15 @@ export function useBYOMCPConfig({
     const dynTools: DynamicToolItem[] = [];
 
     if (Array.isArray(connector.dynamicTools) && connector.dynamicTools.length > 0) {
-      connector.dynamicTools.forEach((t: { name: string; displayName?: string; description?: string; enabled?: boolean }) => {
+      connector.dynamicTools.forEach((t: { name: string; displayName?: string; description?: string; enabled?: boolean; inputSchema?: Record<string, unknown>; outputSchema?: Record<string, unknown> }) => {
         const isEnabled = t.enabled !== undefined ? Boolean(t.enabled) : enabledActions.includes(t.name);
         dynTools.push({
           name: t.name,
           displayName: t.displayName || t.name,
           description: t.description || '',
           enabled: isEnabled,
+          inputSchema: t.inputSchema,
+          outputSchema: t.outputSchema,
         });
       });
     } else if (enabledActions.length > 0) {

@@ -1171,3 +1171,148 @@ export function synthesizeSampleJsonFromRule(
   return JSON.stringify(rootObj, null, 2);
 }
 
+/**
+ * Synthesizes valid sample arguments from a discovered MCP tool's JSON Schema
+ * (`inputSchema`) so `tools/call` live probing does not fail with `-32602`
+ * when a tool has required arguments (e.g. `query`, `brand_name`, `slide_spec_json`).
+ */
+export function synthesizeSampleToolArgumentsFromInputSchema(
+  inputSchema?: Record<string, unknown>
+): Record<string, unknown> {
+  if (!inputSchema || typeof inputSchema !== 'object') {
+    return {};
+  }
+
+  const properties =
+    inputSchema.properties && typeof inputSchema.properties === 'object' && !Array.isArray(inputSchema.properties)
+      ? (inputSchema.properties as Record<string, Record<string, unknown>>)
+      : {};
+  const requiredList = Array.isArray(inputSchema.required)
+    ? (inputSchema.required.filter((r) => typeof r === 'string') as string[])
+    : Object.keys(properties);
+
+  const args: Record<string, unknown> = {};
+
+  for (const propName of requiredList) {
+    const propSchema = properties[propName];
+    if (!propSchema || typeof propSchema !== 'object') {
+      args[propName] = 'sample';
+      continue;
+    }
+
+    if (propSchema.default !== undefined) {
+      args[propName] = propSchema.default;
+      continue;
+    }
+    if (Array.isArray(propSchema.enum) && propSchema.enum.length > 0) {
+      args[propName] = propSchema.enum[0];
+      continue;
+    }
+
+    const propType = typeof propSchema.type === 'string' ? propSchema.type : 'string';
+    const lowerName = propName.toLowerCase();
+
+    if (propType === 'string') {
+      if (lowerName.includes('json')) {
+        args[propName] = JSON.stringify({ title: 'Sample Slide', body: 'Sample content' });
+      } else if (lowerName.includes('url') || lowerName.includes('uri')) {
+        args[propName] = 'https://enterprise.example.com/resource/1';
+      } else if (lowerName.includes('query') || lowerName.includes('search')) {
+        args[propName] = 'enterprise policy';
+      } else if (lowerName.includes('brand')) {
+        args[propName] = 'General Motors';
+      } else {
+        args[propName] = 'sample';
+      }
+    } else if (propType === 'number' || propType === 'integer') {
+      args[propName] = 1;
+    } else if (propType === 'boolean') {
+      args[propName] = true;
+    } else if (propType === 'array') {
+      args[propName] = [];
+    } else if (propType === 'object') {
+      args[propName] = synthesizeSampleToolArgumentsFromInputSchema(propSchema);
+    } else {
+      args[propName] = 'sample';
+    }
+  }
+
+  return args;
+}
+
+/**
+ * Synthesizes a sample JSON response from an MCP tool's declared `outputSchema`
+ * (JSON Schema), allowing automatic RFC 6901 pointer discovery even when the
+ * live MCP server is unreachable or requires interactive user OAuth.
+ */
+export function synthesizeSampleJsonFromOutputSchema(
+  outputSchema?: Record<string, unknown>
+): string | null {
+  if (!outputSchema || typeof outputSchema !== 'object') {
+    return null;
+  }
+
+  const buildValueFromSchema = (
+    schemaNode: Record<string, unknown>,
+    keyHint = '',
+    depth = 0
+  ): unknown => {
+    if (depth > 4) return 'sample';
+    if (schemaNode.default !== undefined) return schemaNode.default;
+    if (Array.isArray(schemaNode.enum) && schemaNode.enum.length > 0) {
+      return schemaNode.enum[0];
+    }
+
+    const type = typeof schemaNode.type === 'string' ? schemaNode.type : undefined;
+    const props =
+      schemaNode.properties &&
+      typeof schemaNode.properties === 'object' &&
+      !Array.isArray(schemaNode.properties)
+        ? (schemaNode.properties as Record<string, Record<string, unknown>>)
+        : undefined;
+
+    if (type === 'object' || props) {
+      if (!props) return {};
+      const obj: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(props)) {
+        if (v && typeof v === 'object') {
+          obj[k] = buildValueFromSchema(v, k, depth + 1);
+        }
+      }
+      return obj;
+    }
+
+    if (type === 'array' || schemaNode.items) {
+      const itemSchema =
+        schemaNode.items && typeof schemaNode.items === 'object' && !Array.isArray(schemaNode.items)
+          ? (schemaNode.items as Record<string, unknown>)
+          : { type: 'string' };
+      return [buildValueFromSchema(itemSchema, keyHint, depth + 1)];
+    }
+
+    const lower = keyHint.toLowerCase();
+    if (type === 'number' || type === 'integer') return 1;
+    if (type === 'boolean') return true;
+    if (lower.includes('url') || lower.includes('uri') || lower.includes('link')) {
+      return 'https://enterprise.example.com/resource/101';
+    }
+    if (lower.includes('title') || lower.includes('name')) {
+      return 'Sample Enterprise Document';
+    }
+    if (lower.includes('snippet') || lower.includes('summary') || lower.includes('description')) {
+      return 'Sample document excerpt from outputSchema.';
+    }
+    if (lower === 'id' || lower.endsWith('_id') || lower.endsWith('id')) {
+      return 'doc-101';
+    }
+    return `sample_${keyHint || 'value'}`;
+  };
+
+  const built = buildValueFromSchema(outputSchema);
+  if (!built || typeof built !== 'object' || Object.keys(built as object).length === 0) {
+    return null;
+  }
+  return JSON.stringify(built, null, 2);
+}
+
+
