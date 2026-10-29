@@ -313,3 +313,69 @@ FROM (SELECT 1) WHERE FALSE;`;
       return null;
   }
 };
+
+export type DataSourceMode = 'views' | 'tables';
+
+/**
+ * Filters a set/array of table names to exclude `v_*` operational views,
+ * leaving only base Cloud Logging sink tables.
+ */
+export const getNonViewTableSet = (
+  tables?: Set<string> | string[],
+): Set<string> => {
+  if (!tables) return new Set();
+  const list = tables instanceof Set ? Array.from(tables) : tables;
+  return new Set(
+    list.filter((t) => typeof t === 'string' && t.length > 0 && !t.toLowerCase().startsWith('v_')),
+  );
+};
+
+/**
+ * Returns true if the dataset contains the underlying Cloud Logging sink table(s)
+ * needed to execute `viewId` directly without creating a BigQuery view.
+ */
+export const hasMainTablesForView = (
+  viewId: string,
+  tables?: Set<string> | string[],
+): boolean => {
+  const baseTables = getNonViewTableSet(tables);
+  if (baseTables.size === 0) return false;
+  if (hasTable(baseTables, '_AllLogs')) return true;
+
+  switch (viewId) {
+    case 'v_consolidated_user_messages':
+      return (
+        hasTable(baseTables, USER_MESSAGE_TABLE) ||
+        hasShardedTable(baseTables, USER_MESSAGE_TABLE)
+      );
+    case 'v_gemini_genai_telemetry':
+      return (
+        hasTable(baseTables, INFERENCE_DETAILS_TABLE) ||
+        hasShardedTable(baseTables, INFERENCE_DETAILS_TABLE) ||
+        hasTable(baseTables, 'gemini_genai_telemetry')
+      );
+    case 'v_consolidated_ai_choices':
+      return (
+        hasTable(baseTables, AI_CHOICE_TABLE) ||
+        hasShardedTable(baseTables, AI_CHOICE_TABLE) ||
+        hasTable(baseTables, 'gemini_genai_telemetry')
+      );
+    default:
+      return (
+        hasTable(baseTables, USER_ACTIVITY_TABLE) ||
+        hasShardedTable(baseTables, USER_ACTIVITY_TABLE)
+      );
+  }
+};
+
+/**
+ * Extracts the standalone `SELECT ...` / `WITH ... SELECT ...` body from a
+ * `CREATE OR REPLACE VIEW \`project.dataset.view\` AS ...;` DDL statement.
+ */
+export const extractViewSelectBody = (ddl: string): string => {
+  return ddl
+    .replace(/^\s*CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+`[^`]+`\s+AS\s+/i, '')
+    .replace(/;\s*$/, '')
+    .trim();
+};
+

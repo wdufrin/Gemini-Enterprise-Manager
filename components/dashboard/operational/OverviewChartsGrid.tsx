@@ -31,7 +31,7 @@ import {
     ResponsiveContainer
 } from 'recharts';
 import { ViewControlHeader } from './ViewControlHeader';
-import { OPERATIONAL_VIEWS } from './analyticsData';
+import { OPERATIONAL_VIEWS, DataSourceMode, rewriteViewQueryToMainTables } from './analyticsData';
 import { CHARTS_METADATA } from './analyticsMetadata';
 import { MetricInfoTooltip } from './MetricInfoTooltip';
 
@@ -62,6 +62,9 @@ const EmptyChartState: React.FC<{ message?: string; subtext?: string }> = ({
 
 interface OverviewChartsGridProps {
     showView: (id: string) => boolean;
+    dataSourceMode?: DataSourceMode;
+    availableMainTables?: Set<string>;
+    onSwitchToMainTables?: () => void;
     installedViews: Set<string>;
     installedViewsMap: Map<string, string>;
     operatingViewId: string | null;
@@ -84,6 +87,9 @@ interface OverviewChartsGridProps {
 
 export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
     showView,
+    dataSourceMode = 'views',
+    availableMainTables = new Set(),
+    onSwitchToMainTables,
     installedViews,
     installedViewsMap,
     operatingViewId,
@@ -103,6 +109,7 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
     aiChoicesData,
     agentFeedbackData,
 }) => {
+    const targetDataset = datasetId || 'your_dataset';
     return (
         <div className="space-y-6">
             {/* Section 1: User Activity */}
@@ -119,8 +126,18 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                         errorMessage={brokenViews.get('v_consolidated_user_activity')}
                         onCreate={() => handleCreateView('v_consolidated_user_activity')}
                         onDrop={() => handleDropView('v_consolidated_user_activity')}
-                        ddlQuery={OPERATIONAL_VIEWS.v_consolidated_user_activity.getDdl(projectId, datasetId || 'your_dataset', tableNames)}
-                        selectQuery={OPERATIONAL_VIEWS.v_consolidated_user_activity.getQuery(projectId, datasetId || 'your_dataset')}
+                        ddlQuery={OPERATIONAL_VIEWS.v_consolidated_user_activity.getDdl(projectId, targetDataset, tableNames)}
+                        selectQuery={OPERATIONAL_VIEWS.v_consolidated_user_activity.getQuery(projectId, targetDataset)}
+                        dataSourceMode={dataSourceMode}
+                        hasMainTable={availableMainTables.has('v_consolidated_user_activity')}
+                        directSelectQuery={rewriteViewQueryToMainTables(
+                            OPERATIONAL_VIEWS.v_consolidated_user_activity.getQuery(projectId, targetDataset),
+                            'v_consolidated_user_activity',
+                            projectId,
+                            targetDataset,
+                            tableNames
+                        )}
+                        onSwitchToMainTables={onSwitchToMainTables}
                     />
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2">
@@ -228,8 +245,18 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                         errorMessage={brokenViews.get('v_gemini_genai_telemetry')}
                         onCreate={() => handleCreateView('v_gemini_genai_telemetry')}
                         onDrop={() => handleDropView('v_gemini_genai_telemetry')}
-                        ddlQuery={OPERATIONAL_VIEWS.v_gemini_genai_telemetry.getDdl(projectId, datasetId || 'your_dataset', tableNames)}
-                        selectQuery={OPERATIONAL_VIEWS.v_gemini_genai_telemetry.getQuery(projectId, datasetId || 'your_dataset')}
+                        ddlQuery={OPERATIONAL_VIEWS.v_gemini_genai_telemetry.getDdl(projectId, targetDataset, tableNames)}
+                        selectQuery={OPERATIONAL_VIEWS.v_gemini_genai_telemetry.getQuery(projectId, targetDataset)}
+                        dataSourceMode={dataSourceMode}
+                        hasMainTable={availableMainTables.has('v_gemini_genai_telemetry')}
+                        directSelectQuery={rewriteViewQueryToMainTables(
+                            OPERATIONAL_VIEWS.v_gemini_genai_telemetry.getQuery(projectId, targetDataset),
+                            'v_gemini_genai_telemetry',
+                            projectId,
+                            targetDataset,
+                            tableNames
+                        )}
+                        onSwitchToMainTables={onSwitchToMainTables}
                     />
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
@@ -331,8 +358,18 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                         errorMessage={brokenViews.get('v_user_connector_usage_30d')}
                         onCreate={() => handleCreateView('v_user_connector_usage_30d')}
                         onDrop={() => handleDropView('v_user_connector_usage_30d')}
-                        ddlQuery={OPERATIONAL_VIEWS.v_user_connector_usage_30d.getDdl(projectId, datasetId || 'your_dataset', tableNames)}
-                        selectQuery={OPERATIONAL_VIEWS.v_user_connector_usage_30d.getQuery(projectId, datasetId || 'your_dataset')}
+                        ddlQuery={OPERATIONAL_VIEWS.v_user_connector_usage_30d.getDdl(projectId, targetDataset, tableNames)}
+                        selectQuery={OPERATIONAL_VIEWS.v_user_connector_usage_30d.getQuery(projectId, targetDataset)}
+                        dataSourceMode={dataSourceMode}
+                        hasMainTable={availableMainTables.has('v_user_connector_usage_30d')}
+                        directSelectQuery={rewriteViewQueryToMainTables(
+                            OPERATIONAL_VIEWS.v_user_connector_usage_30d.getQuery(projectId, targetDataset),
+                            'v_user_connector_usage_30d',
+                            projectId,
+                            targetDataset,
+                            tableNames
+                        )}
+                        onSwitchToMainTables={onSwitchToMainTables}
                     />
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
@@ -426,8 +463,18 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                         errorMessage={brokenViews.get('v_consolidated_ai_choices')}
                         onCreate={() => handleCreateView('v_consolidated_ai_choices')}
                         onDrop={() => handleDropView('v_consolidated_ai_choices')}
-                        ddlQuery={OPERATIONAL_VIEWS.v_consolidated_ai_choices.getDdl(projectId, datasetId || 'your_dataset', tableNames)}
-                        selectQuery={OPERATIONAL_VIEWS.v_consolidated_ai_choices.getQuery(projectId, datasetId || 'your_dataset')}
+                        ddlQuery={OPERATIONAL_VIEWS.v_consolidated_ai_choices.getDdl(projectId, targetDataset, tableNames)}
+                        selectQuery={OPERATIONAL_VIEWS.v_consolidated_ai_choices.getQuery(projectId, targetDataset)}
+                        dataSourceMode={dataSourceMode}
+                        hasMainTable={availableMainTables.has('v_consolidated_ai_choices')}
+                        directSelectQuery={rewriteViewQueryToMainTables(
+                            OPERATIONAL_VIEWS.v_consolidated_ai_choices.getQuery(projectId, targetDataset),
+                            'v_consolidated_ai_choices',
+                            projectId,
+                            targetDataset,
+                            tableNames
+                        )}
+                        onSwitchToMainTables={onSwitchToMainTables}
                     />
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
@@ -516,8 +563,18 @@ export const OverviewChartsGrid: React.FC<OverviewChartsGridProps> = ({
                         errorMessage={brokenViews.get('v_agent_feedback')}
                         onCreate={() => handleCreateView('v_agent_feedback')}
                         onDrop={() => handleDropView('v_agent_feedback')}
-                        ddlQuery={OPERATIONAL_VIEWS.v_agent_feedback.getDdl(projectId, datasetId || 'your_dataset', tableNames)}
-                        selectQuery={OPERATIONAL_VIEWS.v_agent_feedback.getQuery(projectId, datasetId || 'your_dataset')}
+                        ddlQuery={OPERATIONAL_VIEWS.v_agent_feedback.getDdl(projectId, targetDataset, tableNames)}
+                        selectQuery={OPERATIONAL_VIEWS.v_agent_feedback.getQuery(projectId, targetDataset)}
+                        dataSourceMode={dataSourceMode}
+                        hasMainTable={availableMainTables.has('v_agent_feedback')}
+                        directSelectQuery={rewriteViewQueryToMainTables(
+                            OPERATIONAL_VIEWS.v_agent_feedback.getQuery(projectId, targetDataset),
+                            'v_agent_feedback',
+                            projectId,
+                            targetDataset,
+                            tableNames
+                        )}
+                        onSwitchToMainTables={onSwitchToMainTables}
                     />
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">

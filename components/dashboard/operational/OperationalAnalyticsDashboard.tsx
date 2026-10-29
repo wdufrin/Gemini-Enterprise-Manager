@@ -40,6 +40,9 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
 }) => {
     const {
         activeViewId,
+        dataSourceMode,
+        availableMainTables,
+        isViewLive,
         selectedCategory,
         operatingViewId,
         actionMessage,
@@ -71,6 +74,7 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
         tokensTrackedStr,
         activeConnectorsCount,
         handleViewChange,
+        handleDataSourceModeChange,
         handleCreateView,
         handleDropView,
         handleRepairAllBrokenViews,
@@ -111,9 +115,15 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                             <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-900/50 text-blue-300 border border-blue-700">
                                 Recharts Native
                             </span>
-                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 font-mono">
-                                11 Dedicated Views
-                            </span>
+                            {dataSourceMode === 'tables' ? (
+                                <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-cyan-950/60 text-cyan-300 border border-cyan-800/60 font-mono">
+                                    11 Direct Table Feeds
+                                </span>
+                            ) : (
+                                <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 font-mono">
+                                    11 Dedicated Views
+                                </span>
+                            )}
                             {liveDataLoading && (
                                 <span
                                     data-testid="operational-query-running-badge"
@@ -126,24 +136,43 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                         </div>
                         <div className="text-xs text-gray-400 mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-1">
                             {datasetId ? (
-                                <>
-                                    <span>
-                                        Target BigQuery Dataset:{' '}
-                                        <code className="text-green-400 font-mono font-semibold">{datasetId}</code> (
-                                        <strong className={installedViews.size > 0 ? 'text-emerald-400' : 'text-amber-400'}>
-                                            {installedViews.size} of 11 Views deployed
-                                        </strong>
-                                        )
-                                    </span>
-                                    {installedViews.size < 11 && (
-                                        <span className="text-amber-300/90 flex items-center gap-1 font-medium">
+                                dataSourceMode === 'tables' ? (
+                                    <>
+                                        <span>
+                                            Target BigQuery Dataset:{' '}
+                                            <code className="text-green-400 font-mono font-semibold">{datasetId}</code> (
+                                            <strong className={availableMainTables.size > 0 ? 'text-cyan-300' : 'text-amber-400'}>
+                                                {availableMainTables.size} of 11 Analytics Feeds backed by Main Sink Tables
+                                            </strong>
+                                            )
+                                        </span>
+                                        <span className="text-cyan-300/90 flex items-center gap-1 font-medium">
                                             <span>•</span>
                                             <span>
-                                                Views labeled <strong className="text-amber-300">MOCK</strong> display simulated data until created in this dataset.
+                                                Querying base Cloud Logging sink tables directly — no <code className="font-mono">CREATE VIEW</code> permission required.
                                             </span>
                                         </span>
-                                    )}
-                                </>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span>
+                                            Target BigQuery Dataset:{' '}
+                                            <code className="text-green-400 font-mono font-semibold">{datasetId}</code> (
+                                            <strong className={installedViews.size > 0 ? 'text-emerald-400' : 'text-amber-400'}>
+                                                {installedViews.size} of 11 Views deployed
+                                            </strong>
+                                            )
+                                        </span>
+                                        {installedViews.size < 11 && (
+                                            <span className="text-amber-300/90 flex items-center gap-1 font-medium">
+                                                <span>•</span>
+                                                <span>
+                                                    Views labeled <strong className="text-amber-300">MOCK</strong> display simulated data until created in this dataset (or toggle to <strong className="text-cyan-300">Main Tables</strong> to query without views).
+                                                </span>
+                                            </span>
+                                        )}
+                                    </>
+                                )
                             ) : (
                                 'No BigQuery dataset identified from log sinks. Showing offline mock analytics.'
                             )}
@@ -152,7 +181,74 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
 
                     {/* View Switcher & Schema Validation Controls */}
                     <div className="flex items-center gap-2.5 flex-wrap self-start md:self-center">
-                        {datasetId && (
+                        {/* Query Source Mode Toggle Switch: Views (v_*) vs Main Tables */}
+                        <div
+                            aria-label="BigQuery Query Source Mode"
+                            className="inline-flex items-center gap-2 bg-gray-900 px-3 py-1.5 rounded-lg border border-gray-700 select-none"
+                        >
+                            <button
+                                type="button"
+                                data-testid="datasource-mode-views"
+                                onClick={() => handleDataSourceModeChange('views')}
+                                className={`text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                                    dataSourceMode === 'views'
+                                        ? 'text-emerald-400'
+                                        : 'text-gray-400 hover:text-gray-200'
+                                }`}
+                                title="Query pre-built v_* views in BigQuery"
+                            >
+                                <span>Views (v_*)</span>
+                                <span className="text-[10px] font-mono px-1 rounded bg-gray-800 border border-gray-700 text-gray-300">
+                                    {installedViews.size}/11
+                                </span>
+                            </button>
+
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={dataSourceMode === 'tables'}
+                                aria-label="Toggle between Views and Main Tables"
+                                data-testid="datasource-mode-toggle"
+                                onClick={() =>
+                                    handleDataSourceModeChange(
+                                        dataSourceMode === 'views' ? 'tables' : 'views'
+                                    )
+                                }
+                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-cyan-500/60 ${
+                                    dataSourceMode === 'tables' ? 'bg-cyan-600' : 'bg-emerald-600'
+                                }`}
+                                title={
+                                    dataSourceMode === 'tables'
+                                        ? 'Currently querying Main Tables directly (click to switch to Views)'
+                                        : 'Currently querying Views (click to switch to Main Tables)'
+                                }
+                            >
+                                <span
+                                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                        dataSourceMode === 'tables' ? 'translate-x-4' : 'translate-x-0'
+                                    }`}
+                                />
+                            </button>
+
+                            <button
+                                type="button"
+                                data-testid="datasource-mode-tables"
+                                onClick={() => handleDataSourceModeChange('tables')}
+                                className={`text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                                    dataSourceMode === 'tables'
+                                        ? 'text-cyan-300'
+                                        : 'text-gray-400 hover:text-gray-200'
+                                }`}
+                                title="Query main Cloud Logging sink tables directly without creating views"
+                            >
+                                <span>Main Tables</span>
+                                <span className="text-[10px] font-mono px-1 rounded bg-gray-800 border border-gray-700 text-gray-300">
+                                    {availableMainTables.size}/11
+                                </span>
+                            </button>
+                        </div>
+
+                        {datasetId && dataSourceMode !== 'tables' && (
                             <button
                                 type="button"
                                 disabled={isValidatingSchema}
@@ -213,14 +309,17 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                                 {VIEW_CATEGORIES.filter(cat => cat.title !== 'Dashboard').map((category) => (
                                     <optgroup key={category.title} label={`── ${category.title} ──`} className="bg-gray-800 text-gray-400 font-semibold">
                                         {category.items.map((item) => {
-                                            const isInstalled = installedViews.has(item.id);
+                                            const isLiveItem = isViewLive(item.id);
+                                            const statusLabel = dataSourceMode === 'tables'
+                                                ? (isLiveItem ? 'Live Table' : 'Mock')
+                                                : (isLiveItem ? 'Live' : 'Mock');
                                             return (
                                                 <option
                                                     key={item.id}
                                                     value={item.id}
                                                     className="bg-gray-900 text-gray-100 py-1"
                                                 >
-                                                    {isInstalled ? '🟢 ' : '🟡 '}{item.title} [{isInstalled ? 'Live' : 'Mock'}]
+                                                    {isLiveItem ? '🟢 ' : '🟡 '}{item.title} [{statusLabel}]
                                                 </option>
                                             );
                                         })}
@@ -279,8 +378,8 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                     </div>
                 )}
 
-                {/* Schema & View Health Validation Report */}
-                {schemaValidationReport && (
+                {/* Schema & View Health Validation Report (Views mode only) */}
+                {dataSourceMode !== 'tables' && schemaValidationReport && (
                     <div
                         data-testid="schema-validation-report"
                         className={`mt-4 p-4 rounded-lg border text-xs space-y-3 ${
@@ -394,10 +493,17 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                         </div>
 
                         <div className="text-[11px] text-gray-400 font-mono hidden sm:flex items-center gap-3">
-                            <span className="flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
-                                Live View
-                            </span>
+                            {dataSourceMode === 'tables' ? (
+                                <span className="flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block"></span>
+                                    Live Main Table
+                                </span>
+                            ) : (
+                                <span className="flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                                    Live View
+                                </span>
+                            )}
                             <span className="flex items-center gap-1.5">
                                 <span className="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>
                                 Mock Fallback
@@ -425,7 +531,7 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                     </div>
                 )}
 
-                {brokenViews.size > 0 && (
+                {dataSourceMode !== 'tables' && brokenViews.size > 0 && (
                     <div className="mt-4 p-3.5 bg-amber-950/40 border border-amber-800/80 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-200">
                         <div className="flex items-center gap-3">
                             <svg className="w-5 h-5 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -478,6 +584,9 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                             projectId={projectId}
                             datasetId={datasetId}
                             tableNames={tableNames}
+                            dataSourceMode={dataSourceMode}
+                            availableMainTables={availableMainTables}
+                            onSwitchToMainTables={() => handleDataSourceModeChange('tables')}
                             dailyActivityData={dailyActivityData}
                             agentPopularityData={agentPopularityData}
                             genaiTokensData={genaiTokensData}
@@ -506,7 +615,9 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
 
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
                                 {Object.values(OPERATIONAL_VIEWS).map((vDef) => {
-                                    const isDepl = installedViews.has(vDef.id);
+                                    const isLiveSource = isViewLive(vDef.id);
+                                    const isDirectTable =
+                                        dataSourceMode === 'tables' && availableMainTables.has(vDef.id);
                                     const sourceTables = getViewSourceTables(vDef.id);
                                     return (
                                         <div
@@ -519,7 +630,11 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                                                     <span className="text-[10px] uppercase font-semibold text-blue-400 font-mono tracking-wider">
                                                         {vDef.category}
                                                     </span>
-                                                    {isDepl ? (
+                                                    {isDirectTable ? (
+                                                        <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 uppercase">
+                                                            LIVE TABLE
+                                                        </span>
+                                                    ) : isLiveSource ? (
                                                         <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 uppercase">
                                                             LIVE
                                                         </span>
@@ -579,7 +694,7 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                             (!viewRows[activeViewId] || viewRows[activeViewId].length === 0)
                                 ? FALLBACK_SNAPSHOT.rows[activeViewId] || []
                                 : viewRows[activeViewId] ||
-                                  (installedViews.has(activeViewId)
+                                  (isViewLive(activeViewId)
                                       ? []
                                       : FALLBACK_SNAPSHOT.rows[activeViewId] || [])
                         }
@@ -590,6 +705,9 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                         operatingViewId={operatingViewId}
                         brokenViews={brokenViews}
                         tableNames={tableNames}
+                        dataSourceMode={dataSourceMode}
+                        availableMainTables={availableMainTables}
+                        onSwitchToMainTables={() => handleDataSourceModeChange('tables')}
                         onCreateView={handleCreateView}
                         onDropView={handleDropView}
                         onBackToOverview={() => handleViewChange('overview')}

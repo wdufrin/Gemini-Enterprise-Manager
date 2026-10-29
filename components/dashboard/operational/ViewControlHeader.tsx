@@ -16,6 +16,10 @@ interface Props {
     ddlQuery: string;
     selectQuery?: string;
     sourceTables?: string[];
+    dataSourceMode?: 'views' | 'tables';
+    hasMainTable?: boolean;
+    directSelectQuery?: string;
+    onSwitchToMainTables?: () => void;
 }
 
 export const ViewControlHeader: React.FC<Props> = ({
@@ -31,10 +35,15 @@ export const ViewControlHeader: React.FC<Props> = ({
     onDrop,
     ddlQuery,
     selectQuery,
-    sourceTables
+    sourceTables,
+    dataSourceMode = 'views',
+    hasMainTable = false,
+    directSelectQuery,
+    onSwitchToMainTables
 }) => {
     const [showTooltip, setShowTooltip] = useState(false);
     const [copiedDdl, setCopiedDdl] = useState(false);
+    const [copiedDirectSql, setCopiedDirectSql] = useState(false);
     const [showConfirmDrop, setShowConfirmDrop] = useState(false);
     const tooltipRef = useRef<HTMLDivElement>(null);
 
@@ -45,6 +54,13 @@ export const ViewControlHeader: React.FC<Props> = ({
         navigator.clipboard.writeText(ddlQuery);
         setCopiedDdl(true);
         setTimeout(() => setCopiedDdl(false), 2000);
+    };
+
+    const handleCopyDirectSql = () => {
+        if (!directSelectQuery) return;
+        navigator.clipboard.writeText(directSelectQuery);
+        setCopiedDirectSql(true);
+        setTimeout(() => setCopiedDirectSql(false), 2000);
     };
 
     useEffect(() => {
@@ -67,7 +83,27 @@ export const ViewControlHeader: React.FC<Props> = ({
             <div>
                 <div className="flex items-center gap-2">
                     <h3 className="text-base font-semibold text-white tracking-tight">{title}</h3>
-                    {isInstalled && !isBroken ? (
+                    {dataSourceMode === 'tables' ? (
+                        hasMainTable && !isBroken ? (
+                            <span
+                                data-testid="live-main-table-badge"
+                                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-cyan-500/15 text-cyan-300 border border-cyan-500/40"
+                            >
+                                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                                Live Main Table
+                            </span>
+                        ) : isBroken ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/40 tracking-wider" title={errorMessage || 'Main table query failed in BigQuery'}>
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                                QUERY ERROR
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/40 tracking-wider">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                MOCK
+                            </span>
+                        )
+                    ) : isInstalled && !isBroken ? (
                         <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                             Live View
@@ -118,17 +154,51 @@ export const ViewControlHeader: React.FC<Props> = ({
                     </div>
                 )}
 
-                {!isInstalled && (
-                    <div className="mt-2 flex items-center justify-between bg-amber-950/20 border border-amber-800/40 rounded px-2.5 py-1 text-xs text-amber-300/90">
-                        <span>
-                            Showing <strong>MOCK</strong> data because <code className="font-mono text-amber-300 font-bold">{viewName}</code> is not in <strong>{datasetId || 'selected source'}</strong>. Add the view to populate live data.
-                        </span>
-                    </div>
+                {dataSourceMode === 'tables' ? (
+                    hasMainTable && !isBroken ? (
+                        <div className="mt-2 flex items-center justify-between bg-cyan-950/25 border border-cyan-800/40 rounded px-2.5 py-1 text-xs text-cyan-300/90">
+                            <span>
+                                Querying main Cloud Logging sink table(s) directly in <strong>{datasetId || 'selected source'}</strong> (no <code className="font-mono">CREATE VIEW</code> permission required).
+                            </span>
+                        </div>
+                    ) : !hasMainTable ? (
+                        <div className="mt-2 flex items-center justify-between bg-amber-950/20 border border-amber-800/40 rounded px-2.5 py-1 text-xs text-amber-300/90">
+                            <span>
+                                Showing <strong>MOCK</strong> data because the underlying base sink table for <code className="font-mono text-amber-300 font-bold">{viewName}</code> was not found in <strong>{datasetId || 'selected source'}</strong>.
+                            </span>
+                        </div>
+                    ) : null
+                ) : (
+                    !isInstalled && (
+                        <div className="mt-2 flex items-center justify-between gap-2 flex-wrap bg-amber-950/20 border border-amber-800/40 rounded px-2.5 py-1 text-xs text-amber-300/90">
+                            <span>
+                                Showing <strong>MOCK</strong> data because <code className="font-mono text-amber-300 font-bold">{viewName}</code> is not in <strong>{datasetId || 'selected source'}</strong>. Add the view to populate live data.
+                            </span>
+                            {hasMainTable && onSwitchToMainTables && (
+                                <button
+                                    type="button"
+                                    data-testid="switch-to-main-tables-btn"
+                                    onClick={onSwitchToMainTables}
+                                    className="px-2 py-0.5 rounded bg-cyan-900/60 hover:bg-cyan-800/80 text-cyan-200 border border-cyan-700/70 text-[11px] font-semibold transition-colors shrink-0"
+                                >
+                                    Query Main Tables Directly
+                                </button>
+                            )}
+                        </div>
+                    )
                 )}
                 {isBroken && (
                     <div className="mt-2 flex items-center justify-between bg-rose-950/20 border border-rose-800/40 rounded px-2.5 py-1 text-xs text-rose-300/90">
                         <span>
-                            Existing view <code className="font-mono text-rose-300 font-bold">{viewName}</code> failed in BigQuery ({errorMessage || 'schema mismatch or invalid definition'}). Using base tables or mock data.
+                            {dataSourceMode === 'tables' ? (
+                                <>
+                                    Direct query on base table for <code className="font-mono text-rose-300 font-bold">{viewName}</code> failed in BigQuery ({errorMessage || 'query execution error'}).
+                                </>
+                            ) : (
+                                <>
+                                    Existing view <code className="font-mono text-rose-300 font-bold">{viewName}</code> failed in BigQuery ({errorMessage || 'schema mismatch or invalid definition'}). Using base tables or mock data.
+                                </>
+                            )}
                         </span>
                     </div>
                 )}
@@ -164,119 +234,148 @@ export const ViewControlHeader: React.FC<Props> = ({
                                 <span className="font-semibold text-blue-400 font-mono">
                                     {viewName}
                                 </span>
-                                <button
-                                    type="button"
-                                    onClick={handleCopyDdl}
-                                    className="px-2 py-1 text-[11px] font-medium bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-600 rounded transition-colors"
-                                >
-                                    {copiedDdl ? 'Copied DDL!' : 'Copy CREATE VIEW SQL'}
-                                </button>
-                            </div>
-                            <div className="mb-2">
-                                <span className="text-[11px] text-gray-400 uppercase tracking-wider font-semibold">
-                                    View DDL (Creates `{viewName}`)
-                                </span>
-                                <div className="max-h-48 overflow-y-auto mt-1 bg-gray-950 p-2.5 rounded border border-gray-800 font-mono text-[10px] text-gray-300 whitespace-pre-wrap break-all">
-                                    {ddlQuery}
+                                <div className="flex items-center gap-1.5">
+                                    {directSelectQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={handleCopyDirectSql}
+                                            className="px-2 py-1 text-[11px] font-medium bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-700 rounded transition-colors"
+                                        >
+                                            {copiedDirectSql ? 'Copied Main SQL!' : 'Copy Main Table SQL'}
+                                        </button>
+                                    )}
+                                    {dataSourceMode !== 'tables' && (
+                                        <button
+                                            type="button"
+                                            onClick={handleCopyDdl}
+                                            className="px-2 py-1 text-[11px] font-medium bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-600 rounded transition-colors"
+                                        >
+                                            {copiedDdl ? 'Copied DDL!' : 'Copy CREATE VIEW SQL'}
+                                        </button>
+                                    )}
                                 </div>
                             </div>
-                            {selectQuery && (
-                                <div>
-                                    <span className="text-[11px] text-gray-400 uppercase tracking-wider font-semibold">
-                                        Data Query
+                            {directSelectQuery && (
+                                <div className="mb-2">
+                                    <span className="text-[11px] text-cyan-400 uppercase tracking-wider font-semibold">
+                                        Direct Main Table Query (No View Required)
                                     </span>
-                                    <div className="max-h-36 overflow-y-auto mt-1 bg-gray-950 p-2.5 rounded border border-gray-800 font-mono text-[10px] text-gray-300 whitespace-pre-wrap break-all">
-                                        {selectQuery}
+                                    <div className="max-h-48 overflow-y-auto mt-1 bg-gray-950 p-2.5 rounded border border-cyan-900/60 font-mono text-[10px] text-gray-300 whitespace-pre-wrap break-all">
+                                        {directSelectQuery}
                                     </div>
                                 </div>
+                            )}
+                            {dataSourceMode !== 'tables' && (
+                                <>
+                                    <div className="mb-2">
+                                        <span className="text-[11px] text-gray-400 uppercase tracking-wider font-semibold">
+                                            View DDL (Creates `{viewName}`)
+                                        </span>
+                                        <div className="max-h-48 overflow-y-auto mt-1 bg-gray-950 p-2.5 rounded border border-gray-800 font-mono text-[10px] text-gray-300 whitespace-pre-wrap break-all">
+                                            {ddlQuery}
+                                        </div>
+                                    </div>
+                                    {selectQuery && (
+                                        <div>
+                                            <span className="text-[11px] text-gray-400 uppercase tracking-wider font-semibold">
+                                                Data Query
+                                            </span>
+                                            <div className="max-h-36 overflow-y-auto mt-1 bg-gray-950 p-2.5 rounded border border-gray-800 font-mono text-[10px] text-gray-300 whitespace-pre-wrap break-all">
+                                                {selectQuery}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     )}
                 </div>
 
-                {/* Create or Drop View Button */}
-                {isBroken ? (
-                    <div className="flex items-center gap-1.5">
+                {/* Create or Drop View Button (Hidden in Main Tables mode) */}
+                {dataSourceMode !== 'tables' && (
+                    isBroken ? (
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                type="button"
+                                disabled={isOperating || !datasetId}
+                                onClick={onCreate}
+                                className="px-2.5 py-1 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-500 rounded border border-amber-500 shadow-sm transition-all flex items-center gap-1 disabled:opacity-50"
+                                title={`Recreate view ${viewName} in ${datasetId || ''}`}
+                            >
+                                {isOperating ? 'Recreating...' : 'Recreate View'}
+                            </button>
+                            <button
+                                type="button"
+                                disabled={isOperating || !datasetId}
+                                onClick={onDrop}
+                                className="px-2 py-1 text-xs font-medium text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-red-900/20 border border-gray-700 hover:border-red-800/50 rounded transition-colors"
+                                title={`Drop broken view ${viewName}`}
+                            >
+                                Drop
+                            </button>
+                        </div>
+                    ) : isInstalled ? (
+                        <div className="relative">
+                            {showConfirmDrop ? (
+                                <div className="flex items-center gap-1.5 bg-red-950/80 border border-red-800/80 px-2 py-1 rounded">
+                                    <span className="text-xs text-red-300">Drop view?</span>
+                                    <button
+                                        type="button"
+                                        disabled={isOperating}
+                                        onClick={() => {
+                                            setShowConfirmDrop(false);
+                                            onDrop();
+                                        }}
+                                        className="px-2 py-0.5 text-xs font-semibold bg-red-600 hover:bg-red-500 text-white rounded transition-colors disabled:opacity-50"
+                                    >
+                                        Yes
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowConfirmDrop(false)}
+                                        className="px-2 py-0.5 text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-300 rounded transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    disabled={isOperating || !datasetId}
+                                    onClick={() => setShowConfirmDrop(true)}
+                                    className="px-2.5 py-1 text-xs font-medium text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-red-900/20 border border-gray-700 hover:border-red-800/50 rounded transition-colors flex items-center gap-1 disabled:opacity-50"
+                                    title={`Drop ${viewName} from BigQuery`}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    Drop View
+                                </button>
+                            )}
+                        </div>
+                    ) : (
                         <button
                             type="button"
                             disabled={isOperating || !datasetId}
                             onClick={onCreate}
-                            className="px-2.5 py-1 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-500 rounded border border-amber-500 shadow-sm transition-all flex items-center gap-1 disabled:opacity-50"
-                            title={`Recreate view ${viewName} in ${datasetId || ''}`}
+                            className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded border border-blue-500 shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
+                            title={`Deploy ${viewName} into your BigQuery dataset ${datasetId || ''}`}
                         >
-                            {isOperating ? 'Recreating...' : 'Recreate View'}
+                            {isOperating ? (
+                                <>
+                                    <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                                    Creating...
+                                </>
+                            ) : (
+                                <>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                    </svg>
+                                    Add View to BigQuery
+                                </>
+                            )}
                         </button>
-                        <button
-                            type="button"
-                            disabled={isOperating || !datasetId}
-                            onClick={onDrop}
-                            className="px-2 py-1 text-xs font-medium text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-red-900/20 border border-gray-700 hover:border-red-800/50 rounded transition-colors"
-                            title={`Drop broken view ${viewName}`}
-                        >
-                            Drop
-                        </button>
-                    </div>
-                ) : isInstalled ? (
-                    <div className="relative">
-                        {showConfirmDrop ? (
-                            <div className="flex items-center gap-1.5 bg-red-950/80 border border-red-800/80 px-2 py-1 rounded">
-                                <span className="text-xs text-red-300">Drop view?</span>
-                                <button
-                                    type="button"
-                                    disabled={isOperating}
-                                    onClick={() => {
-                                        setShowConfirmDrop(false);
-                                        onDrop();
-                                    }}
-                                    className="px-2 py-0.5 text-xs font-semibold bg-red-600 hover:bg-red-500 text-white rounded transition-colors disabled:opacity-50"
-                                >
-                                    Yes
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowConfirmDrop(false)}
-                                    className="px-2 py-0.5 text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-300 rounded transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        ) : (
-                            <button
-                                type="button"
-                                disabled={isOperating || !datasetId}
-                                onClick={() => setShowConfirmDrop(true)}
-                                className="px-2.5 py-1 text-xs font-medium text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-red-900/20 border border-gray-700 hover:border-red-800/50 rounded transition-colors flex items-center gap-1 disabled:opacity-50"
-                                title={`Drop ${viewName} from BigQuery`}
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                                Drop View
-                            </button>
-                        )}
-                    </div>
-                ) : (
-                    <button
-                        type="button"
-                        disabled={isOperating || !datasetId}
-                        onClick={onCreate}
-                        className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded border border-blue-500 shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
-                        title={`Deploy ${viewName} into your BigQuery dataset ${datasetId || ''}`}
-                    >
-                        {isOperating ? (
-                            <>
-                                <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                                Creating...
-                            </>
-                        ) : (
-                            <>
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                </svg>
-                                Add View to BigQuery
-                            </>
-                        )}
-                    </button>
+                    )
                 )}
             </div>
         </div>

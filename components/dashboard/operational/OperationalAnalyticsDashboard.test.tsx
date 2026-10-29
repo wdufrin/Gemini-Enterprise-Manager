@@ -437,4 +437,198 @@ describe('OperationalAnalyticsDashboard', () => {
             );
         });
     });
+
+    it('toggles from Views mode to Main Tables mode and pulls overview metrics directly from raw Cloud Logging sink tables without views installed', async () => {
+        const rawSinkTablesOnly = [
+            { tableReference: { tableId: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260801' } },
+            { tableReference: { tableId: 'discoveryengine_googleapis_com_gen_ai_user_message_20260801' } },
+            { tableReference: { tableId: 'discoveryengine_googleapis_com_gen_ai_choice_20260801' } },
+            { tableReference: { tableId: 'discoveryengine_googleapis_com_gen_ai_client_inference_operation_details_20260801' } }
+        ];
+
+        render(
+            <OperationalAnalyticsDashboard
+                projectId="test-project"
+                projectNumber="123456"
+                datasetId="test_dataset"
+                tables={rawSinkTablesOnly}
+            />
+        );
+
+        // Initially in Views mode with zero v_* views installed -> all sections show MOCK and Add View buttons are visible
+        expect(screen.getAllByText('MOCK').length).toBeGreaterThanOrEqual(5);
+        expect(screen.getAllByRole('button', { name: /Add View to BigQuery/i }).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByRole('button', { name: /Validate Schemas & Views/i })).toBeInTheDocument();
+        expect(apiService.runBigQueryQuery).not.toHaveBeenCalled();
+
+        // Click the toggle switch in the header
+        const toggleSwitch = screen.getByTestId('datasource-mode-toggle');
+        expect(toggleSwitch).toHaveAttribute('aria-checked', 'false');
+        fireEvent.click(toggleSwitch);
+
+        expect(toggleSwitch).toHaveAttribute('aria-checked', 'true');
+        expect(sessionStorage.getItem('agentspace-observability-source-mode')).toBe('tables');
+
+        // Verify that Create/Drop/Validate View buttons are hidden in Main Tables mode
+        expect(screen.queryByRole('button', { name: /Add View to BigQuery/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Drop View/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Validate Schemas & Views/i })).not.toBeInTheDocument();
+
+        // Verify that Live Main Table badges appear and BigQuery queries run directly against the sink tables
+        await waitFor(() => {
+            const liveTableBadges = screen.getAllByTestId('live-main-table-badge');
+            expect(liveTableBadges.length).toBeGreaterThanOrEqual(5);
+            expect(apiService.runBigQueryQuery).toHaveBeenCalled();
+        });
+
+        const executedQueries = (apiService.runBigQueryQuery as any).mock.calls.map(
+            (call: [string, string]) => call[1]
+        );
+        expect(executedQueries.length).toBeGreaterThanOrEqual(5);
+        // None of the queries should execute CREATE VIEW or query uninstalled `v_*` views
+        for (const sql of executedQueries) {
+            expect(sql).not.toContain('CREATE OR REPLACE VIEW');
+            expect(sql).not.toContain('`test-project.test_dataset.v_');
+        }
+        expect(
+            executedQueries.some((sql: string) =>
+                sql.includes('`test-project.test_dataset.discoveryengine_googleapis_com_gemini_enterprise_user_activity_*`')
+            )
+        ).toBe(true);
+        expect(
+            executedQueries.some((sql: string) =>
+                sql.includes('`test-project.test_dataset.discoveryengine_googleapis_com_gen_ai_client_inference_operation_details_*`')
+            )
+        ).toBe(true);
+    });
+
+    it('queries v_user_connector_usage_30d in Main Tables mode by inlining v_user_connector_usage over the base user activity table and renders live rows', async () => {
+        const rawSinkTablesOnly = [
+            { tableReference: { tableId: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260801' } }
+        ];
+
+        (apiService.runBigQueryQuery as any).mockImplementation(async (_proj: string, sql: string) => {
+            if (sql.includes('LIMIT 100')) {
+                return {
+                    schema: {
+                        fields: [
+                            { name: 'user_email' },
+                            { name: 'connector_name' },
+                            { name: 'connector_type' },
+                            { name: 'usage_count' },
+                            { name: 'tools_used' },
+                            { name: 'first_used_at' },
+                            { name: 'last_used_at' }
+                        ]
+                    },
+                    rows: [
+                        {
+                            f: [
+                                { v: 'alice@example.com' },
+                                { v: 'jira_enterprise_prod' },
+                                { v: 'Search Data Source' },
+                                { v: '42' },
+                                { v: 'jira_search_tool' },
+                                { v: '2026-08-01T00:00:00Z' },
+                                { v: '2026-08-15T12:30:00Z' }
+                            ]
+                        }
+                    ]
+                };
+            }
+            return { rows: [] };
+        });
+
+        sessionStorage.setItem('agentspace-observability-source-mode', 'tables');
+
+        render(
+            <OperationalAnalyticsDashboard
+                projectId="test-project"
+                projectNumber="123456"
+                datasetId="test_dataset"
+                tables={rawSinkTablesOnly}
+            />
+        );
+
+        const viewSelect = screen.getByRole('combobox', { name: /Select Operational View/i });
+        fireEvent.change(viewSelect, { target: { value: 'v_user_connector_usage_30d' } });
+
+        // Wait for live row from the main table query to render in the DataTable
+        expect(await screen.findByText('alice@example.com')).toBeInTheDocument();
+        expect(screen.getAllByText('jira_enterprise_prod').length).toBeGreaterThanOrEqual(1);
+
+        // Ensure Add View / Drop View buttons are hidden in the individual view detail header as well
+        expect(screen.queryByRole('button', { name: /Add View to BigQuery/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Drop View/i })).not.toBeInTheDocument();
+
+        // Confirm the SQL inlined v_user_connector_usage directly from the base sink table without referencing `v_user_connector_usage` view
+        const rowQueryCall = (apiService.runBigQueryQuery as any).mock.calls.find(
+            (call: [string, string]) => call[1].includes('LIMIT 100')
+        );
+        expect(rowQueryCall).toBeDefined();
+        expect(rowQueryCall[1]).toContain(
+            '`test-project.test_dataset.discoveryengine_googleapis_com_gemini_enterprise_user_activity_*`'
+        );
+        expect(rowQueryCall[1]).not.toContain('`test-project.test_dataset.v_user_connector_usage`');
+        expect(rowQueryCall[1]).not.toContain('`test-project.test_dataset.v_user_connector_usage_30d`');
+    });
+
+    it('switches to Main Tables mode when clicking "Query Main Tables Directly" on an uninstalled view banner', async () => {
+        const rawSinkTablesOnly = [
+            { tableReference: { tableId: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260801' } }
+        ];
+
+        render(
+            <OperationalAnalyticsDashboard
+                projectId="test-project"
+                projectNumber="123456"
+                datasetId="test_dataset"
+                tables={rawSinkTablesOnly}
+            />
+        );
+
+        const shortcutButtons = screen.getAllByTestId('switch-to-main-tables-btn');
+        expect(shortcutButtons.length).toBeGreaterThanOrEqual(1);
+
+        fireEvent.click(shortcutButtons[0]);
+
+        await waitFor(() => {
+            expect(sessionStorage.getItem('agentspace-observability-source-mode')).toBe('tables');
+            expect(screen.getAllByTestId('live-main-table-badge').length).toBeGreaterThanOrEqual(1);
+            expect(apiService.runBigQueryQuery).toHaveBeenCalled();
+        });
+    });
+
+    it('surfaces QUERY ERROR and error details when a direct main table query fails in BigQuery without swallowing the error or showing view repair buttons', async () => {
+        const rawSinkTablesOnly = [
+            { tableReference: { tableId: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260801' } }
+        ];
+
+        (apiService.runBigQueryQuery as any).mockRejectedValue(
+            new Error('Access Denied: Table test-project:test_dataset.discoveryengine_googleapis_com_gemini_enterprise_user_activity_20260801: User does not have bigquery.tables.getData permission.')
+        );
+
+        sessionStorage.setItem('agentspace-observability-source-mode', 'tables');
+
+        render(
+            <OperationalAnalyticsDashboard
+                projectId="test-project"
+                projectNumber="123456"
+                datasetId="test_dataset"
+                tables={rawSinkTablesOnly}
+            />
+        );
+
+        await waitFor(() => {
+            expect(screen.getAllByText('QUERY ERROR').length).toBeGreaterThanOrEqual(1);
+            expect(
+                screen.getAllByText(/User does not have bigquery\.tables\.getData permission/i).length
+            ).toBeGreaterThanOrEqual(1);
+        });
+
+        // View repair/recreate buttons and banners should be hidden in Main Tables mode
+        expect(screen.queryByRole('button', { name: /Repair All Views/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Recreate View/i })).not.toBeInTheDocument();
+    });
 });
+

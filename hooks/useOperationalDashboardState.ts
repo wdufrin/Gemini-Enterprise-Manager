@@ -18,6 +18,9 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
     OPERATIONAL_VIEWS,
     FALLBACK_SNAPSHOT,
+    DataSourceMode,
+    hasMainTablesForView,
+    rewriteViewQueryToMainTables,
     toggleWildcardInDdl,
     getEmptyViewDdl
 } from '../components/dashboard/operational/analyticsData';
@@ -119,6 +122,18 @@ export function useOperationalDashboardState({
     };
 
     const [activeViewId, setActiveViewId] = useState<string>(getViewFromLocation);
+
+    const [dataSourceMode, setDataSourceModeState] = useState<DataSourceMode>(() => {
+        try {
+            const saved = sessionStorage.getItem('agentspace-observability-source-mode');
+            if (saved === 'tables' || saved === 'views') {
+                return saved;
+            }
+        } catch {
+            // Ignore storage error
+        }
+        return 'views';
+    });
 
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [operatingViewId, setOperatingViewId] = useState<string | null>(null);
@@ -339,6 +354,28 @@ export function useOperationalDashboardState({
         [currentDatasetTables]
     );
 
+    const availableMainTables = useMemo(() => {
+        const set = new Set<string>();
+        for (const viewId of Object.keys(OPERATIONAL_VIEWS)) {
+            if (hasMainTablesForView(viewId, tableNames)) {
+                set.add(viewId);
+            }
+        }
+        return set;
+    }, [tableNames]);
+
+    const handleDataSourceModeChange = useCallback((mode: DataSourceMode) => {
+        setDataSourceModeState(mode);
+        try {
+            sessionStorage.setItem('agentspace-observability-source-mode', mode);
+        } catch {
+            // Ignore storage error
+        }
+        setViewRows({});
+        brokenViewsRef.current = new Map();
+        setBrokenViews(new Map());
+    }, []);
+
     const executeCreateViewWithFallback = useCallback(
         async (targetViewId: string): Promise<{ usedEmptyFallback: boolean }> => {
             const viewDef = OPERATIONAL_VIEWS[targetViewId];
@@ -446,10 +483,52 @@ export function useOperationalDashboardState({
         [projectId, executeBigQueryWithPolling, executeCreateViewWithFallback]
     );
 
+    const queryOperationalSource = useCallback(
+        async (viewId: string, querySql: string, fallbackQuerySql?: string): Promise<BigQueryQueryResponse> => {
+            if (dataSourceMode === 'tables' && datasetId) {
+                const actualView = installedViewsMap.get(viewId) || viewId;
+                const directSql = rewriteViewQueryToMainTables(
+                    querySql,
+                    viewId,
+                    projectId,
+                    datasetId,
+                    tableNames,
+                    actualView
+                );
+                try {
+                    return await executeBigQueryWithPolling(projectId, directSql);
+                } catch (directErr) {
+                    const directMsg = toErrorMessage(directErr);
+                    if (isMissingSourceTableError(directMsg)) {
+                        const altDirectSql = toggleWildcardInDdl(directSql);
+                        if (altDirectSql && altDirectSql !== directSql) {
+                            return await executeBigQueryWithPolling(projectId, altDirectSql);
+                        }
+                    }
+                    throw directErr;
+                }
+            }
+            return queryViewWithAutoRepair(viewId, querySql, fallbackQuerySql);
+        },
+        [
+            dataSourceMode,
+            datasetId,
+            installedViewsMap,
+            projectId,
+            tableNames,
+            executeBigQueryWithPolling,
+            queryViewWithAutoRepair
+        ]
+    );
+
     const fetchViewRows = useCallback(
         async (viewId: string) => {
             if (!projectId || !datasetId || !OPERATIONAL_VIEWS[viewId]) return;
-            if (currentDatasetTables.length > 0 && !installedViews.has(viewId)) {
+            const hasSourceInMode =
+                dataSourceMode === 'tables'
+                    ? availableMainTables.has(viewId)
+                    : installedViews.has(viewId);
+            if (currentDatasetTables.length > 0 && !hasSourceInMode) {
                 setViewRows((prev) => ({ ...prev, [viewId]: FALLBACK_SNAPSHOT.rows[viewId] || [] }));
                 return;
             }
@@ -460,7 +539,7 @@ export function useOperationalDashboardState({
                 const actualQuery = actualView !== viewId
                     ? query.replace(new RegExp(`\\.${viewId}\`?`, 'g'), `.${actualView}\``)
                     : query;
-                const res = await queryViewWithAutoRepair(viewId, actualQuery, query);
+                const res = await queryOperationalSource(viewId, actualQuery, query);
                 const fields = res?.schema?.fields || [];
                 const rows = (res?.rows || []).map((r: BigQueryTableRow) => {
                     const obj: Record<string, unknown> = {};
@@ -494,7 +573,16 @@ export function useOperationalDashboardState({
                 setRowsLoading((prev) => ({ ...prev, [viewId]: false }));
             }
         },
-        [projectId, datasetId, currentDatasetTables.length, installedViews, installedViewsMap, queryViewWithAutoRepair]
+        [
+            projectId,
+            datasetId,
+            dataSourceMode,
+            availableMainTables,
+            currentDatasetTables.length,
+            installedViews,
+            installedViewsMap,
+            queryOperationalSource
+        ]
     );
 
     useEffect(() => {
@@ -507,13 +595,28 @@ export function useOperationalDashboardState({
         if (!projectId || !datasetId) return;
 
         const tasks: Array<{ label: string; run: () => Promise<void> }> = [];
+        const canQueryView = (viewId: string): boolean => {
+            if (brokenViewsRef.current.has(viewId)) return false;
+            if (dataSourceMode === 'tables') {
+                return availableMainTables.has(viewId);
+            }
+            return installedViews.has(viewId) && !droppedViewsRef.current.has(viewId);
+        };
+
+        const handleQueryError = (viewId: string, err: unknown) => {
+            const rawMsg = err instanceof Error ? err.message : String(err);
+            const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
+            if (dataSourceMode === 'views' && isNotFoundError(shortMsg)) {
+                droppedViewsRef.current.add(viewId);
+                setDroppedViews((prev) => new Set(prev).add(viewId));
+            } else {
+                brokenViewsRef.current.set(viewId, shortMsg || 'Query error');
+                setBrokenViews((prev) => new Map(prev).set(viewId, shortMsg || 'Query error'));
+            }
+        };
 
         // 1. User Activity View
-        if (
-            installedViews.has('v_consolidated_user_activity') &&
-            !droppedViewsRef.current.has('v_consolidated_user_activity') &&
-            !brokenViewsRef.current.has('v_consolidated_user_activity')
-        ) {
+        if (canQueryView('v_consolidated_user_activity')) {
             const actualView = installedViewsMap.get('v_consolidated_user_activity') || 'v_consolidated_user_activity';
             tasks.push({
                 label: 'User Activity & Agent Popularity',
@@ -522,7 +625,7 @@ export function useOperationalDashboardState({
                         const queryDaily = `SELECT CAST(event_time AS DATE) as dt, COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             GROUP BY dt ORDER BY dt ASC;`;
-                        const res = await queryViewWithAutoRepair('v_consolidated_user_activity', queryDaily);
+                        const res = await queryOperationalSource('v_consolidated_user_activity', queryDaily);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedDaily = rows.map((r: BigQueryTableRow) => ({
                             date: String(r.f?.[0]?.v || ''),
@@ -535,7 +638,7 @@ export function useOperationalDashboardState({
                             COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             GROUP BY agent ORDER BY cnt DESC LIMIT 6;`;
-                        const resAgents = await queryViewWithAutoRepair('v_consolidated_user_activity', queryAgents);
+                        const resAgents = await queryOperationalSource('v_consolidated_user_activity', queryAgents);
                         const parsedAgents = ((resAgents?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
                             name: String(r.f?.[0]?.v || 'Default'),
                             value: parseInt(String(r.f?.[1]?.v || '0'), 10)
@@ -548,26 +651,14 @@ export function useOperationalDashboardState({
                             return next;
                         });
                     } catch (err: unknown) {
-                        const rawMsg = err instanceof Error ? err.message : String(err);
-                        const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
-                        if (isNotFoundError(shortMsg)) {
-                            droppedViewsRef.current.add('v_consolidated_user_activity');
-                            setDroppedViews((prev) => new Set(prev).add('v_consolidated_user_activity'));
-                        } else {
-                            brokenViewsRef.current.set('v_consolidated_user_activity', shortMsg || 'Query error');
-                            setBrokenViews((prev) => new Map(prev).set('v_consolidated_user_activity', shortMsg || 'Query error'));
-                        }
+                        handleQueryError('v_consolidated_user_activity', err);
                     }
                 }
             });
         }
 
         // 2. GenAI Telemetry & Tokens View
-        if (
-            installedViews.has('v_gemini_genai_telemetry') &&
-            !droppedViewsRef.current.has('v_gemini_genai_telemetry') &&
-            !brokenViewsRef.current.has('v_gemini_genai_telemetry')
-        ) {
+        if (canQueryView('v_gemini_genai_telemetry')) {
             const actualView = installedViewsMap.get('v_gemini_genai_telemetry') || 'v_gemini_genai_telemetry';
             tasks.push({
                 label: 'GenAI Telemetry & Tool Invocations',
@@ -581,7 +672,7 @@ export function useOperationalDashboardState({
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             WHERE agent_name IS NOT NULL
                             GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 8;`;
-                        const res = await queryViewWithAutoRepair('v_gemini_genai_telemetry', queryTokens);
+                        const res = await queryOperationalSource('v_gemini_genai_telemetry', queryTokens);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedTokens = rows.map((r: BigQueryTableRow) => ({
                             agent: String(r.f?.[0]?.v || 'Unknown'),
@@ -597,7 +688,7 @@ export function useOperationalDashboardState({
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             WHERE tool_calls IS NOT NULL AND tool_calls != ''
                             GROUP BY tool ORDER BY cnt DESC LIMIT 6;`;
-                        const resTools = await queryViewWithAutoRepair('v_gemini_genai_telemetry', queryTools);
+                        const resTools = await queryOperationalSource('v_gemini_genai_telemetry', queryTools);
                         const parsedTools = ((resTools?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
                             tool: String(r.f?.[0]?.v || ''),
                             count: parseInt(String(r.f?.[1]?.v || '0'), 10)
@@ -610,32 +701,27 @@ export function useOperationalDashboardState({
                             return next;
                         });
                     } catch (err: unknown) {
-                        const rawMsg = err instanceof Error ? err.message : String(err);
-                        const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
-                        if (isNotFoundError(shortMsg)) {
-                            droppedViewsRef.current.add('v_gemini_genai_telemetry');
-                            setDroppedViews((prev) => new Set(prev).add('v_gemini_genai_telemetry'));
-                        } else {
-                            brokenViewsRef.current.set('v_gemini_genai_telemetry', shortMsg || 'Query error');
-                            setBrokenViews((prev) => new Map(prev).set('v_gemini_genai_telemetry', shortMsg || 'Query error'));
-                        }
+                        handleQueryError('v_gemini_genai_telemetry', err);
                     }
                 }
             });
         }
 
         // 3. Connector Usage View
-        const connectorViewKey = installedViews.has('v_user_connector_usage_30d')
-            ? 'v_user_connector_usage_30d'
-            : installedViews.has('v_user_connector_usage')
-                ? 'v_user_connector_usage'
-                : null;
+        const connectorViewKey =
+            dataSourceMode === 'tables'
+                ? availableMainTables.has('v_user_connector_usage_30d')
+                    ? 'v_user_connector_usage_30d'
+                    : availableMainTables.has('v_user_connector_usage')
+                        ? 'v_user_connector_usage'
+                        : null
+                : installedViews.has('v_user_connector_usage_30d')
+                    ? 'v_user_connector_usage_30d'
+                    : installedViews.has('v_user_connector_usage')
+                        ? 'v_user_connector_usage'
+                        : null;
 
-        if (
-            connectorViewKey &&
-            !droppedViewsRef.current.has(connectorViewKey) &&
-            !brokenViewsRef.current.has(connectorViewKey)
-        ) {
+        if (connectorViewKey && canQueryView(connectorViewKey)) {
             const actualView = installedViewsMap.get(connectorViewKey) || connectorViewKey;
             tasks.push({
                 label: 'Connector Usage (30d)',
@@ -646,7 +732,7 @@ export function useOperationalDashboardState({
                             COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             GROUP BY connector_name ORDER BY cnt DESC LIMIT 6;`;
-                        const res = await queryViewWithAutoRepair(connectorViewKey, queryUsage);
+                        const res = await queryOperationalSource(connectorViewKey, queryUsage);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedUsage = rows.map((r: BigQueryTableRow) => ({
                             connector: String(r.f?.[0]?.v || ''),
@@ -660,7 +746,7 @@ export function useOperationalDashboardState({
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             WHERE user_email IS NOT NULL AND user_email != ''
                             GROUP BY user_email ORDER BY cnt DESC LIMIT 5;`;
-                        const resUsers = await queryViewWithAutoRepair(connectorViewKey, queryTopUsers);
+                        const resUsers = await queryOperationalSource(connectorViewKey, queryTopUsers);
                         const parsedTopUsers = ((resUsers?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
                             user: String(r.f?.[0]?.v || ''),
                             calls: parseInt(String(r.f?.[1]?.v || '0'), 10)
@@ -673,26 +759,14 @@ export function useOperationalDashboardState({
                             return next;
                         });
                     } catch (err: unknown) {
-                        const rawMsg = err instanceof Error ? err.message : String(err);
-                        const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
-                        if (isNotFoundError(shortMsg)) {
-                            droppedViewsRef.current.add(connectorViewKey);
-                            setDroppedViews((prev) => new Set(prev).add(connectorViewKey));
-                        } else {
-                            brokenViewsRef.current.set(connectorViewKey, shortMsg || 'Query error');
-                            setBrokenViews((prev) => new Map(prev).set(connectorViewKey, shortMsg || 'Query error'));
-                        }
+                        handleQueryError(connectorViewKey, err);
                     }
                 }
             });
         }
 
         // 4. AI Choices View
-        if (
-            installedViews.has('v_consolidated_ai_choices') &&
-            !droppedViewsRef.current.has('v_consolidated_ai_choices') &&
-            !brokenViewsRef.current.has('v_consolidated_ai_choices')
-        ) {
+        if (canQueryView('v_consolidated_ai_choices')) {
             const actualView = installedViewsMap.get('v_consolidated_ai_choices') || 'v_consolidated_ai_choices';
             tasks.push({
                 label: 'AI Model Finish Reasons',
@@ -703,7 +777,7 @@ export function useOperationalDashboardState({
                             COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             GROUP BY finish_reason ORDER BY cnt DESC;`;
-                        const res = await queryViewWithAutoRepair('v_consolidated_ai_choices', queryChoices);
+                        const res = await queryOperationalSource('v_consolidated_ai_choices', queryChoices);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedChoices = rows.map((r: BigQueryTableRow) => ({
                             name: String(r.f?.[0]?.v || 'UNKNOWN'),
@@ -717,26 +791,14 @@ export function useOperationalDashboardState({
                             return next;
                         });
                     } catch (err: unknown) {
-                        const rawMsg = err instanceof Error ? err.message : String(err);
-                        const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
-                        if (isNotFoundError(shortMsg)) {
-                            droppedViewsRef.current.add('v_consolidated_ai_choices');
-                            setDroppedViews((prev) => new Set(prev).add('v_consolidated_ai_choices'));
-                        } else {
-                            brokenViewsRef.current.set('v_consolidated_ai_choices', shortMsg || 'Query error');
-                            setBrokenViews((prev) => new Map(prev).set('v_consolidated_ai_choices', shortMsg || 'Query error'));
-                        }
+                        handleQueryError('v_consolidated_ai_choices', err);
                     }
                 }
             });
         }
 
         // 5. Agent Feedback View
-        if (
-            installedViews.has('v_agent_feedback') &&
-            !droppedViewsRef.current.has('v_agent_feedback') &&
-            !brokenViewsRef.current.has('v_agent_feedback')
-        ) {
+        if (canQueryView('v_agent_feedback')) {
             const actualView = installedViewsMap.get('v_agent_feedback') || 'v_agent_feedback';
             tasks.push({
                 label: 'Agent User Feedback',
@@ -750,7 +812,7 @@ export function useOperationalDashboardState({
                         FROM \`${projectId}.${datasetId}.${actualView}\`
                         GROUP BY agent_name
                         ORDER BY total DESC;`;
-                        const res = await queryViewWithAutoRepair('v_agent_feedback', query);
+                        const res = await queryOperationalSource('v_agent_feedback', query);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedFeedback = rows.map((r: BigQueryTableRow) => ({
                             agent: String(r.f?.[0]?.v || 'General'),
@@ -766,15 +828,7 @@ export function useOperationalDashboardState({
                             return next;
                         });
                     } catch (err: unknown) {
-                        const rawMsg = err instanceof Error ? err.message : String(err);
-                        const shortMsg = rawMsg.split('\n')[0].replace(/\[INVALID_INPUT\].*$/, '').trim();
-                        if (isNotFoundError(shortMsg)) {
-                            droppedViewsRef.current.add('v_agent_feedback');
-                            setDroppedViews((prev) => new Set(prev).add('v_agent_feedback'));
-                        } else {
-                            brokenViewsRef.current.set('v_agent_feedback', shortMsg || 'Query error');
-                            setBrokenViews((prev) => new Map(prev).set('v_agent_feedback', shortMsg || 'Query error'));
-                        }
+                        handleQueryError('v_agent_feedback', err);
                     }
                 }
             });
@@ -808,7 +862,15 @@ export function useOperationalDashboardState({
         } finally {
             setLiveDataLoading(false);
         }
-    }, [projectId, datasetId, installedViews, installedViewsMap, queryViewWithAutoRepair]);
+    }, [
+        projectId,
+        datasetId,
+        dataSourceMode,
+        availableMainTables,
+        installedViews,
+        installedViewsMap,
+        queryOperationalSource
+    ]);
 
     useEffect(() => {
         fetchLiveData();
@@ -1107,26 +1169,23 @@ export function useOperationalDashboardState({
         }
     };
 
-    const isUserActivityLive =
-        installedViews.has('v_consolidated_user_activity') &&
-        !brokenViews.has('v_consolidated_user_activity') &&
-        !stubViews.has('v_consolidated_user_activity');
-    const isGenAiTelemetryLive =
-        installedViews.has('v_gemini_genai_telemetry') &&
-        !brokenViews.has('v_gemini_genai_telemetry') &&
-        !stubViews.has('v_gemini_genai_telemetry');
+    const isViewLive = useCallback(
+        (viewId: string): boolean => {
+            if (brokenViews.has(viewId)) return false;
+            if (dataSourceMode === 'tables') {
+                return availableMainTables.has(viewId);
+            }
+            return installedViews.has(viewId) && !stubViews.has(viewId);
+        },
+        [dataSourceMode, availableMainTables, installedViews, brokenViews, stubViews]
+    );
+
+    const isUserActivityLive = isViewLive('v_consolidated_user_activity');
+    const isGenAiTelemetryLive = isViewLive('v_gemini_genai_telemetry');
     const isConnectorUsageLive =
-        installedViews.has('v_user_connector_usage_30d') &&
-        !brokenViews.has('v_user_connector_usage_30d') &&
-        !stubViews.has('v_user_connector_usage_30d');
-    const isAiChoicesLive =
-        installedViews.has('v_consolidated_ai_choices') &&
-        !brokenViews.has('v_consolidated_ai_choices') &&
-        !stubViews.has('v_consolidated_ai_choices');
-    const isFeedbackLive =
-        installedViews.has('v_agent_feedback') &&
-        !brokenViews.has('v_agent_feedback') &&
-        !stubViews.has('v_agent_feedback');
+        isViewLive('v_user_connector_usage_30d') || isViewLive('v_user_connector_usage');
+    const isAiChoicesLive = isViewLive('v_consolidated_ai_choices');
+    const isFeedbackLive = isViewLive('v_agent_feedback');
 
     const dailyActivityData = isUserActivityLive ? liveData.dailyActivity || [] : FALLBACK_SNAPSHOT.dailyActivity;
     const agentPopularityData = isUserActivityLive ? liveData.agentPopularity || [] : FALLBACK_SNAPSHOT.agentPopularity;
@@ -1173,6 +1232,9 @@ export function useOperationalDashboardState({
 
     return {
         activeViewId,
+        dataSourceMode,
+        availableMainTables,
+        isViewLive,
         selectedCategory,
         operatingViewId,
         actionMessage,
@@ -1206,6 +1268,7 @@ export function useOperationalDashboardState({
         tokensTrackedStr,
         activeConnectorsCount,
         handleViewChange,
+        handleDataSourceModeChange,
         handleCreateView,
         handleDropView,
         handleRepairAllBrokenViews,

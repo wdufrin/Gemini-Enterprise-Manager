@@ -17,7 +17,12 @@
 import React, { useState } from 'react';
 import { ViewControlHeader } from './ViewControlHeader';
 import { DataTable } from './DataTable';
-import { OPERATIONAL_VIEWS, ViewDefinition } from './analyticsData';
+import {
+    OPERATIONAL_VIEWS,
+    ViewDefinition,
+    DataSourceMode,
+    rewriteViewQueryToMainTables
+} from './analyticsData';
 import { getViewMetadata } from './analyticsMetadata';
 import { TelemetryAndConnectorPanels } from './view-panels/TelemetryAndConnectorPanels';
 import { ActivityAndMessagePanels } from './view-panels/ActivityAndMessagePanels';
@@ -28,6 +33,9 @@ interface Props {
     data: any[];
     projectId: string;
     datasetId?: string;
+    dataSourceMode?: DataSourceMode;
+    availableMainTables?: Set<string>;
+    onSwitchToMainTables?: () => void;
     installedViews: Set<string>;
     installedViewsMap: Map<string, string>;
     operatingViewId: string | null;
@@ -46,6 +54,9 @@ export const IndividualViewDetail: React.FC<Props> = ({
     data = [],
     projectId,
     datasetId,
+    dataSourceMode = 'views',
+    availableMainTables = new Set(),
+    onSwitchToMainTables,
     installedViews,
     installedViewsMap,
     operatingViewId,
@@ -75,8 +86,11 @@ export const IndividualViewDetail: React.FC<Props> = ({
     }
 
     const isInstalled = installedViews.has(viewId);
+    const hasMainTable = availableMainTables.has(viewId);
+    const hasLiveSource = dataSourceMode === 'tables' ? hasMainTable : isInstalled;
     const actualViewName = installedViewsMap.get(viewId) || viewDef.viewName;
     const viewMeta = getViewMetadata(viewId);
+    const targetDataset = datasetId || 'your_dataset';
 
     const renderAnalyticsContent = () => {
         switch (viewId) {
@@ -156,8 +170,19 @@ export const IndividualViewDetail: React.FC<Props> = ({
                     errorMessage={brokenViews.get(viewId)}
                     onCreate={() => onCreateView(viewId)}
                     onDrop={() => onDropView(viewId)}
-                    ddlQuery={viewDef.getDdl(projectId, datasetId || 'your_dataset', tableNames)}
-                    selectQuery={viewDef.getQuery(projectId, datasetId || 'your_dataset')}
+                    ddlQuery={viewDef.getDdl(projectId, targetDataset, tableNames)}
+                    selectQuery={viewDef.getQuery(projectId, targetDataset)}
+                    dataSourceMode={dataSourceMode}
+                    hasMainTable={hasMainTable}
+                    directSelectQuery={rewriteViewQueryToMainTables(
+                        viewDef.getRowsQuery(projectId, targetDataset),
+                        viewId,
+                        projectId,
+                        targetDataset,
+                        tableNames,
+                        actualViewName
+                    )}
+                    onSwitchToMainTables={onSwitchToMainTables}
                 />
             </div>
 
@@ -214,7 +239,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
                                 </span>
                             ))}
                         </div>
-                        {viewMeta.sourceTables.length > 0 && viewMeta.sourceTables[0] !== viewMeta.rawSyncTables[0] && (
+                        {dataSourceMode !== 'tables' && viewMeta.sourceTables.length > 0 && viewMeta.sourceTables[0] !== viewMeta.rawSyncTables[0] && (
                             <div className="flex items-center gap-2 flex-wrap text-xs">
                                 <span className="text-[11px] text-gray-400 font-medium">Direct View Dependency:</span>
                                 {viewMeta.sourceTables.map((tbl, i) => (
@@ -293,7 +318,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
                     data={data}
                     onRowClick={onRowClick}
                     isLoading={isLoading}
-                    isSimulated={!isInstalled || brokenViews.has(viewId)}
+                    isSimulated={!hasLiveSource || brokenViews.has(viewId)}
                 />
             </div>
         </div>
