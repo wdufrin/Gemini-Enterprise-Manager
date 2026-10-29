@@ -384,7 +384,8 @@ describe('apiService', () => {
         expect.objectContaining({
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/event-stream',
           },
           body: JSON.stringify({
             jsonrpc: "2.0",
@@ -396,7 +397,7 @@ describe('apiService', () => {
       expect(tools).toEqual(mockResponse.result.tools);
     });
 
-    it('should query trusted Google Cloud Run HTTPS endpoints with auth headers', async () => {
+    it('should query trusted Google Cloud Run HTTPS endpoints with auth headers and without X-Goog-User-Project CORS preflight header', async () => {
       const mockToken = 'mock-access-token';
       const mockGapiClient = {
         getToken: () => ({ access_token: mockToken })
@@ -419,11 +420,11 @@ describe('apiService', () => {
         'https://my-service-uc.a.run.app/tools',
         expect.objectContaining({
           method: 'POST',
-          headers: expect.objectContaining({
+          headers: {
             'Content-Type': 'application/json',
+            'Accept': 'application/json, text/event-stream',
             'Authorization': `Bearer ${mockToken}`,
-            'X-Goog-User-Project': 'test-project'
-          }),
+          },
           body: JSON.stringify({
             jsonrpc: "2.0",
             id: 0,
