@@ -79,6 +79,8 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
   const [redirects, setRedirects] = useState<ProvisionedRedirect[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dnsWarning, setDnsWarning] = useState<string | null>(null);
+  const [enablingApi, setEnablingApi] = useState<string | null>(null);
   const [redirectToDelete, setRedirectToDelete] = useState<ProvisionedRedirect | null>(null);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [dismantling, setDismantling] = useState<Set<string>>(new Set());
@@ -88,11 +90,20 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
     if (!projectId) return;
     setIsLoading(true);
     setError(null);
+    setDnsWarning(null);
     try {
       const [aggRes, certRes, dnsRes] = await Promise.all([
         api.listAggregatedForwardingRules(projectId),
         api.listManagedSslCertificates(projectId),
-        api.listDnsZones(projectId),
+        api.listDnsZones(projectId, true).catch((dnsErr: unknown) => {
+          setDnsWarning(
+            toErrorMessage(
+              dnsErr,
+              'Cloud DNS API could not be queried (private redirect domain labels may be unavailable).'
+            )
+          );
+          return { managedZones: [] };
+        }),
       ]);
 
       const scopes = (aggRes || {}).items || {};
@@ -175,6 +186,20 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
     }
   }, [projectId, engine.name]);
 
+  const handleEnableApi = async (serviceName: string) => {
+    if (!projectId || typeof api.enableService !== 'function') return;
+    setEnablingApi(serviceName);
+    setError(null);
+    try {
+      await api.enableService(projectId, serviceName);
+      await fetchRedirects();
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, `Failed to enable ${serviceName}.`));
+    } finally {
+      setEnablingApi(null);
+    }
+  };
+
   useEffect(() => {
     fetchRedirects();
   }, [fetchRedirects, refreshToken]);
@@ -205,6 +230,20 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
   const others = redirects.filter((r) => !r.belongsToThisAssistant);
   const visible = showOtherAssistants ? [...mine, ...others] : mine;
 
+  const isComputeApiDisabled = Boolean(
+    error &&
+      (error.includes('compute.googleapis.com') ||
+        error.toLowerCase().includes('compute engine api has not been used') ||
+        error.includes('SERVICE_DISABLED'))
+  );
+
+  const isDnsApiDisabled = Boolean(
+    dnsWarning &&
+      (dnsWarning.includes('dns.googleapis.com') ||
+        dnsWarning.toLowerCase().includes('cloud dns api has not been used') ||
+        dnsWarning.includes('SERVICE_DISABLED'))
+  );
+
   return (
     <div className="bg-gray-800 rounded-lg border border-gray-700">
       <div className="flex flex-wrap items-start justify-between gap-3 p-4 border-b border-gray-700">
@@ -228,9 +267,45 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
       {error && (
         <div
           role="alert"
-          className="m-4 p-3 rounded-md bg-red-900/30 border border-red-800 text-sm text-red-300"
+          className="m-4 p-3 rounded-md bg-red-900/30 border border-red-800 text-sm text-red-300 flex flex-wrap items-center justify-between gap-3"
         >
-          {error}
+          <div className="flex-1 min-w-0 break-words">{error}</div>
+          {isComputeApiDisabled && typeof api.enableService === 'function' && (
+            <button
+              type="button"
+              onClick={() => handleEnableApi('compute.googleapis.com')}
+              disabled={enablingApi === 'compute.googleapis.com'}
+              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-red-700 hover:bg-red-600 text-white disabled:opacity-50 shrink-0 transition-colors"
+            >
+              {enablingApi === 'compute.googleapis.com'
+                ? 'Enabling Compute Engine API...'
+                : 'Enable Compute Engine API'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {dnsWarning && !error && (
+        <div
+          data-testid="provisioned-dns-warning"
+          className="m-4 p-3 rounded-md bg-amber-950/40 border border-amber-700/80 text-xs text-amber-200 flex flex-wrap items-center justify-between gap-3"
+        >
+          <div className="flex-1 min-w-0 break-words">
+            <span className="font-semibold text-amber-100">Cloud DNS Notice: </span>
+            {dnsWarning}
+          </div>
+          {isDnsApiDisabled && typeof api.enableService === 'function' && (
+            <button
+              type="button"
+              onClick={() => handleEnableApi('dns.googleapis.com')}
+              disabled={enablingApi === 'dns.googleapis.com'}
+              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-700 hover:bg-amber-600 text-white disabled:opacity-50 shrink-0 transition-colors"
+            >
+              {enablingApi === 'dns.googleapis.com'
+                ? 'Enabling Cloud DNS API...'
+                : 'Enable Cloud DNS API'}
+            </button>
+          )}
         </div>
       )}
 

@@ -941,7 +941,7 @@ surfaces as a runtime 403 rather than a friendly setup warning:
 |---|---|
 | `agentregistry.googleapis.com` | Skills Registry, and the Skills pillar of the Config Audit. |
 | `monitoring.googleapis.com` | Metrics panels. |
-| `compute.googleapis.com`, `dns.googleapis.com` | Networking inspection. |
+| `compute.googleapis.com`, `dns.googleapis.com` | Networking inspection, Load Balancer & Cloud DNS redirect provisioning (`Engines & Assistants → Customize`), and cross-project Cloud DNS host project (`dnsProjectId`) management. |
 | `sts.googleapis.com`, `oauth2.googleapis.com`, `www.googleapis.com` | Token exchange and user profile. |
 | `<location>-aiplatform.googleapis.com` | Regional Vertex AI calls. |
 | `<location>-discoveryengine.googleapis.com` | Regional Discovery Engine calls (anything not `global`). |
@@ -961,17 +961,18 @@ surfaces as a runtime 403 rather than a friendly setup warning:
 | `roles/storage.admin` | Create/list buckets, read/write/delete objects. | Backup & Recovery entirely — the bucket dropdown stays empty. |
 | `roles/storage.objectAdmin` | Object-level read/write/delete (narrower than above). | Backup upload/download/delete; you also need `storage.buckets.list` for the dropdown. |
 | `roles/viewer` | `resourcemanager.projects.get` — project metadata and number. | Project selection; the project-number field cannot auto-populate. |
-| `roles/resourcemanager.projectIamAdmin` | Read and write the project IAM policy. | Agent Permissions; the service-agent grant helper; the auto-pruner grant step. |
+| `roles/resourcemanager.projectIamAdmin` | Read and write the project IAM policy. | Agent Permissions; the service-agent grant helper; the auto-pruner grant step; **Grant Cloud Build IAM Roles** on the **Customize** tab. |
 | `roles/serviceusage.serviceUsageViewer` | See which APIs are enabled. | The startup readiness check reports everything as unknown. |
 | `roles/serviceusage.serviceUsageAdmin` | Enable APIs from inside the app. | The one-click **Enable API** buttons. |
-| `roles/cloudbuild.builds.editor` | Submit builds. | **Setup Auto-Pruner**; group-licensing service deployment. |
+| `roles/cloudbuild.builds.editor` | Submit builds. | **Setup Auto-Pruner**; group-licensing service deployment; **Deploy Redirect & Private Routing URL** (`Customize` tab). |
+| `roles/compute.loadBalancerAdmin`, `roles/compute.networkAdmin`, `roles/dns.admin` | Provision Global/Regional Application Load Balancers, proxy-only subnets, PSC endpoints, and Cloud DNS zones/records. | **Engines & Assistants → Customize** (**Deploy Redirect & Private Routing URL**). Required on the Cloud Build service accounts (`{projectNumber}-compute@developer.gserviceaccount.com` and `{projectNumber}@cloudbuild.gserviceaccount.com`), and on `dnsProjectId` when using a cross-project Cloud DNS host project. |
 | `roles/run.admin` | Deploy and manage Cloud Run services and jobs. | Cloud Run agents; auto-pruner; group licensing. |
 | `roles/cloudscheduler.admin` | Create the cron trigger. | The auto-pruner's schedule. |
 | `roles/iam.serviceAccountUser` | Act as a service account during deployment. | Any Cloud Run / Cloud Build deployment. |
-| `roles/logging.viewer` | Read logs. | Observability. |
+| `roles/logging.viewer` | Read logs. | Observability and Model Armor **Activity Logs**. |
 | `roles/bigquery.dataViewer` | Query analytics datasets. | Analytics panels. |
 | `roles/billing.viewer` **on the billing account** | Read seat allocation. | **Allocation Management (Billing Account)**. Note: this is granted on the *billing account*, not the project. |
-| `roles/modelarmor.viewer` / `roles/modelarmor.admin` | Read / manage safety templates. | Model Armor. |
+| `roles/modelarmor.viewer` / `roles/modelarmor.admin` | Read / create / `PATCH` safety templates and **Exclusion Rules (`Preview`)**. | Model Armor. |
 
 ### The eleven permissions the app actually probes
 
@@ -993,16 +994,17 @@ is effectively unusable.
 | `serviceusage.services.enable` | Service Management | 1-click enable required Google APIs | `roles/serviceusage.serviceUsageAdmin` | |
 | `aiplatform.reasoningEngines.list` | Vertex AI / Reasoning | List Vertex AI Agent Engines | `roles/aiplatform.user` | |
 
-### The Discovery Engine service agent
+### The Discovery Engine & Cloud Build service agents
 
 Separate from *your* permissions, the Discovery Engine **service agent** needs its own roles to
-reach your data. The app can grant these for you if you hold `projectIamAdmin`.
+reach your data, and the **Cloud Build default service accounts** need networking and DNS roles when
+you use **Engines & Assistants → Customize (Deploy Redirect & Private Routing URL)**. The app can
+grant both sets of bindings for you with 1 click if you hold `roles/resourcemanager.projectIamAdmin`.
 
-| Item | Value |
-|---|---|
-| Service agent identity | `service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com` |
-| Required role | `roles/discoveryengine.serviceAgent` |
-| Recommended additional | `roles/aiplatform.user`, `roles/storage.objectViewer`, `roles/bigquery.dataViewer` |
+| Service Account / Identity | Required Roles | Used By |
+|---|---|---|
+| `service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com` | `roles/discoveryengine.serviceAgent` (plus recommended `roles/aiplatform.user`, `roles/storage.objectViewer`, `roles/bigquery.dataViewer`) | Discovery Engine data store ingestion, federated connectors, and reasoning engine invocations |
+| `<PROJECT_NUMBER>-compute@developer.gserviceaccount.com` and `<PROJECT_NUMBER>@cloudbuild.gserviceaccount.com` | `roles/compute.loadBalancerAdmin`, `roles/compute.networkAdmin`, `roles/dns.admin` (also grant `roles/dns.admin` on the host project when using cross-project `dnsProjectId`) | **Deploy Redirect & Private Routing URL** (`Customize` tab — 1-click **Grant Cloud Build IAM Roles**) |
 
 ### Copy-paste: grant a colleague full admin of this tool
 

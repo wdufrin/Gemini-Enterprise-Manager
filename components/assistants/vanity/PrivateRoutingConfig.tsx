@@ -37,6 +37,10 @@ export interface PrivateRoutingConfigProps {
   setUseVpcScBundle: (val: boolean) => void;
   automatePrivateDns: boolean;
   setAutomatePrivateDns: (val: boolean) => void;
+  dnsProjectId?: string;
+  setDnsProjectId?: (val: string) => void;
+  isDnsProjectIdValid?: boolean;
+  currentProjectId?: string;
   selectedDomainOption: string;
   setSelectedDomainOption: (val: string) => void;
   customDomain: string;
@@ -65,6 +69,10 @@ export const PrivateRoutingConfig: React.FC<PrivateRoutingConfigProps> = ({
   setUseVpcScBundle,
   automatePrivateDns,
   setAutomatePrivateDns,
+  dnsProjectId = '',
+  setDnsProjectId,
+  isDnsProjectIdValid = true,
+  currentProjectId,
   selectedDomainOption,
   setSelectedDomainOption,
   customDomain,
@@ -203,6 +211,34 @@ export const PrivateRoutingConfig: React.FC<PrivateRoutingConfigProps> = ({
             Automate Private DNS Zones Configuration
           </span>
         </label>
+
+        {automatePrivateDns && setDnsProjectId && (
+          <div className="pl-6 space-y-1">
+            <label
+              htmlFor="private-dns-project-id"
+              className="block text-xs font-medium text-slate-400"
+            >
+              Cloud DNS Host Project ID (Optional — Shared VPC / Cross-Project DNS)
+            </label>
+            <input
+              id="private-dns-project-id"
+              type="text"
+              value={dnsProjectId}
+              onChange={(e) => setDnsProjectId(e.target.value)}
+              placeholder={`Defaults to ${currentProjectId || 'current project'}`}
+              aria-invalid={!isDnsProjectIdValid}
+              className={`w-full bg-slate-800 border rounded-md px-3 py-1.5 text-xs font-mono text-white focus:outline-none ${
+                isDnsProjectIdValid ? 'border-slate-750' : 'border-red-500'
+              }`}
+              disabled={isDeploying}
+            />
+            {!isDnsProjectIdValid && (
+              <p className="text-xs text-red-400">
+                Enter a valid GCP Project ID (lowercase letters, numbers, and hyphens).
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="pt-2 border-t border-slate-800">

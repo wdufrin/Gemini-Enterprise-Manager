@@ -581,12 +581,14 @@ Other sidebar behaviour:
 
 - Each row has a second, purple **ⓘ** button on its right edge:
   *"Show API commands for `<tab>`"*. See the cURL section below.
+- **Report Issue / Feedback** above the collapse button opens the PII-sanitized feedback modal
+  ([Sidebar.tsx:283-311](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L283-L311)).
 - **Collapse Navigation** at the bottom shrinks the rail from `w-64` to `w-16`, showing icons with
   hover tooltips. **The Settings & Debug section, including the cURL toggle and history, is hidden
-  entirely while collapsed** ([Sidebar.tsx:194](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L194)). The collapsed state is not
+  entirely while collapsed** ([Sidebar.tsx:192](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L192)). The collapsed state is not
   persisted across reloads.
-- The header shows a hardcoded version string, currently `v0.0914.338`
-  ([Sidebar.tsx:163](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L163)).
+- The header shows the application version string, currently `v0.1029.385`
+  ([Sidebar.tsx:161](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L161)).
 
 ### Pages that exist but are not in the sidebar
 
@@ -637,8 +639,14 @@ re-renders against the new project immediately — there is no extra "apply".
 ### Location / region and app selectors — not global
 
 There is **no global region picker and no global Gemini Enterprise app picker**. The application
-header contains exactly four things: breadcrumbs, the project selector, the help button, and the
-profile/token control ([App.tsx:582-602](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/App.tsx#L582-L602)).
+header ([App.tsx:671-724](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/App.tsx#L671-L724)) contains six global controls:
+
+1. **Breadcrumbs** ([Breadcrumbs.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Breadcrumbs.tsx))
+2. **Project Selector** ([HeaderProjectInput.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/HeaderProjectInput.tsx))
+3. **Quick Switcher / Command Palette** (`Jump to... ⌘K`, opening [CommandPaletteModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/CommandPaletteModal.tsx))
+4. **Report Issue or Feedback** (`Feedback`, opening [FeedbackModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/FeedbackModal.tsx))
+5. **Docs / Help button** ([HelpButton.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/HelpButton.tsx))
+6. **Profile / Token control** ([AccessTokenInput.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/AccessTokenInput.tsx))
 
 Region and app are chosen **per screen**. The shared widget is
 [ProjectEngineSelector.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/common/ProjectEngineSelector.tsx), which offers a **Region Location** dropdown of
@@ -647,20 +655,11 @@ dropdown populated by listing engines in `default_collection`, preferring `defau
 an **Enter manually** escape hatch. It is currently used by **App Config Audit** only; other tabs
 roll their own. Setting the region on one tab does **not** change it on another.
 
-### Help button and the built-in User Manual
+### Command Palette (`Jump to... ⌘K`), Feedback, and the built-in User Guide (`Docs`)
 
-The **?** icon in the header ([HelpButton.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/HelpButton.tsx)) opens
-[UserManualModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/UserManualModal.tsx) — an 11-section in-app manual (Overview, Agent Management,
-Skills Registry, Agent Engines, Builder & Catalog, Knowledge & Data, Security & Governance,
-Observability, Operations, Setup & Configuration, API Reference). It is keyboard-accessible
-(`role="dialog"`, Escape to close, focus trapping via `useModalA11y`).
-
-> [!NOTE]
-> The built-in manual uses **older tab names** than the live sidebar — "Agent Engines",
-> "Data Stores", "Builder & Catalog", "Agent Builder". Its **Setup & Configuration** section also
-> tells you to *"select the correct location (Global, US, EU) in the configuration bar"*, which
-> implies a global control that does not exist. Trust the sidebar and this guide over the in-app
-> manual.
+- **Quick Switcher / Command Palette (`Jump to... ⌘K`)**: Clicking **Jump to... ⌘K** in the top header (or pressing `⌘K` / `Ctrl+K`) opens [CommandPaletteModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/CommandPaletteModal.tsx), allowing instant keyboard navigation to any of the 15 sidebar modules or quick actions.
+- **Report Issue or Feedback**: Clicking **Feedback** in the header (or **Report Issue / Feedback** in the sidebar footer) opens [FeedbackModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/FeedbackModal.tsx) to file a PII-sanitized GitHub issue with environment diagnostics.
+- **Docs button and the interactive 5-chapter User Guide**: Clicking **Docs** in the header ([HelpButton.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/HelpButton.tsx) → [UserManualModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/UserManualModal.tsx) → [UserGuideModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/user-guide/UserGuideModal.tsx)) opens the interactive **Gemini Enterprise Manager — User Guide** (`v0.1029.385`). It renders all 5 modular chapters (`docs/guide/00-getting-started.md` through `04-system-and-appendices.md`) with full-text search (`searchGuide`), category filter pills (`All`, `Getting Started`, `Agent Management`, `Knowledge & Testing`, `Security & Access`, `System Operations`, `Appendices`), `Open <Tab>` deep-link buttons (`onNavigateToPage`), screenshot lightbox zoom, and 1-click **Offline .md** download (`getMasterGuideMarkdown()`). It is keyboard-accessible (`role="dialog"`, Escape to close, focus trapping via `useModalA11y`).
 
 ### Cloud Console button
 
@@ -801,15 +800,9 @@ a genuinely careful piece of code:
 
 ### Known limitations & gotchas
 
-- **The toggle's own caption is wrong.** It reads *"Intercepts save actions to show cURL
-  commands."* ([Sidebar.tsx:215](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L214-L216)). Nothing is intercepted and nothing is
-  paused for review. The feature is a passive recorder: requests go out immediately, exactly as
-  they would with the toggle off. Do not rely on it as a confirmation step before a destructive
-  action.
-- **`CurlConfirmationModal` — the "Confirm & Execute" review dialog — is dead code.** It exists at
-  [CurlConfirmationModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/CurlConfirmationModal.tsx) and is fully implemented, but a repository-wide
-  search finds **zero** imports of it outside its own file. That is the review step the caption
-  promises, and it is not wired up anywhere.
+- **Passive recorder only (`Records outgoing REST requests and cURL commands in History.`).** The toggle caption in [Sidebar.tsx:212-214](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L212-L214) reads *"Records outgoing REST requests and cURL commands in History."* Nothing is intercepted or paused for review — requests go out immediately, exactly as they would with the toggle off. Do not rely on it as a confirmation step before a destructive action.
+- **`CurlConfirmationModal` — the "Confirm & Execute" review dialog — is unused.** It exists at
+  [CurlConfirmationModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/CurlConfirmationModal.tsx) and is implemented, but is not wired up to outgoing API calls.
 - **History is not retroactive.** Only requests made *after* you flip the toggle are recorded.
   Turn it on, *then* reproduce.
 - **50-entry cap, in memory only.** Older calls are dropped; a page reload loses everything.
@@ -862,24 +855,25 @@ a genuinely careful piece of code:
 |---|---|---|
 | See every agent attached to my assistant | **GE Agent Manager** | Agent Management |
 | Turn an agent on or off | **GE Agent Manager** | Agent Management |
-| Upload or version a reusable skill package | **Skills Registry** | Agent Management |
+| Upload, import, or export reusable `SKILL.md` skill packages | **Skills Registry** | Agent Management |
 | Publish a skill to everyone in my organisation | **Skills Registry** | Agent Management |
 | Generate and deploy a new Python (ADK) agent | **ADK Studio** | Agent Management |
 | See which Vertex AI runtimes are deployed, and test one | **Agent Runtimes** | Agent Management |
 | Inspect or kill a live agent session | **Agent Runtimes** | Agent Management |
 | Add a GCS bucket, BigQuery table or website as knowledge | **Connectors & Data Stores** | Knowledge & Resources |
-| Check why a Jira/SharePoint sync is failing | **Connectors & Data Stores** | Knowledge & Resources |
+| Check why a Jira/SharePoint sync is failing or configure BYOMCP tools & citations | **Connectors & Data Stores** | Knowledge & Resources |
 | Find out if I am about to hit a quota limit | **Quota & Cost Estimator** | Knowledge & Resources |
 | Estimate next month's bill | **Quota & Cost Estimator** | Knowledge & Resources |
 | Change the assistant's system instructions or model | **Engines & Assistants** | Testing & Analysis |
+| Run the 5-pillar Assistant Configuration & Best-Practices Evaluator or BYOMCP Advisor | **Engines & Assistants** | Testing & Analysis |
 | Chat with the assistant to test it | **Engines & Assistants** | Testing & Analysis |
-| Set up a custom domain / vanity URL | **Engines & Assistants** (`/vanity-urls` redirects here) | Testing & Analysis |
+| Set up a custom domain / redirect or private routing URL (`dnsProjectId`) | **Engines & Assistants** (`Customize` tab; `/vanity-urls` redirects here) | Testing & Analysis |
 | See how engines, data stores and agents connect | **Architecture** | Testing & Analysis |
 | Let an agent sign in to a third-party SaaS on a user's behalf | **Authorizations** | Security & Access |
 | See who can access an agent or data store | **Agent Permissions** | Security & Access |
 | Grant or revoke a user's access | **Agent Permissions** | Security & Access |
 | Block prompt injection, jailbreaks, hate speech or PII leakage | **Model Armor** | Security & Access |
-| See what got blocked by a safety filter | **Model Armor** | Security & Access |
+| Evaluate a blocked prompt for false-positive exclusion rules or streaming compatibility | **Model Armor** | Security & Access |
 | Check request volume, latency or error rates | **Observability** | Security & Access |
 | Snapshot my configuration before a risky change | **Backup & Recovery** | System |
 | Restore or migrate config to another project | **Backup & Recovery** | System |

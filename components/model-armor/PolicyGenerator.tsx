@@ -33,6 +33,15 @@ export interface PolicyGeneratorProps {
   onRefresh: () => void;
 }
 
+export interface ExclusionRuleDraft {
+  id: string;
+  filterType: 'PROMPT_INJECTION_AND_JAILBREAK' | 'RESPONSIBLE_AI';
+  ruleType: 'DICTIONARY' | 'REGEX';
+  matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH' | 'MATCHING_SCOPE_FULL_MATCH';
+  wordsInput: string;
+  regexPattern: string;
+}
+
 export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines, onRefresh }) => {
   const [policyName, setPolicyName] = useState('my-safety-policy-input');
   const [config, setConfig] = useState({
@@ -44,6 +53,8 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
     jailbreak: true,
     maliciousUris: false,
   });
+  const [exclusionRules, setExclusionRules] = useState<ExclusionRuleDraft[]>([]);
+  const [logSanitizeOperations, setLogSanitizeOperations] = useState(false);
   const [selectedEngineIndex, setSelectedEngineIndex] = useState(-1);
   const [policyType, setPolicyType] = useState<'input' | 'output' | 'both'>('input');
   const [failureMode, setFailureMode] = useState(DEFAULT_FAILURE_MODE);
@@ -76,6 +87,51 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
       ...prev,
       [key]: val,
     }));
+  };
+
+  const addExclusionRule = () => {
+    setExclusionRules((prev) => [
+      ...prev,
+      {
+        id: `ex-${Date.now()}-${prev.length}`,
+        filterType: 'PROMPT_INJECTION_AND_JAILBREAK',
+        ruleType: 'DICTIONARY',
+        matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH',
+        wordsInput: 'ignore case when sorting this list, ignore empty rows',
+        regexPattern: '',
+      },
+    ]);
+    setLogSanitizeOperations(true);
+  };
+
+  const applyExclusionPreset = () => {
+    setExclusionRules([
+      {
+        id: 'ex-preset-pi',
+        filterType: 'PROMPT_INJECTION_AND_JAILBREAK',
+        ruleType: 'DICTIONARY',
+        matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH',
+        wordsInput: 'ignore case when sorting this list, ignore empty rows',
+        regexPattern: '',
+      },
+      {
+        id: 'ex-preset-rai',
+        filterType: 'RESPONSIBLE_AI',
+        ruleType: 'REGEX',
+        matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH',
+        wordsInput: '',
+        regexPattern: '(?i)kill process [0-9]+',
+      },
+    ]);
+    setLogSanitizeOperations(true);
+  };
+
+  const updateExclusionRule = (id: string, patch: Partial<ExclusionRuleDraft>) => {
+    setExclusionRules((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  };
+
+  const removeExclusionRule = (id: string) => {
+    setExclusionRules((prev) => prev.filter((r) => r.id !== id));
   };
 
   const applyPreset = (preset: 'bp_input' | 'bp_output' | 'strict') => {
@@ -129,30 +185,77 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
     if (config.dangerousContent !== 'OFF')
       raiFilters.push({ filterType: 'DANGEROUS_CONTENT', confidenceLevel: config.dangerousContent });
 
-    return {
-      filterConfig: {
-        raiSettings: {
-          raiFilters,
-        },
-        sdpSettings: {
-          basicConfig: {
-            filterEnforcement: config.pii ? 'ENABLED' : 'DISABLED',
+    const ruleSetsByFilter: Record<string, Array<{ exclusionRule: Record<string, unknown> }>> = {};
+    for (const draft of exclusionRules) {
+      if (draft.ruleType === 'DICTIONARY') {
+        const words = draft.wordsInput
+          .split(/[,\n]/)
+          .map((w) => w.trim())
+          .filter(Boolean);
+        if (words.length === 0) continue;
+        ruleSetsByFilter[draft.filterType] = ruleSetsByFilter[draft.filterType] || [];
+        ruleSetsByFilter[draft.filterType].push({
+          exclusionRule: {
+            dictionary: {
+              wordList: { words },
+            },
+            matchingScope: draft.matchingScope,
           },
-        },
-        piAndJailbreakFilterSettings: {
-          filterEnforcement: config.jailbreak ? 'ENABLED' : 'DISABLED',
-          confidenceLevel: 'MEDIUM_AND_ABOVE',
-        },
-        maliciousUriFilterSettings: {
-          filterEnforcement: config.maliciousUris ? 'ENABLED' : 'DISABLED',
+        });
+      } else {
+        const pattern = draft.regexPattern.trim();
+        if (!pattern) continue;
+        ruleSetsByFilter[draft.filterType] = ruleSetsByFilter[draft.filterType] || [];
+        ruleSetsByFilter[draft.filterType].push({
+          exclusionRule: {
+            regex: { pattern },
+            matchingScope: draft.matchingScope,
+          },
+        });
+      }
+    }
+
+    const ruleSets = Object.entries(ruleSetsByFilter).map(([ft, rules]) => ({
+      filterTypes: [ft],
+      rules,
+    }));
+
+    const filterConfig: Record<string, unknown> = {
+      raiSettings: {
+        raiFilters,
+      },
+      sdpSettings: {
+        basicConfig: {
+          filterEnforcement: config.pii ? 'ENABLED' : 'DISABLED',
         },
       },
-      templateMetadata: {
-        ignorePartialInvocationFailures: false,
-        enforcementType: 'INSPECT_AND_BLOCK',
+      piAndJailbreakFilterSettings: {
+        filterEnforcement: config.jailbreak ? 'ENABLED' : 'DISABLED',
+        confidenceLevel: 'MEDIUM_AND_ABOVE',
+      },
+      maliciousUriFilterSettings: {
+        filterEnforcement: config.maliciousUris ? 'ENABLED' : 'DISABLED',
       },
     };
-  }, [config]);
+
+    if (ruleSets.length > 0) {
+      filterConfig.filterRuleSettings = { ruleSets };
+    }
+
+    const templateMetadata: Record<string, unknown> = {
+      ignorePartialInvocationFailures: false,
+      enforcementType: 'INSPECT_AND_BLOCK',
+      dataResidencyCompliant: true,
+    };
+    if (logSanitizeOperations || ruleSets.length > 0) {
+      templateMetadata.logSanitizeOperations = logSanitizeOperations;
+    }
+
+    return {
+      filterConfig,
+      templateMetadata,
+    };
+  }, [config, exclusionRules, logSanitizeOperations]);
 
   const selectedEngine = selectedEngineIndex >= 0 ? engines[selectedEngineIndex] ?? null : null;
   const templateLocation = selectedEngine?.location || 'global';
@@ -574,6 +677,173 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
                 />
               </label>
             </div>
+          </div>
+
+          <div className="space-y-4 pt-4 border-t border-gray-700">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+                  Exclusion Rules (Preview) &amp; Streaming Sanitization
+                </h4>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Exclude known benign phrases or regex patterns from PI &amp; Jailbreak or RAI filters (`filterRuleSettings`).
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={applyExclusionPreset}
+                  className="px-2.5 py-1 bg-indigo-900/50 hover:bg-indigo-800/60 text-indigo-200 text-xs font-semibold rounded border border-indigo-700/60 transition-colors"
+                >
+                  + DevOps False-Positive Preset
+                </button>
+                <button
+                  type="button"
+                  onClick={addExclusionRule}
+                  className="px-2.5 py-1 bg-gray-700 hover:bg-gray-650 text-white text-xs font-semibold rounded border border-gray-600 transition-colors"
+                >
+                  + Add Rule
+                </button>
+              </div>
+            </div>
+
+            {exclusionRules.length > 0 && (
+              <div className="space-y-3">
+                <label className="flex items-center justify-between p-2.5 bg-indigo-950/20 rounded-lg border border-indigo-800/50 cursor-pointer">
+                  <div>
+                    <span className="block text-xs font-semibold text-indigo-200">
+                      Log Sanitize Operations (`templateMetadata.logSanitizeOperations`)
+                    </span>
+                    <span className="text-[11px] text-gray-400">
+                      Required to emit `exclusion_rule_overridden_filters` and `exclusion_rule_skipped_filters` labels in Cloud Logging.
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    aria-label="Log Sanitize Operations"
+                    checked={logSanitizeOperations}
+                    onChange={() => setLogSanitizeOperations(!logSanitizeOperations)}
+                    className="w-4 h-4 rounded bg-gray-800 border-indigo-500 text-indigo-500 focus:ring-indigo-500"
+                  />
+                </label>
+
+                {exclusionRules.some((r) => r.matchingScope === 'MATCHING_SCOPE_FULL_MATCH') && (
+                  <div
+                    data-testid="policy-generator-full-match-warning"
+                    className="p-3 rounded-lg bg-red-950/30 border border-red-800/70 text-xs text-red-200 space-y-1"
+                  >
+                    <p className="font-bold">
+                      Real-Time Streaming Warning (`MATCHING_SCOPE_FULL_MATCH`):
+                    </p>
+                    <p>
+                      `MATCHING_SCOPE_FULL_MATCH` is NOT supported in real-time streaming mode (`STREAMING_MODE_REALTIME`, the default for `StreamSanitizeUserPrompt` / `StreamSanitizeModelResponse`) and fails with <code className="text-red-100">400 INVALID_ARGUMENT</code>. Use `MATCHING_SCOPE_PARTIAL_MATCH` or explicitly set `STREAMING_MODE_BUFFERED`.
+                    </p>
+                  </div>
+                )}
+
+                {exclusionRules.map((rule, idx) => (
+                  <div
+                    key={rule.id}
+                    className="p-3 bg-gray-900/60 rounded-lg border border-gray-700 space-y-2.5"
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-indigo-300">Exclusion Rule #{idx + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeExclusionRule(rule.id)}
+                        className="text-xs text-red-400 hover:text-red-300 font-semibold"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-[11px] text-gray-400 mb-1">Target Filter</label>
+                        <select
+                          aria-label={`Rule ${idx + 1} Target Filter`}
+                          value={rule.filterType}
+                          onChange={(e) =>
+                            updateExclusionRule(rule.id, {
+                              filterType: e.target.value as ExclusionRuleDraft['filterType'],
+                            })
+                          }
+                          className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-xs text-white"
+                        >
+                          <option value="PROMPT_INJECTION_AND_JAILBREAK">PI &amp; Jailbreak</option>
+                          <option value="RESPONSIBLE_AI">Responsible AI (All 4 Categories)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-gray-400 mb-1">Rule Type</label>
+                        <select
+                          aria-label={`Rule ${idx + 1} Type`}
+                          value={rule.ruleType}
+                          onChange={(e) =>
+                            updateExclusionRule(rule.id, {
+                              ruleType: e.target.value as ExclusionRuleDraft['ruleType'],
+                            })
+                          }
+                          className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-xs text-white"
+                        >
+                          <option value="DICTIONARY">Dictionary (`wordList`)</option>
+                          <option value="REGEX">Regex (`pattern`)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-gray-400 mb-1">Matching Scope (Streaming)</label>
+                        <select
+                          aria-label={`Rule ${idx + 1} Matching Scope`}
+                          value={rule.matchingScope}
+                          onChange={(e) =>
+                            updateExclusionRule(rule.id, {
+                              matchingScope: e.target.value as ExclusionRuleDraft['matchingScope'],
+                            })
+                          }
+                          className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-xs text-white"
+                        >
+                          <option value="MATCHING_SCOPE_PARTIAL_MATCH">
+                            PARTIAL_MATCH (Realtime &amp; Buffered OK)
+                          </option>
+                          <option value="MATCHING_SCOPE_FULL_MATCH">
+                            FULL_MATCH (Buffered Streaming Only)
+                          </option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {rule.ruleType === 'DICTIONARY' ? (
+                      <div>
+                        <label className="block text-[11px] text-gray-400 mb-1">
+                          Excluded Phrases (comma-separated, max 100 words, max 200 chars each)
+                        </label>
+                        <input
+                          type="text"
+                          aria-label={`Rule ${idx + 1} Excluded Phrases`}
+                          value={rule.wordsInput}
+                          onChange={(e) => updateExclusionRule(rule.id, { wordsInput: e.target.value })}
+                          placeholder="e.g. ignore case when sorting this list, ignore empty rows"
+                          className="w-full bg-gray-800 border border-gray-600 rounded px-2.5 py-1.5 text-xs text-white font-mono"
+                        />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-[11px] text-gray-400 mb-1">
+                          Excluded Regex Pattern (RE2 syntax, max 1,000 chars)
+                        </label>
+                        <input
+                          type="text"
+                          aria-label={`Rule ${idx + 1} Regex Pattern`}
+                          value={rule.regexPattern}
+                          onChange={(e) => updateExclusionRule(rule.id, { regexPattern: e.target.value })}
+                          placeholder="e.g. (?i)kill process [0-9]+"
+                          className="w-full bg-gray-800 border border-gray-600 rounded px-2.5 py-1.5 text-xs text-amber-300 font-mono"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

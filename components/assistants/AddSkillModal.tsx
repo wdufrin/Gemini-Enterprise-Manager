@@ -18,6 +18,7 @@ import React, { useState, useRef } from 'react';
 import { Config, UserProfile, SkillScope } from '../../types';
 import * as api from '../../services/apiService';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import { sanitizeSkillDisplayName } from '../../utils/skillExportUtils';
 
 interface AddSkillModalProps {
   isOpen: boolean;
@@ -146,14 +147,30 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
         }
       }
 
+      if (!/[a-zA-Z0-9]/.test(displayName)) {
+        throw new Error(
+          'Display Name must contain at least one letter or number (special characters are not allowed).',
+        );
+      }
+
+      const safeDisplayName = sanitizeSkillDisplayName(displayName);
+
       const payload = {
-        displayName: displayName.trim(),
+        displayName: safeDisplayName,
         description: description.trim() || undefined,
         state,
         skillAgentDefinition,
       };
 
-      const finalSkillId = skillId.trim() || `skill-${Date.now()}`;
+      const finalSkillId =
+        skillId
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9-]/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 63)
+          .replace(/^-+|-+$/g, '') || `skill-${Date.now()}`;
       await api.createSkillAgent(payload, config, finalSkillId, scope === 'ORGANIZATIONAL');
 
       onSkillCreated();

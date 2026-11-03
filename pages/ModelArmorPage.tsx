@@ -54,6 +54,7 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
   const [error, setError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
   const [filterBlockedOnly, setFilterBlockedOnly] = useState(false);
+  const [filterExclusionsOnly, setFilterExclusionsOnly] = useState(false);
   const [daysFilter, setDaysFilter] = useState(7);
   const [activeTab, setActiveTab] = useState<'logs' | 'policies'>('logs');
 
@@ -86,6 +87,11 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
         '(jsonPayload.sanitizationResult.sanitizationVerdict="BLOCKED" OR jsonPayload.sanitizationResult.sanitizationVerdict="MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK")'
       );
     }
+    if (filterExclusionsOnly) {
+      filters.push(
+        '(labels."modelarmor.googleapis.com/exclusion_rule_overridden_filters":* OR labels."modelarmor.googleapis.com/exclusion_rule_skipped_filters":*)'
+      );
+    }
     if (filterText.trim()) {
       filters.push(`(${filterText.trim()})`);
     }
@@ -104,13 +110,18 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [apiConfig, filterText, projectNumber, filterBlockedOnly, daysFilter]);
+  }, [apiConfig, filterText, projectNumber, filterBlockedOnly, filterExclusionsOnly, daysFilter]);
 
   const cloudConsoleUrl = useMemo(() => {
     const filters = [`resource.type="modelarmor.googleapis.com/SanitizeOperation"`];
     if (filterBlockedOnly) {
       filters.push(
         '(jsonPayload.sanitizationResult.sanitizationVerdict="BLOCKED" OR jsonPayload.sanitizationResult.sanitizationVerdict="MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK")'
+      );
+    }
+    if (filterExclusionsOnly) {
+      filters.push(
+        '(labels."modelarmor.googleapis.com/exclusion_rule_overridden_filters":* OR labels."modelarmor.googleapis.com/exclusion_rule_skipped_filters":*)'
       );
     }
     if (filterText.trim()) {
@@ -122,7 +133,7 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
     const durationStr = `P${daysFilter}D`;
 
     return `https://console.cloud.google.com/logs/query;query=${encodedQuery};duration=${durationStr}?referrer=search&project=${projectNumber}`;
-  }, [filterBlockedOnly, filterText, daysFilter, projectNumber]);
+  }, [filterBlockedOnly, filterExclusionsOnly, filterText, daysFilter, projectNumber]);
 
   return (
     <div className="space-y-4">
@@ -180,9 +191,16 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
             setFilterText={setFilterText}
             filterBlockedOnly={filterBlockedOnly}
             setFilterBlockedOnly={setFilterBlockedOnly}
+            filterExclusionsOnly={filterExclusionsOnly}
+            setFilterExclusionsOnly={setFilterExclusionsOnly}
             daysFilter={daysFilter}
             setDaysFilter={setDaysFilter}
             handleFetchLogs={handleFetchLogs}
+            templates={policyState.templates}
+            enginesList={policyState.enginesList}
+            isPoliciesLoading={policyState.isPoliciesLoading}
+            onRequestPolicies={policyState.fetchPoliciesAndAssociations}
+            onPolicyUpdated={policyState.fetchPoliciesAndAssociations}
           />
         )}
       </div>

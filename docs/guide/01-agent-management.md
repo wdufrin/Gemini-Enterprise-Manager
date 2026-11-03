@@ -43,7 +43,7 @@ flowchart LR
 | Tab | Route | What it talks to |
 |---|---|---|
 | **GE Agent Manager** | `/agents` | Discovery Engine (`discoveryengine.googleapis.com`) |
-| **Skills Registry** | `/skills-registry` | Agent Registry (`agentregistry.googleapis.com`) |
+| **Skills Registry** | `/skills` | Agent Registry (`agentregistry.googleapis.com`) |
 | **ADK Studio** | `/builder` | Nothing, until you click Deploy or Register. Code generation is 100% local to your browser. |
 | **Agent Runtimes** | `/runtimes` | Vertex AI (`{region}-aiplatform.googleapis.com`) and Cloud Run |
 
@@ -266,9 +266,11 @@ re-fetches the current policy first; that internal warning is swallowed
 ### What it's for
 
 A **Skill** here is a packaged instruction document — a `SKILL.md` file plus metadata — stored
-centrally in the Google Cloud **Agent Registry** so multiple agents can reuse it. Think
+centrally in the Google Cloud **Agent Registry** (`agentregistry.googleapis.com`) or attached to a
+Gemini Enterprise assistant (`workflowAgentDefinition`) so agents and assistants can reuse it. Think
 "reusable playbook": a brand-voice guide, a sales-proposal structure, an incident postmortem
-template. Skills are published once and then deployed into a Gemini Enterprise app.
+template, or an enterprise query-routing skill. Skills can be published to the central Agent Registry
+and deployed into any Gemini Enterprise app, or managed directly per engine under **Engines & Assistants → Skills**.
 
 > [!NOTE]
 > This tab is **100% live API** against `https://agentregistry.googleapis.com` (`v1alpha`). There is
@@ -277,18 +279,15 @@ template. Skills are published once and then deployed into a Gemini Enterprise a
 
 ### The screen, explained
 
-- **Region selector** — three options, labelled exactly `🌍 Global`, `🇪🇺 EU (Europe)`,
+- **Region selector** — three options, labelled `🌍 Global`, `🇪🇺 EU (Europe)`,
   `🇺🇸 US (United States)`. Default `global`.
 - **Stat cards** — Total Central Skills · 🟢 Active in Catalog · 🟡 Draft / Staging · 🏷️ Publishers.
-- **Filters** — a publisher dropdown (`All Publishers`) and a status dropdown
-  (`All Statuses` / `🟢 Active` / `🟡 Draft / Disabled`), plus a free-text search box.
+- **Filters & Actions** — a publisher dropdown (`All Publishers`), a status dropdown
+  (`All Statuses` / `🟢 Active` / `🟡 Draft / Disabled`), a free-text search box, an **Export (`n`)**
+  button (`ExportSkillsModal.tsx`), and a **+ Publish New Skill** button (`PublishSkillModal.tsx`).
 - **Table** — columns `Skill Name & URN`, `Publisher`, `Status`, `Semantic Trigger & Description`,
-  `Actions`. The only action is an eye icon titled "Inspect Skill & Revisions".
-
-> [!WARNING]
-> The table has **no sorting and no pagination**. The `nextPageToken` returned by the API is
-> discarded, so if your registry has more skills than fit in one API page, the extras are simply
-> never shown. There is no indication that this has happened.
+  `Actions`. Each row provides per-skill **`SKILL.md`** and **`.zip`** archive download buttons plus
+  the eye icon titled "Inspect Skill & Revisions".
 
 **Empty state:** "No Enterprise Skills Found" with a **Publish First Skill** button. If filters are
 active you instead get "No skills matched your search filter. Try clearing filters."
@@ -298,37 +297,51 @@ active you instead get "No skills matched your search filter. Try clearing filte
 
 ![Skills Registry — Central catalog of enterprise skills (`SKILL.md` archives) showing publisher namespaces, draft/active states, and deployment actions.](../assets/11-skills-registry.png)
 
+### Skill display name normalization, visibility states, and `SKILL.md` ZIP import/export
+
+Both **Skills Registry** (`/skills`) and the per-engine **Engines & Assistants → Skills** tab (`SkillsViewer.tsx`, `AddSkillModal.tsx`, `ExportSkillsModal.tsx`, `utils/skillExportUtils.ts`) share unified skill validation, visibility, and archive portability rules:
+
+1. **Display name normalization and validation rules (`validateSkillDisplayName`, `sanitizeSkillDisplayName`)**:
+   - **Maximum 64 characters** (`<= 64` characters).
+   - **Allowed characters**: letters, numbers, spaces, and hyphens only (`^[A-Za-z0-9][A-Za-z0-9 -]*$`), starting with an alphanumeric character.
+   - **Automatic `&` → `and` sanitization**: special characters such as `&` are automatically normalized to `and` (for example, `R&D & Security` → `R and D and Security`), underscores/slashes are converted to hyphens, and any remaining unsupported characters are stripped and truncated to **64 characters**.
+2. **Organizational vs. private skill visibility states**:
+   - **Organizational Skill (`ENABLED` + `ALL_USERS`)**: Deployed or created with `state: 'ENABLED'` and `sharingConfig: { scope: 'ALL_USERS' }`. Visible across the entire organization under **"From my organization"** in the Gemini Enterprise web app so every user and query-routing turn can invoke it.
+   - **Private / Draft Skill (`PRIVATE` or `DISABLED`)**: Created without organization-wide sharing (`state: 'PRIVATE'` or `state: 'DISABLED'`). Visible only to the creator/administrators for staging and testing until promoted to **Organizational (`ENABLED`)**.
+3. **`SKILL.md` ZIP import/export & multi-format backup (`ExportSkillsModal.tsx`, `PublishSkillModal.tsx`, `AddSkillModal.tsx`)**:
+   - **Export in 4 formats**: Click **Export (`n`)** to select individual skills (filtered by search or status) and download as:
+     - **CSV Spreadsheet (`.csv`)** — tabular metadata and instructions for spreadsheet auditing.
+     - **Markdown Document (`.md`)** — human-readable documentation bundle of all selected skills.
+     - **`SKILL.md` ZIP Archive (`.zip`)** — standards-compliant Agent Skills archive packaging each skill into `<skill-slug>/SKILL.md` with YAML frontmatter (`name`, `description`, `displayName`) and markdown body (`buildSingleSkillZipBlob`, `buildMultiSkillZipBlob`).
+     - **JSON Backup (`.json`)** — lossless `gemini-enterprise-skills-v1` backup payload for round-trip restore or cross-project migration.
+   - **Single & batch import (`SKILL.md`, `.zip`, `.json`)**: In **Publish New Skill** (`PublishSkillModal.tsx`) or **Create / Edit Skill** (`AddSkillModal.tsx`), upload a `.md` (`SKILL.md`), `.zip` (single or multi-skill archive), or `.json` backup. Multi-skill `.zip` and `.json` files render interactive selector pills to inspect individual skills or click **Batch Publish All (`N` Skills)** to publish the entire archive sequentially.
+
 ### How to: publish a new skill
 
-1. Click **Publish First Skill** (empty state) or the publish button in the header.
-2. Optionally pick one of the three **templates** to prefill the form:
+1. Click **Publish First Skill** (empty state) or **+ Publish New Skill** in the header.
+2. Optionally pick one of the three **templates** to prefill the form, or click **Upload `SKILL.md` / `.zip` / `.json`** to import from file:
    - **🛡️ Brand Voice** — "Tone, style & guidelines" → ID `corporate-brand-voice`
    - **💼 Sales Proposals** — "B2B pitch & ROI decks" → ID `enterprise-sales-proposal`
    - **🚨 IT Incident SRE** — "Blameless postmortems" → ID `it-incident-postmortem`
-3. Set the **Skill ID** (default `company-brand-voice`) and **Display Name**
-   (default `Company Brand Voice`).
+3. Set the **Skill ID** (default `company-brand-voice`, pattern `[a-z0-9-]`, max 63 chars) and **Display Name**
+   (default `Company Brand Voice`, max **64 characters**, letters/numbers/spaces/hyphens only).
 4. Choose a **Publisher Namespace**:
    `🏢 Organization Internal (Default)` (`default`),
    `Gemini Enterprise (discoveryengine)` (`discoveryengine.googleapis.com`), or
    `Google Cloud (cloud.google.com)`.
-5. Write or paste the `SKILL.md` content.
+5. Write or paste the `SKILL.md` content (with YAML frontmatter `name` and `description`).
 6. Choose the target state (default **Active**).
-7. Click publish.
+7. Click publish (or **Batch Publish All (`N` Skills)** when importing a multi-skill `.zip` or `.json` bundle).
 
 Expected result: the modal closes and the skill appears in the table.
 
 > [!CAUTION]
-> **Your "Active" choice is not honoured on creation.** The create call always sends
+> **Creation stages as `TARGET_STATE_DRAFT` before activating.** The initial create call sends
 > `targetState: 'TARGET_STATE_DRAFT'`
 > ([PublishSkillModal.tsx:163](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/PublishSkillModal.tsx#L163)).
 > If you asked for Active, the app then polls up to 10 times at 2.5-second intervals (~25 seconds)
-> waiting for the first revision to be ingested, and only then issues a PATCH to activate it.
-> That poll **guesses** the resource name — `skills/private-{sanitizedId}` when no publisher is set
-> ([L180-L182](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/PublishSkillModal.tsx#L180-L182))
-> — and every poll error is swallowed with a console warning
-> ([L204-L206](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/PublishSkillModal.tsx#L204-L206)).
-> **Net effect: a skill can silently stay in DRAFT and the UI will never tell you.** Always re-check
-> the Status column after publishing, and use **🟢 Activate in Company Catalog** in the detail modal
+> waiting for the first revision to be ingested, and then issues a `PATCH` to activate it.
+> Always re-check the Status column after publishing, and use **🟢 Activate in Company Catalog** in the detail modal
 > if it is still yellow.
 
 <details>
@@ -362,21 +375,18 @@ The footer holds the actions:
 |---|---|
 | **Delete Skill** (red, far left) | Opens a type-to-confirm dialog — see below. |
 | **App:** dropdown | Picks the Gemini Enterprise engine to deploy into. |
-| **🚀 Deploy to GE App** | Registers the skill as an agent in that app. Shows **✓ Deployed to GE App!** for 3.5s. |
+| **🚀 Deploy to GE App** | Registers the skill as an Organizational Skill (`state: 'ENABLED'`, `sharingConfig: { scope: 'ALL_USERS' }`) in that app. Shows **✓ Deployed to GE App!** for 3.5s. |
 | **🟢 Activate in Company Catalog** / **🟡 Disable in Company Catalog** | Flips the registry state. |
 | **Close** | Dismisses. |
 
 > [!CAUTION]
-> **🚀 Deploy to GE App has no confirmation and publishes to everyone.** The call hard-codes
+> **🚀 Deploy to GE App publishes as an Organizational Skill (`ALL_USERS`).** The call sets
 > `state: 'ENABLED'` and `sharingConfig: { scope: 'ALL_USERS' }`
-> ([RegistrySkillDetailModal.tsx:119-129](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L119-L129)).
-> One click makes the skill live for your entire organisation. If no engine is selected the app
-> auto-picks one: the first engine with `solutionType === 'SOLUTION_TYPE_CHAT'`, else the first
-> whose name contains `cosmere`, else simply `engines[0]`
-> ([L140](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L140)).
-> **Always set the App dropdown explicitly before clicking Deploy.**
+> ([RegistrySkillDetailModal.tsx:119-129](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L119-L129))
+> and automatically sanitizes the skill's display name (`<= 64` characters, `&` → `and`).
+> One click makes the skill live for your entire organisation. Always set the **App** dropdown explicitly before clicking Deploy.
 
-Delete, by contrast, is well guarded: a destructive-confirm dialog titled
+Delete is guarded by a destructive-confirm dialog titled
 `Delete Skill from Registry` that requires you to type the skill's display name, lists three
 consequences, and has the button **Delete Skill**
 ([RegistrySkillDetailModal.tsx:523-539](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L523-L539)).
@@ -385,41 +395,29 @@ consequences, and has the button **Delete Skill**
 
 | Field | What to enter | Required | Notes / Default |
 |---|---|---|---|
-| **Skill ID** | Lowercase, hyphenated identifier. | **Yes** | Default `company-brand-voice`. Error if blank: `Skill ID is required (e.g. sales-pipeline-advisor).` |
-| **Display Name** | Human-readable name. | **Yes** | Default `Company Brand Voice`. Error: `Display Name is required.` |
+| **Skill ID** | Lowercase, hyphenated identifier (`[a-z0-9-]`, max 63 chars). | **Yes** | Default `company-brand-voice`. Error if blank: `Skill ID is required (e.g. sales-pipeline-advisor).` |
+| **Display Name** | Human-readable name (max **64 characters**, letters/numbers/spaces/hyphens only; `&` normalized to `and`). | **Yes** | Default `Company Brand Voice`. Validated by `validateSkillDisplayName`. |
 | **Publisher Namespace** | Who owns this skill. | No | Default `default`. A value equal to your project ID is dropped. |
-| **Target State** | Active or Draft. | No | UI default **Active** — but see the caution above; creation always sends DRAFT first. |
-| **SKILL.md content** | The instruction document. | **Yes in practice** | Zipped and uploaded as the initial revision. |
+| **Target State** | Active or Draft. | No | UI default **Active** — creation stages DRAFT first and then activates via PATCH. |
+| **SKILL.md content** | The instruction document (or imported `.md` / `.zip` / `.json`). | **Yes in practice** | Zipped and uploaded as the initial revision. |
 
 ### Known limitations & gotchas
 
-- **You cannot edit a skill.** There is no edit path — not for the description, not for the
-  `SKILL.md`. `createRegistrySkillRevision` is only ever called internally when activating a skill
-  that has zero revisions
-  ([RegistrySkillDetailModal.tsx:192-200](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L192-L200)).
-  To change a skill you delete and re-publish.
-- **The "Use New ID" button lies.** Its label reads `Use New ID ({id}-v2)`, but the code appends a
-  random two-digit number: `Math.floor(Math.random() * 90 + 10)`
-  ([PublishSkillModal.tsx:277](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/PublishSkillModal.tsx#L277)).
-  You will get e.g. `my-skill-47`, not `my-skill-v2`.
-- **Deploy conflicts are resolved silently.** If the agent already exists (HTTP 409), the code
-  quietly switches to `updateAgent` and overwrites it
+- **Registry skills are versioned via revisions; engine-level skills are editable in-place.** In the central Agent Registry (`/skills`), updating a skill's `SKILL.md` requires re-publishing or importing a new archive, whereas skills deployed to a Gemini Enterprise engine under **Engines & Assistants → Skills** can be edited in-place (`PATCH` on `workflowAgentDefinition`) or toggled between **Organizational (`ENABLED` + `ALL_USERS`)** and **Private (`PRIVATE` / `DISABLED`)**.
+- **Deploy conflicts are updated in-place.** If the skill agent already exists in the target engine (HTTP 409), **🚀 Deploy to GE App** automatically switches to `updateAgent` (`PATCH`) and updates the existing skill definition
   ([L147-L156](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L147-L156)).
-- **App context is hard-coded** to `appId: 'default_engine'`, `collectionId: 'default_collection'`,
-  `assistantId: 'default_assistant'`.
-- **No pagination** (see above).
 
 ### Troubleshooting
 
 | Symptom / error text | Cause | Fix |
 |---|---|---|
 | `Failed to fetch enterprise skills from Google Cloud Agent Registry.` | API disabled, wrong region, or no permission | Enable `agentregistry.googleapis.com`; try a different region; check IAM. Use the inline **Retry**. |
-| Skill stays 🟡 Draft after publishing as Active | The activation poll timed out or guessed the wrong resource name | Open the skill and click **🟢 Activate in Company Catalog**. |
+| `Display name must be 64 characters or fewer` or `Display name can only contain letters, numbers, spaces, and hyphens` | Display Name exceeds **64 characters** or contains special punctuation | Shorten the display name to `<= 64` characters and use only letters, numbers, spaces, and hyphens (`&` is automatically converted to `and`). |
+| Skill stays 🟡 Draft after publishing as Active | The activation poll timed out | Open the skill and click **🟢 Activate in Company Catalog**. |
 | `Failed to update state: {message}` | The activate/disable PATCH failed | Usually permissions or a skill with no revisions yet. Wait and retry. |
 | `Failed to deploy skill: {message}` | The Discovery Engine agent create/update failed | Check the App dropdown points at a real engine and you can write agents there. |
 | `No engines found in project {projectId} ({appLocation}). Please ensure an engine exists in this region.` | No Gemini Enterprise app in that region | Create one, or switch region. |
 | `Failed to delete skill: {message}` | Delete rejected | Check permissions; a deployed skill may need to be disabled first. |
-| Skills missing from the list | More skills than one API page | Not fixable in-app — use the API or `gcloud` directly. |
 
 ---
 

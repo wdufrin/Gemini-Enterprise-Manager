@@ -360,6 +360,7 @@ export const validateUserPermissions = async (
 };
 
 const enrollmentCache = new Map<string, ProjectEnrollmentStatus>();
+const inFlightEnrollmentProbes = new Map<string, Promise<ProjectEnrollmentStatus>>();
 let lastActiveProjectId: string | null = null;
 
 export const getCachedProjectEnrollment = (
@@ -380,6 +381,7 @@ export const setCachedProjectEnrollment = (
 
 export const clearCachedProjectEnrollment = (): void => {
   enrollmentCache.clear();
+  inFlightEnrollmentProbes.clear();
   lastActiveProjectId = null;
 };
 
@@ -390,7 +392,16 @@ export const clearCachedProjectEnrollment = (): void => {
  */
 export const probeProjectEnrollment = async (
   projectId: string,
+  forceRefresh = false,
 ): Promise<ProjectEnrollmentStatus> => {
+  if (!forceRefresh) {
+    const cached = enrollmentCache.get(projectId);
+    if (cached) return cached;
+    const existingProbe = inFlightEnrollmentProbes.get(projectId);
+    if (existingProbe) return existingProbe;
+  }
+
+  const probePromise = (async (): Promise<ProjectEnrollmentStatus> => {
   let googleInternal = false;
   let googleInternalProbed = false;
   let googleInternalReason =
@@ -584,6 +595,14 @@ export const probeProjectEnrollment = async (
 
   setCachedProjectEnrollment(status);
   return status;
+  })();
+
+  inFlightEnrollmentProbes.set(projectId, probePromise);
+  try {
+    return await probePromise;
+  } finally {
+    inFlightEnrollmentProbes.delete(projectId);
+  }
 };
 
 export const runComprehensiveProjectValidation = async (
@@ -594,7 +613,7 @@ export const runComprehensiveProjectValidation = async (
     validateEnabledApis(projectId),
     checkDiscoveryEngineServiceAgent(projectId, projectNumber),
     validateUserPermissions(projectId),
-    probeProjectEnrollment(projectId),
+    probeProjectEnrollment(projectId, true),
   ]);
 
   if (projectNumber && projectNumber !== projectId) {

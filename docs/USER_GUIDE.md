@@ -1,4 +1,4 @@
-# Gemini Enterprise Manager — Administrator & Engineer User Guide (`v0.0914.338`)
+# Gemini Enterprise Manager — Administrator & Engineer User Guide (`v0.1029.385`)
 **Target Platform:** Google Cloud Gemini Enterprise (Discovery Engine & Vertex AI Console)  
 **Target Audience:** IT Administrators ("Newcomer Nina") through Cloud DevOps & Security Engineers ("Engineer Eve")
 
@@ -19,25 +19,25 @@ This guide is designed for two distinct reader profiles who share the same admin
   - [How the app is configured & deployed](#how-the-app-is-configured--deployed)
   - [Signing in (Google OAuth SSO & Manual Bearer Token)](#signing-in)
   - [Pre-flight validation (Service Agent, User Access & 13 Required APIs)](#pre-flight-validation)
-  - [The global console chrome & Sidebar structure (15 visible tabs)](#the-global-console-chrome)
+  - [The global console chrome & Sidebar structure (15 visible tabs across 5 groups, Command Palette & Docs)](#the-global-console-chrome)
   - [Show Interaction Details — the live cURL debugger](#show-interaction-details--the-curl-debugger)
   - [Glossary of Gemini Enterprise terms](#glossary)
   - [Decision Matrix: "Which tab do I need?"](#which-tab-do-i-need)
 - **[Chapter 1 — Agent Management](#chapter-1--agent-management)**
   - [GE Agent Manager (Registering & managing ADK, A2A, and Low-Code agents)](#ge-agent-manager)
-  - [Skills Registry (Enterprise SKILL.md archive catalog & publishing)](#skills-registry)
+  - [Skills Registry (Enterprise SKILL.md archive catalog, display name normalization, organizational vs. private visibility & ZIP import/export)](#skills-registry)
   - [ADK Studio (Interactive Python ADK 2.x & Cloud Run A2A code generator)](#adk-studio)
   - [Agent Runtimes (Vertex AI ReasoningEngines & Cloud Run A2A services)](#agent-runtimes)
   - [End-to-End Walkthrough: Build → Deploy → Register → Grant → Test](#end-to-end-build-deploy-register-grant-test)
 - **[Chapter 2 — Knowledge, Resources, and Testing](#chapter-2--knowledge-resources-and-testing)**
-  - [Connectors & Data Stores (Search/RAG stores, 22 third-party connectors, diagnostics)](#connectors--data-stores)
+  - [Connectors & Data Stores (Search/RAG stores, 156-connector validation catalog, BYO-MCP & RFC 6901 citation mappings)](#connectors--data-stores)
   - [Quota & Cost Estimator (Pooled license multiplier calculator & Cloud Monitoring usage)](#quota--cost-estimator)
-  - [Engines & Assistants (Discovery Engine apps, grounding, and streaming chat Playground)](#engines--assistants)
+  - [Engines & Assistants (Discovery Engine apps, 5-Pillar Best-Practices Evaluator, BYOMCP Advisor, Query-Routing Skills, Redirect & Private Routing URL deployment & Playground)](#engines--assistants)
   - [Architecture (Interactive React Flow topology graph & WCAG accessible matrix)](#architecture)
 - **[Chapter 3 — Security & Access](#chapter-3--security--access)**
   - [Authorizations (OAuth 2.0 client credentials for agent tool execution)](#authorizations)
   - [Agent Permissions (Global IAM scanner & Workforce Identity Federation validator)](#agent-permissions)
-  - [Model Armor (Content safety policies, prompt injection filters & violation logs)](#model-armor)
+  - [Model Armor (Content safety policies, Exclusion Rules Preview, streaming compatibility & Evaluate for Exclusion drawer)](#model-armor)
   - [Observability (BigQuery log sink discovery, 11 SQL analytics views & Live vs Mock badge)](#observability)
 - **[Chapter 4 — System Operations & Appendices](#chapter-4--system-backup--recovery-app-config-audit-and-licenses)**
   - [Backup & Recovery (GCS JSON snapshots, the 8 resource cards & disaster recovery runbook)](#backup--recovery)
@@ -631,12 +631,14 @@ Other sidebar behaviour:
 
 - Each row has a second, purple **ⓘ** button on its right edge:
   *"Show API commands for `<tab>`"*. See the cURL section below.
+- **Report Issue / Feedback** above the collapse button opens the PII-sanitized feedback modal
+  ([Sidebar.tsx:283-311](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L283-L311)).
 - **Collapse Navigation** at the bottom shrinks the rail from `w-64` to `w-16`, showing icons with
   hover tooltips. **The Settings & Debug section, including the cURL toggle and history, is hidden
-  entirely while collapsed** ([Sidebar.tsx:194](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L194)). The collapsed state is not
+  entirely while collapsed** ([Sidebar.tsx:192](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L192)). The collapsed state is not
   persisted across reloads.
-- The header shows a hardcoded version string, currently `v0.0914.338`
-  ([Sidebar.tsx:163](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L163)).
+- The header shows the application version string, currently `v0.1029.385`
+  ([Sidebar.tsx:161](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L161)).
 
 ### Pages that exist but are not in the sidebar
 
@@ -687,8 +689,14 @@ re-renders against the new project immediately — there is no extra "apply".
 ### Location / region and app selectors — not global
 
 There is **no global region picker and no global Gemini Enterprise app picker**. The application
-header contains exactly four things: breadcrumbs, the project selector, the help button, and the
-profile/token control ([App.tsx:582-602](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/App.tsx#L582-L602)).
+header ([App.tsx:671-724](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/App.tsx#L671-L724)) contains six global controls:
+
+1. **Breadcrumbs** ([Breadcrumbs.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Breadcrumbs.tsx))
+2. **Project Selector** ([HeaderProjectInput.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/HeaderProjectInput.tsx))
+3. **Quick Switcher / Command Palette** (`Jump to... ⌘K`, opening [CommandPaletteModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/CommandPaletteModal.tsx))
+4. **Report Issue or Feedback** (`Feedback`, opening [FeedbackModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/FeedbackModal.tsx))
+5. **Docs / Help button** ([HelpButton.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/HelpButton.tsx))
+6. **Profile / Token control** ([AccessTokenInput.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/AccessTokenInput.tsx))
 
 Region and app are chosen **per screen**. The shared widget is
 [ProjectEngineSelector.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/common/ProjectEngineSelector.tsx), which offers a **Region Location** dropdown of
@@ -697,20 +705,11 @@ dropdown populated by listing engines in `default_collection`, preferring `defau
 an **Enter manually** escape hatch. It is currently used by **App Config Audit** only; other tabs
 roll their own. Setting the region on one tab does **not** change it on another.
 
-### Help button and the built-in User Manual
+### Command Palette (`Jump to... ⌘K`), Feedback, and the built-in User Guide (`Docs`)
 
-The **?** icon in the header ([HelpButton.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/HelpButton.tsx)) opens
-[UserManualModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/UserManualModal.tsx) — an 11-section in-app manual (Overview, Agent Management,
-Skills Registry, Agent Engines, Builder & Catalog, Knowledge & Data, Security & Governance,
-Observability, Operations, Setup & Configuration, API Reference). It is keyboard-accessible
-(`role="dialog"`, Escape to close, focus trapping via `useModalA11y`).
-
-> [!NOTE]
-> The built-in manual uses **older tab names** than the live sidebar — "Agent Engines",
-> "Data Stores", "Builder & Catalog", "Agent Builder". Its **Setup & Configuration** section also
-> tells you to *"select the correct location (Global, US, EU) in the configuration bar"*, which
-> implies a global control that does not exist. Trust the sidebar and this guide over the in-app
-> manual.
+- **Quick Switcher / Command Palette (`Jump to... ⌘K`)**: Clicking **Jump to... ⌘K** in the top header (or pressing `⌘K` / `Ctrl+K`) opens [CommandPaletteModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/CommandPaletteModal.tsx), allowing instant keyboard navigation to any of the 15 sidebar modules or quick actions.
+- **Report Issue or Feedback**: Clicking **Feedback** in the header (or **Report Issue / Feedback** in the sidebar footer) opens [FeedbackModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/FeedbackModal.tsx) to file a PII-sanitized GitHub issue with environment diagnostics.
+- **Docs button and the interactive 5-chapter User Guide**: Clicking **Docs** in the header ([HelpButton.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/HelpButton.tsx) → [UserManualModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/UserManualModal.tsx) → [UserGuideModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/user-guide/UserGuideModal.tsx)) opens the interactive **Gemini Enterprise Manager — User Guide** (`v0.1029.385`). It renders all 5 modular chapters (`docs/guide/00-getting-started.md` through `04-system-and-appendices.md`) with full-text search (`searchGuide`), category filter pills (`All`, `Getting Started`, `Agent Management`, `Knowledge & Testing`, `Security & Access`, `System Operations`, `Appendices`), `Open <Tab>` deep-link buttons (`onNavigateToPage`), screenshot lightbox zoom, and 1-click **Offline .md** download (`getMasterGuideMarkdown()`). It is keyboard-accessible (`role="dialog"`, Escape to close, focus trapping via `useModalA11y`).
 
 ### Cloud Console button
 
@@ -851,15 +850,9 @@ a genuinely careful piece of code:
 
 ### Known limitations & gotchas
 
-- **The toggle's own caption is wrong.** It reads *"Intercepts save actions to show cURL
-  commands."* ([Sidebar.tsx:215](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L214-L216)). Nothing is intercepted and nothing is
-  paused for review. The feature is a passive recorder: requests go out immediately, exactly as
-  they would with the toggle off. Do not rely on it as a confirmation step before a destructive
-  action.
-- **`CurlConfirmationModal` — the "Confirm & Execute" review dialog — is dead code.** It exists at
-  [CurlConfirmationModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/CurlConfirmationModal.tsx) and is fully implemented, but a repository-wide
-  search finds **zero** imports of it outside its own file. That is the review step the caption
-  promises, and it is not wired up anywhere.
+- **Passive recorder only (`Records outgoing REST requests and cURL commands in History.`).** The toggle caption in [Sidebar.tsx:212-214](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/Sidebar.tsx#L212-L214) reads *"Records outgoing REST requests and cURL commands in History."* Nothing is intercepted or paused for review — requests go out immediately, exactly as they would with the toggle off. Do not rely on it as a confirmation step before a destructive action.
+- **`CurlConfirmationModal` — the "Confirm & Execute" review dialog — is unused.** It exists at
+  [CurlConfirmationModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/CurlConfirmationModal.tsx) and is implemented, but is not wired up to outgoing API calls.
 - **History is not retroactive.** Only requests made *after* you flip the toggle are recorded.
   Turn it on, *then* reproduce.
 - **50-entry cap, in memory only.** Older calls are dropped; a page reload loses everything.
@@ -912,24 +905,25 @@ a genuinely careful piece of code:
 |---|---|---|
 | See every agent attached to my assistant | **GE Agent Manager** | Agent Management |
 | Turn an agent on or off | **GE Agent Manager** | Agent Management |
-| Upload or version a reusable skill package | **Skills Registry** | Agent Management |
+| Upload, import, or export reusable `SKILL.md` skill packages | **Skills Registry** | Agent Management |
 | Publish a skill to everyone in my organisation | **Skills Registry** | Agent Management |
 | Generate and deploy a new Python (ADK) agent | **ADK Studio** | Agent Management |
 | See which Vertex AI runtimes are deployed, and test one | **Agent Runtimes** | Agent Management |
 | Inspect or kill a live agent session | **Agent Runtimes** | Agent Management |
 | Add a GCS bucket, BigQuery table or website as knowledge | **Connectors & Data Stores** | Knowledge & Resources |
-| Check why a Jira/SharePoint sync is failing | **Connectors & Data Stores** | Knowledge & Resources |
+| Check why a Jira/SharePoint sync is failing or configure BYOMCP tools & citations | **Connectors & Data Stores** | Knowledge & Resources |
 | Find out if I am about to hit a quota limit | **Quota & Cost Estimator** | Knowledge & Resources |
 | Estimate next month's bill | **Quota & Cost Estimator** | Knowledge & Resources |
 | Change the assistant's system instructions or model | **Engines & Assistants** | Testing & Analysis |
+| Run the 5-pillar Assistant Configuration & Best-Practices Evaluator or BYOMCP Advisor | **Engines & Assistants** | Testing & Analysis |
 | Chat with the assistant to test it | **Engines & Assistants** | Testing & Analysis |
-| Set up a custom domain / vanity URL | **Engines & Assistants** (`/vanity-urls` redirects here) | Testing & Analysis |
+| Set up a custom domain / redirect or private routing URL (`dnsProjectId`) | **Engines & Assistants** (`Customize` tab; `/vanity-urls` redirects here) | Testing & Analysis |
 | See how engines, data stores and agents connect | **Architecture** | Testing & Analysis |
 | Let an agent sign in to a third-party SaaS on a user's behalf | **Authorizations** | Security & Access |
 | See who can access an agent or data store | **Agent Permissions** | Security & Access |
 | Grant or revoke a user's access | **Agent Permissions** | Security & Access |
 | Block prompt injection, jailbreaks, hate speech or PII leakage | **Model Armor** | Security & Access |
-| See what got blocked by a safety filter | **Model Armor** | Security & Access |
+| Evaluate a blocked prompt for false-positive exclusion rules or streaming compatibility | **Model Armor** | Security & Access |
 | Check request volume, latency or error rates | **Observability** | Security & Access |
 | Snapshot my configuration before a risky change | **Backup & Recovery** | System |
 | Restore or migrate config to another project | **Backup & Recovery** | System |
@@ -968,7 +962,6 @@ a genuinely careful piece of code:
 | Header reads `Project: Not Set` but calls still fire | [App.tsx:389-394](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/App.tsx#L389-L394) | Project resolution failed; the ID was never populated | Re-enter the project; check the browser console |
 | A button appears to do nothing | — | Event-handler errors are not caught by the error boundary | Open DevTools (F12) → Console |
 | Works in `npm run dev`, fails in Docker with a CSP error | [nginx.conf:17](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/nginx.conf#L17) | `connect-src` excludes `*.run.app` | Extend the CSP, or use the dev server |
-
 
 ---
 
@@ -1017,7 +1010,7 @@ flowchart LR
 | Tab | Route | What it talks to |
 |---|---|---|
 | **GE Agent Manager** | `/agents` | Discovery Engine (`discoveryengine.googleapis.com`) |
-| **Skills Registry** | `/skills-registry` | Agent Registry (`agentregistry.googleapis.com`) |
+| **Skills Registry** | `/skills` | Agent Registry (`agentregistry.googleapis.com`) |
 | **ADK Studio** | `/builder` | Nothing, until you click Deploy or Register. Code generation is 100% local to your browser. |
 | **Agent Runtimes** | `/runtimes` | Vertex AI (`{region}-aiplatform.googleapis.com`) and Cloud Run |
 
@@ -1240,9 +1233,11 @@ re-fetches the current policy first; that internal warning is swallowed
 ### What it's for
 
 A **Skill** here is a packaged instruction document — a `SKILL.md` file plus metadata — stored
-centrally in the Google Cloud **Agent Registry** so multiple agents can reuse it. Think
+centrally in the Google Cloud **Agent Registry** (`agentregistry.googleapis.com`) or attached to a
+Gemini Enterprise assistant (`workflowAgentDefinition`) so agents and assistants can reuse it. Think
 "reusable playbook": a brand-voice guide, a sales-proposal structure, an incident postmortem
-template. Skills are published once and then deployed into a Gemini Enterprise app.
+template, or an enterprise query-routing skill. Skills can be published to the central Agent Registry
+and deployed into any Gemini Enterprise app, or managed directly per engine under **Engines & Assistants → Skills**.
 
 > [!NOTE]
 > This tab is **100% live API** against `https://agentregistry.googleapis.com` (`v1alpha`). There is
@@ -1251,18 +1246,15 @@ template. Skills are published once and then deployed into a Gemini Enterprise a
 
 ### The screen, explained
 
-- **Region selector** — three options, labelled exactly `🌍 Global`, `🇪🇺 EU (Europe)`,
+- **Region selector** — three options, labelled `🌍 Global`, `🇪🇺 EU (Europe)`,
   `🇺🇸 US (United States)`. Default `global`.
 - **Stat cards** — Total Central Skills · 🟢 Active in Catalog · 🟡 Draft / Staging · 🏷️ Publishers.
-- **Filters** — a publisher dropdown (`All Publishers`) and a status dropdown
-  (`All Statuses` / `🟢 Active` / `🟡 Draft / Disabled`), plus a free-text search box.
+- **Filters & Actions** — a publisher dropdown (`All Publishers`), a status dropdown
+  (`All Statuses` / `🟢 Active` / `🟡 Draft / Disabled`), a free-text search box, an **Export (`n`)**
+  button (`ExportSkillsModal.tsx`), and a **+ Publish New Skill** button (`PublishSkillModal.tsx`).
 - **Table** — columns `Skill Name & URN`, `Publisher`, `Status`, `Semantic Trigger & Description`,
-  `Actions`. The only action is an eye icon titled "Inspect Skill & Revisions".
-
-> [!WARNING]
-> The table has **no sorting and no pagination**. The `nextPageToken` returned by the API is
-> discarded, so if your registry has more skills than fit in one API page, the extras are simply
-> never shown. There is no indication that this has happened.
+  `Actions`. Each row provides per-skill **`SKILL.md`** and **`.zip`** archive download buttons plus
+  the eye icon titled "Inspect Skill & Revisions".
 
 **Empty state:** "No Enterprise Skills Found" with a **Publish First Skill** button. If filters are
 active you instead get "No skills matched your search filter. Try clearing filters."
@@ -1272,37 +1264,51 @@ active you instead get "No skills matched your search filter. Try clearing filte
 
 ![Skills Registry — Central catalog of enterprise skills (`SKILL.md` archives) showing publisher namespaces, draft/active states, and deployment actions.](./assets/11-skills-registry.png)
 
+### Skill display name normalization, visibility states, and `SKILL.md` ZIP import/export
+
+Both **Skills Registry** (`/skills`) and the per-engine **Engines & Assistants → Skills** tab (`SkillsViewer.tsx`, `AddSkillModal.tsx`, `ExportSkillsModal.tsx`, `utils/skillExportUtils.ts`) share unified skill validation, visibility, and archive portability rules:
+
+1. **Display name normalization and validation rules (`validateSkillDisplayName`, `sanitizeSkillDisplayName`)**:
+   - **Maximum 64 characters** (`<= 64` characters).
+   - **Allowed characters**: letters, numbers, spaces, and hyphens only (`^[A-Za-z0-9][A-Za-z0-9 -]*$`), starting with an alphanumeric character.
+   - **Automatic `&` → `and` sanitization**: special characters such as `&` are automatically normalized to `and` (for example, `R&D & Security` → `R and D and Security`), underscores/slashes are converted to hyphens, and any remaining unsupported characters are stripped and truncated to **64 characters**.
+2. **Organizational vs. private skill visibility states**:
+   - **Organizational Skill (`ENABLED` + `ALL_USERS`)**: Deployed or created with `state: 'ENABLED'` and `sharingConfig: { scope: 'ALL_USERS' }`. Visible across the entire organization under **"From my organization"** in the Gemini Enterprise web app so every user and query-routing turn can invoke it.
+   - **Private / Draft Skill (`PRIVATE` or `DISABLED`)**: Created without organization-wide sharing (`state: 'PRIVATE'` or `state: 'DISABLED'`). Visible only to the creator/administrators for staging and testing until promoted to **Organizational (`ENABLED`)**.
+3. **`SKILL.md` ZIP import/export & multi-format backup (`ExportSkillsModal.tsx`, `PublishSkillModal.tsx`, `AddSkillModal.tsx`)**:
+   - **Export in 4 formats**: Click **Export (`n`)** to select individual skills (filtered by search or status) and download as:
+     - **CSV Spreadsheet (`.csv`)** — tabular metadata and instructions for spreadsheet auditing.
+     - **Markdown Document (`.md`)** — human-readable documentation bundle of all selected skills.
+     - **`SKILL.md` ZIP Archive (`.zip`)** — standards-compliant Agent Skills archive packaging each skill into `<skill-slug>/SKILL.md` with YAML frontmatter (`name`, `description`, `displayName`) and markdown body (`buildSingleSkillZipBlob`, `buildMultiSkillZipBlob`).
+     - **JSON Backup (`.json`)** — lossless `gemini-enterprise-skills-v1` backup payload for round-trip restore or cross-project migration.
+   - **Single & batch import (`SKILL.md`, `.zip`, `.json`)**: In **Publish New Skill** (`PublishSkillModal.tsx`) or **Create / Edit Skill** (`AddSkillModal.tsx`), upload a `.md` (`SKILL.md`), `.zip` (single or multi-skill archive), or `.json` backup. Multi-skill `.zip` and `.json` files render interactive selector pills to inspect individual skills or click **Batch Publish All (`N` Skills)** to publish the entire archive sequentially.
+
 ### How to: publish a new skill
 
-1. Click **Publish First Skill** (empty state) or the publish button in the header.
-2. Optionally pick one of the three **templates** to prefill the form:
+1. Click **Publish First Skill** (empty state) or **+ Publish New Skill** in the header.
+2. Optionally pick one of the three **templates** to prefill the form, or click **Upload `SKILL.md` / `.zip` / `.json`** to import from file:
    - **🛡️ Brand Voice** — "Tone, style & guidelines" → ID `corporate-brand-voice`
    - **💼 Sales Proposals** — "B2B pitch & ROI decks" → ID `enterprise-sales-proposal`
    - **🚨 IT Incident SRE** — "Blameless postmortems" → ID `it-incident-postmortem`
-3. Set the **Skill ID** (default `company-brand-voice`) and **Display Name**
-   (default `Company Brand Voice`).
+3. Set the **Skill ID** (default `company-brand-voice`, pattern `[a-z0-9-]`, max 63 chars) and **Display Name**
+   (default `Company Brand Voice`, max **64 characters**, letters/numbers/spaces/hyphens only).
 4. Choose a **Publisher Namespace**:
    `🏢 Organization Internal (Default)` (`default`),
    `Gemini Enterprise (discoveryengine)` (`discoveryengine.googleapis.com`), or
    `Google Cloud (cloud.google.com)`.
-5. Write or paste the `SKILL.md` content.
+5. Write or paste the `SKILL.md` content (with YAML frontmatter `name` and `description`).
 6. Choose the target state (default **Active**).
-7. Click publish.
+7. Click publish (or **Batch Publish All (`N` Skills)** when importing a multi-skill `.zip` or `.json` bundle).
 
 Expected result: the modal closes and the skill appears in the table.
 
 > [!CAUTION]
-> **Your "Active" choice is not honoured on creation.** The create call always sends
+> **Creation stages as `TARGET_STATE_DRAFT` before activating.** The initial create call sends
 > `targetState: 'TARGET_STATE_DRAFT'`
 > ([PublishSkillModal.tsx:163](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/PublishSkillModal.tsx#L163)).
 > If you asked for Active, the app then polls up to 10 times at 2.5-second intervals (~25 seconds)
-> waiting for the first revision to be ingested, and only then issues a PATCH to activate it.
-> That poll **guesses** the resource name — `skills/private-{sanitizedId}` when no publisher is set
-> ([L180-L182](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/PublishSkillModal.tsx#L180-L182))
-> — and every poll error is swallowed with a console warning
-> ([L204-L206](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/PublishSkillModal.tsx#L204-L206)).
-> **Net effect: a skill can silently stay in DRAFT and the UI will never tell you.** Always re-check
-> the Status column after publishing, and use **🟢 Activate in Company Catalog** in the detail modal
+> waiting for the first revision to be ingested, and then issues a `PATCH` to activate it.
+> Always re-check the Status column after publishing, and use **🟢 Activate in Company Catalog** in the detail modal
 > if it is still yellow.
 
 <details>
@@ -1336,21 +1342,18 @@ The footer holds the actions:
 |---|---|
 | **Delete Skill** (red, far left) | Opens a type-to-confirm dialog — see below. |
 | **App:** dropdown | Picks the Gemini Enterprise engine to deploy into. |
-| **🚀 Deploy to GE App** | Registers the skill as an agent in that app. Shows **✓ Deployed to GE App!** for 3.5s. |
+| **🚀 Deploy to GE App** | Registers the skill as an Organizational Skill (`state: 'ENABLED'`, `sharingConfig: { scope: 'ALL_USERS' }`) in that app. Shows **✓ Deployed to GE App!** for 3.5s. |
 | **🟢 Activate in Company Catalog** / **🟡 Disable in Company Catalog** | Flips the registry state. |
 | **Close** | Dismisses. |
 
 > [!CAUTION]
-> **🚀 Deploy to GE App has no confirmation and publishes to everyone.** The call hard-codes
+> **🚀 Deploy to GE App publishes as an Organizational Skill (`ALL_USERS`).** The call sets
 > `state: 'ENABLED'` and `sharingConfig: { scope: 'ALL_USERS' }`
-> ([RegistrySkillDetailModal.tsx:119-129](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L119-L129)).
-> One click makes the skill live for your entire organisation. If no engine is selected the app
-> auto-picks one: the first engine with `solutionType === 'SOLUTION_TYPE_CHAT'`, else the first
-> whose name contains `cosmere`, else simply `engines[0]`
-> ([L140](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L140)).
-> **Always set the App dropdown explicitly before clicking Deploy.**
+> ([RegistrySkillDetailModal.tsx:119-129](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L119-L129))
+> and automatically sanitizes the skill's display name (`<= 64` characters, `&` → `and`).
+> One click makes the skill live for your entire organisation. Always set the **App** dropdown explicitly before clicking Deploy.
 
-Delete, by contrast, is well guarded: a destructive-confirm dialog titled
+Delete is guarded by a destructive-confirm dialog titled
 `Delete Skill from Registry` that requires you to type the skill's display name, lists three
 consequences, and has the button **Delete Skill**
 ([RegistrySkillDetailModal.tsx:523-539](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L523-L539)).
@@ -1359,41 +1362,29 @@ consequences, and has the button **Delete Skill**
 
 | Field | What to enter | Required | Notes / Default |
 |---|---|---|---|
-| **Skill ID** | Lowercase, hyphenated identifier. | **Yes** | Default `company-brand-voice`. Error if blank: `Skill ID is required (e.g. sales-pipeline-advisor).` |
-| **Display Name** | Human-readable name. | **Yes** | Default `Company Brand Voice`. Error: `Display Name is required.` |
+| **Skill ID** | Lowercase, hyphenated identifier (`[a-z0-9-]`, max 63 chars). | **Yes** | Default `company-brand-voice`. Error if blank: `Skill ID is required (e.g. sales-pipeline-advisor).` |
+| **Display Name** | Human-readable name (max **64 characters**, letters/numbers/spaces/hyphens only; `&` normalized to `and`). | **Yes** | Default `Company Brand Voice`. Validated by `validateSkillDisplayName`. |
 | **Publisher Namespace** | Who owns this skill. | No | Default `default`. A value equal to your project ID is dropped. |
-| **Target State** | Active or Draft. | No | UI default **Active** — but see the caution above; creation always sends DRAFT first. |
-| **SKILL.md content** | The instruction document. | **Yes in practice** | Zipped and uploaded as the initial revision. |
+| **Target State** | Active or Draft. | No | UI default **Active** — creation stages DRAFT first and then activates via PATCH. |
+| **SKILL.md content** | The instruction document (or imported `.md` / `.zip` / `.json`). | **Yes in practice** | Zipped and uploaded as the initial revision. |
 
 ### Known limitations & gotchas
 
-- **You cannot edit a skill.** There is no edit path — not for the description, not for the
-  `SKILL.md`. `createRegistrySkillRevision` is only ever called internally when activating a skill
-  that has zero revisions
-  ([RegistrySkillDetailModal.tsx:192-200](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L192-L200)).
-  To change a skill you delete and re-publish.
-- **The "Use New ID" button lies.** Its label reads `Use New ID ({id}-v2)`, but the code appends a
-  random two-digit number: `Math.floor(Math.random() * 90 + 10)`
-  ([PublishSkillModal.tsx:277](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/PublishSkillModal.tsx#L277)).
-  You will get e.g. `my-skill-47`, not `my-skill-v2`.
-- **Deploy conflicts are resolved silently.** If the agent already exists (HTTP 409), the code
-  quietly switches to `updateAgent` and overwrites it
+- **Registry skills are versioned via revisions; engine-level skills are editable in-place.** In the central Agent Registry (`/skills`), updating a skill's `SKILL.md` requires re-publishing or importing a new archive, whereas skills deployed to a Gemini Enterprise engine under **Engines & Assistants → Skills** can be edited in-place (`PATCH` on `workflowAgentDefinition`) or toggled between **Organizational (`ENABLED` + `ALL_USERS`)** and **Private (`PRIVATE` / `DISABLED`)**.
+- **Deploy conflicts are updated in-place.** If the skill agent already exists in the target engine (HTTP 409), **🚀 Deploy to GE App** automatically switches to `updateAgent` (`PATCH`) and updates the existing skill definition
   ([L147-L156](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/registry/RegistrySkillDetailModal.tsx#L147-L156)).
-- **App context is hard-coded** to `appId: 'default_engine'`, `collectionId: 'default_collection'`,
-  `assistantId: 'default_assistant'`.
-- **No pagination** (see above).
 
 ### Troubleshooting
 
 | Symptom / error text | Cause | Fix |
 |---|---|---|
 | `Failed to fetch enterprise skills from Google Cloud Agent Registry.` | API disabled, wrong region, or no permission | Enable `agentregistry.googleapis.com`; try a different region; check IAM. Use the inline **Retry**. |
-| Skill stays 🟡 Draft after publishing as Active | The activation poll timed out or guessed the wrong resource name | Open the skill and click **🟢 Activate in Company Catalog**. |
+| `Display name must be 64 characters or fewer` or `Display name can only contain letters, numbers, spaces, and hyphens` | Display Name exceeds **64 characters** or contains special punctuation | Shorten the display name to `<= 64` characters and use only letters, numbers, spaces, and hyphens (`&` is automatically converted to `and`). |
+| Skill stays 🟡 Draft after publishing as Active | The activation poll timed out | Open the skill and click **🟢 Activate in Company Catalog**. |
 | `Failed to update state: {message}` | The activate/disable PATCH failed | Usually permissions or a skill with no revisions yet. Wait and retry. |
 | `Failed to deploy skill: {message}` | The Discovery Engine agent create/update failed | Check the App dropdown points at a real engine and you can write agents there. |
 | `No engines found in project {projectId} ({appLocation}). Please ensure an engine exists in this region.` | No Gemini Enterprise app in that region | Create one, or switch region. |
 | `Failed to delete skill: {message}` | Delete rejected | Check permissions; a deployed skill may need to be disabled first. |
-| Skills missing from the list | More skills than one API page | Not fixable in-app — use the API or `gcloud` directly. |
 
 ---
 
@@ -2144,7 +2135,6 @@ Every error string this chapter's code can surface.
 | Session pill missing | Count call failed, or no sessions | Use **Details → View Active Sessions**. |
 | My checkbox selection vanished | Clicking a row's **Delete** replaces the selection | Read the modal's list before confirming. |
 
-
 ---
 
 # Chapter 2 — Knowledge, Resources, and Testing
@@ -2388,9 +2378,9 @@ Diagnostics runs a fixed sequence ([connectorDiagnostics.ts](file:///usr/local/g
 [ConnectorDetailsModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx) — four tabs:
 
 - **Diagnostics** — the step list above, plus collapsibles for **Raw Data Connector State**, **Recent Operations (N)** (auto-opens and gains the suffix `(Failures Detected)` if any op errored) and **Recent Error Logs (N)**. Three canned remediations are matched on the error text ([L151-L175](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L151-L175)): `JIRA_INVALID_AUTH` → *Jira Authentication Error*; `FORBIDDEN`/`403`/`PERMISSION_DENIED` → *Access Denied (403)*; `NOT_FOUND`/`404` → *Resource Not Found (404)*. Anything else gets no advice.
-- **Validation Checklist** — headed `Connector Validation & Readiness Checklist` ([ConnectorVerificationTab.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/ConnectorVerificationTab.tsx)). Audits live authentication, Domain-Wide Delegation (DWD), Discovery Engine Service Agent IAM roles, API scopes, and endpoint connectivity for existing connectors. The vendor profile is auto-detected by lowercased substring match against the connector JSON, collection display name, and name across 35+ vendors (including Google Workspace Gmail, Google Drive, Google People, Jira, Jira DC, Confluence, Confluence DC, Salesforce, ServiceNow, Entra ID, SharePoint, Outlook, Teams, OneDrive, Slack, Dropbox, Notion, Zendesk, Box, GitHub, GitLab, Asana, HubSpot, Linear, Monday, Shopify, Trello, Workday, Airtable, Stripe, Intercom, Freshservice, Miro, Smartsheet, BigQuery, Cloud Storage, Google Calendar, Google Chat, BYOMCP, and a GENERIC fallback). It distinguishes `INGESTION` from `FEDERATED` data modes for connectors that support both, with interactive action scope checklists and sign-off exports.
+- **Validation Checklist** — headed `Connector Validation & Readiness Checklist` ([ConnectorVerificationTab.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/ConnectorVerificationTab.tsx)). Powered by the **156-connector validation catalog** (`1,324` validation items and `424` automated diagnostic probes across 5 catalog files: `connectorRequirementsCatalog.ts` and `connectorCatalogPart2.ts` through `connectorCatalogPart5.ts`, verified by `scripts/syncChecklists.mjs --check-only`). Audits live authentication, Domain-Wide Delegation (DWD), Discovery Engine Service Agent IAM roles, API scopes, and endpoint connectivity for existing connectors across Google Cloud & Workspace, Enterprise SaaS, Databases & Warehouses, Collaboration & Knowledge, Identity & Security, and **BYOMCP** (`custom_mcp`). It distinguishes `INGESTION` from `FEDERATED` data modes for connectors that support both, with interactive action scope checklists and sign-off exports.
 - **Filters** — indexing include/exclude rules, with a badge counting active rules. The banner reads `Indexing Filters: N active rules configured` or `None configured (indexing all accessible data)`. Available keys are per-vendor ([filterDefinitions.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/filters/filterDefinitions.ts)) — SharePoint offers `Path`, `Site`, `Folder`, `InformationProtectionLabelId`, `FileType`; OneDrive offers `Path`, `User`, `Folder`, `FileType`.
-- **Configuration** — relabelled **BYOMCP Settings & JSON** when `dataSource === 'custom_mcp'` ([L233](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L233)). Holds auth settings, agent guidelines, advanced params, discovered tools, and a raw JSON editor.
+- **Configuration** — relabelled **BYOMCP Settings & JSON** when `dataSource === 'custom_mcp'` ([L233](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L233)). Holds auth settings, agent guidelines, advanced params, discovered tools, RFC 6901 citation mappings, and a raw JSON editor.
 
 ![Connectors sub-tab — Enterprise data connector list and diagnostic inspection controls.](./assets/15-connectors.png)
 
@@ -2398,7 +2388,7 @@ Diagnostics runs a fixed sequence ([connectorDiagnostics.ts](file:///usr/local/g
 
 Connector credentials (client ID, client secret, refresh token, instance/tenant IDs) are stored inside the connector itself, under `dataConnector.params` and `actionConfig.actionParams`. **Nothing on this tab reads or writes `projects/*/locations/*/authorizations/*`.** The **Authorizations** tab governs a different resource — OAuth clients that *agents* use for *tool* calls. The two are unrelated except that the Architecture scanner draws Agent → Authorization edges.
 
-The in-modal **Token Help** panel points at [docs/Connectors_Auth_Guide.md](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/docs/Connectors_Auth_Guide.md), which covers exactly two families — Atlassian (Jira / Confluence) and Microsoft (SharePoint / Teams / Outlook) — and both require the `offline_access` scope so a refresh token is issued. That doc is consistent with the in-app panel.
+The in-modal **Token Help** panel points at [docs/Connectors_Auth_Guide.md](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/docs/Connectors_Auth_Guide.md), which covers Atlassian (Jira / Confluence) and Microsoft (SharePoint / Teams / Outlook) OAuth 3LO setup — both requiring the `offline_access` scope so a refresh token is issued — alongside the 156-connector validation catalog in the **Validation Checklist** tab.
 
 ### How to: clone a connector to another project
 
@@ -2411,7 +2401,24 @@ For a supported vendor, **Copy cURL** produces a ready-to-run `:setUpDataConnect
 
 ### BYO-MCP (bring your own MCP server)
 
-If a connector's `dataSource` is `custom_mcp`, the Configuration tab becomes **BYOMCP Settings & JSON** ([BYOMCPConfigTab.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/BYOMCPConfigTab.tsx)) with sections for auth settings, agent guidelines, advanced params, discovered tools, and a validating raw-JSON editor.
+If a connector's `dataSource` is `custom_mcp`, the Configuration tab becomes **BYOMCP Settings & JSON** ([BYOMCPConfigTab.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/BYOMCPConfigTab.tsx)) with structured visual builders for authentication, query-routing metadata, tool schema overrides, and RFC 6901 citation mappings:
+
+1. **Dynamic Tool Discovery (`tools/list`)**:
+   - Clicking **Refresh Tools** ([handleRefreshMcpTools](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L82-L144)) queries the MCP server via JSON-RPC 2.0 `tools/list`, populates `dynamicTools`, and updates `bapConfig.enabledActions`.
+2. **Smart Routing & Evaluation Advisor (`AgentGuidelinesSection.tsx`)**:
+   - Configures `params.custom_mcp_Metadata.mcp_server_description` (**MCP Server Description**) and `params.custom_mcp_Metadata.mcp_agent_instructions` (**Agent Instructions**), which the Gemini Enterprise query planner uses to decide **when** to invoke this MCP server vs. sibling search data stores.
+   - Includes a **Smart Routing & Evaluation Advisor** with 6 domain archetype presets (`Database / SQL`, `Issue Tracker / ITSM`, `CRM / ERP / Finance`, `DevOps & Infrastructure`, `Knowledge & Document Search`, `General MCP Tooling`) and an **Auto-Generate from Discovered Tools** button (`inferByomcpRoutingProposal`) that inspects live tool names and JSON-Schema parameters to synthesize routing descriptions and instructions.
+   - **Credential-Safe Metadata-Only `PATCH`**: Saving routing metadata sends `updateMask=params.custom_mcp_Metadata` while explicitly stripping `client_id` and `client_secret` from the `PATCH` payload so masked `"*****"` OAuth secrets are never overwritten in Google Cloud.
+3. **Discovered Tools & Schema Override Builder (`DiscoveredToolsSection.tsx`)**:
+   - Inspects every discovered tool's description and `inputSchema` (`jsonSchema` or `parameters`).
+   - Provides a visual **Override Schema** builder (`actionConfig.actionParams.mcp_tools_schema`) to add, edit, or mark required JSON-Schema parameters (`STRING`, `NUMBER`, `INTEGER`, `BOOLEAN`, `ARRAY`, `OBJECT`) and per-field descriptions when an upstream MCP server exposes incomplete parameter schemas.
+4. **RFC 6901 JSON Pointer Citation Mappings (`CitationMappingsSection.tsx`)**:
+   - Configures `actionConfig.actionParams.mcp_tools_citation_keys` so Gemini Enterprise can extract grounded source titles and clickable links from MCP tool JSON responses.
+   - Each citation rule specifies:
+     - **`tool_names`** — array of MCP tool names the rule applies to (selectable via chips from discovered tools).
+     - **`title_key`** — **RFC 6901** JSON Pointer path to the citation title in the tool's JSON response (must start with `/`, e.g., `/results/0/title` or `/title`).
+     - **`url_key`** — **RFC 6901** JSON Pointer path to the citation URL in the tool's JSON response (must start with `/`, e.g., `/results/0/url` or `/url`).
+     - **`url_Match_pattern`** — optional regex pattern to validate or filter extracted URLs (e.g., `^https://.*`).
 
 > [!WARNING]
 > **Refresh Tools has no confirmation and no diff.** [handleRefreshMcpTools](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L82-L144) queries the MCP server, marks **every** discovered tool `enabled: true`, and **replaces** `bapConfig.enabledActions` with the complete list. Any deliberate disabling you had configured is silently undone. Success reads `Tools refreshed successfully! Updated dynamicTools and bapConfig.`
@@ -2600,7 +2607,7 @@ Route: `#/assistant`. Source: [AssistantPage.tsx](file:///usr/local/google/home/
 
 An **engine** (also called an app) is the thing your users actually talk to. It bundles a set of data stores, a set of agents, and a configuration — system instructions, web grounding, retention, safety. Every engine exposes an **assistant**, which is the conversational front door.
 
-This tab lists every engine in a location, lets you edit its configuration, and — most usefully — lets you **chat with it right here** to see whether it answers correctly and what it cited.
+This tab lists every engine in a location, lets you edit its configuration, run the live **Assistant Configuration & Best-Practices Evaluator**, deploy public or private redirect URLs, and **chat with it right here** to see whether it answers correctly and what it cited.
 
 ### The screen, explained
 
@@ -2617,7 +2624,7 @@ This tab lists every engine in a location, lets you edit its configuration, and 
 | **System Instructions** | Badge. Tooltip: `Custom system instructions configured (may cause issues for Gemini Enterprise). Click to view/edit.` or `No custom system instructions` |
 | **Customer Policy** | Whether a policy (e.g. retention) is set |
 | **Vertex Agents** | Count of attached Vertex AI agent configs |
-| Actions | Green chat-bubble icon (`Chat with Assistant`) and **View / Edit** |
+| **Actions** | Green chat-bubble icon (**Chat with Assistant**), purple **Evaluate** button (opens the **Assistant Configuration & Best-Practices Evaluator** modal), and **View / Edit** |
 
 **App Type** is computed in [determineAppType](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useAssistantList.ts#L42-L69): `SOLUTION_TYPE_CHAT` → `Chat`; `SOLUTION_TYPE_SEARCH` with `appType === 'APP_TYPE_INTRANET'` → `Gemini Enterprise`, otherwise `Search`; `SOLUTION_TYPE_RECOMMENDATION` → `Recommendation`; `SOLUTION_TYPE_GENERATIVE_CHAT` → `Gemini Enterprise`; anything else is title-cased. Empty list shows `No engines found in this location.`
 
@@ -2625,23 +2632,91 @@ Every column is sortable (displayName, engineId, solutionType, webGrounding, ins
 
 ### The detail view
 
-Clicking **View / Edit** opens [AssistantDetailView.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/page/AssistantDetailView.tsx), with **Backup Usage Logging** (blue) and **Backup Analytics** (green) in the header and eight tabs:
+Clicking **View / Edit** opens [AssistantDetailView.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/page/AssistantDetailView.tsx), with three action buttons in the header — **Evaluate Config** (purple, opens `AssistantEvaluationModal.tsx`), **Backup Usage Logging** (blue), and **Backup Analytics** (green) — and eight sub-tabs:
 
 | Tab | Badge | Notes |
 |---|---|---|
 | **Overview** | — | Engine + assistant configuration forms |
-| **Agents** | — | Agents attached to this assistant |
-| **Skills** | `Capabilities` | |
-| **User Memories** | `Personalization` | |
-| **Connected DataStores** | `Beta` | **Only appears if ACL support was detected** |
-| **Notebooks** | — | |
-| **History** | — | |
-| **Customize** | — | Vanity URL provisioning and teardown |
+| **Agents** | — | Agents attached to this assistant + OpenTelemetry policy enforcement |
+| **Skills** | — | Manage organizational (`ENABLED` + `ALL_USERS`) and private (`PRIVATE` / `DISABLED`) `SKILL.md` workflow skills, display name validation (max 64 characters, `&` → `and`), and single/batch `.zip` / `.json` / `.csv` / `.md` import & export (`SkillsViewer.tsx`, `AddSkillModal.tsx`, `ExportSkillsModal.tsx`) |
+| **User Memories** | `Internal` | Visible when `isGoogleInternalProject` is detected (`AssistantDetailView.tsx:76-86`) |
+| **Connected DataStores** | `Beta` | Always visible in the sub-tab bar (`AssistantDetailView.tsx:87-91`); manage linked Search Data Stores and ACL controls |
+| **Notebooks** | — | Inspect and manage user notebooks |
+| **History** | — | Inspect user conversation sessions and turns |
+| **Customize** | — | **Deploy Redirect & Private Routing URL** provisioning, Cloud Build IAM pre-flight, Target Portal CID auto-discovery, and 1-click teardown |
 
-> [!NOTE]
-> **Connected DataStores** is conditional. On load the page probes whether this project supports ACL-aware (identity-restricted) data stores ([AssistantPage.tsx#L98-L154](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/pages/AssistantPage.tsx#L98-L154)). The probe needs `roles/discoveryengine.viewer` and `roles/resourcemanager.organizationViewer`; without them the tab simply isn't rendered, and if you were already on it you get bounced off. You can force the answer with the `localStorage` key `feature_flag_datastore_acls` set to `'true'` or `'false'`.
+The **Customize** tab hosts redirect and private routing URL provisioning *and* teardown together so administrators can manage load balancers, Cloud DNS zones, and VPC-SC private endpoints from one place.
 
-The **Customize** tab hosts vanity-URL provisioning *and* teardown together — a deliberate choice, per a source comment, so nobody provisions a billed load balancer and then can't find the button to remove it.
+### Assistant Configuration & Best-Practices Evaluator
+
+Clicking **Evaluate** on any engine row in `AssistantListTable.tsx` or **Evaluate Config** in `AssistantDetailView.tsx` opens the **Assistant Configuration & Best-Practices Evaluator** modal ([AssistantEvaluationModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/AssistantEvaluationModal.tsx), powered by [assistantEvaluationService.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/assistantEvaluationService.ts)).
+
+#### Live 6-Endpoint Probing & Top Scorecard Strip
+
+Clicking **Re-Run Live Audit** executes `runLiveAssistantEvaluation`, probing 6 live Google Cloud Discovery Engine endpoints in parallel (`getEngine`, `getAssistant`, `listAgents`, `listCollections`, `listDataStores` across all collections, and `getDataConnector` per collection to inspect `custom_mcp` connectors, `params.custom_mcp_Metadata`, `dynamicTools`, `actionConfig`, and `bapConfig`).
+
+At the top of the modal, a 4-card scorecard strip summarizes:
+1. **Best-Practice Score** (`0–100`) and letter grade (`A`, `B`, `C`, `D`, `F`).
+2. **Retrieval Latency Risk** (`LOW`, `MODERATE`, `HIGH`, `CRITICAL`) with expected P95 fan-out overhead (`+0.3s` to `+3.5s – 6.0s+`), Active Search Stores count (`<= 5` optimal), and Active 3P Federated Connectors count.
+3. **Query Optimization Skills** (`X Organizational / Y Total`, highlighting `N Private Only` skills if any lack `ALL_USERS` sharing).
+4. **BYOMCP Datastores** (`X Fully Configured / Y Total`).
+
+#### 5-Pillar Weighted Scoring Breakdown
+
+The evaluator scores the engine across **5 weighted pillars** totaling **100 points** (Retrieval & Fan-Out 25, Skills & Query Routing 20, Engine & Assistant Config 20/25, Security & Guardrails 20/15, BYOMCP Readiness 15):
+
+| Pillar | Weight (`pillarBudgets` / Spec) | Key Checks Audited |
+|---|---|---|
+| **Retrieval & Fan-Out** | **25 pts** | Search Data Store Fan-Out & Latency Budget (`retr-fanout`, optimal `1–5` stores, warning `6–8`, critical `> 8`), 3P Federated Connector Live Query Overhead (`retr-federated`), Redundant Duplicate Connector Types (`retr-duplicate-sources`), Vertex AI Search Tool Explicit Store Scoping (`retr-tool-config-alignment`), Stale or UnHealthy Connector State (`retr-connector-health`) |
+| **Skills & Query Routing** | **20 pts** | Organizational Query-Routing Skills Coverage (`skill-routing-coverage`, verifying `ENABLED` + `ALL_USERS` vs. `PRIVATE`), Skill Trigger Description Specificity (`skill-description-quality`), Skill Instruction Structure & Guardrails (`skill-instruction-depth`), Central Agent Registry Alignment (`skill-registry-alignment`) |
+| **Engine & Assistant Config** | **25 pts** (`pillarBudgets`) / **20 pts** (baseline) | Custom System Instructions Override Check (`cfg-system-instructions`), Web Grounding & Data Residency Compliance (`cfg-web-grounding`, warning on non-compliant public Google Search), Chat History Retention Policy (`cfg-retention-policy`), Web App Portal & Autocomplete Readiness (`cfg-webapp-ux`), Assistant Agent & Sub-Agent Sprawl (`cfg-agent-sprawl`) |
+| **Security & Guardrails** | **15 pts** (`pillarBudgets`) / **20 pts** (baseline) | Model Armor Prompt & Response Sanitization (`sec-model-armor`, auditing `userPromptTemplate` and `llmResponseTemplate`), OpenTelemetry & Audit Logging Coverage (`sec-telemetry-coverage`), End-User Agent Creation Governance (`sec-end-user-agent-creation`), Location Context Privacy Control (`sec-location-context`) |
+| **BYOMCP Readiness** | **15 pts** | BYOMCP Presence & Discovery (`mcp-presence`), BYOMCP Server Description (`mcp_server_description`, `>= 40` chars), BYOMCP Agent Instructions (`mcp_agent_instructions`, `>= 60` chars), BYOMCP Discovered Tool Schema Completeness (`mcp-tool-schemas`), BYOMCP Citation Key Mappings (`mcp_tools_citation_keys`), BYOMCP Companion Query-Formatting Skill (`mcp-companion-skill`) |
+
+#### Actionable-Only Diagnostic Findings (`CRITICAL` / `WARNING` / `INFO`)
+
+- **Actionable-Only Filter**: Only actionable findings (`CRITICAL`, `WARNING`, `INFO`) are displayed in the **Diagnostic Findings** list and included in the exported Markdown (`.md`) report — passing checks (`PASS`) are automatically filtered out (`activeFindings = report.findings.filter(f => f.severity !== 'PASS')`) to keep remediation focused.
+- **Category Filter Pills & Remediation**: Filter findings by `All`, `Retrieval & Fan-Out`, `Skills & Query Routing`, `Engine & Assistant Config`, `Security & Guardrails`, or `BYOMCP Readiness`. Each finding card provides a 1-click navigation button (`Open Connected DataStores`, `Open Skills Tab`, `Open Overview Config`, `Open Model Armor`, `Open Agents Tab`, `Open Connectors`) plus **Export `.md`** and **Export `.json`** report buttons in the modal header.
+
+#### BYOMCP Descriptions & Instructions Advisor
+
+When one or more `custom_mcp` connectors are detected, the **BYOMCP Descriptions & Instructions Advisor** section (`byomcpAdvisories`) inspects each connector's live `dynamicTools`, `actionConfig.actionParams`, and `params.custom_mcp_Metadata`:
+- **6-Archetype Inference**: Classifies each MCP server into `DATABASE_SQL`, `ISSUE_TRACKER_ITSM`, `CRM_ERP_FINANCE`, `DEVOPS_INFRA`, `KNOWLEDGE_SEARCH`, or `GENERAL_MCP` based on discovered tool names and JSON-Schema parameter signatures.
+- **Editable Routing Templates**: Generates tailored `mcp_server_description` and `mcp_agent_instructions` drafts that you can edit inline inside the modal.
+- **1-Click Credential-Safe `PATCH` (`Apply to Connector`)**: Clicking **Apply to Connector** calls `updateDataConnector` with `updateMask=params.custom_mcp_Metadata` while stripping `client_id` and `client_secret` from `params` so masked OAuth secrets (`"*****"`) are never overwritten.
+
+#### 1-Click Recommended Query-Routing Skills
+
+The **Recommended Query-Routing Skills** section (`recommendedSkills`) synthesizes ready-to-deploy `SKILL.md` templates tailored to your engine's live data stores and BYOMCP connectors:
+- **Enterprise DataStore Query Router and Optimizer** (`skill-datastore-router`, display name `Enterprise DataStore Query Router and Optimizer`) — teaches the assistant how to decompose complex questions into targeted sub-queries across your attached data stores and avoid fan-out dilution.
+- **Per-BYOMCP Companion Skills** (`skill-mcp-<collectionId>`) — generates a dedicated query-formatting and tool-chaining skill for each `custom_mcp` connector.
+- **Display Name Validation & 1-Click Organizational Creation**: Enforces `validateSkillDisplayName` (maximum **64 characters**, letters/numbers/spaces/hyphens only, automatic `&` → `and` normalization). Clicking **Create Organizational Skill** calls `createSkill` with `state: 'ENABLED'` and `sharingConfig: { scope: 'ALL_USERS' }` (or upgrades an existing private skill to `ALL_USERS`) so it immediately appears under **"From my organization"** for all users.
+
+### Deploy Redirect & Private Routing URL (Customize tab)
+
+Opening the **Customize** sub-tab inside `AssistantDetailView.tsx` renders the **Deploy Redirect & Private Routing URL** wizard ([VanityUrlDeploymentForm.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/VanityUrlDeploymentForm.tsx), [useVanityUrlDeployment.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useVanityUrlDeployment.ts), [vanityBuildScript.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/vanity-url/vanityBuildScript.ts)).
+
+1. **Architecture Mode Selector**:
+   - **Public Redirect (External Load Balancer)**: Provisions a Global Static IP, Google-managed SSL Certificate, URL Map (HTTP 301 redirect to `https://vertexaisearch.cloud.google.com/home/cid/{targetCid}` + HTTP-to-HTTPS redirect), Target HTTPS/HTTP Proxies, Global Forwarding Rules (ports 443 & 80), and a Cloud DNS A record.
+   - **Private Network / VPC-SC (Internal Load Balancer + Private DNS)**: Provisions a Regional Proxy-Only Subnet (`REGIONAL_MANAGED_PROXY`), Regional Internal Application Load Balancer (`INTERNAL_MANAGED`), Regional Self-Managed TLS Certificate, Regional URL Map (301 redirect), Private Cloud DNS Zone + A record, and an optional **VPC-SC Private Google Access & PSC Bundle** (`private.googleapis.com` `199.36.153.8/30` + Private Service Connect endpoint for `*-discoveryengine.googleapis.com`).
+2. **Cloud Build Default Service Account IAM Pre-Flight (`Grant Cloud Build IAM Roles`)**:
+   - Before submitting a Cloud Build job, the wizard inspects your project IAM policy for both `{projectNumber}-compute@developer.gserviceaccount.com` and `{projectNumber}@cloudbuild.gserviceaccount.com` across three required roles:
+     - `roles/compute.loadBalancerAdmin`
+     - `roles/compute.networkAdmin`
+     - `roles/dns.admin`
+   - If any binding is missing, an amber **Cloud Build Service Account Missing Networking / DNS Roles** banner lists each missing role and provides a 1-click **Grant Cloud Build IAM Roles** button (`handleGrantCloudBuildRoles`). Clicking **Deploy Redirect Infrastructure** also runs this IAM check and automatically grants missing roles before launching the build.
+3. **Partial Cloud Networking Discovery Warning & 1-Click API Enablement**:
+   - If `compute.googleapis.com` or `dns.googleapis.com` is disabled or unreachable during discovery, a **Partial Cloud Networking Discovery** banner displays the exact probe errors alongside a 1-click **Enable Networking & DNS APIs** button (`compute.googleapis.com`, `dns.googleapis.com`, `cloudbuild.googleapis.com`) and **Retry Discovery**.
+4. **Target Portal CID (Web App Workspace) Auto-Discovery & Web App Initialization**:
+   - Automatically discovers the engine's **Target Portal CID** (`default_search_widget_config`) via `getWidgetConfig`.
+   - Supports pasting a full `https://vertexaisearch.cloud.google.com/home/cid/...` URL into the **Target Portal CID (Web App Workspace)** input (automatically extracting the CID slug).
+   - If the engine's Web App has not been initialized yet (`cidStatus === 'missing'`), a 1-click **Auto-Initialize Web App** button enables `enableWebApp = true` on the engine and polls until Google Cloud generates the portal CID.
+5. **Cross-Project Cloud DNS Host Project ID (`dnsProjectId`)**:
+   - Both Public Mode ([PublicRoutingConfig.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/vanity-url/PublicRoutingConfig.tsx)) and Private Mode ([PrivateRoutingConfig.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/vanity-url/PrivateRoutingConfig.tsx)) include an optional **Cloud DNS Host Project ID (Optional — if DNS zone is in another project)** field (`dnsProjectId`, e.g., `my-shared-dns-host-project`).
+   - When set, managed zone discovery and Cloud Build `gcloud dns` provisioning/teardown commands pass `--project="${DNS_PROJECT}"` so shared-VPC/shared-DNS hub projects are supported seamlessly.
+6. **Idempotent Cloud Build Provisioning & 1-Click Teardown (`vanityBuildScript.ts`, `ProvisionedRedirectList.tsx`)**:
+   - The generated bash script uses idempotent `provision_resource` (detecting `alreadyExists` and reusing existing resources cleanly), `delete_if_present`, and `emitSummary` (`=== DEPLOYMENT SUMMARY ===`) helpers.
+   - Deployed redirect stacks are listed in **Provisioned Redirects** (`ProvisionedRedirectList.tsx`) with live SSL status badges and a 1-click **Delete / Teardown** action.
 
 ### Key configuration fields
 
@@ -2663,7 +2738,7 @@ Before saving, an **API Command Preview (Pending Changes)** block shows the exac
 > [!WARNING]
 > **Web Grounding Type has a data-residency consequence and the UI says so in the option label itself.** `Google Search (not Data Residency compliant)` sends queries to public Google Search. If you are bound by EU/US data-residency commitments, use `Enterprise Web Search (Data Residency compliant)` or `Disabled`.
 
-**Engine editor** ([EngineDetailsForm.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/EngineDetailsForm.tsx)) adds `marketplaceAgentVisibility` (5 options including `Show All Marketplace Agents`), a **Disable Analytics** checkbox, model configuration, search engine config (`searchTier`, `requiredSubscriptionTier`, `searchAddOnLlm`), web-app UI settings (`enableWebApp`, `enableAutocomplete`, `enableQualityFeedback`), mobile access (`mobile-app-access`, `qr-code-widget`), IdP configuration, a collapsible **Connected DataStores & Permissions (Beta)** (ACL-gated), **Prompt Chips Administration**, and a **Raw GE App Configuration JSON** viewer.
+**Engine editor** ([EngineDetailsForm.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/EngineDetailsForm.tsx)) adds `marketplaceAgentVisibility` (5 options including `Show All Marketplace Agents`), a **Disable Analytics** checkbox, model configuration, search engine config (`searchTier`, `requiredSubscriptionTier`, `searchAddOnLlm`), web-app UI settings (`enableWebApp`, `enableAutocomplete`, `enableQualityFeedback`), mobile access (`mobile-app-access`, `qr-code-widget`), IdP configuration, a collapsible **Connected DataStores & Permissions (Beta)**, **Prompt Chips Administration**, and a **Raw GE App Configuration JSON** viewer.
 
 ### Attached Agents & Observability Policy Enforcement
 
@@ -2800,7 +2875,7 @@ This is how you verify document-level ACLs: sign in as a user who *shouldn't* se
 | `No linked data stores found.` | Engine has no `dataStoreIds`, or they don't resolve | Attach data stores to the engine |
 | `This provider is not configured for OIDC. Only OIDC providers support automatic sign-in.` | SAML workforce provider | Use **Advanced: paste token manually** |
 | `Sign-in failed.` / `Token exchange failed.` | Popup blocked, or STS rejected the token | Allow popups; verify the workforce pool config |
-| **Connected DataStores** tab missing | ACL probe failed or unsupported | Grant `roles/discoveryengine.viewer` + `roles/resourcemanager.organizationViewer`, or set `feature_flag_datastore_acls` in `localStorage` |
+| **Cloud Build Service Account Missing Networking / DNS Roles** banner on Customize tab | `{projectNumber}-compute@developer.gserviceaccount.com` or `{projectNumber}@cloudbuild.gserviceaccount.com` lacks `roles/compute.loadBalancerAdmin`, `roles/compute.networkAdmin`, or `roles/dns.admin` | Click **Grant Cloud Build IAM Roles** in the Customize banner |
 | Answer has no citations | Not grounded in your content | Check the store is attached, indexed, and selected in **Filters** |
 
 ---
@@ -3038,7 +3113,6 @@ Every error string this chapter's code can produce.
 | `SKIPPED_EDGE: Cannot draw link from X to Y as one of the resources was not found in the scan.` | Scan log | Endpoint out of scope | Expected for unscanned regions |
 | `Architecture scan cancelled by user.` / `Architecture scan cancelled.` | Scan log | You cancelled | Re-run; results were discarded |
 | `FATAL ERROR: <msg>` | Scan log | Scan aborted | Usually auth expiry — reload |
-
 
 ---
 
@@ -3453,16 +3527,16 @@ The modal is a genuine read-modify-write. Behaviour, verified:
 
 ### What it's for
 
-Model Armor is Google Cloud's content-safety gate. It inspects text **going into** the model (the user's prompt) and **coming out of** it (the model's answer), and can block or redact. You define a reusable **template** — a bundle of filters and thresholds — and attach it to an assistant.
+Model Armor is Google Cloud's content-safety gate. It inspects text **going into** the model (the user's prompt) and **coming out of** it (the model's answer), and can block, redact, or apply **Exclusion Rules (`Preview`)** for benign enterprise terminology. You define a reusable **template** — a bundle of filters, thresholds, exclusion rules, and streaming sanitization settings — and attach it to an assistant.
 
-Four things it can check:
+Four filter categories it checks:
 
-| Filter | What it does |
-|---|---|
-| **Responsible AI** | Scores text for Hate Speech, Harassment, Sexually Explicit and Dangerous Content, and blocks above your chosen confidence level. |
-| **Sensitive Data Protection** | Finds PII and replaces it inline. As generated here: phone numbers and email addresses only. |
-| **Prompt Injection & Jailbreak** | Detects attempts to override the system instructions. |
-| **Malicious URI** | Blocks known-bad URLs. |
+| Filter | What it does | Exclusion Rules (`Preview`) Support |
+|---|---|---|
+| **Responsible AI** | Scores text for Hate Speech, Harassment, Sexually Explicit and Dangerous Content, and blocks above your chosen confidence level. | **Supported** (`RESPONSIBLE_AI`) |
+| **Prompt Injection & Jailbreak** | Detects attempts to override the system instructions. | **Supported** (`PROMPT_INJECTION_AND_JAILBREAK`) |
+| **Sensitive Data Protection** | Finds PII and replaces it inline (`PHONE_NUMBER` and `EMAIL_ADDRESS`). | Not supported (`UNSUPPORTED_FILTER`) |
+| **Malicious URI** | Blocks known-bad URLs. | Not supported (`UNSUPPORTED_FILTER`) |
 
 ### The screen, explained
 
@@ -3470,29 +3544,75 @@ Header: **Model Armor Manager** with a shield icon, subtitle *"Monitor content s
 
 ![The Model Armor tab as it opens. It lands on **Activity Logs**, not on Policy Configuration -- the first thing the page does is ask you to look at violations, not to create a template. The controls read left to right: **Search Filters** (placeholder `e.g. jsonPayload.sanitizationResult.verdict="BLOCKED"`), **Time Range** defaulting to **Last 7 Days**, an unticked **Blocked Only** checkbox, and the blue **Fetch Logs** button. Beneath them a grey info line shows the base filter the app always applies: `resource.type="modelarmor.googleapis.com/SanitizeOperation"`; anything you type is ANDed onto it. The empty state reads **"No Logs Found -- No violation logs matched your criteria. Try adjusting your filters or ensure Model Armor is active on your resources."** On this project no template is attached to anything, so there is nothing to log.](./assets/22-model-armor.png)
 
-#### Tab: Activity Logs
+#### Tab: Activity Logs (`SanitizationAuditTab.tsx`, `LogEntryCard.tsx`)
 
 | Control | Behaviour |
 |---|---|
 | **Search Filters** | Free-text Cloud Logging filter. Placeholder: `e.g. jsonPayload.sanitizationResult.verdict="BLOCKED"` |
 | **Time Range** | `Last 24 Hours`, `Last 3 Days`, `Last 7 Days`, `Last 30 Days`. Default **Last 7 Days**. |
 | **Blocked Only** | Checkbox. Adds a verdict filter for both `BLOCKED` and `MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK`. |
-| **Fetch Logs** | Runs the query. Results render as cards. |
+| **Exclusion Overrides** | Checkbox (`exclusionOverridesOnly`). Filters log entries in-memory (`hasExclusionActivity`) to show only entries where an Exclusion Rule overrode a match (`EXCLUDED_MATCH_FOUND`) or was skipped because the payload exceeded 0.5 MB (`EXCLUSION_RULE_SKIPPED_SIZE_LIMIT_EXCEEDED`). |
+| **Fetch Logs** | Runs the query. Results render as expandable `LogEntryCard` items. |
+
+Each `LogEntryCard` displays:
+- **Verdict badge** (`BLOCKED` in red or `ALLOWED` in green).
+- **Streaming & Exclusion Telemetry Badges**:
+  - `Streaming Chunk` (cyan badge when the sanitization operation inspected a streaming chunk).
+  - `Exclusion Override: <filters>` (purple badge when an exclusion rule suppressed a filter match).
+  - `Exclusion Skipped (>0.5MB): <filters>` (amber badge when payload size exceeded the 0.5 MB exclusion limit).
+- **Evaluate for Exclusion** button: Appears on blocked log entries (`isBlocked`). Clicking **Evaluate for Exclusion** opens the **Exclusion Rule Evaluator & Policy Applicator (`Preview`)** drawer (`ExclusionRuleEvaluatorModal.tsx`) pre-populated with the blocked prompt/response text, triggered filters, and matched template.
 
 > [!WARNING]
-> **You only ever see 50 entries.** The query hardcodes `pageSize: 50` and the UI ignores `nextPageToken` ([monitoring.ts:95-106](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/monitoring.ts#L95-L106)). On a busy day, 50 newest entries over 30 days is a keyhole. Use **Cloud Console** for any real investigation.
+> **Log queries return up to 50 entries per fetch.** The query sets `pageSize: 50` ([monitoring.ts:95-106](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/monitoring.ts#L95-L106)). Narrow your **Time Range** or **Search Filters**, or use **Cloud Console** for deep historical queries.
 
 #### Tab: Policy Configuration
 
-Three stacked panels plus an optional modal.
+Three stacked panels plus interactive modals:
 
-1. **Active Policies Viewer** — every Model Armor template in the project, with **Refresh List** and a per-template **Clone** button. Each shows an attachment status: **Protected** (an assistant really references it), **Not attached** (scan completed, nothing references it), or **Unknown** (the scan could not read that assistant's config). The distinction is deliberate — the note reads *"Unknown may or may not be protected."*
+1. **Active Policies Viewer (`ActivePoliciesViewer.tsx`)** — every Model Armor template in the project, with **Refresh List**, an **Exclusion Rules & Streaming** column (showing configured exclusion rules count, `Realtime Streaming OK` vs. `Buffered Stream Only` badges based on `matchingScope`, and a `Sanitize Logs ON` badge when `templateMetadata.logSanitizeOperations` is enabled), an **Inspect Rules** button (opening an inline drawer detailing each exclusion rule's filter target, matching scope, and dictionary/regex patterns), and a per-template **Clone** button. Each template also shows its attachment status: **Protected**, **Not attached**, or **Unknown**.
 2. **Attached Protection Panel** — the inverse view: every engine/assistant and whether it is **Protected** or **Not protected**.
-3. **Policy Template Generator** — where you build and deploy.
+3. **Policy Template Generator (`PolicyGenerator.tsx`)** — where you configure filters, **Exclusion Rules (Preview) & Streaming Sanitization**, and deploy or attach templates.
 4. **Clone Template Modal** — copy an existing template to another project/location/ID.
 
 > [!NOTE]
 > Templates are listed with a location wildcard: `GET https://modelarmor.googleapis.com/v1/projects/{p}/locations/-/templates` ([modelArmor.ts:32-38](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/modelArmor.ts#L32-L38)). You see templates from every location in one list.
+
+### Exclusion Rules (`Preview`) & Real-Time Streaming Sanitization
+
+Source: [exclusionRuleUtils.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/exclusionRuleUtils.ts), [ExclusionRuleEvaluatorModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/ExclusionRuleEvaluatorModal.tsx), [PolicyGenerator.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx).
+
+#### Real-Time Streaming Compatibility (`MATCHING_SCOPE_PARTIAL_MATCH` vs. `MATCHING_SCOPE_FULL_MATCH`)
+
+When Gemini Enterprise streams assistant responses (`streamAssist`), Model Armor evaluates content in streaming chunks:
+- **`MATCHING_SCOPE_PARTIAL_MATCH` (Realtime & Buffered Streaming OK)**: Suppresses a filter violation when the exclusion pattern matches a substring inside a prompt or streaming chunk. **Required** for real-time token-by-token streaming sanitization (`streamAssist`).
+- **`MATCHING_SCOPE_FULL_MATCH` (Buffered Streaming Only)**: Requires the **entire** payload to match the exclusion pattern. Incompatible with real-time token streaming; templates containing any `MATCHING_SCOPE_FULL_MATCH` rule are flagged with an amber **Buffered Stream Only (`FULL_MATCH` rule)** badge.
+- **0.5 MB (~130,000 tokens) Payload Size Limit**: Google Cloud Model Armor skips exclusion rule evaluation on payloads exceeding **0.5 MB** (`524,288` bytes, ~130,000 tokens) and logs `EXCLUSION_RULE_SKIPPED_SIZE_LIMIT_EXCEEDED`.
+- **Cloud Logging Sanitize Operations (`templateMetadata.logSanitizeOperations`)**: Toggling **Log Sanitize Operations to Cloud Logging (`logSanitizeOperations`)** on a template ensures both blocked violations and exclusion rule overrides are written to Cloud Logging for audit in the **Activity Logs** tab.
+
+#### Building Exclusion Rules in Policy Template Generator
+
+Inside **Policy Template Generator → Exclusion Rules (Preview) & Streaming Sanitization**:
+- Click **+ DevOps False-Positive Preset** to insert a pre-configured `PROMPT_INJECTION_AND_JAILBREAK` dictionary rule (`MATCHING_SCOPE_PARTIAL_MATCH`, case-insensitive) covering common engineering phrases (`kill -9`, `kill process`, `terminate child process`, `master/slave replication`, `penetration test report`, `ignore previous instructions in test fixture`).
+- Or click **+ Add Rule** to configure a custom rule:
+  - **Filter Target**: `Prompt Injection & Jailbreak` (`PROMPT_INJECTION_AND_JAILBREAK`) or `Responsible AI (All 4 Categories)` (`RESPONSIBLE_AI`).
+  - **Matching Scope**: `Partial Match (Realtime & Buffered Streaming OK)` (`MATCHING_SCOPE_PARTIAL_MATCH`) or `Full Match (Buffered Streaming Only)` (`MATCHING_SCOPE_FULL_MATCH`).
+  - **Pattern Type & Validation (`validateExclusionRules`)**:
+    - **Dictionary (`wordList`)**: Up to **100 words/phrases**, each up to **200 characters**, with optional **Ignore Case**.
+    - **Regex (`regex`)**: RE2 regular expression up to **1,000 characters** (`new RegExp` syntax validated client-side).
+
+#### How to: evaluate a blocked log entry for exclusion and apply 1-click policy update
+
+1. Open **Model Armor → Activity Logs** and click **Fetch Logs** (optionally check **Blocked Only**).
+2. On any blocked log card, click **Evaluate for Exclusion**.
+3. The **Exclusion Rule Evaluator & Policy Applicator (`Preview`)** drawer (`ExclusionRuleEvaluatorModal.tsx`) opens and runs `evaluateBlockedLogForExclusion`, classifying the event into one of **4 verdicts**:
+   - **`LIKELY_FALSE_POSITIVE`** (Emerald badge) — Benign DevOps, SRE, security analysis, or compliance terminology triggered `PROMPT_INJECTION_AND_JAILBREAK` or `RESPONSIBLE_AI` with no adversarial injection markers.
+   - **`REVIEW_REQUIRED`** (Amber badge) — Supported filter triggered without known adversarial markers; requires human review to extract the narrowest safe phrase.
+   - **`HIGH_RISK_TRUE_POSITIVE`** (Red badge) — Genuine adversarial jailbreak or prompt-injection markers detected (e.g., `ignore all previous instructions`, `reveal your system prompt`, `DAN mode`). Creating an exclusion rule is strongly discouraged.
+   - **`UNSUPPORTED_FILTER`** (Slate badge) — Blocked **exclusively** by **Malicious URI** (`MALICIOUS_URI`) or **Sensitive Data Protection (SDP)** (`SENSITIVE_DATA_PROTECTION`). Google Cloud Model Armor supports Exclusion Rules **only** for `PROMPT_INJECTION_AND_JAILBREAK` and `RESPONSIBLE_AI`.
+4. Review the **Streaming Compatibility Check** card (`Realtime Streaming Compatible` for `MATCHING_SCOPE_PARTIAL_MATCH` vs. `Buffered Streaming Only` for `MATCHING_SCOPE_FULL_MATCH`, plus payload byte size against the 0.5 MB limit).
+5. Edit the **Proposed Exclusion Rule Builder** (Target Filter, Matching Scope, Dictionary `wordList` or `regex` pattern, and **Enable `templateMetadata.logSanitizeOperations`**).
+6. Confirm the **Target Model Armor Template** dropdown (auto-resolved from the log entry's `resource.labels.template_id`).
+7. Click **Apply Exclusion to Policy** to execute a live `PATCH` (`updateModelArmorTemplate` in [modelArmor.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/modelArmor.ts#L85-L120)) with `?updateMask=filterConfig,templateMetadata`, or copy the generated `PATCH` cURL command.
 
 ### How to: create a safety template
 
@@ -3504,13 +3624,15 @@ Three stacked panels plus an optional modal.
 3. Set the **Template ID**.
 4. Tick/untick the four **Responsible AI Filters** and pick a confidence level for each: **Low & above**, **Medium & above**, **High only**.
 5. Toggle **Sensitive Data Protection (PII)**, **Prompt Injection Defense**, **Malicious URI Filter**.
-6. Review the generated cURL on the right.
-7. Click **Create Template**.
+6. Optionally add **Exclusion Rules (`Preview`)** or click **+ DevOps False-Positive Preset**, and keep **Log Sanitize Operations to Cloud Logging (`logSanitizeOperations`)** enabled.
+7. Review the generated cURL on the right.
+8. Click **Create Template**.
 
 **Expected result:** a green box reading `Created projects/.../templates/<id>.` If the API accepts the request but returns no name, you instead get an honest *"The API accepted the request but returned no template name. Use 'Refresh List' above to confirm it exists."* — the app does not claim success it cannot prove.
 
-<details><summary>Under the hood — the API call this makes</summary>
+<details><summary>Under the hood — the API calls this makes</summary>
 
+Create template (`POST`):
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \
@@ -3530,17 +3652,24 @@ curl -X POST \
     "piAndJailbreakFilterSettings": {"filterEnforcement":"ENABLED","confidenceLevel":"MEDIUM_AND_ABOVE"},
     "maliciousUriFilterSettings": {"filterEnforcement":"ENABLED"}
   },
-  "templateMetadata": {"ignorePartialInvocationFailures": false, "enforcementType": "INSPECT_AND_BLOCK"}
+  "templateMetadata": {"ignorePartialInvocationFailures": false, "enforcementType": "INSPECT_AND_BLOCK", "logSanitizeOperations": true}
 }' \
   "https://modelarmor.googleapis.com/v1/projects/PROJECT_ID/locations/global/templates?templateId=TEMPLATE_ID"
 ```
 
-Payload shape: [PolicyGenerator.tsx:121-166](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx#L121-L166).
+Update template with Exclusion Rules (`PATCH` via `updateModelArmorTemplate` in [modelArmor.ts:85-120](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/modelArmor.ts#L85-L120)):
+```bash
+curl -X PATCH \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json" \
+  "https://modelarmor.googleapis.com/v1/projects/PROJECT_ID/locations/LOCATION/templates/TEMPLATE_ID?updateMask=filterConfig,templateMetadata" \
+  -d '{ "filterConfig": { ... }, "templateMetadata": { "logSanitizeOperations": true } }'
+```
 
 </details>
 
 > [!WARNING]
-> **The generator always creates the template in `global`.** The resource name is hardcoded as `projects/{projectId}/locations/global/templates/{id}` ([PolicyGenerator.tsx:168](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx#L168)) even when the engine you attach it to lives in `us` or `eu`. If your data-residency posture forbids a global Model Armor resource, use **Clone Template Modal** (which does expose a **Target Location**) or the API directly.
+> **The generator creates new templates in `global`.** The resource name in **Policy Template Generator** is `projects/{projectId}/locations/global/templates/{id}` ([PolicyGenerator.tsx:168](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx#L168)). If your data-residency posture requires a regional template (`us` or `eu`), use **Clone Template Modal** (which exposes a **Target Location**). Updating an existing template via **Apply Exclusion to Policy** (`updateModelArmorTemplate`) automatically routes to the template's regional or global endpoint.
 
 ### How to: attach a template to an app
 
@@ -3583,15 +3712,10 @@ The app performs a **merge**, not a replace: it spreads the existing `customerPo
 
 Cloning issues a fresh `createModelArmorTemplate` against the target. It is the only way in this app to get a template into a non-global location.
 
-### Editing and deleting templates
+### Updating and deleting templates
 
-> [!WARNING]
-> **You cannot edit or delete a Model Armor template from this app.** The entire Model Armor service layer is two functions — `fetchModelArmorTemplates` and `createModelArmorTemplate` ([modelArmor.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/modelArmor.ts)). There is no PATCH and no DELETE anywhere in the codebase. Re-running **Create Template** with an existing ID returns `ALREADY_EXISTS`; it does not update.
->
-> To change a template: `gcloud model-armor templates update` or the REST `PATCH`. To remove one: `gcloud model-armor templates delete`. **Detach it from every assistant first** — deleting a template that an assistant still references will, under `FAIL_CLOSED`, take that app's chat down.
-
-> [!WARNING]
-> **There is no sanitize / test path in this app.** Model Armor exposes `:sanitizeUserPrompt` and `:sanitizeModelResponse` for dry-running content against a template; nothing in this codebase calls them. You cannot preview what a template would do to a sample prompt from here — test with `gcloud model-armor templates sanitize-user-prompt`, then verify via **Activity Logs**.
+- **Updating Exclusion Rules & Logging (`PATCH`)**: You can update an existing template's `filterConfig.exclusionRules` and `templateMetadata.logSanitizeOperations` directly in the app from **Activity Logs → Evaluate for Exclusion → Apply Exclusion to Policy** (`updateModelArmorTemplate` in [modelArmor.ts:85-120](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/modelArmor.ts#L85-L120)).
+- **Deleting Templates**: Templates cannot be deleted from the UI. Use `gcloud model-armor templates delete` after detaching the template from every assistant first — deleting a template that an assistant still references will, under `FAIL_CLOSED`, block chat requests.
 
 ### Threshold tuning
 
@@ -3603,29 +3727,28 @@ Only the values below exist in the UI. Anything else is not offered.
 | RAI filter | **Low & above** | `LOW_AND_ABOVE` | Most aggressive. Blocks even low-confidence matches. **Highest false-positive rate** — expect security, HR-policy, legal and medical queries to be blocked. |
 | RAI filter | **Medium & above** | `MEDIUM_AND_ABOVE` | Middle ground. Moderate false positives; most everyday business language passes. |
 | RAI filter | **High only** | `HIGH` | Blocks only high-confidence violations. **Lowest false-positive rate**, highest chance a borderline item slips through. |
-| Prompt Injection Defense | on / off | `filterEnforcement: ENABLED \| DISABLED`, `confidenceLevel: MEDIUM_AND_ABOVE` (**hardcoded, no UI control**) | Binary. You cannot loosen or tighten the jailbreak threshold from this app. |
-| Malicious URI Filter | on / off | `filterEnforcement: ENABLED \| DISABLED` | Binary. No threshold. |
+| Prompt Injection Defense | on / off | `filterEnforcement: ENABLED \| DISABLED`, `confidenceLevel: MEDIUM_AND_ABOVE` (**hardcoded, no UI control**) | Binary. You cannot loosen or tighten the jailbreak threshold from this app, but you can add **Exclusion Rules (`Preview`)** for false-positive phrases. |
+| Malicious URI Filter | on / off | `filterEnforcement: ENABLED \| DISABLED` | Binary. No threshold and no Exclusion Rules support. |
 | Sensitive Data Protection | on / off | `sdpFilters` for `PHONE_NUMBER` + `EMAIL_ADDRESS` with `replaceWithInfoTypeConfig` | **Redacts, does not block.** The turn continues with `[EMAIL_ADDRESS]` substituted. Only these two infoTypes. |
-| Enforcement type | *(none)* | `INSPECT_AND_BLOCK` (**hardcoded**) | Always enforcing. There is no inspect-only / monitor mode in this UI. |
-| `ignorePartialInvocationFailures` | *(none)* | `false` (**hardcoded**) | A partial filter failure is treated as a failure. |
+| Exclusion Rules (`Preview`) | `MATCHING_SCOPE_PARTIAL_MATCH` / `MATCHING_SCOPE_FULL_MATCH` | `filterConfig.exclusionRules` (`wordList` up to 100 words × 200 chars, or `regex` up to 1,000 chars) | Overrides false-positive `PROMPT_INJECTION_AND_JAILBREAK` or `RESPONSIBLE_AI` matches on payloads `<= 0.5 MB`. Use `MATCHING_SCOPE_PARTIAL_MATCH` for real-time streaming compatibility. |
+| `logSanitizeOperations` | Checkbox (default **on**) | `templateMetadata.logSanitizeOperations: true` | Logs sanitization verdicts and exclusion rule overrides to Cloud Logging. |
+| Enforcement type | *(none)* | `INSPECT_AND_BLOCK` (**hardcoded**) | Always enforcing. |
 
 > [!TIP]
 > A practical starting posture for an internal knowledge assistant: **two templates**, not one.
-> - **Input template** — RAI at `High only`, Prompt Injection Defense **on**, PII **on**, Malicious URI **off**.
+> - **Input template** — RAI at `High only`, Prompt Injection Defense **on** (with **+ DevOps False-Positive Preset** if your engineering teams ask SRE/DevOps questions), PII **on**, Malicious URI **off**.
 > - **Output template** — RAI at `High only`, Prompt Injection Defense **off** (your own system prompt produced the text; scanning it for jailbreaks costs latency and buys nothing), PII **on**, Malicious URI **on**.
 >
-> That is exactly what the **Best Practice: Input Filter** and **Best Practice: Output Filter** presets build. Start there, watch **Activity Logs**, and only tighten to `Medium & above` for a category you can prove is leaking.
+> Start there, watch **Activity Logs**, and use **Evaluate for Exclusion** when benign domain vocabulary is flagged.
 
 ### Known limitations & gotchas
 
-- **No edit. No delete. No sanitize/test.**
-- **Activity Logs are capped at 50 entries**, no pagination.
-- **Templates are always created in `global`** by the generator.
-- **Jailbreak confidence is hardcoded** to `MEDIUM_AND_ABOVE`.
-- **SDP covers two infoTypes only** — phone number and email address. No names, credit cards, national IDs, or custom infoTypes.
-- **`enforcementType` is hardcoded to `INSPECT_AND_BLOCK`** — no audit-only rollout mode from this UI.
-- **Display bug: templates created here will show SDP as inactive.** The generator writes `filterConfig.sdpSettings.sdpFilters` ([PolicyGenerator.tsx:150-152](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx#L150-L152)), but the badge renderer reads `filterConfig.sdpSettings.basicConfig.filterEnforcement === 'ENABLED'` ([types.ts:57](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/types.ts#L57)). Those are different shapes, so **Active Policies Viewer** will show SDP off for a template that genuinely has it on. Verify with `gcloud model-armor templates describe`, not the badge.
-- The attach flow targets `default_assistant`, or the first assistant if that is absent ([PolicyGenerator.tsx:172-179](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx#L172-L179)). Multi-assistant apps need the copy-command path.
+- **Exclusion Rules (`Preview`) apply only to `PROMPT_INJECTION_AND_JAILBREAK` and `RESPONSIBLE_AI`** — Malicious URI and Sensitive Data Protection (SDP) blocks return `UNSUPPORTED_FILTER` in the evaluator.
+- **0.5 MB (~130,000 tokens) exclusion payload limit** — payloads larger than 0.5 MB skip exclusion rule evaluation (`EXCLUSION_RULE_SKIPPED_SIZE_LIMIT_EXCEEDED`).
+- **`MATCHING_SCOPE_FULL_MATCH` breaks real-time token streaming** — always use `MATCHING_SCOPE_PARTIAL_MATCH` for streaming assistants.
+- **Activity Logs fetch up to 50 entries per query.**
+- **New templates are created in `global` by the generator** (use **Clone** for regional templates; `updateModelArmorTemplate` supports both global and regional templates).
+- **SDP covers two infoTypes only** — phone number and email address.
 
 ### Troubleshooting
 
@@ -3634,15 +3757,17 @@ Only the values below exist in the UI. Anything else is not offered.
 | `Project ID is required to fetch logs.` | No project set | Set it on **GE Agent Manager**. |
 | `Set a Project ID before creating a template.` | Project is unset or still the `[YOUR_PROJECT_ID]` placeholder | Set a real project. |
 | `Template ID is required.` | Blank Template ID | Enter one. |
-| `Failed to create the Model Armor template.` + API message | Usually 403 or `ALREADY_EXISTS` | Grant `roles/modelarmor.admin`; or pick a new ID — create cannot update. |
+| `Failed to create the Model Armor template.` + API message | Usually 403 or `ALREADY_EXISTS` | Grant `roles/modelarmor.admin`; or use **Evaluate for Exclusion → Apply Exclusion to Policy** to `PATCH` an existing template. |
+| `UNSUPPORTED_FILTER` verdict in **Evaluate for Exclusion** | Log entry was blocked only by Malicious URI or SDP | Exclusion Rules only support `PROMPT_INJECTION_AND_JAILBREAK` and `RESPONSIBLE_AI`. Adjust URI/SDP filter settings instead. |
+| `Exclusion Skipped (>0.5MB)` badge on log card | Prompt or response exceeded 0.5 MB (~130,000 tokens) | Reduce prompt/context payload size below 0.5 MB so exclusion rules can run. |
+| `Buffered Stream Only (FULL_MATCH rule)` badge in **Active Policies Viewer** | Template has a rule with `MATCHING_SCOPE_FULL_MATCH` | Switch the exclusion rule's Matching Scope to `MATCHING_SCOPE_PARTIAL_MATCH` for real-time streaming compatibility. |
 | `Select a target app first.` | Clicked **Attach Now** with no app chosen | Pick one from **Target App to Attach To**. |
 | `Cannot attach: this app's assistant configuration could not be read (...)` | Assistant lookup 403'd or failed | Grant read on the engine, or use **Copy Attach Command**. |
 | `Cannot attach: this app reports no assistants, so there is nothing to attach the template to.` | Engine has no assistant | Create an assistant first. |
 | `The API accepted the update but its response does not show this template attached.` | PATCH succeeded, read-back disagrees | **Treat the app as unprotected.** Click **Refresh List** and re-check. |
 | Template status shows `Unknown` | An assistant config could not be read during the scan | Fix the permission and refresh. Do **not** read `Unknown` as "safe". |
-| Badge shows SDP off on a template you enabled it for | Known display bug (see above) | Verify with `gcloud model-armor templates describe`. |
 | `Failed to fetch violation logs.` | Logging API off, or missing `logging.logEntries.list` | Enable the API; grant `roles/logging.viewer`. |
-| Zero log entries right after a test | Sink latency | Model Armor logs land in ~5–15s; wait and refetch. |
+| Zero log entries right after a test | Sink latency or `logSanitizeOperations` disabled | Enable `logSanitizeOperations` on the template; wait ~5–15s and refetch. |
 
 ---
 
@@ -4023,7 +4148,6 @@ Everything from steps 2–4 lands in Cloud Logging. Only what your **sink filter
 | `Failed to refresh BigQuery tables: <msg>` (toast) | Observability | Table list failed | Check dataset permissions |
 | `No BigQuery dataset identified from log sinks. Showing offline mock analytics.` | Observability | No sink selected | Create/select a BigQuery sink — **numbers shown are fake** |
 | `Views labeled MOCK display simulated data until created in this dataset.` | Observability | Views not deployed | Deploy them before reporting anything |
-
 
 ---
 
@@ -4970,7 +5094,7 @@ surfaces as a runtime 403 rather than a friendly setup warning:
 |---|---|
 | `agentregistry.googleapis.com` | Skills Registry, and the Skills pillar of the Config Audit. |
 | `monitoring.googleapis.com` | Metrics panels. |
-| `compute.googleapis.com`, `dns.googleapis.com` | Networking inspection. |
+| `compute.googleapis.com`, `dns.googleapis.com` | Networking inspection, Load Balancer & Cloud DNS redirect provisioning (`Engines & Assistants → Customize`), and cross-project Cloud DNS host project (`dnsProjectId`) management. |
 | `sts.googleapis.com`, `oauth2.googleapis.com`, `www.googleapis.com` | Token exchange and user profile. |
 | `<location>-aiplatform.googleapis.com` | Regional Vertex AI calls. |
 | `<location>-discoveryengine.googleapis.com` | Regional Discovery Engine calls (anything not `global`). |
@@ -4990,17 +5114,18 @@ surfaces as a runtime 403 rather than a friendly setup warning:
 | `roles/storage.admin` | Create/list buckets, read/write/delete objects. | Backup & Recovery entirely — the bucket dropdown stays empty. |
 | `roles/storage.objectAdmin` | Object-level read/write/delete (narrower than above). | Backup upload/download/delete; you also need `storage.buckets.list` for the dropdown. |
 | `roles/viewer` | `resourcemanager.projects.get` — project metadata and number. | Project selection; the project-number field cannot auto-populate. |
-| `roles/resourcemanager.projectIamAdmin` | Read and write the project IAM policy. | Agent Permissions; the service-agent grant helper; the auto-pruner grant step. |
+| `roles/resourcemanager.projectIamAdmin` | Read and write the project IAM policy. | Agent Permissions; the service-agent grant helper; the auto-pruner grant step; **Grant Cloud Build IAM Roles** on the **Customize** tab. |
 | `roles/serviceusage.serviceUsageViewer` | See which APIs are enabled. | The startup readiness check reports everything as unknown. |
 | `roles/serviceusage.serviceUsageAdmin` | Enable APIs from inside the app. | The one-click **Enable API** buttons. |
-| `roles/cloudbuild.builds.editor` | Submit builds. | **Setup Auto-Pruner**; group-licensing service deployment. |
+| `roles/cloudbuild.builds.editor` | Submit builds. | **Setup Auto-Pruner**; group-licensing service deployment; **Deploy Redirect & Private Routing URL** (`Customize` tab). |
+| `roles/compute.loadBalancerAdmin`, `roles/compute.networkAdmin`, `roles/dns.admin` | Provision Global/Regional Application Load Balancers, proxy-only subnets, PSC endpoints, and Cloud DNS zones/records. | **Engines & Assistants → Customize** (**Deploy Redirect & Private Routing URL**). Required on the Cloud Build service accounts (`{projectNumber}-compute@developer.gserviceaccount.com` and `{projectNumber}@cloudbuild.gserviceaccount.com`), and on `dnsProjectId` when using a cross-project Cloud DNS host project. |
 | `roles/run.admin` | Deploy and manage Cloud Run services and jobs. | Cloud Run agents; auto-pruner; group licensing. |
 | `roles/cloudscheduler.admin` | Create the cron trigger. | The auto-pruner's schedule. |
 | `roles/iam.serviceAccountUser` | Act as a service account during deployment. | Any Cloud Run / Cloud Build deployment. |
-| `roles/logging.viewer` | Read logs. | Observability. |
+| `roles/logging.viewer` | Read logs. | Observability and Model Armor **Activity Logs**. |
 | `roles/bigquery.dataViewer` | Query analytics datasets. | Analytics panels. |
 | `roles/billing.viewer` **on the billing account** | Read seat allocation. | **Allocation Management (Billing Account)**. Note: this is granted on the *billing account*, not the project. |
-| `roles/modelarmor.viewer` / `roles/modelarmor.admin` | Read / manage safety templates. | Model Armor. |
+| `roles/modelarmor.viewer` / `roles/modelarmor.admin` | Read / create / `PATCH` safety templates and **Exclusion Rules (`Preview`)**. | Model Armor. |
 
 ### The eleven permissions the app actually probes
 
@@ -5022,16 +5147,17 @@ is effectively unusable.
 | `serviceusage.services.enable` | Service Management | 1-click enable required Google APIs | `roles/serviceusage.serviceUsageAdmin` | |
 | `aiplatform.reasoningEngines.list` | Vertex AI / Reasoning | List Vertex AI Agent Engines | `roles/aiplatform.user` | |
 
-### The Discovery Engine service agent
+### The Discovery Engine & Cloud Build service agents
 
 Separate from *your* permissions, the Discovery Engine **service agent** needs its own roles to
-reach your data. The app can grant these for you if you hold `projectIamAdmin`.
+reach your data, and the **Cloud Build default service accounts** need networking and DNS roles when
+you use **Engines & Assistants → Customize (Deploy Redirect & Private Routing URL)**. The app can
+grant both sets of bindings for you with 1 click if you hold `roles/resourcemanager.projectIamAdmin`.
 
-| Item | Value |
-|---|---|
-| Service agent identity | `service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com` |
-| Required role | `roles/discoveryengine.serviceAgent` |
-| Recommended additional | `roles/aiplatform.user`, `roles/storage.objectViewer`, `roles/bigquery.dataViewer` |
+| Service Account / Identity | Required Roles | Used By |
+|---|---|---|
+| `service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com` | `roles/discoveryengine.serviceAgent` (plus recommended `roles/aiplatform.user`, `roles/storage.objectViewer`, `roles/bigquery.dataViewer`) | Discovery Engine data store ingestion, federated connectors, and reasoning engine invocations |
+| `<PROJECT_NUMBER>-compute@developer.gserviceaccount.com` and `<PROJECT_NUMBER>@cloudbuild.gserviceaccount.com` | `roles/compute.loadBalancerAdmin`, `roles/compute.networkAdmin`, `roles/dns.admin` (also grant `roles/dns.admin` on the host project when using cross-project `dnsProjectId`) | **Deploy Redirect & Private Routing URL** (`Customize` tab — 1-click **Grant Cloud Build IAM Roles**) |
 
 ### Copy-paste: grant a colleague full admin of this tool
 

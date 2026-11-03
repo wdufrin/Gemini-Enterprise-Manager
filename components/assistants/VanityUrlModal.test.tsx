@@ -32,6 +32,11 @@ vi.mock('../../services/apiService', () => ({
   listDnsZones: vi.fn(),
   deleteVanityUrl: vi.fn(),
   getEngine: vi.fn(),
+  getWidgetConfig: vi.fn(),
+  updateWidgetConfig: vi.fn(),
+  enableService: vi.fn(),
+  getProjectIamPolicy: vi.fn(),
+  setProjectIamPolicy: vi.fn(),
   createCloudBuild: vi.fn(),
 }));
 

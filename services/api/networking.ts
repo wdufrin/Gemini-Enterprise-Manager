@@ -78,11 +78,18 @@ export const listAggregatedForwardingRules = async (projectId: string): Promise<
   );
 };
 
-export const listDnsZones = async (projectId: string): Promise<{ managedZones?: DnsZone[]; items?: DnsZone[] }> => {
+export const listDnsZones = async (
+  projectId: string,
+  suppressErrorLog = false,
+): Promise<{ managedZones?: DnsZone[]; items?: DnsZone[] }> => {
   return gapiRequest<{ managedZones?: DnsZone[]; items?: DnsZone[] }>(
     `https://dns.googleapis.com/dns/v1/projects/${projectId}/managedZones`,
     "GET",
     projectId,
+    undefined,
+    undefined,
+    undefined,
+    suppressErrorLog,
   );
 };
 

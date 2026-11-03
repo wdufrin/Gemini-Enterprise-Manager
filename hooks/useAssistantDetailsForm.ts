@@ -204,7 +204,8 @@ export function useAssistantDetailsForm(
       }
     };
     fetchCurrentEngine();
-  }, [config.appId, config]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.appId, config.projectId, config.appLocation, config.collectionId]);
 
   useEffect(() => {
     const fetchIamPolicy = async () => {
@@ -232,7 +233,8 @@ export function useAssistantDetailsForm(
       }
     };
     fetchIamPolicy();
-  }, [config.appId, config]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.appId, config.projectId, config.appLocation, config.collectionId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;

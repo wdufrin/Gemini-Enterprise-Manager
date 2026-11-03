@@ -162,7 +162,6 @@ export const getEngine = async (name: string, config: Config) => {
     "GET",
     projectId,
   );
-  console.log("[DEBUG] getEngine:", engine);
   return engine;
 };
 

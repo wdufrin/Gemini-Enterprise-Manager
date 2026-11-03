@@ -85,6 +85,26 @@ describe('vanityBuildScript', () => {
       'public, dns automation off',
       () => bodyOf(generatePublicModeScript({ ...publicDefaults, automateDNS: false })),
     ],
+    [
+      'public, cross-project dnsProjectId',
+      () =>
+        bodyOf(
+          generatePublicModeScript({
+            ...publicDefaults,
+            dnsProjectId: 'central-dns-host-proj',
+          }),
+        ),
+    ],
+    [
+      'private, cross-project dnsProjectId',
+      () =>
+        bodyOf(
+          generatePrivateModeScript({
+            ...privateDefaults,
+            dnsProjectId: 'central-dns-host-proj',
+          }),
+        ),
+    ],
   ];
 
   it.each(variants)('emits syntactically valid bash for %s', (_label, build) => {
@@ -107,7 +127,7 @@ describe('vanityBuildScript', () => {
   });
 
   // `gcloud dns record-sets delete` prompts for confirmation. Without --quiet
-  // it aborts with a non-zero exit in Cloud Build's non-interactive shell --
+  // it aborts with a non-interactive shell --
   // which the old `|| true` silently hid, so the stale record was never
   // removed and the subsequent create failed as ALREADY_EXISTS.
   it.each(variants)('passes --quiet to every record-sets delete in %s', (_label, build) => {
@@ -131,5 +151,22 @@ describe('vanityBuildScript', () => {
     const script = bodyOf(generatePublicModeScript(publicDefaults));
     expect(script).toMatch(/already exists\|ALREADY_EXISTS\|alreadyExists/);
     expect(script).toMatch(/was not found\|NOT_FOUND\|notFound/);
+  });
+
+  it('passes --project=<dnsProjectId> to all gcloud dns commands when dnsProjectId is set', () => {
+    const pubScript = bodyOf(
+      generatePublicModeScript({
+        ...publicDefaults,
+        dnsProjectId: 'ge-dufrin-dns-host',
+      }),
+    );
+    expect(pubScript).toContain('ensure_api "dns.googleapis.com" "ge-dufrin-dns-host"');
+    const dnsLines = pubScript
+      .split('\n')
+      .filter((line) => line.includes('gcloud dns '));
+    expect(dnsLines.length).toBe(4);
+    for (const line of dnsLines) {
+      expect(line, line).toContain('--project=ge-dufrin-dns-host');
+    }
   });
 });

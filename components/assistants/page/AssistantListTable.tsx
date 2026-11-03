@@ -108,6 +108,7 @@ interface AssistantListTableProps {
   onRefresh: () => void;
   onRowClick: (row: AssistantRowData) => void;
   onChatClick: (row: AssistantRowData, e: React.MouseEvent) => void;
+  onEvaluateClick?: (row: AssistantRowData, e: React.MouseEvent) => void;
 }
 
 export const AssistantListTable: React.FC<AssistantListTableProps> = ({
@@ -125,6 +126,7 @@ export const AssistantListTable: React.FC<AssistantListTableProps> = ({
   onRefresh,
   onRowClick,
   onChatClick,
+  onEvaluateClick,
 }) => {
   const SortHeader: React.FC<{
     label: string;
@@ -337,6 +339,21 @@ export const AssistantListTable: React.FC<AssistantListTableProps> = ({
                               />
                             </svg>
                           </button>
+                          {onEvaluateClick && (
+                            <button
+                              type="button"
+                              onClick={(e) => onEvaluateClick(row, e)}
+                              className="text-purple-400 hover:text-purple-300 font-semibold inline-flex items-center gap-1"
+                              title="Evaluate Assistant Configuration vs. Best Practices (Experimental)"
+                              aria-label={`Evaluate assistant ${row.engine.displayName || engineId}`}
+                              data-testid={`evaluate-assistant-row-${engineId}`}
+                            >
+                              <span>Evaluate</span>
+                              <span className="px-1 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-950/80 text-amber-300 border border-amber-700/60">
+                                Experimental
+                              </span>
+                            </button>
+                          )}
                           <button
                             onClick={() => onRowClick(row)}
                             className="text-blue-400 hover:text-blue-300 font-semibold"

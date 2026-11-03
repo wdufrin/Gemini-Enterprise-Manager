@@ -113,9 +113,14 @@ const InnerApp: React.FC = () => {
   const [googleClientId, setGoogleClientId] = useState<string>('');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const userEmailRef = useRef<string | null>(null);
+  const accessTokenRef = useRef<string>('');
   const tokenClient = useRef<GoogleTokenClient | null>(null);
   const tokenExpiryRef = useRef<number | null>(null);
   const isRenewingRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    accessTokenRef.current = accessToken;
+  }, [accessToken]);
 
   // Load client ID from storage, env variables, or config.json
   useEffect(() => {
@@ -202,6 +207,7 @@ const InnerApp: React.FC = () => {
   }, []);
 
   const handleSignOut = useCallback(() => {
+    accessTokenRef.current = '';
     setAccessToken('');
     setUserProfile(null);
     userEmailRef.current = null;
@@ -235,6 +241,7 @@ const InnerApp: React.FC = () => {
           } else if (response.access_token) {
             const expiresIn = response.expires_in ? Number(response.expires_in) : 3600;
             tokenExpiryRef.current = Date.now() + expiresIn * 1000;
+            accessTokenRef.current = response.access_token;
             setAccessToken(response.access_token);
             // Pure in-memory storage: Never write access token to sessionStorage!
             initGapiClient(response.access_token).catch((err) => {
@@ -277,6 +284,7 @@ const InnerApp: React.FC = () => {
   }, [renewTokenSilently]);
 
   const handleSetAccessToken = useCallback(async (token: string) => {
+    accessTokenRef.current = token;
     setAccessToken(token);
     // Pure in-memory storage: Never write access token to sessionStorage!
     // Defensively purge any legacy token that may exist in storage
@@ -356,7 +364,7 @@ const InnerApp: React.FC = () => {
 
       // On initial load or page reload, if user was previously signed in via SSO,
       // silently request a fresh access token directly into memory
-      if (userEmailRef.current && !accessToken) {
+      if (userEmailRef.current && !accessTokenRef.current) {
         setIsGapiLoading(true);
         renewTokenSilently()
           .then((freshToken) => {
@@ -376,10 +384,14 @@ const InnerApp: React.FC = () => {
     } catch (e: unknown) {
       setGapiError(`Failed to initialize Google Sign-In client: ${toErrorMessage(e)}`);
     }
-  }, [googleClientId, handleSetAccessToken, accessToken, renewTokenSilently]);
+  }, [googleClientId, handleSetAccessToken, renewTokenSilently]);
 
   useEffect(() => {
     if (!googleClientId) return;
+    if (typeof window.google !== 'undefined' && window.google.accounts) {
+      initGoogleClient();
+      return;
+    }
     const checkGsi = setInterval(() => {
       if (typeof window.google !== 'undefined' && window.google.accounts) {
         clearInterval(checkGsi);

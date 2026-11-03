@@ -20,6 +20,7 @@ import ch2Raw from '../docs/guide/02-knowledge-and-testing.md?raw';
 import ch3Raw from '../docs/guide/03-security-and-observability.md?raw';
 import ch4Raw from '../docs/guide/04-system-and-appendices.md?raw';
 import masterGuideRaw from '../docs/USER_GUIDE.md?raw';
+import { Page } from '../types';
 
 export interface GuideSection {
   id: string;
@@ -64,6 +65,142 @@ export const GUIDE_CATEGORIES = [
 ] as const;
 
 export type GuideCategory = typeof GUIDE_CATEGORIES[number];
+
+/**
+ * The 15 active sidebar Page values rendered in components/Sidebar.tsx across 5 groups.
+ */
+export const ACTIVE_SIDEBAR_PAGES = [
+  // Group 1: Agent Management
+  Page.AGENTS,
+  Page.SKILLS_REGISTRY,
+  Page.AGENT_BUILDER,
+  Page.AGENT_ENGINES,
+  // Group 2: Knowledge & Resources
+  Page.DATA_STORES,
+  Page.GE_QUOTA_USAGE,
+  // Group 3: Testing & Analysis
+  Page.ASSISTANT,
+  Page.ARCHITECTURE,
+  // Group 4: Security & Access
+  Page.AUTHORIZATIONS,
+  Page.AGENT_PERMISSIONS,
+  Page.MODEL_ARMOR,
+  Page.OBSERVABILITY,
+  // Group 5: System
+  Page.BACKUP_RECOVERY,
+  Page.CONFIG_AUDIT,
+  Page.LICENSE,
+] as const;
+
+/**
+ * Canonical mapping from each of the 15 active sidebar Page values to its sidebar label and GuideSection ID.
+ */
+export const TAB_MAPPING: Record<
+  (typeof ACTIVE_SIDEBAR_PAGES)[number],
+  { label: string; sectionId: string; group: string }
+> = {
+  [Page.AGENTS]: {
+    label: 'GE Agent Manager',
+    sectionId: 'ch1-ge-agent-manager',
+    group: 'Agent Management',
+  },
+  [Page.SKILLS_REGISTRY]: {
+    label: 'Skills Registry',
+    sectionId: 'ch1-skills-registry',
+    group: 'Agent Management',
+  },
+  [Page.AGENT_BUILDER]: {
+    label: 'ADK Studio',
+    sectionId: 'ch1-adk-studio',
+    group: 'Agent Management',
+  },
+  [Page.AGENT_ENGINES]: {
+    label: 'Agent Runtimes',
+    sectionId: 'ch1-agent-runtimes',
+    group: 'Agent Management',
+  },
+  [Page.DATA_STORES]: {
+    label: 'Connectors & Data Stores',
+    sectionId: 'ch2-connectors-data-stores',
+    group: 'Knowledge & Resources',
+  },
+  [Page.GE_QUOTA_USAGE]: {
+    label: 'Quota & Cost Estimator',
+    sectionId: 'ch2-quota-cost-estimator',
+    group: 'Knowledge & Resources',
+  },
+  [Page.ASSISTANT]: {
+    label: 'Engines & Assistants',
+    sectionId: 'ch2-engines-assistants',
+    group: 'Testing & Analysis',
+  },
+  [Page.ARCHITECTURE]: {
+    label: 'Architecture',
+    sectionId: 'ch2-architecture',
+    group: 'Testing & Analysis',
+  },
+  [Page.AUTHORIZATIONS]: {
+    label: 'Authorizations',
+    sectionId: 'ch3-authorizations',
+    group: 'Security & Access',
+  },
+  [Page.AGENT_PERMISSIONS]: {
+    label: 'Agent Permissions',
+    sectionId: 'ch3-agent-permissions',
+    group: 'Security & Access',
+  },
+  [Page.MODEL_ARMOR]: {
+    label: 'Model Armor',
+    sectionId: 'ch3-model-armor',
+    group: 'Security & Access',
+  },
+  [Page.OBSERVABILITY]: {
+    label: 'Observability',
+    sectionId: 'ch3-observability',
+    group: 'Security & Access',
+  },
+  [Page.BACKUP_RECOVERY]: {
+    label: 'Backup & Recovery',
+    sectionId: 'ch4-backup-recovery',
+    group: 'System',
+  },
+  [Page.CONFIG_AUDIT]: {
+    label: 'App Config Audit',
+    sectionId: 'ch4-app-config-audit',
+    group: 'System',
+  },
+  [Page.LICENSE]: {
+    label: 'Licenses',
+    sectionId: 'ch4-licenses',
+    group: 'System',
+  },
+};
+
+/**
+ * Complete mapping from all 20 Page enum values in types.ts to their corresponding GuideSection ID.
+ */
+export const PAGE_TO_SECTION_MAP: Record<Page, string> = {
+  [Page.AGENTS]: 'ch1-ge-agent-manager',
+  [Page.SKILLS_REGISTRY]: 'ch1-skills-registry',
+  [Page.AGENT_BUILDER]: 'ch1-adk-studio',
+  [Page.AGENT_ENGINES]: 'ch1-agent-runtimes',
+  [Page.CLOUD_RUN_AGENTS]: 'ch1-agent-runtimes',
+  [Page.DIALOGFLOW_AGENTS]: 'ch1-agent-runtimes',
+  [Page.A2A_TESTER]: 'ch1-agent-runtimes',
+  [Page.DATA_STORES]: 'ch2-connectors-data-stores',
+  [Page.MCP_SERVERS]: 'ch2-connectors-data-stores',
+  [Page.GE_QUOTA_USAGE]: 'ch2-quota-cost-estimator',
+  [Page.ASSISTANT]: 'ch2-engines-assistants',
+  [Page.CHAT]: 'ch2-engines-assistants',
+  [Page.ARCHITECTURE]: 'ch2-architecture',
+  [Page.AUTHORIZATIONS]: 'ch3-authorizations',
+  [Page.AGENT_PERMISSIONS]: 'ch3-agent-permissions',
+  [Page.MODEL_ARMOR]: 'ch3-model-armor',
+  [Page.OBSERVABILITY]: 'ch3-observability',
+  [Page.BACKUP_RECOVERY]: 'ch4-backup-recovery',
+  [Page.CONFIG_AUDIT]: 'ch4-app-config-audit',
+  [Page.LICENSE]: 'ch4-licenses',
+};
 
 // Chapter configurations mapping file raw strings to categories
 const CHAPTER_METADATA: Array<{
@@ -119,12 +256,12 @@ const CHAPTER_METADATA: Array<{
 // Helper to strip markdown symbols for clean text indexing & snippet extraction
 export function stripMarkdown(md: string): string {
   return md
+    .replace(/```[\s\S]*?```/g, ' ') // code blocks (strip before inline code)
     .replace(/^#+\s+/gm, '') // headings
     .replace(/^>\s*/gm, '') // blockquotes
     .replace(/\*\*([^*]+)\*\*/g, '$1') // bold
     .replace(/\*([^*]+)\*/g, '$1') // italic
     .replace(/`([^`]+)`/g, '$1') // inline code
-    .replace(/```[\s\S]*?```/g, ' ') // code blocks
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1') // images
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
     .replace(/<[^>]+>/g, ' ') // html tags
@@ -136,6 +273,7 @@ export function stripMarkdown(md: string): string {
 // Map section titles to specific sidebar tabs where applicable
 function mapTabName(title: string): string | undefined {
   const lower = title.toLowerCase();
+  if (lower.includes('— overview')) return undefined;
   if (lower.includes('ge agent manager') || lower === 'agent manager') return 'GE Agent Manager';
   if (lower.includes('skills registry')) return 'Skills Registry';
   if (lower.includes('adk studio') || lower.includes('agent builder')) return 'ADK Studio';
@@ -259,6 +397,11 @@ export function getAllGuideSections(): GuideSection[] {
 
 export function getSectionById(id: string): GuideSection | undefined {
   return getAllGuideSections().find((s) => s.id === id);
+}
+
+export function getSectionForPage(page: Page): GuideSection | undefined {
+  const sectionId = PAGE_TO_SECTION_MAP[page];
+  return sectionId ? getSectionById(sectionId) : undefined;
 }
 
 export function getMasterGuideMarkdown(): string {

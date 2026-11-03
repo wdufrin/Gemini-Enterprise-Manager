@@ -45,3 +45,22 @@ To get a refresh token for Microsoft connectors:
      -d "client_secret=YOUR_CLIENT_SECRET"
    ```
 4. The response will contain the `refresh_token`.
+
+## BYO-MCP (`custom_mcp`) Connectors & RFC 6901 Citation Mappings
+
+For custom Model Context Protocol (`custom_mcp`) connectors managed in **Connectors & Data Stores → Connectors → Details → BYOMCP Settings & JSON** (`BYOMCPConfigTab.tsx`):
+
+1. **Authentication & Cloud Run IAM**:
+   - Configure OAuth 2.0 credentials (`client_id`, `client_secret`, `auth_uri`, `token_uri`) or service-to-service IAM (`roles/run.invoker` granted to `service-{PROJECT_NUMBER}@gcp-sa-discoveryengine.iam.gserviceaccount.com`).
+   - Click **Refresh Tools** to invoke JSON-RPC 2.0 `tools/list` against your MCP endpoint and populate `dynamicTools` and `bapConfig.enabledActions`.
+2. **Smart Routing & Evaluation Advisor (`params.custom_mcp_Metadata`)**:
+   - Use the **Smart Routing & Evaluation Advisor** (`AgentGuidelinesSection.tsx`) or the **BYOMCP Descriptions & Instructions Advisor** in `AssistantEvaluationModal.tsx` to configure `mcp_server_description` and `mcp_agent_instructions` across 6 domain archetypes (`DATABASE_SQL`, `ISSUE_TRACKER_ITSM`, `CRM_ERP_FINANCE`, `DEVOPS_INFRA`, `KNOWLEDGE_SEARCH`, `GENERAL_MCP`).
+   - Saving routing metadata executes a credential-safe metadata-only `PATCH` (`updateMask=params.custom_mcp_Metadata`) that strips `client_id` and `client_secret` from `params` so masked `"*****"` secrets are never overwritten.
+3. **Discovered Tools Schema Overrides & RFC 6901 Citation Mappings**:
+   - **Override Schema (`mcp_tools_schema`)**: Add or refine JSON-Schema tool input parameters in `DiscoveredToolsSection.tsx`.
+   - **RFC 6901 JSON Pointer Citation Mappings (`mcp_tools_citation_keys`)**: Configure `tool_names`, `title_key` (RFC 6901 pointer starting with `/`, e.g., `/results/0/title`), `url_key` (e.g., `/results/0/url`), and optional `url_Match_pattern` in `CitationMappingsSection.tsx` so Gemini Enterprise renders grounded source links from MCP tool outputs.
+
+## 156-Connector Validation & Readiness Checklist
+
+For all **156 enterprise connector profiles** (`1,324` validation items and `424` automated diagnostic probes across Google Cloud & Workspace, Microsoft 365 & Entra ID, Atlassian, ServiceNow, Salesforce, Databases, Collaboration, Identity, and BYOMCP), open **Connectors & Data Stores (`/datastores`) → Connectors → Details → Validation Checklist**, or see [CONNECTOR_VALIDATION_REVIEW.md](./CONNECTOR_VALIDATION_REVIEW.md).
+

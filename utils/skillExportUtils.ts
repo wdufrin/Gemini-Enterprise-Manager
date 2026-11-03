@@ -373,3 +373,52 @@ export function formatSkillsToMarkdown(records: NormalizedSkillExportRecord[]): 
     })
     .join('\n\n<!-- ========================================== -->\n\n');
 }
+
+export const MAX_SKILL_DISPLAY_NAME_LENGTH = 64;
+
+/**
+ * Sanitizes a Skill `displayName` so that it satisfies Discovery Engine's strict validation:
+ * - Normalized display name (`displayName.toLowerCase().replace(/\s+/g, '-')`) must only contain
+ *   lowercase letters (`a-z`), numbers (`0-9`), and hyphens (`-`).
+ * - `displayName` may contain uppercase letters and spaces, but NO special characters (`&`, `_`, `(`, `)`, etc.).
+ * - `displayName` must be at most 64 characters.
+ */
+export function sanitizeSkillDisplayName(rawName: string): string {
+  const replaced = String(rawName || '')
+    .replace(/&/g, ' and ')
+    .replace(/[/_.:+]+/g, ' ')
+    .replace(/[^a-zA-Z0-9\s-]/g, ' ')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/\s+/g, ' ')
+    .replace(/-+/g, '-')
+    .replace(/^[\s-]+|[\s-]+$/g, '');
+
+  const truncated = replaced
+    .slice(0, MAX_SKILL_DISPLAY_NAME_LENGTH)
+    .replace(/^[\s-]+|[\s-]+$/g, '');
+
+  return truncated || 'Enterprise Custom Skill';
+}
+
+/**
+ * Validates a Skill `displayName` against Discovery Engine rules.
+ * Returns `null` if valid, or a descriptive error message if invalid.
+ */
+export function validateSkillDisplayName(name: string): string | null {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) {
+    return 'Skill Display Name is required.';
+  }
+  if (trimmed.length > MAX_SKILL_DISPLAY_NAME_LENGTH) {
+    return `Skill Display Name must be at most ${MAX_SKILL_DISPLAY_NAME_LENGTH} characters (currently ${trimmed.length}).`;
+  }
+  if (/[^a-zA-Z0-9\s-]/.test(trimmed)) {
+    return 'Skill Display Name can only contain letters, numbers, spaces, and hyphens (no special characters such as &, _, or parentheses).';
+  }
+  const normalized = trimmed.toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-');
+  if (!/^[a-z0-9-]+$/.test(normalized) || /^[-]|[-]$/.test(normalized)) {
+    return `Normalized skill name (${normalized}) must only contain lowercase letters, numbers, and hyphens.`;
+  }
+  return null;
+}
+

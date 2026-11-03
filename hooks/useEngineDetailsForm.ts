@@ -502,7 +502,8 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             }
         };
         fetchConfigs();
-    }, [config, engine.name]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [config.projectId, config.appLocation, engine.name]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;

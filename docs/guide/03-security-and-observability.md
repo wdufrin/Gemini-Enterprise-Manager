@@ -409,16 +409,16 @@ The modal is a genuine read-modify-write. Behaviour, verified:
 
 ### What it's for
 
-Model Armor is Google Cloud's content-safety gate. It inspects text **going into** the model (the user's prompt) and **coming out of** it (the model's answer), and can block or redact. You define a reusable **template** — a bundle of filters and thresholds — and attach it to an assistant.
+Model Armor is Google Cloud's content-safety gate. It inspects text **going into** the model (the user's prompt) and **coming out of** it (the model's answer), and can block, redact, or apply **Exclusion Rules (`Preview`)** for benign enterprise terminology. You define a reusable **template** — a bundle of filters, thresholds, exclusion rules, and streaming sanitization settings — and attach it to an assistant.
 
-Four things it can check:
+Four filter categories it checks:
 
-| Filter | What it does |
-|---|---|
-| **Responsible AI** | Scores text for Hate Speech, Harassment, Sexually Explicit and Dangerous Content, and blocks above your chosen confidence level. |
-| **Sensitive Data Protection** | Finds PII and replaces it inline. As generated here: phone numbers and email addresses only. |
-| **Prompt Injection & Jailbreak** | Detects attempts to override the system instructions. |
-| **Malicious URI** | Blocks known-bad URLs. |
+| Filter | What it does | Exclusion Rules (`Preview`) Support |
+|---|---|---|
+| **Responsible AI** | Scores text for Hate Speech, Harassment, Sexually Explicit and Dangerous Content, and blocks above your chosen confidence level. | **Supported** (`RESPONSIBLE_AI`) |
+| **Prompt Injection & Jailbreak** | Detects attempts to override the system instructions. | **Supported** (`PROMPT_INJECTION_AND_JAILBREAK`) |
+| **Sensitive Data Protection** | Finds PII and replaces it inline (`PHONE_NUMBER` and `EMAIL_ADDRESS`). | Not supported (`UNSUPPORTED_FILTER`) |
+| **Malicious URI** | Blocks known-bad URLs. | Not supported (`UNSUPPORTED_FILTER`) |
 
 ### The screen, explained
 
@@ -426,29 +426,75 @@ Header: **Model Armor Manager** with a shield icon, subtitle *"Monitor content s
 
 ![The Model Armor tab as it opens. It lands on **Activity Logs**, not on Policy Configuration -- the first thing the page does is ask you to look at violations, not to create a template. The controls read left to right: **Search Filters** (placeholder `e.g. jsonPayload.sanitizationResult.verdict="BLOCKED"`), **Time Range** defaulting to **Last 7 Days**, an unticked **Blocked Only** checkbox, and the blue **Fetch Logs** button. Beneath them a grey info line shows the base filter the app always applies: `resource.type="modelarmor.googleapis.com/SanitizeOperation"`; anything you type is ANDed onto it. The empty state reads **"No Logs Found -- No violation logs matched your criteria. Try adjusting your filters or ensure Model Armor is active on your resources."** On this project no template is attached to anything, so there is nothing to log.](../assets/22-model-armor.png)
 
-#### Tab: Activity Logs
+#### Tab: Activity Logs (`SanitizationAuditTab.tsx`, `LogEntryCard.tsx`)
 
 | Control | Behaviour |
 |---|---|
 | **Search Filters** | Free-text Cloud Logging filter. Placeholder: `e.g. jsonPayload.sanitizationResult.verdict="BLOCKED"` |
 | **Time Range** | `Last 24 Hours`, `Last 3 Days`, `Last 7 Days`, `Last 30 Days`. Default **Last 7 Days**. |
 | **Blocked Only** | Checkbox. Adds a verdict filter for both `BLOCKED` and `MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK`. |
-| **Fetch Logs** | Runs the query. Results render as cards. |
+| **Exclusion Overrides** | Checkbox (`exclusionOverridesOnly`). Filters log entries in-memory (`hasExclusionActivity`) to show only entries where an Exclusion Rule overrode a match (`EXCLUDED_MATCH_FOUND`) or was skipped because the payload exceeded 0.5 MB (`EXCLUSION_RULE_SKIPPED_SIZE_LIMIT_EXCEEDED`). |
+| **Fetch Logs** | Runs the query. Results render as expandable `LogEntryCard` items. |
+
+Each `LogEntryCard` displays:
+- **Verdict badge** (`BLOCKED` in red or `ALLOWED` in green).
+- **Streaming & Exclusion Telemetry Badges**:
+  - `Streaming Chunk` (cyan badge when the sanitization operation inspected a streaming chunk).
+  - `Exclusion Override: <filters>` (purple badge when an exclusion rule suppressed a filter match).
+  - `Exclusion Skipped (>0.5MB): <filters>` (amber badge when payload size exceeded the 0.5 MB exclusion limit).
+- **Evaluate for Exclusion** button: Appears on blocked log entries (`isBlocked`). Clicking **Evaluate for Exclusion** opens the **Exclusion Rule Evaluator & Policy Applicator (`Preview`)** drawer (`ExclusionRuleEvaluatorModal.tsx`) pre-populated with the blocked prompt/response text, triggered filters, and matched template.
 
 > [!WARNING]
-> **You only ever see 50 entries.** The query hardcodes `pageSize: 50` and the UI ignores `nextPageToken` ([monitoring.ts:95-106](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/monitoring.ts#L95-L106)). On a busy day, 50 newest entries over 30 days is a keyhole. Use **Cloud Console** for any real investigation.
+> **Log queries return up to 50 entries per fetch.** The query sets `pageSize: 50` ([monitoring.ts:95-106](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/monitoring.ts#L95-L106)). Narrow your **Time Range** or **Search Filters**, or use **Cloud Console** for deep historical queries.
 
 #### Tab: Policy Configuration
 
-Three stacked panels plus an optional modal.
+Three stacked panels plus interactive modals:
 
-1. **Active Policies Viewer** — every Model Armor template in the project, with **Refresh List** and a per-template **Clone** button. Each shows an attachment status: **Protected** (an assistant really references it), **Not attached** (scan completed, nothing references it), or **Unknown** (the scan could not read that assistant's config). The distinction is deliberate — the note reads *"Unknown may or may not be protected."*
+1. **Active Policies Viewer (`ActivePoliciesViewer.tsx`)** — every Model Armor template in the project, with **Refresh List**, an **Exclusion Rules & Streaming** column (showing configured exclusion rules count, `Realtime Streaming OK` vs. `Buffered Stream Only` badges based on `matchingScope`, and a `Sanitize Logs ON` badge when `templateMetadata.logSanitizeOperations` is enabled), an **Inspect Rules** button (opening an inline drawer detailing each exclusion rule's filter target, matching scope, and dictionary/regex patterns), and a per-template **Clone** button. Each template also shows its attachment status: **Protected**, **Not attached**, or **Unknown**.
 2. **Attached Protection Panel** — the inverse view: every engine/assistant and whether it is **Protected** or **Not protected**.
-3. **Policy Template Generator** — where you build and deploy.
+3. **Policy Template Generator (`PolicyGenerator.tsx`)** — where you configure filters, **Exclusion Rules (Preview) & Streaming Sanitization**, and deploy or attach templates.
 4. **Clone Template Modal** — copy an existing template to another project/location/ID.
 
 > [!NOTE]
 > Templates are listed with a location wildcard: `GET https://modelarmor.googleapis.com/v1/projects/{p}/locations/-/templates` ([modelArmor.ts:32-38](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/modelArmor.ts#L32-L38)). You see templates from every location in one list.
+
+### Exclusion Rules (`Preview`) & Real-Time Streaming Sanitization
+
+Source: [exclusionRuleUtils.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/exclusionRuleUtils.ts), [ExclusionRuleEvaluatorModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/ExclusionRuleEvaluatorModal.tsx), [PolicyGenerator.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx).
+
+#### Real-Time Streaming Compatibility (`MATCHING_SCOPE_PARTIAL_MATCH` vs. `MATCHING_SCOPE_FULL_MATCH`)
+
+When Gemini Enterprise streams assistant responses (`streamAssist`), Model Armor evaluates content in streaming chunks:
+- **`MATCHING_SCOPE_PARTIAL_MATCH` (Realtime & Buffered Streaming OK)**: Suppresses a filter violation when the exclusion pattern matches a substring inside a prompt or streaming chunk. **Required** for real-time token-by-token streaming sanitization (`streamAssist`).
+- **`MATCHING_SCOPE_FULL_MATCH` (Buffered Streaming Only)**: Requires the **entire** payload to match the exclusion pattern. Incompatible with real-time token streaming; templates containing any `MATCHING_SCOPE_FULL_MATCH` rule are flagged with an amber **Buffered Stream Only (`FULL_MATCH` rule)** badge.
+- **0.5 MB (~130,000 tokens) Payload Size Limit**: Google Cloud Model Armor skips exclusion rule evaluation on payloads exceeding **0.5 MB** (`524,288` bytes, ~130,000 tokens) and logs `EXCLUSION_RULE_SKIPPED_SIZE_LIMIT_EXCEEDED`.
+- **Cloud Logging Sanitize Operations (`templateMetadata.logSanitizeOperations`)**: Toggling **Log Sanitize Operations to Cloud Logging (`logSanitizeOperations`)** on a template ensures both blocked violations and exclusion rule overrides are written to Cloud Logging for audit in the **Activity Logs** tab.
+
+#### Building Exclusion Rules in Policy Template Generator
+
+Inside **Policy Template Generator → Exclusion Rules (Preview) & Streaming Sanitization**:
+- Click **+ DevOps False-Positive Preset** to insert a pre-configured `PROMPT_INJECTION_AND_JAILBREAK` dictionary rule (`MATCHING_SCOPE_PARTIAL_MATCH`, case-insensitive) covering common engineering phrases (`kill -9`, `kill process`, `terminate child process`, `master/slave replication`, `penetration test report`, `ignore previous instructions in test fixture`).
+- Or click **+ Add Rule** to configure a custom rule:
+  - **Filter Target**: `Prompt Injection & Jailbreak` (`PROMPT_INJECTION_AND_JAILBREAK`) or `Responsible AI (All 4 Categories)` (`RESPONSIBLE_AI`).
+  - **Matching Scope**: `Partial Match (Realtime & Buffered Streaming OK)` (`MATCHING_SCOPE_PARTIAL_MATCH`) or `Full Match (Buffered Streaming Only)` (`MATCHING_SCOPE_FULL_MATCH`).
+  - **Pattern Type & Validation (`validateExclusionRules`)**:
+    - **Dictionary (`wordList`)**: Up to **100 words/phrases**, each up to **200 characters**, with optional **Ignore Case**.
+    - **Regex (`regex`)**: RE2 regular expression up to **1,000 characters** (`new RegExp` syntax validated client-side).
+
+#### How to: evaluate a blocked log entry for exclusion and apply 1-click policy update
+
+1. Open **Model Armor → Activity Logs** and click **Fetch Logs** (optionally check **Blocked Only**).
+2. On any blocked log card, click **Evaluate for Exclusion**.
+3. The **Exclusion Rule Evaluator & Policy Applicator (`Preview`)** drawer (`ExclusionRuleEvaluatorModal.tsx`) opens and runs `evaluateBlockedLogForExclusion`, classifying the event into one of **4 verdicts**:
+   - **`LIKELY_FALSE_POSITIVE`** (Emerald badge) — Benign DevOps, SRE, security analysis, or compliance terminology triggered `PROMPT_INJECTION_AND_JAILBREAK` or `RESPONSIBLE_AI` with no adversarial injection markers.
+   - **`REVIEW_REQUIRED`** (Amber badge) — Supported filter triggered without known adversarial markers; requires human review to extract the narrowest safe phrase.
+   - **`HIGH_RISK_TRUE_POSITIVE`** (Red badge) — Genuine adversarial jailbreak or prompt-injection markers detected (e.g., `ignore all previous instructions`, `reveal your system prompt`, `DAN mode`). Creating an exclusion rule is strongly discouraged.
+   - **`UNSUPPORTED_FILTER`** (Slate badge) — Blocked **exclusively** by **Malicious URI** (`MALICIOUS_URI`) or **Sensitive Data Protection (SDP)** (`SENSITIVE_DATA_PROTECTION`). Google Cloud Model Armor supports Exclusion Rules **only** for `PROMPT_INJECTION_AND_JAILBREAK` and `RESPONSIBLE_AI`.
+4. Review the **Streaming Compatibility Check** card (`Realtime Streaming Compatible` for `MATCHING_SCOPE_PARTIAL_MATCH` vs. `Buffered Streaming Only` for `MATCHING_SCOPE_FULL_MATCH`, plus payload byte size against the 0.5 MB limit).
+5. Edit the **Proposed Exclusion Rule Builder** (Target Filter, Matching Scope, Dictionary `wordList` or `regex` pattern, and **Enable `templateMetadata.logSanitizeOperations`**).
+6. Confirm the **Target Model Armor Template** dropdown (auto-resolved from the log entry's `resource.labels.template_id`).
+7. Click **Apply Exclusion to Policy** to execute a live `PATCH` (`updateModelArmorTemplate` in [modelArmor.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/modelArmor.ts#L85-L120)) with `?updateMask=filterConfig,templateMetadata`, or copy the generated `PATCH` cURL command.
 
 ### How to: create a safety template
 
@@ -460,13 +506,15 @@ Three stacked panels plus an optional modal.
 3. Set the **Template ID**.
 4. Tick/untick the four **Responsible AI Filters** and pick a confidence level for each: **Low & above**, **Medium & above**, **High only**.
 5. Toggle **Sensitive Data Protection (PII)**, **Prompt Injection Defense**, **Malicious URI Filter**.
-6. Review the generated cURL on the right.
-7. Click **Create Template**.
+6. Optionally add **Exclusion Rules (`Preview`)** or click **+ DevOps False-Positive Preset**, and keep **Log Sanitize Operations to Cloud Logging (`logSanitizeOperations`)** enabled.
+7. Review the generated cURL on the right.
+8. Click **Create Template**.
 
 **Expected result:** a green box reading `Created projects/.../templates/<id>.` If the API accepts the request but returns no name, you instead get an honest *"The API accepted the request but returned no template name. Use 'Refresh List' above to confirm it exists."* — the app does not claim success it cannot prove.
 
-<details><summary>Under the hood — the API call this makes</summary>
+<details><summary>Under the hood — the API calls this makes</summary>
 
+Create template (`POST`):
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \
@@ -486,17 +534,24 @@ curl -X POST \
     "piAndJailbreakFilterSettings": {"filterEnforcement":"ENABLED","confidenceLevel":"MEDIUM_AND_ABOVE"},
     "maliciousUriFilterSettings": {"filterEnforcement":"ENABLED"}
   },
-  "templateMetadata": {"ignorePartialInvocationFailures": false, "enforcementType": "INSPECT_AND_BLOCK"}
+  "templateMetadata": {"ignorePartialInvocationFailures": false, "enforcementType": "INSPECT_AND_BLOCK", "logSanitizeOperations": true}
 }' \
   "https://modelarmor.googleapis.com/v1/projects/PROJECT_ID/locations/global/templates?templateId=TEMPLATE_ID"
 ```
 
-Payload shape: [PolicyGenerator.tsx:121-166](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx#L121-L166).
+Update template with Exclusion Rules (`PATCH` via `updateModelArmorTemplate` in [modelArmor.ts:85-120](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/modelArmor.ts#L85-L120)):
+```bash
+curl -X PATCH \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json" \
+  "https://modelarmor.googleapis.com/v1/projects/PROJECT_ID/locations/LOCATION/templates/TEMPLATE_ID?updateMask=filterConfig,templateMetadata" \
+  -d '{ "filterConfig": { ... }, "templateMetadata": { "logSanitizeOperations": true } }'
+```
 
 </details>
 
 > [!WARNING]
-> **The generator always creates the template in `global`.** The resource name is hardcoded as `projects/{projectId}/locations/global/templates/{id}` ([PolicyGenerator.tsx:168](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx#L168)) even when the engine you attach it to lives in `us` or `eu`. If your data-residency posture forbids a global Model Armor resource, use **Clone Template Modal** (which does expose a **Target Location**) or the API directly.
+> **The generator creates new templates in `global`.** The resource name in **Policy Template Generator** is `projects/{projectId}/locations/global/templates/{id}` ([PolicyGenerator.tsx:168](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx#L168)). If your data-residency posture requires a regional template (`us` or `eu`), use **Clone Template Modal** (which exposes a **Target Location**). Updating an existing template via **Apply Exclusion to Policy** (`updateModelArmorTemplate`) automatically routes to the template's regional or global endpoint.
 
 ### How to: attach a template to an app
 
@@ -539,15 +594,10 @@ The app performs a **merge**, not a replace: it spreads the existing `customerPo
 
 Cloning issues a fresh `createModelArmorTemplate` against the target. It is the only way in this app to get a template into a non-global location.
 
-### Editing and deleting templates
+### Updating and deleting templates
 
-> [!WARNING]
-> **You cannot edit or delete a Model Armor template from this app.** The entire Model Armor service layer is two functions — `fetchModelArmorTemplates` and `createModelArmorTemplate` ([modelArmor.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/modelArmor.ts)). There is no PATCH and no DELETE anywhere in the codebase. Re-running **Create Template** with an existing ID returns `ALREADY_EXISTS`; it does not update.
->
-> To change a template: `gcloud model-armor templates update` or the REST `PATCH`. To remove one: `gcloud model-armor templates delete`. **Detach it from every assistant first** — deleting a template that an assistant still references will, under `FAIL_CLOSED`, take that app's chat down.
-
-> [!WARNING]
-> **There is no sanitize / test path in this app.** Model Armor exposes `:sanitizeUserPrompt` and `:sanitizeModelResponse` for dry-running content against a template; nothing in this codebase calls them. You cannot preview what a template would do to a sample prompt from here — test with `gcloud model-armor templates sanitize-user-prompt`, then verify via **Activity Logs**.
+- **Updating Exclusion Rules & Logging (`PATCH`)**: You can update an existing template's `filterConfig.exclusionRules` and `templateMetadata.logSanitizeOperations` directly in the app from **Activity Logs → Evaluate for Exclusion → Apply Exclusion to Policy** (`updateModelArmorTemplate` in [modelArmor.ts:85-120](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/modelArmor.ts#L85-L120)).
+- **Deleting Templates**: Templates cannot be deleted from the UI. Use `gcloud model-armor templates delete` after detaching the template from every assistant first — deleting a template that an assistant still references will, under `FAIL_CLOSED`, block chat requests.
 
 ### Threshold tuning
 
@@ -559,29 +609,28 @@ Only the values below exist in the UI. Anything else is not offered.
 | RAI filter | **Low & above** | `LOW_AND_ABOVE` | Most aggressive. Blocks even low-confidence matches. **Highest false-positive rate** — expect security, HR-policy, legal and medical queries to be blocked. |
 | RAI filter | **Medium & above** | `MEDIUM_AND_ABOVE` | Middle ground. Moderate false positives; most everyday business language passes. |
 | RAI filter | **High only** | `HIGH` | Blocks only high-confidence violations. **Lowest false-positive rate**, highest chance a borderline item slips through. |
-| Prompt Injection Defense | on / off | `filterEnforcement: ENABLED \| DISABLED`, `confidenceLevel: MEDIUM_AND_ABOVE` (**hardcoded, no UI control**) | Binary. You cannot loosen or tighten the jailbreak threshold from this app. |
-| Malicious URI Filter | on / off | `filterEnforcement: ENABLED \| DISABLED` | Binary. No threshold. |
+| Prompt Injection Defense | on / off | `filterEnforcement: ENABLED \| DISABLED`, `confidenceLevel: MEDIUM_AND_ABOVE` (**hardcoded, no UI control**) | Binary. You cannot loosen or tighten the jailbreak threshold from this app, but you can add **Exclusion Rules (`Preview`)** for false-positive phrases. |
+| Malicious URI Filter | on / off | `filterEnforcement: ENABLED \| DISABLED` | Binary. No threshold and no Exclusion Rules support. |
 | Sensitive Data Protection | on / off | `sdpFilters` for `PHONE_NUMBER` + `EMAIL_ADDRESS` with `replaceWithInfoTypeConfig` | **Redacts, does not block.** The turn continues with `[EMAIL_ADDRESS]` substituted. Only these two infoTypes. |
-| Enforcement type | *(none)* | `INSPECT_AND_BLOCK` (**hardcoded**) | Always enforcing. There is no inspect-only / monitor mode in this UI. |
-| `ignorePartialInvocationFailures` | *(none)* | `false` (**hardcoded**) | A partial filter failure is treated as a failure. |
+| Exclusion Rules (`Preview`) | `MATCHING_SCOPE_PARTIAL_MATCH` / `MATCHING_SCOPE_FULL_MATCH` | `filterConfig.exclusionRules` (`wordList` up to 100 words × 200 chars, or `regex` up to 1,000 chars) | Overrides false-positive `PROMPT_INJECTION_AND_JAILBREAK` or `RESPONSIBLE_AI` matches on payloads `<= 0.5 MB`. Use `MATCHING_SCOPE_PARTIAL_MATCH` for real-time streaming compatibility. |
+| `logSanitizeOperations` | Checkbox (default **on**) | `templateMetadata.logSanitizeOperations: true` | Logs sanitization verdicts and exclusion rule overrides to Cloud Logging. |
+| Enforcement type | *(none)* | `INSPECT_AND_BLOCK` (**hardcoded**) | Always enforcing. |
 
 > [!TIP]
 > A practical starting posture for an internal knowledge assistant: **two templates**, not one.
-> - **Input template** — RAI at `High only`, Prompt Injection Defense **on**, PII **on**, Malicious URI **off**.
+> - **Input template** — RAI at `High only`, Prompt Injection Defense **on** (with **+ DevOps False-Positive Preset** if your engineering teams ask SRE/DevOps questions), PII **on**, Malicious URI **off**.
 > - **Output template** — RAI at `High only`, Prompt Injection Defense **off** (your own system prompt produced the text; scanning it for jailbreaks costs latency and buys nothing), PII **on**, Malicious URI **on**.
 >
-> That is exactly what the **Best Practice: Input Filter** and **Best Practice: Output Filter** presets build. Start there, watch **Activity Logs**, and only tighten to `Medium & above` for a category you can prove is leaking.
+> Start there, watch **Activity Logs**, and use **Evaluate for Exclusion** when benign domain vocabulary is flagged.
 
 ### Known limitations & gotchas
 
-- **No edit. No delete. No sanitize/test.**
-- **Activity Logs are capped at 50 entries**, no pagination.
-- **Templates are always created in `global`** by the generator.
-- **Jailbreak confidence is hardcoded** to `MEDIUM_AND_ABOVE`.
-- **SDP covers two infoTypes only** — phone number and email address. No names, credit cards, national IDs, or custom infoTypes.
-- **`enforcementType` is hardcoded to `INSPECT_AND_BLOCK`** — no audit-only rollout mode from this UI.
-- **Display bug: templates created here will show SDP as inactive.** The generator writes `filterConfig.sdpSettings.sdpFilters` ([PolicyGenerator.tsx:150-152](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx#L150-L152)), but the badge renderer reads `filterConfig.sdpSettings.basicConfig.filterEnforcement === 'ENABLED'` ([types.ts:57](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/types.ts#L57)). Those are different shapes, so **Active Policies Viewer** will show SDP off for a template that genuinely has it on. Verify with `gcloud model-armor templates describe`, not the badge.
-- The attach flow targets `default_assistant`, or the first assistant if that is absent ([PolicyGenerator.tsx:172-179](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/model-armor/PolicyGenerator.tsx#L172-L179)). Multi-assistant apps need the copy-command path.
+- **Exclusion Rules (`Preview`) apply only to `PROMPT_INJECTION_AND_JAILBREAK` and `RESPONSIBLE_AI`** — Malicious URI and Sensitive Data Protection (SDP) blocks return `UNSUPPORTED_FILTER` in the evaluator.
+- **0.5 MB (~130,000 tokens) exclusion payload limit** — payloads larger than 0.5 MB skip exclusion rule evaluation (`EXCLUSION_RULE_SKIPPED_SIZE_LIMIT_EXCEEDED`).
+- **`MATCHING_SCOPE_FULL_MATCH` breaks real-time token streaming** — always use `MATCHING_SCOPE_PARTIAL_MATCH` for streaming assistants.
+- **Activity Logs fetch up to 50 entries per query.**
+- **New templates are created in `global` by the generator** (use **Clone** for regional templates; `updateModelArmorTemplate` supports both global and regional templates).
+- **SDP covers two infoTypes only** — phone number and email address.
 
 ### Troubleshooting
 
@@ -590,15 +639,17 @@ Only the values below exist in the UI. Anything else is not offered.
 | `Project ID is required to fetch logs.` | No project set | Set it on **GE Agent Manager**. |
 | `Set a Project ID before creating a template.` | Project is unset or still the `[YOUR_PROJECT_ID]` placeholder | Set a real project. |
 | `Template ID is required.` | Blank Template ID | Enter one. |
-| `Failed to create the Model Armor template.` + API message | Usually 403 or `ALREADY_EXISTS` | Grant `roles/modelarmor.admin`; or pick a new ID — create cannot update. |
+| `Failed to create the Model Armor template.` + API message | Usually 403 or `ALREADY_EXISTS` | Grant `roles/modelarmor.admin`; or use **Evaluate for Exclusion → Apply Exclusion to Policy** to `PATCH` an existing template. |
+| `UNSUPPORTED_FILTER` verdict in **Evaluate for Exclusion** | Log entry was blocked only by Malicious URI or SDP | Exclusion Rules only support `PROMPT_INJECTION_AND_JAILBREAK` and `RESPONSIBLE_AI`. Adjust URI/SDP filter settings instead. |
+| `Exclusion Skipped (>0.5MB)` badge on log card | Prompt or response exceeded 0.5 MB (~130,000 tokens) | Reduce prompt/context payload size below 0.5 MB so exclusion rules can run. |
+| `Buffered Stream Only (FULL_MATCH rule)` badge in **Active Policies Viewer** | Template has a rule with `MATCHING_SCOPE_FULL_MATCH` | Switch the exclusion rule's Matching Scope to `MATCHING_SCOPE_PARTIAL_MATCH` for real-time streaming compatibility. |
 | `Select a target app first.` | Clicked **Attach Now** with no app chosen | Pick one from **Target App to Attach To**. |
 | `Cannot attach: this app's assistant configuration could not be read (...)` | Assistant lookup 403'd or failed | Grant read on the engine, or use **Copy Attach Command**. |
 | `Cannot attach: this app reports no assistants, so there is nothing to attach the template to.` | Engine has no assistant | Create an assistant first. |
 | `The API accepted the update but its response does not show this template attached.` | PATCH succeeded, read-back disagrees | **Treat the app as unprotected.** Click **Refresh List** and re-check. |
 | Template status shows `Unknown` | An assistant config could not be read during the scan | Fix the permission and refresh. Do **not** read `Unknown` as "safe". |
-| Badge shows SDP off on a template you enabled it for | Known display bug (see above) | Verify with `gcloud model-armor templates describe`. |
 | `Failed to fetch violation logs.` | Logging API off, or missing `logging.logEntries.list` | Enable the API; grant `roles/logging.viewer`. |
-| Zero log entries right after a test | Sink latency | Model Armor logs land in ~5–15s; wait and refetch. |
+| Zero log entries right after a test | Sink latency or `logSanitizeOperations` disabled | Enable `logSanitizeOperations` on the template; wait ~5–15s and refetch. |
 
 ---
 

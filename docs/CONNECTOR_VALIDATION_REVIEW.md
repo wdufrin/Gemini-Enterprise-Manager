@@ -1,6 +1,6 @@
 # Gemini Enterprise Connector Validation & Diagnostics Forensic Review
 
-> **Audit Scope**: All **57 Connector Checklists**, **740 Validation Items**, **159 Automated Probes**, and the **Unified Connector Diagnostics Pipeline** (`connectorDiagnostics.ts`, `probeRunner.ts`, `services/api/iam.ts`, `DynamicConnectorVerification.tsx`, `ConnectorDetailsModal.tsx`).
+> **Audit Scope**: All **156 Connector Checklists** (`57` core vendor profiles in `connectorRequirementsCatalog.ts` + `99` extended enterprise connectors across `connectorCatalogPart2.ts` through `connectorCatalogPart5.ts`), **1,324 Validation Items**, **424 Automated Probes**, and the **Unified Connector Diagnostics Pipeline** (`connectorDiagnostics.ts`, `probeRunner.ts`, `services/api/iam.ts`, `DynamicConnectorVerification.tsx`, `ConnectorDetailsModal.tsx`, verified via `node scripts/syncChecklists.mjs --check-only`).
 
 ---
 
@@ -25,7 +25,7 @@ This document presents a customer-centric forensic review of the Gemini Enterpri
 | :--- | :---: | :--- | :--- | :--- | :--- |
 | **F-01** | **CRITICAL** | `services/api/iam.ts` | `ROLE_PERMISSION_PREFIX_MAP` only mapped `roles/discoveryengine.*` and `roles/bigquery.*`. Roles for `GCS` (`roles/storage.*`), `ALLOYDB` (`roles/alloydb.*`), `CLOUD_SQL` (`roles/cloudsql.*`), `SPANNER` (`roles/spanner.*`), `BIGTABLE` (`roles/bigtable.*`), and `FIRESTORE` (`roles/datastore.*`) were missing. In addition, when evaluating raw permissions for the Discovery Engine Service Agent, `roles/discoveryengine.serviceAgent` was not synthesized unless a literal role name was returned by `testIamPermissions`. | Customers configuring GCS, AlloyDB, Cloud SQL, Spanner, Bigtable, or Firestore connectors saw false-negative `IAM_PERMISSION_CHECK` probe failures even when their service agent held the exact required IAM roles. | Expanded `ROLE_PERMISSION_PREFIX_MAP` in `services/api/iam.ts` to cover all 6 GCP database/storage role families and synthesized `roles/discoveryengine.serviceAgent` when the Discovery Engine service agent (`@gcp-sa-discoveryengine.iam.gserviceaccount.com`) has verified project bindings. |
 | **F-02** | **HIGH** | `probeRunner.ts`, `DynamicConnectorVerification.tsx`, `useChecklistState.ts`, `useConnectorsPage.ts` | **Split-Brain Diagnostics vs. Checklist Probes**: The `Diagnostics` tab (`runConnectorDiagnostics`) inspected LRO `operations` and Cloud Logging `entries`, whereas `Validation Checklist` probes (`runAutomatedProbe`) only checked `connectorState` and required the user to manually click `"Run Automated Probes"`. Furthermore, a failed probe did not uncheck a previously checked item, and an initial-mount `useEffect` in `useChecklistState.ts` could clobber probe results recorded on mount. | Customers could see a red failed LRO sync operation or `401 invalid_grant` Cloud Logging entry in the Diagnostics tab while the Validation Checklist tab showed `CONNECTOR_STATUS` and `OAUTH_CONFIG_VALIDITY` as passing or unexecuted. | Unified `probeRunner.ts` (`extractDiagnosticSignals`) to evaluate `rawOperations` (`hardOpFailures`, `partialOpWarnings`) and `recentLogs` (`unresolvedLogs`, `authLogErrors`), auto-executed/hydrated automated probes on checklist load, prevented manual checking of failing automated probes, and triggered `runConnectorDiagnostics` when opening Connector Details. |
-| **F-03** | **HIGH** | `atlassian-devtools.json`, `crm-itsm-erp.json` | **6 Enterprise Connectors Missing `OAUTH_CONFIG_VALIDITY` Probes**: `SOURCEGRAPH`, `GRAFANA`, `FRESHSERVICE`, `INTERCOM`, `SHOPIFY`, and `STRIPE` only defined `IAM_PERMISSION_CHECK` and `CONNECTOR_STATUS` probes (2 probes instead of 3). | OAuth/API token misconfigurations and `blockingReasons` on these 6 connectors were not automatically probed in the Authentication step of their checklists. | Added deterministic `OAUTH_CONFIG_VALIDITY` probes to all 6 connectors, bringing total automated probes across the 57-connector catalog from **153 to 159**. |
+| **F-03** | **HIGH** | `atlassian-devtools.json`, `crm-itsm-erp.json` | **6 Enterprise Connectors Missing `OAUTH_CONFIG_VALIDITY` Probes**: `SOURCEGRAPH`, `GRAFANA`, `FRESHSERVICE`, `INTERCOM`, `SHOPIFY`, and `STRIPE` only defined `IAM_PERMISSION_CHECK` and `CONNECTOR_STATUS` probes (2 probes instead of 3). | OAuth/API token misconfigurations and `blockingReasons` on these 6 connectors were not automatically probed in the Authentication step of their checklists. | Added deterministic `OAUTH_CONFIG_VALIDITY` probes to all 6 connectors, bringing core automated probes from **153 to 159** (and **424 automated probes** across the full **156-connector** catalog). |
 | **F-04** | **MEDIUM** | `collaboration-productivity.json` | **Miro Actions Redirect URI Mismatch**: `MIRO` (`miro_redirect_uri`) listed `https://vertexaisearch.cloud.google.com/oauth-callback` instead of the canonical Gemini Enterprise Assistant Actions callback `https://vertexaisearch.cloud.google.com/oauth-redirect`. | Customers copying the Miro snippet into the Miro Developer Portal encountered `redirect_uri_mismatch` during 3LO user OAuth handshakes. | Updated `miro_redirect_uri` `codeSnippet` in `collaboration-productivity.json` to `https://vertexaisearch.cloud.google.com/oauth-redirect`. |
 | **F-05** | **MEDIUM** | `crm-itsm-erp.json` | **Legacy Documentation URLs**: `WORKDAY`, `FRESHSERVICE`, `HUBSPOT`, `INTERCOM`, and `STRIPE` referenced legacy `https://cloud.google.com/generative-ai-app-builder/docs/...` URLs instead of canonical `/gemini/enterprise/docs/connectors/...` URLs. | Inconsistent documentation routing when administrators clicked external help links. | Updated all 5 connector documentation URLs in `crm-itsm-erp.json` to `https://cloud.google.com/gemini/enterprise/docs/connectors/...`. |
 | **F-06** | **LOW** | `google-cloud-workspace.json` | **`BYO_MCP` Badge Inconsistency**: `mcp_oauth_config` included an `OAUTH_CONFIG_VALIDITY` `automatedProbe` but carried `"badge": "Recommended"` instead of `"Automated"`. | `mcp_oauth_config` was excluded from the `Automated` readiness badge filter. | Updated `mcp_oauth_config` badge to `"Automated"` in `google-cloud-workspace.json`. |
@@ -57,9 +57,20 @@ When Google Cloud Discovery Engine returns a `DataConnector` resource via `proje
 
 ---
 
-## 4. Complete 57-Connector Forensic Audit Matrix
+## 4. Catalog Architecture (156 Connectors Across 5 Catalog Modules) & Core 57-Connector Matrix
 
-All 57 connectors across the 5 catalog files (`components/connectors/checklist/catalog/*.json`) were audited against official Google Cloud Gemini Enterprise documentation:
+The complete validation catalog spans **156 connector profiles**, **1,324 validation items**, and **424 automated diagnostic probes** across 5 catalog modules synchronized via `scripts/syncChecklists.mjs`:
+
+| Catalog Module | Connector Count | Coverage |
+| :--- | :---: | :--- |
+| `connectorRequirementsCatalog.ts` (+ `catalog/*.json`) | **57** | Core Google Cloud & Workspace, Microsoft 365 & Entra ID, Atlassian & DevTools, Enterprise CRM/ITSM/ERP, Collaboration & Storage, and `BYO_MCP` |
+| `connectorCatalogPart2.ts` | **29** | Enterprise Databases, Data Warehouses, Cloud Storage & Analytics |
+| `connectorCatalogPart3.ts` | **30** | CRM, ERP, Finance, HRIS & Customer Support Platforms |
+| `connectorCatalogPart4.ts` | **30** | DevOps, Security, Observability, Content Management & Collaboration |
+| `connectorCatalogPart5.ts` | **10** | Vertical SaaS, Healthcare, Legal & Specialized Enterprise Systems |
+| **Total** | **156** | **1,324 Validation Items · 424 Automated Probes** |
+
+Below is the detailed audit matrix for the 57 core vendor profiles (`components/connectors/checklist/catalog/*.json`):
 
 ### 4.1 Google First-Party & MCP (`google-cloud-workspace.json` — 14 Connectors)
 

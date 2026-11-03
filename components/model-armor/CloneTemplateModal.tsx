@@ -62,7 +62,10 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
     try {
       const payload = {
         filterConfig: template.filterConfig,
-        templateMetadata: template.templateMetadata,
+        templateMetadata: {
+          ...template.templateMetadata,
+          dataResidencyCompliant: template.templateMetadata?.dataResidencyCompliant ?? true,
+        },
       };
 
       await api.createModelArmorTemplate(

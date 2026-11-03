@@ -21,6 +21,10 @@ export interface PublicRoutingConfigProps {
   setAutomateGLB: (val: boolean) => void;
   automateDNS: boolean;
   setAutomateDNS: (val: boolean) => void;
+  dnsProjectId?: string;
+  setDnsProjectId?: (val: string) => void;
+  isDnsProjectIdValid?: boolean;
+  currentProjectId?: string;
   selectedDomainOption: string;
   setSelectedDomainOption: (val: string) => void;
   customDomain: string;
@@ -35,6 +39,10 @@ export const PublicRoutingConfig: React.FC<PublicRoutingConfigProps> = ({
   setAutomateGLB,
   automateDNS,
   setAutomateDNS,
+  dnsProjectId = '',
+  setDnsProjectId,
+  isDnsProjectIdValid = true,
+  currentProjectId,
   selectedDomainOption,
   setSelectedDomainOption,
   customDomain,
@@ -73,10 +81,52 @@ export const PublicRoutingConfig: React.FC<PublicRoutingConfigProps> = ({
               <span className="text-sm font-medium text-slate-300">
                 Automatically Configure Cloud DNS (Optional)
                 <p className="text-xs text-slate-500 font-normal mt-0.5">
-                  Automatically registers the A-Record if a Managed Zone exists in this project.
+                  Automatically registers the A-Record in your Cloud DNS Managed Zone (in this project or a separate DNS host project).
                 </p>
               </span>
             </label>
+
+            {automateDNS && setDnsProjectId && (
+              <div className="bg-slate-950/60 border border-slate-800 rounded-md p-3 space-y-1.5">
+                <label
+                  htmlFor="public-dns-project-id"
+                  className="block text-xs font-medium text-slate-300"
+                >
+                  Cloud DNS Host Project ID{' '}
+                  <span className="text-slate-500 font-normal">
+                    (Optional — if DNS zone is in another project)
+                  </span>
+                </label>
+                <input
+                  id="public-dns-project-id"
+                  type="text"
+                  value={dnsProjectId}
+                  onChange={(e) => setDnsProjectId(e.target.value)}
+                  placeholder={`Defaults to ${currentProjectId || 'current project'} (or enter DNS host project ID)`}
+                  aria-invalid={!isDnsProjectIdValid}
+                  className={`w-full bg-slate-900 border rounded-md px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:ring-1 ${
+                    isDnsProjectIdValid
+                      ? 'border-slate-700 focus:ring-purple-500'
+                      : 'border-red-500 focus:ring-red-500'
+                  }`}
+                  disabled={isDeploying}
+                />
+                {!isDnsProjectIdValid ? (
+                  <p className="text-xs text-red-400">
+                    Enter a valid GCP Project ID (lowercase letters, numbers, and hyphens).
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-400">
+                    Leave blank if the Cloud DNS zone is in{' '}
+                    <code className="text-slate-300">{currentProjectId || 'this project'}</code>. If
+                    your domain zone is registered in a different GCP project, enter that Project ID
+                    here so pre-flight grants cross-project <code>roles/dns.admin</code> and creates
+                    the A-Record there.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div>
               <label className="block text-sm font-medium text-slate-400 mb-1">
                 Redirect Domain

@@ -239,9 +239,9 @@ Diagnostics runs a fixed sequence ([connectorDiagnostics.ts](file:///usr/local/g
 [ConnectorDetailsModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx) — four tabs:
 
 - **Diagnostics** — the step list above, plus collapsibles for **Raw Data Connector State**, **Recent Operations (N)** (auto-opens and gains the suffix `(Failures Detected)` if any op errored) and **Recent Error Logs (N)**. Three canned remediations are matched on the error text ([L151-L175](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L151-L175)): `JIRA_INVALID_AUTH` → *Jira Authentication Error*; `FORBIDDEN`/`403`/`PERMISSION_DENIED` → *Access Denied (403)*; `NOT_FOUND`/`404` → *Resource Not Found (404)*. Anything else gets no advice.
-- **Validation Checklist** — headed `Connector Validation & Readiness Checklist` ([ConnectorVerificationTab.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/ConnectorVerificationTab.tsx)). Audits live authentication, Domain-Wide Delegation (DWD), Discovery Engine Service Agent IAM roles, API scopes, and endpoint connectivity for existing connectors. The vendor profile is auto-detected by lowercased substring match against the connector JSON, collection display name, and name across 35+ vendors (including Google Workspace Gmail, Google Drive, Google People, Jira, Jira DC, Confluence, Confluence DC, Salesforce, ServiceNow, Entra ID, SharePoint, Outlook, Teams, OneDrive, Slack, Dropbox, Notion, Zendesk, Box, GitHub, GitLab, Asana, HubSpot, Linear, Monday, Shopify, Trello, Workday, Airtable, Stripe, Intercom, Freshservice, Miro, Smartsheet, BigQuery, Cloud Storage, Google Calendar, Google Chat, BYOMCP, and a GENERIC fallback). It distinguishes `INGESTION` from `FEDERATED` data modes for connectors that support both, with interactive action scope checklists and sign-off exports.
+- **Validation Checklist** — headed `Connector Validation & Readiness Checklist` ([ConnectorVerificationTab.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/ConnectorVerificationTab.tsx)). Powered by the **156-connector validation catalog** (`1,324` validation items and `424` automated diagnostic probes across 5 catalog files: `connectorRequirementsCatalog.ts` and `connectorCatalogPart2.ts` through `connectorCatalogPart5.ts`, verified by `scripts/syncChecklists.mjs --check-only`). Audits live authentication, Domain-Wide Delegation (DWD), Discovery Engine Service Agent IAM roles, API scopes, and endpoint connectivity for existing connectors across Google Cloud & Workspace, Enterprise SaaS, Databases & Warehouses, Collaboration & Knowledge, Identity & Security, and **BYOMCP** (`custom_mcp`). It distinguishes `INGESTION` from `FEDERATED` data modes for connectors that support both, with interactive action scope checklists and sign-off exports.
 - **Filters** — indexing include/exclude rules, with a badge counting active rules. The banner reads `Indexing Filters: N active rules configured` or `None configured (indexing all accessible data)`. Available keys are per-vendor ([filterDefinitions.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/filters/filterDefinitions.ts)) — SharePoint offers `Path`, `Site`, `Folder`, `InformationProtectionLabelId`, `FileType`; OneDrive offers `Path`, `User`, `Folder`, `FileType`.
-- **Configuration** — relabelled **BYOMCP Settings & JSON** when `dataSource === 'custom_mcp'` ([L233](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L233)). Holds auth settings, agent guidelines, advanced params, discovered tools, and a raw JSON editor.
+- **Configuration** — relabelled **BYOMCP Settings & JSON** when `dataSource === 'custom_mcp'` ([L233](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L233)). Holds auth settings, agent guidelines, advanced params, discovered tools, RFC 6901 citation mappings, and a raw JSON editor.
 
 ![Connectors sub-tab — Enterprise data connector list and diagnostic inspection controls.](../assets/15-connectors.png)
 
@@ -249,7 +249,7 @@ Diagnostics runs a fixed sequence ([connectorDiagnostics.ts](file:///usr/local/g
 
 Connector credentials (client ID, client secret, refresh token, instance/tenant IDs) are stored inside the connector itself, under `dataConnector.params` and `actionConfig.actionParams`. **Nothing on this tab reads or writes `projects/*/locations/*/authorizations/*`.** The **Authorizations** tab governs a different resource — OAuth clients that *agents* use for *tool* calls. The two are unrelated except that the Architecture scanner draws Agent → Authorization edges.
 
-The in-modal **Token Help** panel points at [docs/Connectors_Auth_Guide.md](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/docs/Connectors_Auth_Guide.md), which covers exactly two families — Atlassian (Jira / Confluence) and Microsoft (SharePoint / Teams / Outlook) — and both require the `offline_access` scope so a refresh token is issued. That doc is consistent with the in-app panel.
+The in-modal **Token Help** panel points at [docs/Connectors_Auth_Guide.md](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/docs/Connectors_Auth_Guide.md), which covers Atlassian (Jira / Confluence) and Microsoft (SharePoint / Teams / Outlook) OAuth 3LO setup — both requiring the `offline_access` scope so a refresh token is issued — alongside the 156-connector validation catalog in the **Validation Checklist** tab.
 
 ### How to: clone a connector to another project
 
@@ -262,7 +262,24 @@ For a supported vendor, **Copy cURL** produces a ready-to-run `:setUpDataConnect
 
 ### BYO-MCP (bring your own MCP server)
 
-If a connector's `dataSource` is `custom_mcp`, the Configuration tab becomes **BYOMCP Settings & JSON** ([BYOMCPConfigTab.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/BYOMCPConfigTab.tsx)) with sections for auth settings, agent guidelines, advanced params, discovered tools, and a validating raw-JSON editor.
+If a connector's `dataSource` is `custom_mcp`, the Configuration tab becomes **BYOMCP Settings & JSON** ([BYOMCPConfigTab.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/connectors/BYOMCPConfigTab.tsx)) with structured visual builders for authentication, query-routing metadata, tool schema overrides, and RFC 6901 citation mappings:
+
+1. **Dynamic Tool Discovery (`tools/list`)**:
+   - Clicking **Refresh Tools** ([handleRefreshMcpTools](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L82-L144)) queries the MCP server via JSON-RPC 2.0 `tools/list`, populates `dynamicTools`, and updates `bapConfig.enabledActions`.
+2. **Smart Routing & Evaluation Advisor (`AgentGuidelinesSection.tsx`)**:
+   - Configures `params.custom_mcp_Metadata.mcp_server_description` (**MCP Server Description**) and `params.custom_mcp_Metadata.mcp_agent_instructions` (**Agent Instructions**), which the Gemini Enterprise query planner uses to decide **when** to invoke this MCP server vs. sibling search data stores.
+   - Includes a **Smart Routing & Evaluation Advisor** with 6 domain archetype presets (`Database / SQL`, `Issue Tracker / ITSM`, `CRM / ERP / Finance`, `DevOps & Infrastructure`, `Knowledge & Document Search`, `General MCP Tooling`) and an **Auto-Generate from Discovered Tools** button (`inferByomcpRoutingProposal`) that inspects live tool names and JSON-Schema parameters to synthesize routing descriptions and instructions.
+   - **Credential-Safe Metadata-Only `PATCH`**: Saving routing metadata sends `updateMask=params.custom_mcp_Metadata` while explicitly stripping `client_id` and `client_secret` from the `PATCH` payload so masked `"*****"` OAuth secrets are never overwritten in Google Cloud.
+3. **Discovered Tools & Schema Override Builder (`DiscoveredToolsSection.tsx`)**:
+   - Inspects every discovered tool's description and `inputSchema` (`jsonSchema` or `parameters`).
+   - Provides a visual **Override Schema** builder (`actionConfig.actionParams.mcp_tools_schema`) to add, edit, or mark required JSON-Schema parameters (`STRING`, `NUMBER`, `INTEGER`, `BOOLEAN`, `ARRAY`, `OBJECT`) and per-field descriptions when an upstream MCP server exposes incomplete parameter schemas.
+4. **RFC 6901 JSON Pointer Citation Mappings (`CitationMappingsSection.tsx`)**:
+   - Configures `actionConfig.actionParams.mcp_tools_citation_keys` so Gemini Enterprise can extract grounded source titles and clickable links from MCP tool JSON responses.
+   - Each citation rule specifies:
+     - **`tool_names`** — array of MCP tool names the rule applies to (selectable via chips from discovered tools).
+     - **`title_key`** — **RFC 6901** JSON Pointer path to the citation title in the tool's JSON response (must start with `/`, e.g., `/results/0/title` or `/title`).
+     - **`url_key`** — **RFC 6901** JSON Pointer path to the citation URL in the tool's JSON response (must start with `/`, e.g., `/results/0/url` or `/url`).
+     - **`url_Match_pattern`** — optional regex pattern to validate or filter extracted URLs (e.g., `^https://.*`).
 
 > [!WARNING]
 > **Refresh Tools has no confirmation and no diff.** [handleRefreshMcpTools](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/ConnectorDetailsModal.tsx#L82-L144) queries the MCP server, marks **every** discovered tool `enabled: true`, and **replaces** `bapConfig.enabledActions` with the complete list. Any deliberate disabling you had configured is silently undone. Success reads `Tools refreshed successfully! Updated dynamicTools and bapConfig.`
@@ -451,7 +468,7 @@ Route: `#/assistant`. Source: [AssistantPage.tsx](file:///usr/local/google/home/
 
 An **engine** (also called an app) is the thing your users actually talk to. It bundles a set of data stores, a set of agents, and a configuration — system instructions, web grounding, retention, safety. Every engine exposes an **assistant**, which is the conversational front door.
 
-This tab lists every engine in a location, lets you edit its configuration, and — most usefully — lets you **chat with it right here** to see whether it answers correctly and what it cited.
+This tab lists every engine in a location, lets you edit its configuration, run the live **Assistant Configuration & Best-Practices Evaluator**, deploy public or private redirect URLs, and **chat with it right here** to see whether it answers correctly and what it cited.
 
 ### The screen, explained
 
@@ -468,7 +485,7 @@ This tab lists every engine in a location, lets you edit its configuration, and 
 | **System Instructions** | Badge. Tooltip: `Custom system instructions configured (may cause issues for Gemini Enterprise). Click to view/edit.` or `No custom system instructions` |
 | **Customer Policy** | Whether a policy (e.g. retention) is set |
 | **Vertex Agents** | Count of attached Vertex AI agent configs |
-| Actions | Green chat-bubble icon (`Chat with Assistant`) and **View / Edit** |
+| **Actions** | Green chat-bubble icon (**Chat with Assistant**), purple **Evaluate** button (opens the **Assistant Configuration & Best-Practices Evaluator** modal), and **View / Edit** |
 
 **App Type** is computed in [determineAppType](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useAssistantList.ts#L42-L69): `SOLUTION_TYPE_CHAT` → `Chat`; `SOLUTION_TYPE_SEARCH` with `appType === 'APP_TYPE_INTRANET'` → `Gemini Enterprise`, otherwise `Search`; `SOLUTION_TYPE_RECOMMENDATION` → `Recommendation`; `SOLUTION_TYPE_GENERATIVE_CHAT` → `Gemini Enterprise`; anything else is title-cased. Empty list shows `No engines found in this location.`
 
@@ -476,23 +493,91 @@ Every column is sortable (displayName, engineId, solutionType, webGrounding, ins
 
 ### The detail view
 
-Clicking **View / Edit** opens [AssistantDetailView.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/page/AssistantDetailView.tsx), with **Backup Usage Logging** (blue) and **Backup Analytics** (green) in the header and eight tabs:
+Clicking **View / Edit** opens [AssistantDetailView.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/page/AssistantDetailView.tsx), with three action buttons in the header — **Evaluate Config** (purple, opens `AssistantEvaluationModal.tsx`), **Backup Usage Logging** (blue), and **Backup Analytics** (green) — and eight sub-tabs:
 
 | Tab | Badge | Notes |
 |---|---|---|
 | **Overview** | — | Engine + assistant configuration forms |
-| **Agents** | — | Agents attached to this assistant |
-| **Skills** | `Capabilities` | |
-| **User Memories** | `Personalization` | |
-| **Connected DataStores** | `Beta` | **Only appears if ACL support was detected** |
-| **Notebooks** | — | |
-| **History** | — | |
-| **Customize** | — | Vanity URL provisioning and teardown |
+| **Agents** | — | Agents attached to this assistant + OpenTelemetry policy enforcement |
+| **Skills** | — | Manage organizational (`ENABLED` + `ALL_USERS`) and private (`PRIVATE` / `DISABLED`) `SKILL.md` workflow skills, display name validation (max 64 characters, `&` → `and`), and single/batch `.zip` / `.json` / `.csv` / `.md` import & export (`SkillsViewer.tsx`, `AddSkillModal.tsx`, `ExportSkillsModal.tsx`) |
+| **User Memories** | `Internal` | Visible when `isGoogleInternalProject` is detected (`AssistantDetailView.tsx:76-86`) |
+| **Connected DataStores** | `Beta` | Always visible in the sub-tab bar (`AssistantDetailView.tsx:87-91`); manage linked Search Data Stores and ACL controls |
+| **Notebooks** | — | Inspect and manage user notebooks |
+| **History** | — | Inspect user conversation sessions and turns |
+| **Customize** | — | **Deploy Redirect & Private Routing URL** provisioning, Cloud Build IAM pre-flight, Target Portal CID auto-discovery, and 1-click teardown |
 
-> [!NOTE]
-> **Connected DataStores** is conditional. On load the page probes whether this project supports ACL-aware (identity-restricted) data stores ([AssistantPage.tsx#L98-L154](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/pages/AssistantPage.tsx#L98-L154)). The probe needs `roles/discoveryengine.viewer` and `roles/resourcemanager.organizationViewer`; without them the tab simply isn't rendered, and if you were already on it you get bounced off. You can force the answer with the `localStorage` key `feature_flag_datastore_acls` set to `'true'` or `'false'`.
+The **Customize** tab hosts redirect and private routing URL provisioning *and* teardown together so administrators can manage load balancers, Cloud DNS zones, and VPC-SC private endpoints from one place.
 
-The **Customize** tab hosts vanity-URL provisioning *and* teardown together — a deliberate choice, per a source comment, so nobody provisions a billed load balancer and then can't find the button to remove it.
+### Assistant Configuration & Best-Practices Evaluator
+
+Clicking **Evaluate** on any engine row in `AssistantListTable.tsx` or **Evaluate Config** in `AssistantDetailView.tsx` opens the **Assistant Configuration & Best-Practices Evaluator** modal ([AssistantEvaluationModal.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/AssistantEvaluationModal.tsx), powered by [assistantEvaluationService.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/assistantEvaluationService.ts)).
+
+#### Live 6-Endpoint Probing & Top Scorecard Strip
+
+Clicking **Re-Run Live Audit** executes `runLiveAssistantEvaluation`, probing 6 live Google Cloud Discovery Engine endpoints in parallel (`getEngine`, `getAssistant`, `listAgents`, `listCollections`, `listDataStores` across all collections, and `getDataConnector` per collection to inspect `custom_mcp` connectors, `params.custom_mcp_Metadata`, `dynamicTools`, `actionConfig`, and `bapConfig`).
+
+At the top of the modal, a 4-card scorecard strip summarizes:
+1. **Best-Practice Score** (`0–100`) and letter grade (`A`, `B`, `C`, `D`, `F`).
+2. **Retrieval Latency Risk** (`LOW`, `MODERATE`, `HIGH`, `CRITICAL`) with expected P95 fan-out overhead (`+0.3s` to `+3.5s – 6.0s+`), Active Search Stores count (`<= 5` optimal), and Active 3P Federated Connectors count.
+3. **Query Optimization Skills** (`X Organizational / Y Total`, highlighting `N Private Only` skills if any lack `ALL_USERS` sharing).
+4. **BYOMCP Datastores** (`X Fully Configured / Y Total`).
+
+#### 5-Pillar Weighted Scoring Breakdown
+
+The evaluator scores the engine across **5 weighted pillars** totaling **100 points** (Retrieval & Fan-Out 25, Skills & Query Routing 20, Engine & Assistant Config 20/25, Security & Guardrails 20/15, BYOMCP Readiness 15):
+
+| Pillar | Weight (`pillarBudgets` / Spec) | Key Checks Audited |
+|---|---|---|
+| **Retrieval & Fan-Out** | **25 pts** | Search Data Store Fan-Out & Latency Budget (`retr-fanout`, optimal `1–5` stores, warning `6–8`, critical `> 8`), 3P Federated Connector Live Query Overhead (`retr-federated`), Redundant Duplicate Connector Types (`retr-duplicate-sources`), Vertex AI Search Tool Explicit Store Scoping (`retr-tool-config-alignment`), Stale or UnHealthy Connector State (`retr-connector-health`) |
+| **Skills & Query Routing** | **20 pts** | Organizational Query-Routing Skills Coverage (`skill-routing-coverage`, verifying `ENABLED` + `ALL_USERS` vs. `PRIVATE`), Skill Trigger Description Specificity (`skill-description-quality`), Skill Instruction Structure & Guardrails (`skill-instruction-depth`), Central Agent Registry Alignment (`skill-registry-alignment`) |
+| **Engine & Assistant Config** | **25 pts** (`pillarBudgets`) / **20 pts** (baseline) | Custom System Instructions Override Check (`cfg-system-instructions`), Web Grounding & Data Residency Compliance (`cfg-web-grounding`, warning on non-compliant public Google Search), Chat History Retention Policy (`cfg-retention-policy`), Web App Portal & Autocomplete Readiness (`cfg-webapp-ux`), Assistant Agent & Sub-Agent Sprawl (`cfg-agent-sprawl`) |
+| **Security & Guardrails** | **15 pts** (`pillarBudgets`) / **20 pts** (baseline) | Model Armor Prompt & Response Sanitization (`sec-model-armor`, auditing `userPromptTemplate` and `llmResponseTemplate`), OpenTelemetry & Audit Logging Coverage (`sec-telemetry-coverage`), End-User Agent Creation Governance (`sec-end-user-agent-creation`), Location Context Privacy Control (`sec-location-context`) |
+| **BYOMCP Readiness** | **15 pts** | BYOMCP Presence & Discovery (`mcp-presence`), BYOMCP Server Description (`mcp_server_description`, `>= 40` chars), BYOMCP Agent Instructions (`mcp_agent_instructions`, `>= 60` chars), BYOMCP Discovered Tool Schema Completeness (`mcp-tool-schemas`), BYOMCP Citation Key Mappings (`mcp_tools_citation_keys`), BYOMCP Companion Query-Formatting Skill (`mcp-companion-skill`) |
+
+#### Actionable-Only Diagnostic Findings (`CRITICAL` / `WARNING` / `INFO`)
+
+- **Actionable-Only Filter**: Only actionable findings (`CRITICAL`, `WARNING`, `INFO`) are displayed in the **Diagnostic Findings** list and included in the exported Markdown (`.md`) report — passing checks (`PASS`) are automatically filtered out (`activeFindings = report.findings.filter(f => f.severity !== 'PASS')`) to keep remediation focused.
+- **Category Filter Pills & Remediation**: Filter findings by `All`, `Retrieval & Fan-Out`, `Skills & Query Routing`, `Engine & Assistant Config`, `Security & Guardrails`, or `BYOMCP Readiness`. Each finding card provides a 1-click navigation button (`Open Connected DataStores`, `Open Skills Tab`, `Open Overview Config`, `Open Model Armor`, `Open Agents Tab`, `Open Connectors`) plus **Export `.md`** and **Export `.json`** report buttons in the modal header.
+
+#### BYOMCP Descriptions & Instructions Advisor
+
+When one or more `custom_mcp` connectors are detected, the **BYOMCP Descriptions & Instructions Advisor** section (`byomcpAdvisories`) inspects each connector's live `dynamicTools`, `actionConfig.actionParams`, and `params.custom_mcp_Metadata`:
+- **6-Archetype Inference**: Classifies each MCP server into `DATABASE_SQL`, `ISSUE_TRACKER_ITSM`, `CRM_ERP_FINANCE`, `DEVOPS_INFRA`, `KNOWLEDGE_SEARCH`, or `GENERAL_MCP` based on discovered tool names and JSON-Schema parameter signatures.
+- **Editable Routing Templates**: Generates tailored `mcp_server_description` and `mcp_agent_instructions` drafts that you can edit inline inside the modal.
+- **1-Click Credential-Safe `PATCH` (`Apply to Connector`)**: Clicking **Apply to Connector** calls `updateDataConnector` with `updateMask=params.custom_mcp_Metadata` while stripping `client_id` and `client_secret` from `params` so masked OAuth secrets (`"*****"`) are never overwritten.
+
+#### 1-Click Recommended Query-Routing Skills
+
+The **Recommended Query-Routing Skills** section (`recommendedSkills`) synthesizes ready-to-deploy `SKILL.md` templates tailored to your engine's live data stores and BYOMCP connectors:
+- **Enterprise DataStore Query Router and Optimizer** (`skill-datastore-router`, display name `Enterprise DataStore Query Router and Optimizer`) — teaches the assistant how to decompose complex questions into targeted sub-queries across your attached data stores and avoid fan-out dilution.
+- **Per-BYOMCP Companion Skills** (`skill-mcp-<collectionId>`) — generates a dedicated query-formatting and tool-chaining skill for each `custom_mcp` connector.
+- **Display Name Validation & 1-Click Organizational Creation**: Enforces `validateSkillDisplayName` (maximum **64 characters**, letters/numbers/spaces/hyphens only, automatic `&` → `and` normalization). Clicking **Create Organizational Skill** calls `createSkill` with `state: 'ENABLED'` and `sharingConfig: { scope: 'ALL_USERS' }` (or upgrades an existing private skill to `ALL_USERS`) so it immediately appears under **"From my organization"** for all users.
+
+### Deploy Redirect & Private Routing URL (Customize tab)
+
+Opening the **Customize** sub-tab inside `AssistantDetailView.tsx` renders the **Deploy Redirect & Private Routing URL** wizard ([VanityUrlDeploymentForm.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/VanityUrlDeploymentForm.tsx), [useVanityUrlDeployment.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/hooks/useVanityUrlDeployment.ts), [vanityBuildScript.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/vanity-url/vanityBuildScript.ts)).
+
+1. **Architecture Mode Selector**:
+   - **Public Redirect (External Load Balancer)**: Provisions a Global Static IP, Google-managed SSL Certificate, URL Map (HTTP 301 redirect to `https://vertexaisearch.cloud.google.com/home/cid/{targetCid}` + HTTP-to-HTTPS redirect), Target HTTPS/HTTP Proxies, Global Forwarding Rules (ports 443 & 80), and a Cloud DNS A record.
+   - **Private Network / VPC-SC (Internal Load Balancer + Private DNS)**: Provisions a Regional Proxy-Only Subnet (`REGIONAL_MANAGED_PROXY`), Regional Internal Application Load Balancer (`INTERNAL_MANAGED`), Regional Self-Managed TLS Certificate, Regional URL Map (301 redirect), Private Cloud DNS Zone + A record, and an optional **VPC-SC Private Google Access & PSC Bundle** (`private.googleapis.com` `199.36.153.8/30` + Private Service Connect endpoint for `*-discoveryengine.googleapis.com`).
+2. **Cloud Build Default Service Account IAM Pre-Flight (`Grant Cloud Build IAM Roles`)**:
+   - Before submitting a Cloud Build job, the wizard inspects your project IAM policy for both `{projectNumber}-compute@developer.gserviceaccount.com` and `{projectNumber}@cloudbuild.gserviceaccount.com` across three required roles:
+     - `roles/compute.loadBalancerAdmin`
+     - `roles/compute.networkAdmin`
+     - `roles/dns.admin`
+   - If any binding is missing, an amber **Cloud Build Service Account Missing Networking / DNS Roles** banner lists each missing role and provides a 1-click **Grant Cloud Build IAM Roles** button (`handleGrantCloudBuildRoles`). Clicking **Deploy Redirect Infrastructure** also runs this IAM check and automatically grants missing roles before launching the build.
+3. **Partial Cloud Networking Discovery Warning & 1-Click API Enablement**:
+   - If `compute.googleapis.com` or `dns.googleapis.com` is disabled or unreachable during discovery, a **Partial Cloud Networking Discovery** banner displays the exact probe errors alongside a 1-click **Enable Networking & DNS APIs** button (`compute.googleapis.com`, `dns.googleapis.com`, `cloudbuild.googleapis.com`) and **Retry Discovery**.
+4. **Target Portal CID (Web App Workspace) Auto-Discovery & Web App Initialization**:
+   - Automatically discovers the engine's **Target Portal CID** (`default_search_widget_config`) via `getWidgetConfig`.
+   - Supports pasting a full `https://vertexaisearch.cloud.google.com/home/cid/...` URL into the **Target Portal CID (Web App Workspace)** input (automatically extracting the CID slug).
+   - If the engine's Web App has not been initialized yet (`cidStatus === 'missing'`), a 1-click **Auto-Initialize Web App** button enables `enableWebApp = true` on the engine and polls until Google Cloud generates the portal CID.
+5. **Cross-Project Cloud DNS Host Project ID (`dnsProjectId`)**:
+   - Both Public Mode ([PublicRoutingConfig.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/vanity-url/PublicRoutingConfig.tsx)) and Private Mode ([PrivateRoutingConfig.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/vanity-url/PrivateRoutingConfig.tsx)) include an optional **Cloud DNS Host Project ID (Optional — if DNS zone is in another project)** field (`dnsProjectId`, e.g., `my-shared-dns-host-project`).
+   - When set, managed zone discovery and Cloud Build `gcloud dns` provisioning/teardown commands pass `--project="${DNS_PROJECT}"` so shared-VPC/shared-DNS hub projects are supported seamlessly.
+6. **Idempotent Cloud Build Provisioning & 1-Click Teardown (`vanityBuildScript.ts`, `ProvisionedRedirectList.tsx`)**:
+   - The generated bash script uses idempotent `provision_resource` (detecting `alreadyExists` and reusing existing resources cleanly), `delete_if_present`, and `emitSummary` (`=== DEPLOYMENT SUMMARY ===`) helpers.
+   - Deployed redirect stacks are listed in **Provisioned Redirects** (`ProvisionedRedirectList.tsx`) with live SSL status badges and a 1-click **Delete / Teardown** action.
 
 ### Key configuration fields
 
@@ -514,7 +599,7 @@ Before saving, an **API Command Preview (Pending Changes)** block shows the exac
 > [!WARNING]
 > **Web Grounding Type has a data-residency consequence and the UI says so in the option label itself.** `Google Search (not Data Residency compliant)` sends queries to public Google Search. If you are bound by EU/US data-residency commitments, use `Enterprise Web Search (Data Residency compliant)` or `Disabled`.
 
-**Engine editor** ([EngineDetailsForm.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/EngineDetailsForm.tsx)) adds `marketplaceAgentVisibility` (5 options including `Show All Marketplace Agents`), a **Disable Analytics** checkbox, model configuration, search engine config (`searchTier`, `requiredSubscriptionTier`, `searchAddOnLlm`), web-app UI settings (`enableWebApp`, `enableAutocomplete`, `enableQualityFeedback`), mobile access (`mobile-app-access`, `qr-code-widget`), IdP configuration, a collapsible **Connected DataStores & Permissions (Beta)** (ACL-gated), **Prompt Chips Administration**, and a **Raw GE App Configuration JSON** viewer.
+**Engine editor** ([EngineDetailsForm.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/components/assistants/EngineDetailsForm.tsx)) adds `marketplaceAgentVisibility` (5 options including `Show All Marketplace Agents`), a **Disable Analytics** checkbox, model configuration, search engine config (`searchTier`, `requiredSubscriptionTier`, `searchAddOnLlm`), web-app UI settings (`enableWebApp`, `enableAutocomplete`, `enableQualityFeedback`), mobile access (`mobile-app-access`, `qr-code-widget`), IdP configuration, a collapsible **Connected DataStores & Permissions (Beta)**, **Prompt Chips Administration**, and a **Raw GE App Configuration JSON** viewer.
 
 ### Attached Agents & Observability Policy Enforcement
 
@@ -651,7 +736,7 @@ This is how you verify document-level ACLs: sign in as a user who *shouldn't* se
 | `No linked data stores found.` | Engine has no `dataStoreIds`, or they don't resolve | Attach data stores to the engine |
 | `This provider is not configured for OIDC. Only OIDC providers support automatic sign-in.` | SAML workforce provider | Use **Advanced: paste token manually** |
 | `Sign-in failed.` / `Token exchange failed.` | Popup blocked, or STS rejected the token | Allow popups; verify the workforce pool config |
-| **Connected DataStores** tab missing | ACL probe failed or unsupported | Grant `roles/discoveryengine.viewer` + `roles/resourcemanager.organizationViewer`, or set `feature_flag_datastore_acls` in `localStorage` |
+| **Cloud Build Service Account Missing Networking / DNS Roles** banner on Customize tab | `{projectNumber}-compute@developer.gserviceaccount.com` or `{projectNumber}@cloudbuild.gserviceaccount.com` lacks `roles/compute.loadBalancerAdmin`, `roles/compute.networkAdmin`, or `roles/dns.admin` | Click **Grant Cloud Build IAM Roles** in the Customize banner |
 | Answer has no citations | Not grounded in your content | Check the store is attached, indexed, and selected in **Filters** |
 
 ---

@@ -158,4 +158,54 @@ describe('AssistantPage (F4: Playground, Engine/Assistant Management & R2/R3)', 
     expect(warningAlert.textContent).toMatch(/403 PERMISSION_DENIED/i);
     expect(warningAlert.textContent).toMatch(/500 Internal error listing agents/i);
   });
+
+  it('opens the Assistant Evaluation Modal from the table Evaluate button and allows deploying a recommended skill', async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('Enterprise Search & Assistant App')).toBeInTheDocument();
+    });
+
+    const evalBtn = screen.getByTestId('evaluate-assistant-row-enterprise-app-1');
+    fireEvent.click(evalBtn);
+
+    const modal = await screen.findByTestId('assistant-evaluation-modal');
+    expect(modal).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('eval-overall-score')).toBeInTheDocument();
+      expect(screen.getByTestId('eval-latency-risk-badge')).toBeInTheDocument();
+    });
+
+    // Passing checks must be hidden from the Diagnostic Findings list and severity dropdown
+    expect(screen.queryByText('PASS')).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Passed/i })).not.toBeInTheDocument();
+
+    // Switch to Recommended Query-Routing Skills tab
+    fireEvent.click(screen.getByTestId('eval-tab-skills'));
+    expect(screen.getByText(/1-Click Query Optimization & DataStore Routing Skills/i)).toBeInTheDocument();
+    const deployBtn = screen.getByRole('button', { name: /Create Organizational Skill \(1-Click\)/i });
+    expect(deployBtn).toBeInTheDocument();
+
+    // Exercise 1-Click Skill deployment and verify createSkillAgent is invoked with ALL_USERS scope
+    const createSkillSpy = vi.spyOn(api, 'createSkillAgent').mockResolvedValueOnce({
+      name: 'projects/123456/locations/global/collections/default_collection/engines/enterprise-app-1/assistants/default_assistant/agents/skill-enterprise-datastore-router',
+      displayName: 'Enterprise DataStore Query Router and Optimizer',
+      state: 'ENABLED',
+      sharingConfig: { scope: 'ALL_USERS' },
+    } as never);
+
+    fireEvent.click(deployBtn);
+
+    await waitFor(() => {
+      expect(createSkillSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(createSkillSpy.mock.calls[0][0]).toMatchObject({
+      displayName: 'Enterprise DataStore Query Router and Optimizer',
+      state: 'ENABLED',
+    });
+    expect(createSkillSpy.mock.calls[0][2]).toBe('enterprise-datastore-query-optimizer');
+    expect(createSkillSpy.mock.calls[0][3]).toBe(true);
+  });
 });
+

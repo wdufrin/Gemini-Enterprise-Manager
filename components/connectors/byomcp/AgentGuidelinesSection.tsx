@@ -23,6 +23,7 @@ interface AgentGuidelinesSectionProps {
   mcpAgentInstructions: string;
   setMcpAgentInstructions: (val: string) => void;
   onApplyPreset: (preset: InstructionPreset) => void;
+  onAutoGenerateFromTools?: () => void;
 }
 
 export const AgentGuidelinesSection: React.FC<AgentGuidelinesSectionProps> = ({
@@ -31,10 +32,11 @@ export const AgentGuidelinesSection: React.FC<AgentGuidelinesSectionProps> = ({
   mcpAgentInstructions,
   setMcpAgentInstructions,
   onApplyPreset,
+  onAutoGenerateFromTools,
 }) => {
   return (
     <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-800 space-y-4">
-      <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+      <div className="flex flex-wrap justify-between items-center gap-2 border-b border-gray-800 pb-2">
         <div>
           <h4 className="text-sm font-bold text-gray-200 uppercase tracking-wider">
             MCP Agent & Formatting Guidelines
@@ -44,13 +46,24 @@ export const AgentGuidelinesSection: React.FC<AgentGuidelinesSectionProps> = ({
           </p>
         </div>
 
-        {/* Presets dropdown */}
-        <div className="flex items-center gap-2">
+        {/* Presets & Auto-Generator */}
+        <div className="flex flex-wrap items-center gap-2">
+          {onAutoGenerateFromTools && (
+            <button
+              type="button"
+              onClick={onAutoGenerateFromTools}
+              title="Analyze discovered MCP tools, schemas, and endpoint to generate tailored description and instructions"
+              className="px-2.5 py-1 text-[11px] font-semibold bg-purple-900/60 hover:bg-purple-800 text-purple-200 rounded border border-purple-700 transition-colors"
+            >
+              ✨ Auto-Generate from Tools
+            </button>
+          )}
           <span className="text-xs text-gray-400 font-medium hidden sm:inline">Templates:</span>
           <div className="flex flex-wrap gap-1.5">
             {INSTRUCTION_PRESETS.map((preset, idx) => (
               <button
                 key={idx}
+                type="button"
                 onClick={() => onApplyPreset(preset)}
                 title={preset.description}
                 className="px-2.5 py-1 text-[11px] font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded border border-gray-700 transition-colors"
@@ -64,10 +77,14 @@ export const AgentGuidelinesSection: React.FC<AgentGuidelinesSectionProps> = ({
 
       {/* Server Description */}
       <div>
-        <label className="block text-xs font-semibold text-gray-300 mb-1">
+        <label
+          htmlFor="byomcp-server-description"
+          className="block text-xs font-semibold text-gray-300 mb-1"
+        >
           MCP Server Description <span className="text-purple-400 font-mono text-[10px]">(mcp_server_description)</span>
         </label>
         <input
+          id="byomcp-server-description"
           type="text"
           value={mcpServerDescription}
           onChange={(e) => setMcpServerDescription(e.target.value)}
@@ -82,10 +99,14 @@ export const AgentGuidelinesSection: React.FC<AgentGuidelinesSectionProps> = ({
       {/* Agent Instructions */}
       <div>
         <div className="flex justify-between items-center mb-1">
-          <label className="block text-xs font-semibold text-gray-300">
+          <label
+            htmlFor="byomcp-agent-instructions"
+            className="block text-xs font-semibold text-gray-300"
+          >
             Agent Formatting & Behavioral Instructions <span className="text-purple-400 font-mono text-[10px]">(mcp_agent_instructions)</span>
           </label>
           <button
+            type="button"
             onClick={() => setMcpAgentInstructions('')}
             className="text-[10px] text-gray-500 hover:text-red-400 transition-colors"
           >
@@ -93,6 +114,7 @@ export const AgentGuidelinesSection: React.FC<AgentGuidelinesSectionProps> = ({
           </button>
         </div>
         <textarea
+          id="byomcp-agent-instructions"
           value={mcpAgentInstructions}
           onChange={(e) => setMcpAgentInstructions(e.target.value)}
           rows={8}

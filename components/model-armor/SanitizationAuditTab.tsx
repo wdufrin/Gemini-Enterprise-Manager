@@ -18,6 +18,7 @@ import React from 'react';
 import Spinner from '../Spinner';
 import { LogEntry } from '../../types';
 import { LogEntryCard } from './LogEntryCard';
+import { EngineArmorState } from './types';
 
 const ShieldIcon = () => (
   <svg
@@ -67,9 +68,16 @@ export interface SanitizationAuditTabProps {
   setFilterText: (text: string) => void;
   filterBlockedOnly: boolean;
   setFilterBlockedOnly: (blocked: boolean) => void;
+  filterExclusionsOnly?: boolean;
+  setFilterExclusionsOnly?: (exclusions: boolean) => void;
   daysFilter: number;
   setDaysFilter: (days: number) => void;
   handleFetchLogs: () => void;
+  templates?: any[];
+  enginesList?: EngineArmorState[];
+  isPoliciesLoading?: boolean;
+  onRequestPolicies?: () => void;
+  onPolicyUpdated?: () => void;
 }
 
 export const SanitizationAuditTab: React.FC<SanitizationAuditTabProps> = ({
@@ -81,9 +89,16 @@ export const SanitizationAuditTab: React.FC<SanitizationAuditTabProps> = ({
   setFilterText,
   filterBlockedOnly,
   setFilterBlockedOnly,
+  filterExclusionsOnly = false,
+  setFilterExclusionsOnly,
   daysFilter,
   setDaysFilter,
   handleFetchLogs,
+  templates = [],
+  enginesList = [],
+  isPoliciesLoading = false,
+  onRequestPolicies,
+  onPolicyUpdated,
 }) => {
   return (
     <>
@@ -98,7 +113,7 @@ export const SanitizationAuditTab: React.FC<SanitizationAuditTabProps> = ({
               type="text"
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
-              placeholder='e.g. jsonPayload.sanitizationResult.verdict="BLOCKED"'
+              placeholder='e.g. labels."modelarmor.googleapis.com/exclusion_rule_overridden_filters":*'
               className="pl-10 block w-full bg-gray-900 border border-gray-600 rounded-md py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 h-[38px]"
             />
           </div>
@@ -132,6 +147,23 @@ export const SanitizationAuditTab: React.FC<SanitizationAuditTabProps> = ({
               <span className="text-sm text-gray-300 select-none whitespace-nowrap">Blocked Only</span>
             </label>
           </div>
+
+          {setFilterExclusionsOnly && (
+            <div className="flex items-center h-[38px] shrink-0">
+              <label
+                className="flex items-center cursor-pointer gap-2 px-3 py-2 bg-indigo-950/30 rounded-md border border-indigo-700/60 hover:bg-indigo-900/40 transition-colors h-full whitespace-nowrap"
+                title='Filter for logs with modelarmor.googleapis.com/exclusion_rule_overridden_filters or exclusion_rule_skipped_filters labels'
+              >
+                <input
+                  type="checkbox"
+                  checked={filterExclusionsOnly}
+                  onChange={() => setFilterExclusionsOnly(!filterExclusionsOnly)}
+                  className="w-4 h-4 rounded border-indigo-500 text-indigo-500 focus:ring-indigo-500 bg-gray-800"
+                />
+                <span className="text-sm text-indigo-200 select-none whitespace-nowrap">Exclusion Overrides</span>
+              </label>
+            </div>
+          )}
 
           <button
             onClick={handleFetchLogs}
@@ -177,7 +209,16 @@ export const SanitizationAuditTab: React.FC<SanitizationAuditTabProps> = ({
         <div className="mt-6 space-y-4">
           {logs.length > 0 ? (
             logs.map((log, index) => (
-              <LogEntryCard key={`${log.logName}-${log.receiveTimestamp}-${index}`} log={log} />
+              <LogEntryCard
+                key={`${log.logName}-${log.receiveTimestamp}-${index}`}
+                log={log}
+                projectNumber={projectNumber}
+                templates={templates}
+                enginesList={enginesList}
+                isPoliciesLoading={isPoliciesLoading}
+                onRequestPolicies={onRequestPolicies}
+                onPolicyUpdated={onPolicyUpdated}
+              />
             ))
           ) : (
             <div className="text-center text-gray-400 mt-8 p-12 bg-gray-800 rounded-lg border border-gray-700">
@@ -194,3 +235,4 @@ export const SanitizationAuditTab: React.FC<SanitizationAuditTabProps> = ({
     </>
   );
 };
+

@@ -77,6 +77,7 @@ export interface ModelConfigInfo {
 
 export interface WidgetConfig {
   name: string;
+  configId?: string;
   accessSettings?: {
     enableWebApp?: boolean;
     workforceIdentityPoolProvider?: string;
@@ -604,6 +605,7 @@ export interface IdpConfig {
 export interface CustomerPolicy {
   modelArmorConfig?: {
     userPromptTemplate?: string;
+    responseTemplate?: string;
     failureMode?: string;
     [key: string]: unknown;
   };

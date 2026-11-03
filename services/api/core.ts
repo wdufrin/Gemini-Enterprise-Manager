@@ -237,14 +237,16 @@ export const gapiRequest = async <T>(
               const detailTexts = details
                 .map((d: unknown) => {
                   if (typeof d === "object" && d !== null) {
-                    const dobj = d as { detail?: string; message?: string };
-                    return dobj.detail || dobj.message;
+                    const dobj = d as { detail?: unknown; message?: unknown };
+                    const candidate = dobj.detail ?? dobj.message;
+                    return typeof candidate === "string" ? candidate.trim() : "";
                   }
-                  return String(d);
+                  return typeof d === "string" ? d.trim() : "";
                 })
-                .filter(Boolean);
-              if (detailTexts.length > 0) {
-                errorMessage = `${errorMessage} (${detailTexts.join("; ").trim()})`;
+                .filter((text): text is string => Boolean(text) && !errorMessage.includes(text));
+              const uniqueDetailTexts = Array.from(new Set(detailTexts));
+              if (uniqueDetailTexts.length > 0) {
+                errorMessage = `${errorMessage} (${uniqueDetailTexts.join("; ")})`;
               }
             }
           }

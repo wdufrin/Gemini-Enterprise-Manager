@@ -40,6 +40,7 @@ SKIPPED=0
 
 # Provisioning call. "Already exists" is expected when re-running against a
 # partially provisioned project; every other non-zero exit is a real failure.
+# If IAM roles were just granted during browser pre-flight, retry once after 5s.
 provision_resource() {
   local res_type="$$1"
   local res_name="$$2"
@@ -49,14 +50,30 @@ provision_resource() {
   if out=$$("$$@" 2>&1); then
     echo "[CREATED] $$res_type: $$res_name"
     CREATED=$$((CREATED + 1))
+    return 0
   elif echo "$$out" | grep -qE "already exists|ALREADY_EXISTS|alreadyExists"; then
     echo "[EXISTS] $$res_type $$res_name is already present, continuing"
     EXISTS=$$((EXISTS + 1))
-  else
-    echo "[FAILED] Could not provision $$res_type $$res_name:" >&2
-    echo "$$out" >&2
-    FAILURES=$$((FAILURES + 1))
+    return 0
+  elif echo "$$out" | grep -qE "PERMISSION_DENIED|Required 'compute\.|Required 'dns\."; then
+    echo "[RETRY] Waiting 5s for IAM role propagation on $$res_type $$res_name..."
+    sleep 5
+    if out=$$("$$@" 2>&1); then
+      echo "[CREATED] $$res_type: $$res_name"
+      CREATED=$$((CREATED + 1))
+      return 0
+    elif echo "$$out" | grep -qE "already exists|ALREADY_EXISTS|alreadyExists"; then
+      echo "[EXISTS] $$res_type $$res_name is already present, continuing"
+      EXISTS=$$((EXISTS + 1))
+      return 0
+    fi
   fi
+  echo "[FAILED] Could not provision $$res_type $$res_name:" >&2
+  echo "$$out" >&2
+  if echo "$$out" | grep -qE "Required 'compute\.|Required 'dns\."; then
+    echo "[HINT] Ensure the active Cloud Build service account has roles/compute.loadBalancerAdmin, roles/compute.networkAdmin, and (if using DNS) roles/dns.admin." >&2
+  fi
+  FAILURES=$$((FAILURES + 1))
 }
 
 # Removal of a record that may legitimately not exist yet -- used to clear a
@@ -83,6 +100,29 @@ delete_if_present() {
 fail_step() {
   echo "[FAILED] $$1" >&2
   FAILURES=$$((FAILURES + 1))
+}
+
+# Best-effort API enablement inside Cloud Build so deployments do not fail when
+# Compute Engine or Cloud DNS has not been enabled yet on the target project.
+ensure_api() {
+  local api_name="$$1"
+  local target_proj="$$2"
+  local proj_flag=""
+  if [ -n "$$target_proj" ]; then
+    proj_flag="--project=$$target_proj"
+    echo "Ensuring Google Cloud API is enabled: $$api_name (project: $$target_proj)..."
+  else
+    echo "Ensuring Google Cloud API is enabled: $$api_name..."
+  fi
+  local out
+  if out=$$(gcloud services enable "$$api_name" $$proj_flag --quiet 2>&1); then
+    echo "[ENABLED] API: $$api_name"
+  elif echo "$$out" | grep -q "PERMISSION_DENIED"; then
+    echo "[INFO] Skipping in-build enable for $$api_name (managed via browser pre-flight)."
+  else
+    echo "[WARNING] Could not auto-enable $$api_name via Cloud Build service account:" >&2
+    echo "$$out" >&2
+  fi
 }
 `;
 
@@ -112,6 +152,7 @@ export interface PrivateModeScriptArgs {
   location: string;
   widgetConfigId: string;
   vpcSubnet: string;
+  dnsProjectId?: string;
 }
 
 export function generatePrivateModeScript({
@@ -127,7 +168,12 @@ export function generatePrivateModeScript({
   location,
   widgetConfigId,
   vpcSubnet,
+  dnsProjectId,
 }: PrivateModeScriptArgs): any {
+  const dnsProjFlag = dnsProjectId ? ` --project=${dnsProjectId}` : '';
+  const ensureDnsCall = dnsProjectId
+    ? `ensure_api "dns.googleapis.com" "${dnsProjectId}"`
+    : 'ensure_api "dns.googleapis.com"';
   return {
     name: 'gcr.io/google.com/cloudsdktool/cloud-sdk',
     entrypoint: 'bash',
@@ -137,6 +183,8 @@ PSC_IP_NAME="${pscIpName}"
 PSC_RULE_NAME="${pscRuleName}"
 PSC_IP_VAL="${customPscIp}"
 ${SHELL_HELPERS}
+ensure_api "compute.googleapis.com"
+${automatePrivateDns || customDomain ? ensureDnsCall : ''}
 if [ "${autoAllocatePscIp}" = "true" ]; then
   echo "1. Allocating dynamic internal IP for Private Service Connect..."
   provision_resource "PSC address" "$$PSC_IP_NAME" \\
@@ -170,11 +218,11 @@ ${automatePrivateDns ? `
 echo "3. Creating/Checking Private DNS Zones to map Gemini Enterprise to PSC IP..."
 
 # 3.1 googleapis.com Zone
-EXISTING_APIS_ZONE=$(gcloud dns managed-zones list --format="value(name)" --filter="dnsName:googleapis.com. AND visibility:private" | head -n 1)
+EXISTING_APIS_ZONE=$(gcloud dns managed-zones list${dnsProjFlag} --format="value(name)" --filter="dnsName:googleapis.com. AND visibility:private" | head -n 1)
 if [ -z "$$EXISTING_APIS_ZONE" ]; then
   echo "No existing googleapis.com private zone found. Creating one..."
   provision_resource "DNS zone" "${serviceName}-apis-dns" \\
-      gcloud dns managed-zones create ${serviceName}-apis-dns \\
+      gcloud dns managed-zones create ${serviceName}-apis-dns${dnsProjFlag} \\
       --dns-name="googleapis.com." \\
       --description="Private zone for googleapis.com via PSC" \\
       --visibility=private \\
@@ -190,29 +238,29 @@ fi
 
 if [ -n "$$APIS_ZONE" ]; then
   delete_if_present "A record" "*.googleapis.com." \\
-      gcloud dns record-sets delete "*.googleapis.com." --type=A --zone="$$APIS_ZONE" --quiet
+      gcloud dns record-sets delete "*.googleapis.com." --type=A --zone="$$APIS_ZONE"${dnsProjFlag} --quiet
   delete_if_present "A record" "private.googleapis.com." \\
-      gcloud dns record-sets delete "private.googleapis.com." --type=A --zone="$$APIS_ZONE" --quiet
+      gcloud dns record-sets delete "private.googleapis.com." --type=A --zone="$$APIS_ZONE"${dnsProjFlag} --quiet
   provision_resource "A record" "private.googleapis.com." \\
-      gcloud dns record-sets create "private.googleapis.com." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$APIS_ZONE"
+      gcloud dns record-sets create "private.googleapis.com." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$APIS_ZONE"${dnsProjFlag}
 
   delete_if_present "CNAME record" "*.googleapis.com." \\
-      gcloud dns record-sets delete "*.googleapis.com." --type=CNAME --zone="$$APIS_ZONE" --quiet
+      gcloud dns record-sets delete "*.googleapis.com." --type=CNAME --zone="$$APIS_ZONE"${dnsProjFlag} --quiet
   provision_resource "CNAME record" "*.googleapis.com." \\
-      gcloud dns record-sets create "*.googleapis.com." --rrdatas="private.googleapis.com." --type=CNAME --ttl=300 --zone="$$APIS_ZONE"
+      gcloud dns record-sets create "*.googleapis.com." --rrdatas="private.googleapis.com." --type=CNAME --ttl=300 --zone="$$APIS_ZONE"${dnsProjFlag}
 
   delete_if_present "A record" "googleapis.com." \\
-      gcloud dns record-sets delete "googleapis.com." --type=A --zone="$$APIS_ZONE" --quiet
+      gcloud dns record-sets delete "googleapis.com." --type=A --zone="$$APIS_ZONE"${dnsProjFlag} --quiet
   provision_resource "A record" "googleapis.com." \\
-      gcloud dns record-sets create "googleapis.com." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$APIS_ZONE"
+      gcloud dns record-sets create "googleapis.com." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$APIS_ZONE"${dnsProjFlag}
 fi
 
 # 3.2 cloud.google Zone
-EXISTING_CLOUD_ZONE=$(gcloud dns managed-zones list --format="value(name)" --filter="dnsName:cloud.google. AND visibility:private" | head -n 1)
+EXISTING_CLOUD_ZONE=$(gcloud dns managed-zones list${dnsProjFlag} --format="value(name)" --filter="dnsName:cloud.google. AND visibility:private" | head -n 1)
 if [ -z "$$EXISTING_CLOUD_ZONE" ]; then
   echo "No existing cloud.google private zone found. Creating one..."
   provision_resource "DNS zone" "${serviceName}-cloud-dns" \\
-      gcloud dns managed-zones create ${serviceName}-cloud-dns \\
+      gcloud dns managed-zones create ${serviceName}-cloud-dns${dnsProjFlag} \\
       --dns-name="cloud.google." \\
       --description="Private zone for cloud.google via PSC" \\
       --visibility=private \\
@@ -224,20 +272,20 @@ else
 fi
 
 delete_if_present "A record" "*.cloud.google." \\
-    gcloud dns record-sets delete "*.cloud.google." --type=A --zone="$$CLOUD_ZONE" --quiet
+    gcloud dns record-sets delete "*.cloud.google." --type=A --zone="$$CLOUD_ZONE"${dnsProjFlag} --quiet
 provision_resource "A record" "*.cloud.google." \\
-    gcloud dns record-sets create "*.cloud.google." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$CLOUD_ZONE"
+    gcloud dns record-sets create "*.cloud.google." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$CLOUD_ZONE"${dnsProjFlag}
 delete_if_present "A record" "cloud.google." \\
-    gcloud dns record-sets delete "cloud.google." --type=A --zone="$$CLOUD_ZONE" --quiet
+    gcloud dns record-sets delete "cloud.google." --type=A --zone="$$CLOUD_ZONE"${dnsProjFlag} --quiet
 provision_resource "A record" "cloud.google." \\
-    gcloud dns record-sets create "cloud.google." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$CLOUD_ZONE"
+    gcloud dns record-sets create "cloud.google." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$CLOUD_ZONE"${dnsProjFlag}
 
 # 3.3 cloud.google.com Zone
-EXISTING_COM_ZONE=$(gcloud dns managed-zones list --format="value(name)" --filter="dnsName:cloud.google.com. AND visibility:private" | head -n 1)
+EXISTING_COM_ZONE=$(gcloud dns managed-zones list${dnsProjFlag} --format="value(name)" --filter="dnsName:cloud.google.com. AND visibility:private" | head -n 1)
 if [ -z "$$EXISTING_COM_ZONE" ]; then
   echo "No existing cloud.google.com private zone found. Creating one..."
   provision_resource "DNS zone" "${serviceName}-com-dns" \\
-      gcloud dns managed-zones create ${serviceName}-com-dns \\
+      gcloud dns managed-zones create ${serviceName}-com-dns${dnsProjFlag} \\
       --dns-name="cloud.google.com." \\
       --description="Private zone for cloud.google.com via PSC" \\
       --visibility=private \\
@@ -249,13 +297,13 @@ else
 fi
 
 delete_if_present "A record" "*.cloud.google.com." \\
-    gcloud dns record-sets delete "*.cloud.google.com." --type=A --zone="$$COM_ZONE" --quiet
+    gcloud dns record-sets delete "*.cloud.google.com." --type=A --zone="$$COM_ZONE"${dnsProjFlag} --quiet
 provision_resource "A record" "*.cloud.google.com." \\
-    gcloud dns record-sets create "*.cloud.google.com." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$COM_ZONE"
+    gcloud dns record-sets create "*.cloud.google.com." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$COM_ZONE"${dnsProjFlag}
 delete_if_present "A record" "cloud.google.com." \\
-    gcloud dns record-sets delete "cloud.google.com." --type=A --zone="$$COM_ZONE" --quiet
+    gcloud dns record-sets delete "cloud.google.com." --type=A --zone="$$COM_ZONE"${dnsProjFlag} --quiet
 provision_resource "A record" "cloud.google.com." \\
-    gcloud dns record-sets create "cloud.google.com." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$COM_ZONE"
+    gcloud dns record-sets create "cloud.google.com." --rrdatas="$$PSC_IP" --type=A --ttl=300 --zone="$$COM_ZONE"${dnsProjFlag}
 ` : 'echo "========== SKIPPING PRIVATE DNS AUTOMATION =========="'}
 
 ${customDomain ? `
@@ -309,10 +357,10 @@ else
   echo "INTERNAL REDIRECT IP ADDRESS: $$ILB_IP"
 
   echo "8. Provisioning Private DNS Zone for custom domain: ${customDomain}..."
-  EXISTING_CUSTOM_ZONE=$(gcloud dns managed-zones list --format="value(name)" --filter="dnsName:${customDomain}. AND visibility:private" | head -n 1)
+  EXISTING_CUSTOM_ZONE=$(gcloud dns managed-zones list${dnsProjFlag} --format="value(name)" --filter="dnsName:${customDomain}. AND visibility:private" | head -n 1)
   if [ -z "$$EXISTING_CUSTOM_ZONE" ]; then
     provision_resource "DNS zone" "${serviceName}-custom-dns" \\
-        gcloud dns managed-zones create ${serviceName}-custom-dns \\
+        gcloud dns managed-zones create ${serviceName}-custom-dns${dnsProjFlag} \\
         --dns-name="${customDomain}." \\
         --description="Private zone for custom redirect domain" \\
         --visibility=private \\
@@ -324,9 +372,9 @@ else
   fi
 
   delete_if_present "A record" "${customDomain}." \\
-      gcloud dns record-sets delete ${customDomain}. --type=A --zone="$$CUSTOM_ZONE" --quiet
+      gcloud dns record-sets delete ${customDomain}. --type=A --zone="$$CUSTOM_ZONE"${dnsProjFlag} --quiet
   provision_resource "A record" "${customDomain}." \\
-      gcloud dns record-sets create ${customDomain}. --rrdatas="$$ILB_IP" --type=A --ttl=300 --zone="$$CUSTOM_ZONE"
+      gcloud dns record-sets create ${customDomain}. --rrdatas="$$ILB_IP" --type=A --ttl=300 --zone="$$CUSTOM_ZONE"${dnsProjFlag}
 fi
 ` : 'echo "========== SKIPPING INTERNAL REDIRECT LOAD BALANCER PROVISIONING (No custom domain specified) =========="'}
 ${emitSummary('Private network provisioning')}
@@ -340,6 +388,7 @@ export interface PublicModeScriptArgs {
   customDomain: string;
   widgetConfigId: string;
   automateDNS: boolean;
+  dnsProjectId?: string;
 }
 
 export function generatePublicModeScript({
@@ -347,8 +396,13 @@ export function generatePublicModeScript({
   customDomain,
   widgetConfigId,
   automateDNS,
+  dnsProjectId,
 }: PublicModeScriptArgs): any {
   const newZoneName = customDomain.replace(/\./g, '-') + '-zone';
+  const dnsProjFlag = dnsProjectId ? ` --project=${dnsProjectId}` : '';
+  const ensureDnsCall = dnsProjectId
+    ? `ensure_api "dns.googleapis.com" "${dnsProjectId}"`
+    : 'ensure_api "dns.googleapis.com"';
   return {
     name: 'gcr.io/google.com/cloudsdktool/cloud-sdk',
     entrypoint: 'bash',
@@ -359,6 +413,8 @@ URL_MAP_NAME="${serviceName}-url-map"
 PROXY_NAME="${serviceName}-https-proxy"
 FWD_RULE_NAME="${serviceName}-fwd-rule"
 ${SHELL_HELPERS}
+ensure_api "compute.googleapis.com"
+${automateDNS ? ensureDnsCall : ''}
 echo "1. Provisioning Managed SSL Certificate for ${customDomain}..."
 provision_resource "SSL certificate" "$$CERT_NAME" \\
     gcloud compute ssl-certificates create "$$CERT_NAME" \\
@@ -406,10 +462,10 @@ if [ -z "$$IP_ADDRESS" ]; then
   echo "Skipping Cloud DNS automation because no load balancer IP is available." >&2
 else
   echo "========== STARTING CLOUD DNS AUTOMATION =========="
-  echo "7. Searching for matching Managed Zone for ${customDomain}..."
+  echo "7. Searching for matching Managed Zone for ${customDomain}${dnsProjectId ? ` in project ${dnsProjectId}` : ''}..."
 
   # Find the longest matching managed zone DNS name
-  MATCHING_ZONE=$(gcloud dns managed-zones list --format="value(name,dnsName)" | awk -v domain="${customDomain}." '
+  MATCHING_ZONE=$(gcloud dns managed-zones list${dnsProjFlag} --format="value(name,dnsName)" | awk -v domain="${customDomain}." '
     BEGIN { best_match=""; best_len=0 }
     {
       zone_name=$$1; dns_name=$$2;
@@ -427,7 +483,7 @@ else
   if [ -z "$$MATCHING_ZONE" ]; then
     echo "No matching Cloud DNS Managed Zone found. Creating a new Managed Zone for ${customDomain}..."
     provision_resource "DNS zone" "${newZoneName}" \\
-        gcloud dns managed-zones create ${newZoneName} \\
+        gcloud dns managed-zones create ${newZoneName}${dnsProjFlag} \\
         --description="Auto-provisioned for ${customDomain}" \\
         --dns-name="${customDomain}." \\
         --visibility="public"
@@ -445,9 +501,9 @@ else
 
   # Remove the record if it exists, then add the new one
   delete_if_present "A record" "${customDomain}." \\
-      gcloud dns record-sets delete ${customDomain}. --type=A --zone="$$MATCHING_ZONE" --quiet
+      gcloud dns record-sets delete ${customDomain}. --type=A --zone="$$MATCHING_ZONE"${dnsProjFlag} --quiet
   provision_resource "A record" "${customDomain}." \\
-      gcloud dns record-sets create ${customDomain}. --rrdatas="$$IP_ADDRESS" --type=A --ttl=300 --zone="$$MATCHING_ZONE"
+      gcloud dns record-sets create ${customDomain}. --rrdatas="$$IP_ADDRESS" --type=A --ttl=300 --zone="$$MATCHING_ZONE"${dnsProjFlag}
 
   echo "========== CLOUD DNS PROVISIONING COMPLETE =========="
 fi

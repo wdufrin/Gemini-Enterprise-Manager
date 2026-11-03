@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Agent, AppEngine, Assistant, Config, UserProfile } from '../../../types';
 import { AssistantRowData } from '../../../hooks/useAssistantList';
 import Spinner from '../../Spinner';
@@ -23,6 +23,7 @@ import EngineDetailsForm from '../EngineDetailsForm';
 import AgentListForAssistant from '../AgentListForAssistant';
 import ExportMetricsModal from '../ExportMetricsModal';
 import AuditLoggingModal from '../AuditLoggingModal';
+import AssistantEvaluationModal from '../AssistantEvaluationModal';
 import ChatHistoryViewer from '../ChatHistoryViewer';
 import NotebookListViewer from '../NotebookListViewer';
 import VanityUrlDeploymentForm from '../VanityUrlDeploymentForm';
@@ -56,6 +57,8 @@ interface AssistantDetailViewProps {
   setIsExportModalOpen: (open: boolean) => void;
   isAuditModalOpen: boolean;
   setIsAuditModalOpen: (open: boolean) => void;
+  isEvaluateModalOpen?: boolean;
+  setIsEvaluateModalOpen?: (open: boolean) => void;
   onBack: () => void;
   onBuildTriggered?: (buildId: string, projectId?: string) => void;
   onEngineUpdateSuccess: (engine: AppEngine) => void;
@@ -77,6 +80,8 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
   setIsExportModalOpen,
   isAuditModalOpen,
   setIsAuditModalOpen,
+  isEvaluateModalOpen: externalIsEvaluateOpen,
+  setIsEvaluateModalOpen: externalSetIsEvaluateOpen,
   onBack,
   onBuildTriggered,
   onEngineUpdateSuccess,
@@ -85,19 +90,32 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
 }) => {
   // Declared before the early return below so hook order stays stable.
   const [redirectRefreshToken, setRedirectRefreshToken] = useState(0);
+  const [internalIsEvaluateOpen, setInternalIsEvaluateOpen] = useState(false);
   const { isGoogleInternal } = useProjectEnrollment();
 
-  if (!selectedRow.assistant) return null;
+  const isEvaluateModalOpen = externalIsEvaluateOpen ?? internalIsEvaluateOpen;
+  const setIsEvaluateModalOpen =
+    externalSetIsEvaluateOpen ?? setInternalIsEvaluateOpen;
 
-  const currentConfig = {
-    ...baseApiConfig,
-    appId: selectedRow.engine.name.split('/').pop()!,
-    assistantId: selectedRow.assistant
-      ? selectedRow.assistant.name.split('/').pop()!
-      : 'default_assistant',
-    engineName: selectedRow.engine.name,
-    projectNumber: projectNumber,
-  };
+  const currentConfig = useMemo<Config>(
+    () => ({
+      ...baseApiConfig,
+      appId: selectedRow.engine.name.split('/').pop()!,
+      assistantId: selectedRow.assistant
+        ? selectedRow.assistant.name.split('/').pop()!
+        : 'default_assistant',
+      engineName: selectedRow.engine.name,
+      projectNumber: projectNumber,
+    }),
+    [
+      baseApiConfig,
+      selectedRow.engine.name,
+      selectedRow.assistant?.name,
+      projectNumber,
+    ],
+  );
+
+  if (!selectedRow.assistant) return null;
 
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -130,6 +148,30 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
           </div>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsEvaluateModalOpen(true)}
+            className="px-4 py-2 bg-purple-600 text-white text-sm font-semibold rounded-md hover:bg-purple-500 shadow-md flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-4 w-4 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+              />
+            </svg>
+            <span>Evaluate Config</span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-400/20 text-amber-200 border border-amber-300/40">
+              Experimental
+            </span>
+          </button>
           <button
             onClick={() => setIsAuditModalOpen(true)}
             className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 shadow-md flex items-center gap-1 whitespace-nowrap shrink-0"
@@ -312,6 +354,17 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
           />
         </div>
       )}
+
+      <AssistantEvaluationModal
+        isOpen={isEvaluateModalOpen}
+        onClose={() => setIsEvaluateModalOpen(false)}
+        engine={selectedRow.engine}
+        assistant={selectedRow.assistant}
+        agents={agents}
+        config={currentConfig}
+        onNavigateToTab={(tab) => setActiveTab(tab)}
+        onRefreshAgents={onRefreshAgents}
+      />
     </div>
   );
 };

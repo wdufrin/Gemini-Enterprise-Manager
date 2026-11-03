@@ -30,24 +30,24 @@ These agents are registered globally in `~/.gemini/config/agents/` and backed by
 
 ### Domain Specialist Reviewers
 1. **`gem-agent-management-reviewer`**
-   - **Scope**: Agent Manager (`/agent-manager`), Skills Registry (`/skills-registry`), Agent Builder (`/agent-builder`), Catalog (`/catalog`), Engines (`/engines`).
-   - **Focus**: GCP Discovery Engine Agent APIs, LC/ADK agent configurations, tool schemas, system instructions, session parameters.
+   - **Scope**: GE Agent Manager (`/agents`), Skills Registry (`/skills`), ADK Studio & Catalog (`/builder`), Agent Runtimes (`/runtimes`, plus deep-link views `/cloud-run`, `/dialogflow`, `/a2a-tester`).
+   - **Focus**: GCP Discovery Engine Agent APIs, No-Code/ADK/A2A agent configurations, Skills Registry & assistant skills (`validateSkillDisplayName` max 64 chars, `&` → `and`, organizational `ALL_USERS` vs. private visibility, `SKILL.md` `.zip`/`.json` import & export), tool schemas, system instructions, session parameters.
 
 2. **`gem-knowledge-reviewer`**
-   - **Scope**: Data Stores (`/data-stores`), GE Quota Usage (`/ge-quota-usage`).
-   - **Focus**: Discovery Engine DataStore ingestion pipelines, Cloud Storage buckets, document indexing schemas, GCP Service Usage / Cloud Monitoring quota polling.
+   - **Scope**: Connectors & Data Stores (`/datastores`), Quota & Cost Estimator (`/quota`).
+   - **Focus**: Discovery Engine DataStore ingestion pipelines, Cloud Storage buckets, document indexing schemas, 156-connector validation catalog (`1,324` items, `424` automated probes), BYO-MCP configuration (`BYOMCPConfigTab.tsx`, RFC 6901 citation mappings), GCP Service Usage / Cloud Monitoring quota polling.
 
 3. **`gem-testing-reviewer`**
-   - **Scope**: Assistant (`/assistant`), Connectors (`/connectors`), Architecture (`/architecture`).
-   - **Focus**: Conversational inference streaming, grounding citations, connector OAuth2 lifecycle (SharePoint, Jira, Drive), dynamic architecture graph rendering.
+   - **Scope**: Engines & Assistants (`/assistant`, including Playground `/chat`), Connectors sub-tab (`/datastores`), Architecture (`/architecture`).
+   - **Focus**: Conversational inference streaming (`streamAssist`), 5-Pillar Assistant Configuration & Best-Practices Evaluator (`AssistantEvaluationModal.tsx`, `assistantEvaluationService.ts`), BYOMCP Descriptions & Instructions Advisor, 1-Click Recommended Query-Routing Skills, grounding citations, dynamic architecture graph & WCAG matrix rendering.
 
 4. **`gem-security-reviewer`**
-   - **Scope**: Authorizations (`/authorizations`), Agent Permissions (`/agent-permissions`), Model Armor (`/model-armor`), Observability (`/observability`).
-   - **Focus**: Google Cloud IAM synchronization, RBAC permission matrices, Model Armor safety guardrail APIs (`modelarmor.googleapis.com`), BigQuery log analytics queries, Cloud Logging sink validation.
+   - **Scope**: Authorizations (`/authorizations`), Agent Permissions (`/permissions`), Model Armor (`/model-armor`), Observability (`/observability`).
+   - **Focus**: Google Cloud IAM synchronization, RBAC permission matrices, Model Armor safety guardrail APIs (`modelarmor.googleapis.com`), Exclusion Rules (`Preview`) & real-time streaming compatibility (`MATCHING_SCOPE_PARTIAL_MATCH` vs. `MATCHING_SCOPE_FULL_MATCH`, 0.5 MB limit, `Evaluate for Exclusion` drawer), BigQuery log analytics queries, Cloud Logging sink validation.
 
 5. **`gem-system-reviewer`**
-   - **Scope**: Backup & Recovery (`/backup-recovery`), Config Audit (`/config-audit`), Licenses (`/licenses`), Vanity URLs (`/vanity-urls`).
-   - **Focus**: GCS backup snapshot integrity, configuration drift diff algorithms, Google Workspace / Cloud Identity license syncing, Cloud DNS records and SSL status.
+   - **Scope**: Backup & Recovery (`/backup`), App Config Audit (`/config-audit`), Licenses (`/licenses`), Redirect & Private Routing URLs (`Engines & Assistants → Customize` tab).
+   - **Focus**: GCS backup snapshot integrity, 5-pillar configuration drift diff algorithms, Google Workspace / Cloud Identity license syncing, Cloud Build service account IAM pre-flight (`roles/compute.loadBalancerAdmin`, `roles/compute.networkAdmin`, `roles/dns.admin`), Target Portal CID auto-discovery, cross-project Cloud DNS (`dnsProjectId`), and SSL status.
 
 ---
 

@@ -39,8 +39,15 @@ function buildInitialDynamicTools(connector?: DataConnector): DynamicToolItem[] 
   const enabledActions: string[] = connector.bapConfig?.enabledActions || [];
   const dynTools: DynamicToolItem[] = [];
 
-  if (Array.isArray(connector.dynamicTools) && connector.dynamicTools.length > 0) {
-    connector.dynamicTools.forEach(
+  const rawTools =
+    Array.isArray(connector.dynamicTools) && connector.dynamicTools.length > 0
+      ? connector.dynamicTools
+      : Array.isArray(connector.actionConfig?.dynamicTools)
+      ? connector.actionConfig.dynamicTools
+      : [];
+
+  if (rawTools.length > 0) {
+    rawTools.forEach(
       (t: {
         name: string;
         displayName?: string;

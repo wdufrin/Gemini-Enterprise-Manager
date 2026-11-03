@@ -99,6 +99,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+  const [isEvaluateModalOpen, setIsEvaluateModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<AssistantDetailTab>('overview');
   const [aclProbeWarning, setAclProbeWarning] = useState<string | null>(null);
   const [agentDiscoveryWarning, setAgentDiscoveryWarning] = useState<string | null>(null);
@@ -207,6 +208,10 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
     const { name, value } = e.target;
     setConfig((prev) => ({ ...prev, [name]: value }));
     setSelectedRow(null);
+    setAgents([]);
+    setActiveTab('overview');
+    setAclProbeWarning(null);
+    setAgentDiscoveryWarning(null);
   };
 
   const fetchAgentsForAssistant = useCallback(
@@ -320,6 +325,22 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
     fetchAgentsForAssistant(row.engine.name.split('/').pop()!, assistantId);
   };
 
+  const handleEvaluateClick = (row: AssistantRowData, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!row.assistant) {
+      toast.warning(
+        `This engine (${row.engine.displayName}) has not been fully initialized with an assistant yet.`,
+      );
+      return;
+    }
+    setSelectedRow(row);
+    setIsEvaluateModalOpen(true);
+    const assistantId = row.assistant.name
+      ? row.assistant.name.split('/').pop()
+      : undefined;
+    fetchAgentsForAssistant(row.engine.name.split('/').pop()!, assistantId);
+  };
+
   const handleChatClick = (row: AssistantRowData, e: React.MouseEvent) => {
     e.stopPropagation();
     const engineId = row.engine.name.split('/').pop()!;
@@ -339,7 +360,11 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
 
   const handleBack = () => {
     setSelectedRow(null);
+    setIsEvaluateModalOpen(false);
     setAgents([]);
+    setActiveTab('overview');
+    setAclProbeWarning(null);
+    setAgentDiscoveryWarning(null);
     fetchEngines();
   };
 
@@ -431,6 +456,8 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
           setIsExportModalOpen={setIsExportModalOpen}
           isAuditModalOpen={isAuditModalOpen}
           setIsAuditModalOpen={setIsAuditModalOpen}
+          isEvaluateModalOpen={isEvaluateModalOpen}
+          setIsEvaluateModalOpen={setIsEvaluateModalOpen}
           onBack={handleBack}
           onBuildTriggered={onBuildTriggered}
           onEngineUpdateSuccess={handleEngineUpdateSuccess}
@@ -460,6 +487,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
           onRefresh={fetchEngines}
           onRowClick={handleRowClick}
           onChatClick={handleChatClick}
+          onEvaluateClick={handleEvaluateClick}
         />
       )}
 

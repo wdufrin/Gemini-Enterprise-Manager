@@ -39,6 +39,7 @@ import {
 } from "../core";
 import { getEngine, updateEngine } from "./engines";
 import { getAgentIamPolicy, setAgentIamPolicy } from "../iam";
+import { sanitizeSkillDisplayName } from "../../../utils/skillExportUtils";
 
 export const getAgent = async (name: string, config: Config) => {
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
@@ -722,12 +723,29 @@ export const createSkillAgent = async (
   agentId?: string,
   isOrganizational: boolean = true,
 ) => {
-  const agent = await createAgent(payload, config, agentId);
-  if (isOrganizational || payload.state === "ENABLED") {
+  const sanitizedPayload = { ...payload };
+  if (typeof sanitizedPayload.displayName === "string") {
+    sanitizedPayload.displayName = sanitizeSkillDisplayName(sanitizedPayload.displayName);
+  }
+  const cleanAgentId = agentId
+    ? agentId
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 63)
+        .replace(/^-+|-+$/g, "") || undefined
+    : undefined;
+
+  const agent = await createAgent(sanitizedPayload, config, cleanAgentId);
+  if (isOrganizational || sanitizedPayload.state === "ENABLED") {
     try {
       return await promoteSkillToOrg(agent, config);
     } catch (e) {
       console.warn("Could not automatically promote skill to org-wide after creation:", e);
+      (agent as Agent & { promotionWarning?: string }).promotionWarning =
+        e instanceof Error ? e.message : String(e);
     }
   }
   return agent;

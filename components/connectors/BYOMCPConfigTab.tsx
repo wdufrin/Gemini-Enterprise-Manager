@@ -24,6 +24,7 @@ import { AuthSettingsSection } from './byomcp/AuthSettingsSection';
 import { AdvancedParamsSection } from './byomcp/AdvancedParamsSection';
 import { RawJsonEditorSection } from './byomcp/RawJsonEditorSection';
 import { BYOMCPFooterActions } from './byomcp/BYOMCPFooterActions';
+import { generateByomcpGuidance } from '../../services/assistantEvaluationService';
 
 type VisualSectionFilter = 'all' | 'tools' | 'guidelines' | 'auth';
 
@@ -114,6 +115,34 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
     onConnectorUpdated,
     onRefreshSuccess,
   });
+
+  const handleAutoGenerateGuidelines = () => {
+    const mappedTools = dynamicTools.map((t) => {
+      const schemaProps =
+        t.inputSchema && typeof t.inputSchema.properties === 'object' && t.inputSchema.properties !== null
+          ? Object.keys(t.inputSchema.properties as Record<string, unknown>)
+          : [];
+      const reqProps =
+        t.inputSchema && Array.isArray(t.inputSchema.required)
+          ? (t.inputSchema.required as string[])
+          : [];
+      return {
+        name: t.name,
+        displayName: t.displayName || t.name,
+        description: t.description || '',
+        enabled: t.enabled !== false,
+        parameterNames: schemaProps,
+        requiredParams: reqProps,
+      };
+    });
+    const collectionId = connector.name?.split('/')[5] || connector.name?.split('/').pop() || 'custom_mcp';
+    const displayName =
+      (typeof connector.params?.display_name === 'string' && connector.params.display_name.trim()) ||
+      collectionId;
+    const generated = generateByomcpGuidance(displayName, collectionId, instanceUri, mappedTools);
+    setMcpServerDescription(generated.recommendedServerDescription);
+    setMcpAgentInstructions(generated.recommendedAgentInstructions);
+  };
 
   const handleConfigureToolCitations = (toolName: string) => {
     const alreadyMapped = citationMappings.some((r) => r.toolName === toolName);
@@ -290,6 +319,7 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
               mcpAgentInstructions={mcpAgentInstructions}
               setMcpAgentInstructions={setMcpAgentInstructions}
               onApplyPreset={handleApplyPreset}
+              onAutoGenerateFromTools={handleAutoGenerateGuidelines}
             />
           )}
 

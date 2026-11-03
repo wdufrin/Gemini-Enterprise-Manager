@@ -26,6 +26,7 @@ vi.mock('../../../services/apiService', () => ({
   listAggregatedForwardingRules: vi.fn(),
   listManagedSslCertificates: vi.fn(),
   listDnsZones: vi.fn(),
+  enableService: vi.fn(),
   deleteVanityUrl: vi.fn(),
 }));
 
@@ -118,6 +119,31 @@ describe('ProvisionedRedirectList', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/PERMISSION_DENIED/);
+  });
+
+  it('continues listing public redirects when Cloud DNS API is disabled and offers 1-click Enable Cloud DNS API', async () => {
+    vi.mocked(api.listDnsZones).mockRejectedValueOnce(
+      new Error(
+        'Cloud DNS API has not been used in project test-project before or it is disabled. (SERVICE_DISABLED: dns.googleapis.com)'
+      )
+    );
+    vi.mocked(api.enableService).mockResolvedValue(undefined);
+
+    render(<ProvisionedRedirectList engine={engine} projectId="test-project" />);
+
+    // Public redirects and SSL domains still render even though dns.googleapis.com is disabled
+    expect(await screen.findByText('assistant-test-engine')).toBeInTheDocument();
+    expect(screen.getByText('ai.example.com')).toBeInTheDocument();
+
+    // Non-blocking warning with 1-click enable button is shown
+    const enableBtn = await screen.findByRole('button', { name: /Enable Cloud DNS API/i });
+    expect(enableBtn).toBeEnabled();
+
+    fireEvent.click(enableBtn);
+
+    await waitFor(() => {
+      expect(api.enableService).toHaveBeenCalledWith('test-project', 'dns.googleapis.com');
+    });
   });
 
   it('offers a teardown action for a provisioned redirect', async () => {

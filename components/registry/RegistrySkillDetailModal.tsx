@@ -143,8 +143,18 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
         ]);
       }
 
+      const safeSkillDisplayName = String(skill.displayName || sanitizedAgentId)
+        .replace(/&/g, ' and ')
+        .replace(/[/_.:+]+/g, ' ')
+        .replace(/[^a-zA-Z0-9\s-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .replace(/-+/g, '-')
+        .replace(/^[\s-]+|[\s-]+$/g, '')
+        .slice(0, 64)
+        .replace(/^[\s-]+|[\s-]+$/g, '') || sanitizedAgentId;
+
       const payload: Partial<Agent> = {
-        displayName: skill.displayName || sanitizedAgentId,
+        displayName: safeSkillDisplayName,
         description: skill.description || skill.displayName,
         state: 'ENABLED',
         sharingConfig: {
