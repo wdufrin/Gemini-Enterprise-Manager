@@ -101,7 +101,7 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
     () => ({
       ...baseApiConfig,
       appId: selectedRow.engine.name.split('/').pop()!,
-      assistantId: selectedRow.assistant
+      assistantId: selectedRow.assistant?.name
         ? selectedRow.assistant.name.split('/').pop()!
         : 'default_assistant',
       engineName: selectedRow.engine.name,

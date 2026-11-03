@@ -73,7 +73,7 @@ export interface SanitizationAuditTabProps {
   daysFilter: number;
   setDaysFilter: (days: number) => void;
   handleFetchLogs: () => void;
-  templates?: any[];
+  templates?: Array<Record<string, unknown>>;
   enginesList?: EngineArmorState[];
   isPoliciesLoading?: boolean;
   onRequestPolicies?: () => void;

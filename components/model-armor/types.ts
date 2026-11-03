@@ -97,9 +97,48 @@ const SUPPORTED_EXCLUSION_FILTER_TYPES = new Set([
 const UNCONSTRAINED_WILDCARD_REGEX =
   /^(?:\(\?[imsU]+\))?\^?(?:\((?:\?:)?)?(?:\.\*|\.\+|\.\{0,\}|\.\{1,\}|\[\\s\\S\][*+]|\[\\d\\D\][*+]|\[\\w\\W\][*+])\)*\$?$/;
 
-const NON_ASCII_REGEX = /[^\x00-\x7F]/;
+const hasNonAsciiChars = (str: string): boolean =>
+  Array.from(str).some((ch) => ch.charCodeAt(0) > 127);
 
-export const analyzeTemplateExclusionRules = (template: any): TemplateExclusionAnalysis => {
+interface RawTemplateLike {
+  name?: string;
+  filterConfig?: {
+    raiSettings?: {
+      raiFilters?: Array<{ filterType?: string; confidenceLevel?: string }>;
+    };
+    sdpSettings?: {
+      basicConfig?: { filterEnforcement?: string };
+      advancedConfig?: { inspectTemplate?: string; deidentifyTemplate?: string };
+    };
+    piAndJailbreakFilterSettings?: { filterEnforcement?: string };
+    maliciousUriFilterSettings?: { filterEnforcement?: string };
+    csamFilterfilterSettings?: { filterEnforcement?: string };
+    filterRuleSettings?: {
+      ruleSets?: Array<{
+        filterTypes?: unknown[];
+        rules?: Array<{
+          exclusionRule?: {
+            matchingScope?: string;
+            dictionary?: { wordList?: { words?: unknown[] } };
+            regex?: { pattern?: string };
+          };
+        }>;
+      }>;
+    };
+  };
+  templateMetadata?: {
+    logSanitizeOperations?: boolean;
+    customPromptSafetyErrorCode?: number;
+    customPromptSafetyErrorMessage?: string;
+    customLlmResponseSafetyErrorCode?: number;
+    customLlmResponseSafetyErrorMessage?: string;
+    multiLanguageDetection?: { enableMultiLanguageDetection?: boolean };
+  };
+}
+
+export const analyzeTemplateExclusionRules = (
+  template: RawTemplateLike | null | undefined,
+): TemplateExclusionAnalysis => {
   const fc = template?.filterConfig || {};
   const tm = template?.templateMetadata || {};
   const logSanitizeOperationsEnabled = Boolean(tm.logSanitizeOperations);
@@ -109,7 +148,7 @@ export const analyzeTemplateExclusionRules = (template: any): TemplateExclusionA
 
   const raiFilters = Array.isArray(fc.raiSettings?.raiFilters) ? fc.raiSettings.raiFilters : [];
   const activeRaiCount = raiFilters.filter(
-    (f: any) => f?.confidenceLevel && f.confidenceLevel !== 'OFF',
+    (f) => f?.confidenceLevel && f.confidenceLevel !== 'OFF',
   ).length;
   const jailbreakActive = fc.piAndJailbreakFilterSettings?.filterEnforcement === 'ENABLED';
 
@@ -133,7 +172,7 @@ export const analyzeTemplateExclusionRules = (template: any): TemplateExclusionA
     const filterTypes: string[] = Array.isArray(rs?.filterTypes)
       ? rs.filterTypes.filter((t: unknown): t is string => typeof t === 'string')
       : [];
-    const rulesList: any[] = Array.isArray(rs?.rules) ? rs.rules : [];
+    const rulesList = Array.isArray(rs?.rules) ? rs.rules : [];
 
     for (const ft of filterTypes) {
       targetedSet.add(ft);
@@ -208,7 +247,10 @@ export const analyzeTemplateExclusionRules = (template: any): TemplateExclusionA
           );
         }
 
-        if (matchingScope === 'MATCHING_SCOPE_FULL_MATCH' && words.some((w) => NON_ASCII_REGEX.test(w))) {
+        if (
+          matchingScope === 'MATCHING_SCOPE_FULL_MATCH' &&
+          words.some((w) => hasNonAsciiChars(w))
+        ) {
           ruleWarnings.push(
             'Dictionary rule with MATCHING_SCOPE_FULL_MATCH contains multi-byte UTF-8 characters. Model Armor only supports single-byte UTF-8 characters for FULL_MATCH.',
           );
@@ -240,7 +282,11 @@ export const analyzeTemplateExclusionRules = (template: any): TemplateExclusionA
           words,
           warnings: ruleWarnings,
         });
-        warnings.push(...ruleWarnings.filter((w) => !w.includes('MATCHING_SCOPE_FULL_MATCH, which is NOT supported')));
+        warnings.push(
+          ...ruleWarnings.filter(
+            (w) => !w.includes('MATCHING_SCOPE_FULL_MATCH, which is NOT supported'),
+          ),
+        );
       } else if (ex.regex) {
         regexRulesCount += 1;
         const pattern = typeof ex.regex?.pattern === 'string' ? ex.regex.pattern : '';
@@ -265,7 +311,7 @@ export const analyzeTemplateExclusionRules = (template: any): TemplateExclusionA
             ruleWarnings.push(wildcardMsg);
             criticalIssues.push(wildcardMsg);
           }
-          if (matchingScope === 'MATCHING_SCOPE_FULL_MATCH' && NON_ASCII_REGEX.test(pattern)) {
+          if (matchingScope === 'MATCHING_SCOPE_FULL_MATCH' && hasNonAsciiChars(pattern)) {
             ruleWarnings.push(
               'Regex rule with MATCHING_SCOPE_FULL_MATCH contains multi-byte UTF-8 characters. Model Armor only supports single-byte UTF-8 characters for FULL_MATCH.',
             );
@@ -338,7 +384,23 @@ export const analyzeTemplateExclusionRules = (template: any): TemplateExclusionA
   };
 };
 
-export const extractLogExclusionAndStreamingInfo = (log: any): LogExclusionAndStreamingInfo => {
+interface RawLogEntryLike {
+  labels?: Record<string, string>;
+  jsonPayload?: {
+    sanitizationInput?: { text?: string };
+    sanitizationMetadata?: { streamChunkProcessed?: boolean | string };
+    sanitizationResult?: {
+      sanitizationMetadata?: { streamChunkProcessed?: boolean | string };
+      filterResults?: Record<string, Record<string, { matchState?: string; executionState?: string }>>;
+    };
+  };
+  resource?: { labels?: { template_id?: string } };
+}
+
+export const extractLogExclusionAndStreamingInfo = (
+  rawLog: unknown,
+): LogExclusionAndStreamingInfo => {
+  const log = rawLog as RawLogEntryLike | null | undefined;
   const labels = (log?.labels || {}) as Record<string, string>;
   const overriddenRaw = labels['modelarmor.googleapis.com/exclusion_rule_overridden_filters'] || '';
   const skippedRaw = labels['modelarmor.googleapis.com/exclusion_rule_skipped_filters'] || '';
@@ -363,13 +425,13 @@ export const extractLogExclusionAndStreamingInfo = (log: any): LogExclusionAndSt
   const skippedExecutionFilterKeys: string[] = [];
   const filterResults = sanitizationResult?.filterResults;
   if (filterResults && typeof filterResults === 'object' && !Array.isArray(filterResults)) {
-    for (const [filterKey, val] of Object.entries(filterResults as Record<string, any>)) {
+    for (const [filterKey, val] of Object.entries(filterResults)) {
       if (!val || typeof val !== 'object') continue;
       for (const innerVal of Object.values(val)) {
         if (
           innerVal &&
           typeof innerVal === 'object' &&
-          (innerVal as any).executionState === 'EXECUTION_SKIPPED'
+          innerVal.executionState === 'EXECUTION_SKIPPED'
         ) {
           skippedExecutionFilterKeys.push(filterKey);
         }
@@ -389,10 +451,10 @@ export const extractLogExclusionAndStreamingInfo = (log: any): LogExclusionAndSt
   };
 };
 
-export const getTemplateFilters = (template: any) => {
+export const getTemplateFilters = (template: RawTemplateLike) => {
   const fc = template.filterConfig || {};
   const raiFilters = fc.raiSettings?.raiFilters || [];
-  const activeRai = raiFilters.map((f: any) => ({
+  const activeRai = raiFilters.map((f) => ({
     type: f.filterType,
     level: f.confidenceLevel,
   }));
@@ -548,7 +610,10 @@ export const validateProposedExclusionRule = (params: {
         `Dictionary phrase exceeds the 200-character Model Armor limit (${overLong[0].length} chars). Narrow the phrase or use a Regex rule.`,
       );
     }
-    if (params.matchingScope === 'MATCHING_SCOPE_FULL_MATCH' && words.some((w) => NON_ASCII_REGEX.test(w))) {
+    if (
+      params.matchingScope === 'MATCHING_SCOPE_FULL_MATCH' &&
+      words.some((w) => hasNonAsciiChars(w))
+    ) {
       errors.push(
         'MATCHING_SCOPE_FULL_MATCH only supports single-byte UTF-8 (ASCII) characters. Switch to MATCHING_SCOPE_PARTIAL_MATCH or remove non-ASCII characters.',
       );
@@ -574,7 +639,7 @@ export const validateProposedExclusionRule = (params: {
           `Unconstrained wildcard regex "${pattern}" matches all inputs and completely disables ${params.filterType}. Scope the regex to specific operational phrases.`,
         );
       }
-      if (params.matchingScope === 'MATCHING_SCOPE_FULL_MATCH' && NON_ASCII_REGEX.test(pattern)) {
+      if (params.matchingScope === 'MATCHING_SCOPE_FULL_MATCH' && hasNonAsciiChars(pattern)) {
         errors.push(
           'MATCHING_SCOPE_FULL_MATCH only supports single-byte UTF-8 (ASCII) characters in regex patterns.',
         );
@@ -590,10 +655,12 @@ export const validateProposedExclusionRule = (params: {
 };
 
 export const evaluateLogEntryForExclusion = (
-  log: any,
-  templates: any[] = [],
+  rawLog: unknown,
+  rawTemplates: unknown[] = [],
   enginesList: EngineArmorState[] = [],
 ): LogEntryExclusionEvaluation => {
+  const log = rawLog as RawLogEntryLike | null | undefined;
+  const templates = rawTemplates as RawTemplateLike[];
   const payload = log?.jsonPayload || {};
   const sanitizationResult = payload?.sanitizationResult || {};
   const filterResults = sanitizationResult?.filterResults || {};
@@ -603,7 +670,7 @@ export const evaluateLogEntryForExclusion = (
   // 1. Identify triggered filter
   let triggeredFilterKey: string | null = null;
   if (filterResults && typeof filterResults === 'object' && !Array.isArray(filterResults)) {
-    for (const [filterName, result] of Object.entries(filterResults as Record<string, any>)) {
+    for (const [filterName, result] of Object.entries(filterResults)) {
       if (!result || typeof result !== 'object') continue;
       const firstKey = Object.keys(result)[0];
       if (firstKey && result[firstKey]?.matchState === 'MATCH_FOUND') {

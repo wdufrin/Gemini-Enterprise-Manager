@@ -118,7 +118,13 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
           ? `principal://iam.googleapis.com/users/${userProfile.email}`
           : undefined;
 
-      const skillAgentDefinition: any = {};
+      const skillAgentDefinition: {
+        owner?: string;
+        instruction?: string;
+        agentRegistrySkill?: string;
+        gcsUri?: string;
+        subfiles?: Array<{ fileName: string; mimeType: string }>;
+      } = {};
       if (ownerPrincipal) {
         skillAgentDefinition.owner = ownerPrincipal;
       }
@@ -175,9 +181,10 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
 
       onSkillCreated();
       onClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to create skill agent:', err);
-      setError(err?.message || 'Failed to create skill agent. Please verify permissions and parameters.');
+      const errMsg = err instanceof Error ? err.message : '';
+      setError(errMsg || 'Failed to create skill agent. Please verify permissions and parameters.');
     } finally {
       setIsSubmitting(false);
     }

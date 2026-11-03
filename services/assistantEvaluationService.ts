@@ -1563,7 +1563,16 @@ ${storeListText}
 
     for (const tpl of matchedTemplates) {
       const tplId = tpl.name?.split('/').pop() || 'template';
-      const fc = (tpl.filterConfig || {}) as Record<string, any>;
+      const fc = (tpl.filterConfig || {}) as {
+        raiSettings?: { raiFilters?: Array<{ confidenceLevel?: string }> };
+        piAndJailbreakFilterSettings?: { filterEnforcement?: string };
+        maliciousUriFilterSettings?: { filterEnforcement?: string };
+        sdpSettings?: {
+          basicConfig?: { filterEnforcement?: string };
+          advancedConfig?: { inspectTemplate?: string; deidentifyTemplate?: string };
+        };
+        csamFilterfilterSettings?: { filterEnforcement?: string };
+      };
       const analysis = analyzeTemplateExclusionRules(tpl);
       if (analysis.hasExclusionRules) {
         templatesWithExclusions.push(tplId);
@@ -1580,7 +1589,7 @@ ${storeListText}
       if (tpl.filterConfig && !analysis.hasExclusionRules) {
         const raiList = Array.isArray(fc.raiSettings?.raiFilters) ? fc.raiSettings.raiFilters : [];
         const hasActiveRai = raiList.some(
-          (f: any) => f?.confidenceLevel && f.confidenceLevel !== 'OFF',
+          (f) => f?.confidenceLevel && f.confidenceLevel !== 'OFF',
         );
         const hasJailbreak = fc.piAndJailbreakFilterSettings?.filterEnforcement === 'ENABLED';
         const hasMaliciousUri = fc.maliciousUriFilterSettings?.filterEnforcement === 'ENABLED';
@@ -2010,7 +2019,14 @@ export async function runLiveAssistantEvaluation(
 
   let dataStoreAccessControlEnabled: boolean | null = null;
   if (projCfgResult.status === 'fulfilled' && projCfgResult.value) {
-    const raw = projCfgResult.value as Record<string, any>;
+    const raw = projCfgResult.value as {
+      customerProvidedConfig?: {
+        resourceAccessControlConfig?: { dataStoreAccessControlEnabled?: boolean };
+      };
+      customer_provided_config?: {
+        resource_access_control_config?: { data_store_access_control_enabled?: boolean };
+      };
+    };
     const camel =
       raw?.customerProvidedConfig?.resourceAccessControlConfig
         ?.dataStoreAccessControlEnabled;

@@ -64,7 +64,13 @@ export const VerdictBadge: React.FC<{ verdict: string }> = ({ verdict }) => {
   );
 };
 
-export const getTriggeredFilter = (filterResults: any): { name: string; confidence?: string } | null => {
+export const getTriggeredFilter = (
+  rawFilterResults: unknown,
+): { name: string; confidence?: string } | null => {
+  const filterResults = rawFilterResults as
+    | Record<string, Record<string, { matchState?: string; confidenceLevel?: string }>>
+    | undefined
+    | null;
   if (!filterResults) return null;
   for (const filterName in filterResults) {
     const result = filterResults[filterName];
@@ -106,7 +112,11 @@ export const parseAssistantFromCorrelationId = (correlationId: string): string =
 export interface LogEntryCardProps {
   log: LogEntry;
   projectNumber?: string;
-  templates?: any[];
+  templates?: Array<{
+    name?: string;
+    filterConfig?: Record<string, unknown>;
+    templateMetadata?: Record<string, unknown>;
+  }>;
   enginesList?: EngineArmorState[];
   isPoliciesLoading?: boolean;
   onRequestPolicies?: () => void;
@@ -231,7 +241,7 @@ export const LogEntryCard: React.FC<LogEntryCardProps> = ({
         enforceDataResidencyCompliance: enforceDataResidency,
       });
 
-      const templateShortId = (updated?.name || targetTemplate.name).split('/').pop();
+      const templateShortId = (updated?.name || targetTemplate.name || '').split('/').pop();
       setApplySuccess(
         `Applied ${ruleType === 'DICTIONARY' ? 'Dictionary' : 'Regex'} (${matchingScope}) exclusion rule for ${filterType} to policy "${templateShortId}".`,
       );
@@ -250,7 +260,7 @@ export const LogEntryCard: React.FC<LogEntryCardProps> = ({
 
   const verdict =
     sanitizationResult?.sanitizationVerdict ||
-    (sanitizationResult as any)?.filterMatchState ||
+    (sanitizationResult as { filterMatchState?: string } | undefined)?.filterMatchState ||
     'N/A';
 
   const verdictBadgeStyle =

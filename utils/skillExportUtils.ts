@@ -328,8 +328,9 @@ export function formatSkillsToJsonl(
   return records
     .map((rec) => {
       if (includeRawResource) return JSON.stringify(rec);
-      const { raw_resource: _raw, ...rest } = rec;
-      return JSON.stringify(rest);
+      const copy: Partial<NormalizedSkillExportRecord> = { ...rec };
+      delete copy.raw_resource;
+      return JSON.stringify(copy);
     })
     .join('\n');
 }

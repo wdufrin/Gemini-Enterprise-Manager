@@ -444,8 +444,6 @@ export function useBYOMCPConfig({
     authUri,
     tokenUri,
     authUriParams,
-    mcpServerSource,
-    registryMcpServerName,
   ]);
 
   // Sync to JSON mode text when switching or when payload updates

@@ -55,7 +55,7 @@ provision_resource() {
     echo "[EXISTS] $$res_type $$res_name is already present, continuing"
     EXISTS=$$((EXISTS + 1))
     return 0
-  elif echo "$$out" | grep -qE "PERMISSION_DENIED|Required 'compute\.|Required 'dns\."; then
+  elif echo "$$out" | grep -qE "PERMISSION_DENIED|Required 'compute\\.|Required 'dns\\."; then
     echo "[RETRY] Waiting 5s for IAM role propagation on $$res_type $$res_name..."
     sleep 5
     if out=$$("$$@" 2>&1); then
@@ -70,7 +70,7 @@ provision_resource() {
   fi
   echo "[FAILED] Could not provision $$res_type $$res_name:" >&2
   echo "$$out" >&2
-  if echo "$$out" | grep -qE "Required 'compute\.|Required 'dns\."; then
+  if echo "$$out" | grep -qE "Required 'compute\\.|Required 'dns\\."; then
     echo "[HINT] Ensure the active Cloud Build service account has roles/compute.loadBalancerAdmin, roles/compute.networkAdmin, and (if using DNS) roles/dns.admin." >&2
   fi
   FAILURES=$$((FAILURES + 1))

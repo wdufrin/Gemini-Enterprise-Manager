@@ -11,7 +11,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "vite preview --host 0.0.0.0 --port 8080",
-    "lint": "eslint . --ext .ts,.tsx",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 389",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",

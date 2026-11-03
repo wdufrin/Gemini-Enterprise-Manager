@@ -421,7 +421,11 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
     if (!report) return;
     const sanitizedReport = {
       ...report,
-      byomcpEvaluations: report.byomcpEvaluations.map(({ rawConnector: _raw, ...rest }) => rest),
+      byomcpEvaluations: report.byomcpEvaluations.map((mcp) => {
+        const copy: Partial<ByomcpConnectorEvaluation> = { ...mcp };
+        delete copy.rawConnector;
+        return copy;
+      }),
     };
     const jsonStr = JSON.stringify(sanitizedReport, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
@@ -791,7 +795,11 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                     <select
                       aria-label="Filter by severity"
                       value={severityFilter}
-                      onChange={(e) => setSeverityFilter(e.target.value as any)}
+                      onChange={(e) =>
+                        setSeverityFilter(
+                          e.target.value as 'ALL' | Exclude<EvaluationSeverity, 'PASS'>,
+                        )
+                      }
                       className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-200"
                     >
                       <option value="ALL">All Issues ({actionableFindings.length})</option>
@@ -803,7 +811,9 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                     <select
                       aria-label="Filter by category"
                       value={categoryFilter}
-                      onChange={(e) => setCategoryFilter(e.target.value as any)}
+                      onChange={(e) =>
+                        setCategoryFilter(e.target.value as 'ALL' | EvaluationCategory)
+                      }
                       className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-200"
                     >
                       <option value="ALL">All Categories</option>
