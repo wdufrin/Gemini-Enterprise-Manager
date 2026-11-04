@@ -28,6 +28,7 @@ import * as api from './apiService';
 import {
   classifySkillAgent,
   isSkillAgentResource,
+  sanitizeSkillDescription,
   sanitizeSkillDisplayName,
 } from '../utils/skillExportUtils';
 import { parseCitationMappingsFromApi } from '../components/connectors/byomcp/citationPointerUtils';
@@ -59,6 +60,61 @@ export interface RecommendedSkillTemplate {
   instruction: string;
   rationale: string;
   targetSources: string[];
+  sampleQueries?: string[];
+  alreadyDeployedAgentName?: string;
+}
+
+export interface SkillBenchmarkQueryRun {
+  query: string;
+  totalLatencyMs: number;
+  ttfbMs: number;
+  answerPreview: string;
+  thoughtSteps: string[];
+  citationsCount: number;
+  routedSources: string[];
+  skillTriggered: boolean;
+  skippedReason?: string;
+  errorMessage?: string;
+}
+
+export type SkillDiagnosticMistakeCode =
+  | 'TRIGGER_VOCABULARY_MISMATCH'
+  | 'BROAD_FANOUT_INSTRUCTION'
+  | 'MISSING_TARGET_SOURCE_IDENTIFIER'
+  | 'LATENCY_REGRESSION_MULTI_HOP'
+  | 'NO_GROUNDED_ANSWER'
+  | 'THIN_OR_VAGUE_INSTRUCTION'
+  | 'SKILL_INSTRUCTION_CONFLICT'
+  | 'BEHAVIORAL_GROUNDING_CONFLICT';
+
+export interface SkillDiagnosticMistake {
+  code: SkillDiagnosticMistakeCode;
+  severity: 'CRITICAL' | 'WARNING' | 'INFO';
+  title: string;
+  explanation: string;
+  suggestedFix: string;
+  recommendedDescriptionPatch?: string;
+  recommendedInstructionAppend?: string;
+}
+
+export interface SkillPerformanceBenchmarkPhase {
+  ranAt: string;
+  runs: SkillBenchmarkQueryRun[];
+  avgLatencyMs: number;
+  avgTtfbMs: number;
+  skillTriggerRate: number;
+}
+
+export interface SkillPerformanceComparisonReport {
+  skillId: string;
+  baseline?: SkillPerformanceBenchmarkPhase;
+  postSkill?: SkillPerformanceBenchmarkPhase;
+  latencyDeltaMs?: number;
+  latencyDeltaPercent?: number;
+  ttfbDeltaMs?: number;
+  improved: boolean;
+  verdictSummary: string;
+  mistakes: SkillDiagnosticMistake[];
 }
 
 export type ByomcpUseCaseArchetype =
@@ -69,6 +125,15 @@ export type ByomcpUseCaseArchetype =
   | 'KNOWLEDGE_SEARCH'
   | 'GENERAL_MCP';
 
+export interface ByomcpParameterDetail {
+  name: string;
+  type: string;
+  required: boolean;
+  description: string;
+  enumValues?: string[];
+  format?: string;
+}
+
 export interface ByomcpToolSummary {
   name: string;
   displayName: string;
@@ -76,6 +141,7 @@ export interface ByomcpToolSummary {
   enabled: boolean;
   parameterNames: string[];
   requiredParams: string[];
+  parameterDetails?: ByomcpParameterDetail[];
 }
 
 export interface ByomcpConnectorEvaluation {
@@ -154,6 +220,7 @@ export interface AssistantEvaluationReport {
   findings: AssistantEvaluationFinding[];
   byomcpEvaluations: ByomcpConnectorEvaluation[];
   recommendedSkills: RecommendedSkillTemplate[];
+  connectedDataStoreResourceNames?: string[];
   probeWarnings: string[];
 }
 
@@ -180,23 +247,57 @@ const KNOWN_LEGACY_MODEL_IDS = new Set([
 ]);
 
 const FANOUT_ANTI_PATTERN_REGEX =
-  /\b(search\s+all\s+(?:data\s*stores|sources|tools|connectors)|always\s+query\s+(?:all|every)|check\s+every\s+(?:data\s*store|source|connector))\b/i;
+  /\b(search\s+(?:across\s+)?all\s+(?:data\s*stores|sources|tools|connectors)|always\s+query\s+(?:across\s+)?(?:all|every)|check\s+every\s+(?:data\s*store|source|connector))\b/i;
 
-function extractSchemaParams(inputSchema?: Record<string, unknown>): {
+export function extractSchemaParams(inputSchema?: Record<string, unknown>): {
   parameterNames: string[];
   requiredParams: string[];
+  parameterDetails: ByomcpParameterDetail[];
 } {
   if (!inputSchema || typeof inputSchema !== 'object') {
-    return { parameterNames: [], requiredParams: [] };
+    return { parameterNames: [], requiredParams: [], parameterDetails: [] };
   }
-  const props = inputSchema.properties;
-  const parameterNames =
-    props && typeof props === 'object' ? Object.keys(props as Record<string, unknown>) : [];
+  const props =
+    inputSchema.properties && typeof inputSchema.properties === 'object'
+      ? (inputSchema.properties as Record<string, unknown>)
+      : {};
+  const parameterNames = Object.keys(props);
   const req = inputSchema.required;
   const requiredParams = Array.isArray(req)
     ? req.filter((r): r is string => typeof r === 'string')
     : [];
-  return { parameterNames, requiredParams };
+  const requiredSet = new Set(requiredParams);
+
+  const parameterDetails: ByomcpParameterDetail[] = parameterNames.map((paramName) => {
+    const rawProp =
+      props[paramName] && typeof props[paramName] === 'object'
+        ? (props[paramName] as Record<string, unknown>)
+        : {};
+    const rawType = rawProp.type;
+    const typeStr =
+      typeof rawType === 'string'
+        ? rawType
+        : Array.isArray(rawType)
+        ? rawType.map(String).join('|')
+        : 'string';
+    const description =
+      typeof rawProp.description === 'string' ? rawProp.description.trim() : '';
+    const enumValues = Array.isArray(rawProp.enum)
+      ? rawProp.enum.map((v) => String(v)).slice(0, 8)
+      : undefined;
+    const format = typeof rawProp.format === 'string' ? rawProp.format.trim() : undefined;
+
+    return {
+      name: paramName,
+      type: typeStr,
+      required: requiredSet.has(paramName),
+      description,
+      ...(enumValues && enumValues.length > 0 ? { enumValues } : {}),
+      ...(format ? { format } : {}),
+    };
+  });
+
+  return { parameterNames, requiredParams, parameterDetails };
 }
 
 export function isByomcpConnector(
@@ -234,78 +335,355 @@ export function isByomcpConnector(
   return /\b(mcp|byomcp|custom_mcp|onemcp)\b/.test(combinedName);
 }
 
+const CUSTOM_DOMAIN_STOP_WORDS = new Set([
+  'mcp',
+  'byomcp',
+  'onemcp',
+  'custom',
+  'server',
+  'connector',
+  'collection',
+  'tool',
+  'tools',
+  'api',
+  'service',
+  'get',
+  'list',
+  'search',
+  'find',
+  'fetch',
+  'read',
+  'query',
+  'create',
+  'update',
+  'delete',
+  'remove',
+  'run',
+  'execute',
+  'call',
+  'with',
+  'from',
+  'that',
+  'this',
+  'for',
+  'the',
+  'and',
+  'or',
+  'by',
+  'in',
+  'to',
+  'of',
+  'on',
+  'id',
+  'ids',
+  'name',
+  'type',
+  'value',
+  'data',
+  'item',
+  'items',
+  'record',
+  'records',
+  'result',
+  'results',
+  'limit',
+  'offset',
+  'page',
+  'filter',
+  'status',
+  'prod',
+  'dev',
+  'staging',
+  'internal',
+  'corp',
+  'enterprise',
+  'http',
+  'https',
+  'sse',
+]);
+
+/**
+ * Extracts domain-specific nouns and capability phrases from a custom MCP server's
+ * displayName, tool names, tool descriptions, and parameter schemas so even bespoke
+ * internal MCP servers get domain-accurate labels and trigger descriptions.
+ */
+export function inferCustomDomainSummary(
+  displayName: string,
+  tools: ByomcpToolSummary[],
+): { customLabel: string; domainConcepts: string[]; capabilitySummary: string } {
+  const tokenFreq = new Map<string, number>();
+  const addTokens = (text: string, weight: number) => {
+    const words = text
+      .toLowerCase()
+      .replace(/[^a-z0-9_ -]/g, ' ')
+      .split(/[\s_-]+/)
+      .filter((w) => w.length >= 3 && !CUSTOM_DOMAIN_STOP_WORDS.has(w) && !/^\d+$/.test(w));
+    for (const w of words) {
+      tokenFreq.set(w, (tokenFreq.get(w) || 0) + weight);
+    }
+  };
+
+  addTokens(displayName, 3);
+  tools.forEach((t) => {
+    addTokens(t.name, 3);
+    addTokens(t.displayName, 2);
+    addTokens(t.description, 1);
+    t.parameterNames.forEach((p) => addTokens(p, 1));
+  });
+
+  const sortedConcepts = Array.from(tokenFreq.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([word]) => word)
+    .slice(0, 4);
+
+  const capitalize = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
+  const customLabel =
+    sortedConcepts.length >= 2
+      ? `${sortedConcepts.slice(0, 3).map(capitalize).join(', ')} & Domain Operations`
+      : sortedConcepts.length === 1
+      ? `${capitalize(sortedConcepts[0])} Domain Operations`
+      : 'Custom Enterprise MCP Tool Server';
+
+  const toolDescriptions = tools
+    .filter((t) => t.enabled && t.description.trim().length > 5)
+    .slice(0, 3)
+    .map((t) => {
+      const firstLineOrSentence =
+        t.description
+          .trim()
+          .split(/\r?\n/)[0]
+          .split(/(?<=\.)\s+/)[0] || t.description.trim();
+      return sanitizeSkillDescription(firstLineOrSentence, 160).replace(/\.$/, '');
+    });
+
+  const capabilitySummary =
+    toolDescriptions.length > 0
+      ? sanitizeSkillDescription(toolDescriptions.join('; '), 420)
+      : sortedConcepts.length > 0
+      ? `querying and managing ${sortedConcepts.join(', ')} workflows`
+      : 'executing live domain lookups and tool actions';
+
+  return {
+    customLabel,
+    domainConcepts: sortedConcepts,
+    capabilitySummary,
+  };
+}
+
 export function inferByomcpArchetype(
   displayName: string,
   instanceUri: string,
   tools: ByomcpToolSummary[],
 ): { archetype: ByomcpUseCaseArchetype; label: string } {
-  const signalText = [
+  const primarySignal = [
     displayName,
     instanceUri,
-    ...tools.map((t) => `${t.name} ${t.displayName} ${t.description} ${t.parameterNames.join(' ')}`),
+    ...tools.map((t) => `${t.name} ${t.displayName} ${t.description}`),
   ]
     .join(' ')
     .toLowerCase();
 
-  if (
-    /\b(sql|database|bigquery|postgres|oracle|spanner|alloydb|snowflake|databricks|table|schema|execute_query|run_query|select)\b/.test(
-      signalText,
-    )
-  ) {
+  const paramSignal = tools
+    .flatMap((t) => [
+      ...t.parameterNames,
+      ...(t.parameterDetails?.map((p) => p.description) || []),
+    ])
+    .join(' ')
+    .toLowerCase();
+
+  const fullSignal = `${primarySignal} ${paramSignal}`;
+
+  const scoreMatches = (text: string, patterns: RegExp[], weight: number): number => {
+    let score = 0;
+    for (const pat of patterns) {
+      if (pat.test(text)) score += weight;
+    }
+    return score;
+  };
+
+  const scores: Record<Exclude<ByomcpUseCaseArchetype, 'GENERAL_MCP'>, number> = {
+    DATABASE_SQL:
+      scoreMatches(
+        primarySignal,
+        [
+          /\b(bigquery|postgres|postgresql|oracle|spanner|alloydb|snowflake|databricks|mysql|cloudsql|sql_query|execute_sql|execute_query|run_query)\b/,
+        ],
+        4,
+      ) +
+      scoreMatches(primarySignal, [/\b(sql|database|dataset|warehouse)\b/], 2) +
+      scoreMatches(fullSignal, [/\b(table|schema|select)\b/], 1),
+
+    ISSUE_TRACKER_ITSM:
+      scoreMatches(
+        primarySignal,
+        [/\b(jira|servicenow|pagerduty|zendesk|linear|jql|itsm|buganizer)\b/],
+        4,
+      ) +
+      scoreMatches(
+        fullSignal,
+        [/\b(incident|ticket|bug|issue|epic|sprint|backlog|assignee|issue_key)\b/],
+        2,
+      ),
+
+    CRM_ERP_FINANCE:
+      scoreMatches(
+        primarySignal,
+        [/\b(salesforce|sfdc|sap|erp|workday|netsuite|hubspot|crm)\b/],
+        4,
+      ) +
+      scoreMatches(
+        fullSignal,
+        [/\b(opportunity|account|lead|invoice|order|pipeline|customer|revenue|quote)\b/],
+        2,
+      ),
+
+    DEVOPS_INFRA:
+      scoreMatches(
+        primarySignal,
+        [/\b(github|gitlab|kubernetes|k8s|pull_request|merge_request|cloud_run|ci_cd|jenkins|argocd)\b/],
+        4,
+      ) +
+      scoreMatches(
+        fullSignal,
+        [/\b(commit|deploy|deployment|gce|logs|trace|monitoring|pipeline|repository|cluster)\b/],
+        2,
+      ),
+
+    KNOWLEDGE_SEARCH:
+      scoreMatches(
+        primarySignal,
+        [/\b(confluence|sharepoint|notion|wiki|gdrive|google_drive|handbook|slack)\b/],
+        4,
+      ) +
+      scoreMatches(
+        primarySignal,
+        [/\b(document|article|knowledge|policy|manual|runbook)\b/],
+        2,
+      ),
+  };
+
+  const archetypeLabels: Record<Exclude<ByomcpUseCaseArchetype, 'GENERAL_MCP'>, string> = {
+    DATABASE_SQL: 'Database, SQL & Structured Analytics',
+    ISSUE_TRACKER_ITSM: 'Issue Tracking, Agile & ITSM Operations',
+    CRM_ERP_FINANCE: 'CRM, ERP & Enterprise Business Records',
+    DEVOPS_INFRA: 'DevOps, Code Repository & Cloud Infrastructure',
+    KNOWLEDGE_SEARCH: 'Enterprise Knowledge Base & Document Retrieval',
+  };
+
+  const orderedArchetypes: Array<Exclude<ByomcpUseCaseArchetype, 'GENERAL_MCP'>> = [
+    'DATABASE_SQL',
+    'ISSUE_TRACKER_ITSM',
+    'CRM_ERP_FINANCE',
+    'DEVOPS_INFRA',
+    'KNOWLEDGE_SEARCH',
+  ];
+
+  let bestArchetype: Exclude<ByomcpUseCaseArchetype, 'GENERAL_MCP'> | null = null;
+  let bestScore = 0;
+
+  for (const arch of orderedArchetypes) {
+    if (scores[arch] > bestScore) {
+      bestScore = scores[arch];
+      bestArchetype = arch;
+    }
+  }
+
+  if (bestArchetype && bestScore >= 2) {
     return {
-      archetype: 'DATABASE_SQL',
-      label: 'Database, SQL & Structured Analytics',
+      archetype: bestArchetype,
+      label: archetypeLabels[bestArchetype],
     };
   }
 
-  if (
-    /\b(jira|servicenow|incident|ticket|bug|issue|epic|sprint|linear|pagerduty|zendesk|backlog|assignee)\b/.test(
-      signalText,
-    )
-  ) {
-    return {
-      archetype: 'ISSUE_TRACKER_ITSM',
-      label: 'Issue Tracking, Agile & ITSM Operations',
-    };
-  }
-
-  if (
-    /\b(salesforce|crm|sap|erp|workday|opportunity|account|lead|invoice|order|pipeline|customer|revenue|quote)\b/.test(
-      signalText,
-    )
-  ) {
-    return {
-      archetype: 'CRM_ERP_FINANCE',
-      label: 'CRM, ERP & Enterprise Business Records',
-    };
-  }
-
-  if (
-    /\b(github|gitlab|commit|pull_request|merge_request|deploy|kubernetes|k8s|gce|cloud_run|logs|trace|monitoring|ci_cd|pipeline)\b/.test(
-      signalText,
-    )
-  ) {
-    return {
-      archetype: 'DEVOPS_INFRA',
-      label: 'DevOps, Code Repository & Cloud Infrastructure',
-    };
-  }
-
-  if (
-    /\b(search|document|wiki|confluence|sharepoint|drive|notion|slack|article|knowledge|policy|manual)\b/.test(
-      signalText,
-    )
-  ) {
-    return {
-      archetype: 'KNOWLEDGE_SEARCH',
-      label: 'Enterprise Knowledge Base & Document Retrieval',
-    };
-  }
-
+  const customSummary = inferCustomDomainSummary(displayName, tools);
   return {
     archetype: 'GENERAL_MCP',
-    label: 'Custom Enterprise MCP Tool Server',
+    label: customSummary.customLabel,
   };
+}
+
+function formatRichParameterSignature(tool: ByomcpToolSummary): string {
+  if (tool.parameterDetails && tool.parameterDetails.length > 0) {
+    const parts = tool.parameterDetails.map((p) => {
+      const reqMarker = p.required ? '*' : '';
+      const enumInfo =
+        p.enumValues && p.enumValues.length > 0
+          ? `=${p.enumValues.slice(0, 5).join('|')}`
+          : '';
+      const formatInfo = p.format ? ` (${p.format})` : '';
+      const descSnippet = p.description
+        ? ` — ${p.description.slice(0, 70)}${p.description.length > 70 ? '...' : ''}`
+        : '';
+      return `${p.name}${reqMarker}: ${p.type}${enumInfo}${formatInfo}${descSnippet}`;
+    });
+    const reqList =
+      tool.requiredParams.length > 0
+        ? `; required: ${tool.requiredParams.join(', ')}`
+        : '';
+    return ` (parameters: ${parts.join('; ')}${reqList})`;
+  }
+
+  if (tool.parameterNames.length > 0) {
+    return ` (parameters: ${tool.parameterNames.join(', ')}${
+      tool.requiredParams.length > 0
+        ? `; required: ${tool.requiredParams.join(', ')}`
+        : ''
+    })`;
+  }
+  return '';
+}
+
+function buildToolWorkflowChainingGuidance(activeTools: ByomcpToolSummary[]): string {
+  if (activeTools.length === 0) return '';
+
+  const discoveryTools = activeTools.filter((t) =>
+    /^(list|search|query|find|filter|browse)_|\b(list|search|query|find)\b/i.test(t.name),
+  );
+  const detailTools = activeTools.filter(
+    (t) =>
+      !discoveryTools.includes(t) &&
+      (/^(get|read|describe|fetch|inspect)_|\b(get|detail|inspect)\b/i.test(t.name) ||
+        t.requiredParams.some((p) => /(?:^|_)(id|key|uuid|slug|uri)$/i.test(p))),
+  );
+  const mutationTools = activeTools.filter((t) =>
+    /^(create|update|delete|remove|assign|close|transition|post|send|trigger|approve|reject|patch|insert|drop|truncate)_|\b(create|update|delete|mutate|write)\b/i.test(
+      t.name,
+    ),
+  );
+
+  const workflowLines: string[] = [];
+  if (discoveryTools.length > 0 && detailTools.length > 0) {
+    workflowLines.push(
+      `- **Step 1 (Discovery & ID Resolution)**: When the user provides a name, keyword, or filter criteria rather than an exact identifier, call ${discoveryTools
+        .slice(0, 4)
+        .map((t) => `\`${t.name}\``)
+        .join(' or ')} first to resolve the exact record ID/key.`,
+    );
+    workflowLines.push(
+      `- **Step 2 (Targeted Detail Retrieval)**: Pass the resolved identifier into ${detailTools
+        .slice(0, 4)
+        .map((t) => `\`${t.name}\``)
+        .join(' or ')} to fetch full record details.`,
+    );
+  } else if (discoveryTools.length > 0) {
+    workflowLines.push(
+      `- **Scoped Discovery**: Use ${discoveryTools
+        .slice(0, 4)
+        .map((t) => `\`${t.name}\``)
+        .join(', ')} with narrow filter arguments rather than broad unfiltered queries.`,
+    );
+  }
+
+  if (mutationTools.length > 0) {
+    workflowLines.push(
+      `- **Write / Mutation Guardrails**: Tools ${mutationTools
+        .slice(0, 4)
+        .map((t) => `\`${t.name}\``)
+        .join(', ')} modify live state. Verify all required parameters and confirm intent with the user before executing.`,
+    );
+  }
+
+  return workflowLines.join('\n');
 }
 
 export function generateByomcpGuidance(
@@ -328,6 +706,7 @@ export function generateByomcpGuidance(
   const enabledTools = tools.filter((t) => t.enabled);
   const activeTools = enabledTools.length > 0 ? enabledTools : tools;
   const cleanName = String(displayName || collectionId || 'Custom MCP');
+  const customDomain = inferCustomDomainSummary(cleanName, activeTools);
 
   const toolNamesPreview =
     activeTools.length > 0
@@ -341,14 +720,7 @@ export function generateByomcpGuidance(
     activeTools.length > 0
       ? activeTools
           .map((t) => {
-            const paramsInfo =
-              t.parameterNames.length > 0
-                ? ` (parameters: ${t.parameterNames.join(', ')}${
-                    t.requiredParams.length > 0
-                      ? `; required: ${t.requiredParams.join(', ')}`
-                      : ''
-                  })`
-                : '';
+            const paramsInfo = formatRichParameterSignature(t);
             const descInfo = t.description
               ? `: ${t.description}`
               : ' — execute targeted domain lookups with narrow filter parameters.';
@@ -356,6 +728,8 @@ export function generateByomcpGuidance(
           })
           .join('\n')
       : `- Invoke only the specific tool matching the user's intent and provide required filter arguments.`;
+
+  const workflowChainingSection = buildToolWorkflowChainingGuidance(activeTools);
 
   let recommendedServerDescription = '';
   let archetypeRules = '';
@@ -399,21 +773,34 @@ export function generateByomcpGuidance(
 3. MANDATORY CITATIONS: For every retrieved item, cite [Document Title](URI), author/owner, and last modified date when available.`;
       break;
 
-    default:
-      recommendedServerDescription = `${cleanName} (${useCaseLabel}): Specialized MCP integration providing ${
-        activeTools.length || 'custom'
-      } domain tools (${toolNamesPreview}). Route requests requiring live data lookups or actions in ${cleanName} to this server.`;
-      archetypeRules = `1. PRECISE TOOL SELECTION: Select the most specific MCP tool for the user's request and populate all required filter parameters.
-2. AVOID REDUNDANT CALLS: Do not invoke multiple overlapping tools in parallel if a single targeted lookup answers the question.
-3. STRUCTURED CITATIONS: Clearly attribute retrieved facts to the invoked tool and include clickable source links when returned.`;
+    default: {
+      const domainHint =
+        customDomain.domainConcepts.length > 0
+          ? ` covering ${customDomain.domainConcepts.join(', ')}`
+          : '';
+      recommendedServerDescription = `${cleanName} (${useCaseLabel}): Authoritative custom MCP server${domainHint} providing ${
+        activeTools.length || 'domain'
+      } tool(s) (${toolNamesPreview}) for ${customDomain.capabilitySummary}. Route questions or actions involving ${cleanName} here.`;
+      archetypeRules = `1. SCHEMA-GROUNDED PARAMETER SELECTION: Populate all required parameters (${
+        activeTools
+          .flatMap((t) => t.requiredParams)
+          .filter((v, i, a) => a.indexOf(v) === i)
+          .slice(0, 6)
+          .join(', ') || 'per tool inputSchema'
+      }) and strictly respect allowed enum values before invoking ${toolNamesPreview}.
+2. TARGETED TOOL INVOCATION: Select the single most specific tool for the user's intent rather than calling multiple overlapping tools in parallel.
+3. GROUNDED OUTPUT & CITATIONS: Attribute all returned data to ${cleanName} and render structured fields or source links clearly.`;
       break;
+    }
   }
 
   const recommendedAgentInstructions = `ROLE & ROUTING GUIDELINES FOR ${cleanName.toUpperCase()}:
 Use this MCP server when the user asks about ${useCaseLabel.toLowerCase()} handled by ${cleanName}.
 
-AVAILABLE TOOLS & INVOCATION contracts:
-${toolBullets}
+AVAILABLE TOOLS & INVOCATION CONTRACTS:
+${toolBullets}${
+    workflowChainingSection ? `\n\nTOOL EXECUTION & CHAINING ORDER:\n${workflowChainingSection}` : ''
+  }
 
 OPERATIONAL & FORMATTING BEST PRACTICES:
 ${archetypeRules}`;
@@ -430,14 +817,46 @@ ${archetypeRules}`;
     `${safePrefix} Query and Tool Optimizer`,
   );
 
+  // Build an intent-rich trigger description so the Gemini Enterprise Assistant planner
+  // knows the exact domain concepts and tool capabilities that should trigger this Skill.
+  const triggerDescription = sanitizeSkillDescription(
+    `Routes ${useCaseLabel} requests to ${cleanName} (${collectionId}). Trigger when the user asks about ${
+      customDomain.domainConcepts.length > 0
+        ? `${customDomain.domainConcepts.join(', ')} or `
+        : ''
+    }${customDomain.capabilitySummary} via MCP tools (${toolNamesPreview}).`,
+    900,
+  );
+
+  const primaryToolName = activeTools[0]?.name;
+  const secondaryToolName = activeTools[1]?.name;
+  const primaryConcept = customDomain.domainConcepts[0] || useCaseLabel.toLowerCase();
+  const byomcpSampleQueries = [
+    primaryToolName
+      ? `Use ${cleanName} to search or list recent ${primaryConcept} records via ${primaryToolName}.`
+      : `Search ${cleanName} for the latest ${primaryConcept} records and summarize their status.`,
+    secondaryToolName
+      ? `Look up detailed status and metadata in ${cleanName} using ${secondaryToolName}.`
+      : `What are the active items or high-priority updates in ${cleanName}?`,
+  ];
+
   const recommendedCompanionSkill: RecommendedSkillTemplate = {
     id: `skill-byomcp-${collectionId}`,
     skillIdSuggestion: `mcp-router-${safeSlug || 'custom'}`,
     displayName: companionDisplayName,
-    description: `Optimizes query routing, parameter construction, and result formatting when invoking the ${cleanName} (${collectionId}) BYOMCP server tools (${toolNamesPreview}).`,
-    instruction: `# ${cleanName} — MCP Query & Tool Routing Skill\n\n## When to Use This Skill\nActivate this skill whenever a user request involves **${useCaseLabel}** or requires live data/actions from **${cleanName}** (\`${collectionId}\`).\n\n## Tool Selection & Parameter Construction\n${toolBullets}\n\n## Latency & Quality Optimization Rules\n${archetypeRules}\n- Do NOT fan out queries to unrelated document DataStores when \`${cleanName}\` is the authoritative system of record for the user's question.`,
-    rationale: `Provides the Gemini Enterprise Assistant planner with explicit routing triggers and parameter schemas for the "${cleanName}" BYOMCP server, preventing unnecessary multi-datastore fan-out and failed tool calls.`,
+    description: triggerDescription,
+    instruction: `# ${cleanName} — MCP Routing, Tool Chaining & Parameter Skill\n\n## When to Activate This Skill (Routing Triggers)\nActivate this skill whenever a user request involves **${useCaseLabel}**${
+      customDomain.domainConcepts.length > 0
+        ? ` (specifically **${customDomain.domainConcepts.join(', ')}**)`
+        : ''
+    } or requires live lookups/actions from **${cleanName}** (\`${collectionId}\`: ${customDomain.capabilitySummary}).\n- Prioritize \`${cleanName}\` over generic unstructured document DataStores when the user needs live structured records or tool execution.\n${
+      workflowChainingSection
+        ? `\n## Multi-Step Tool Chaining Workflow\n${workflowChainingSection}\n`
+        : ''
+    }\n## Tool Selection & JSON-Schema Parameter Contracts\n${toolBullets}\n\n## Latency & Quality Optimization Rules\n${archetypeRules}\n- Do NOT fan out queries to unrelated document DataStores when \`${cleanName}\` is the authoritative system of record for the user's question.`,
+    rationale: `Provides the Gemini Enterprise Assistant planner with domain-specific routing triggers, multi-step tool chaining rules, and JSON-Schema parameter contracts for the "${cleanName}" BYOMCP server.`,
     targetSources: [collectionId],
+    sampleQueries: byomcpSampleQueries,
   };
 
   return {
@@ -487,7 +906,7 @@ export function evaluateByomcpConnector(
     rawTools.forEach((t) => {
       const isEnabled =
         t.enabled !== undefined ? Boolean(t.enabled) : enabledActions.has(t.name);
-      const { parameterNames, requiredParams } = extractSchemaParams(
+      const { parameterNames, requiredParams, parameterDetails } = extractSchemaParams(
         t.inputSchema as Record<string, unknown> | undefined,
       );
       tools.push({
@@ -497,6 +916,7 @@ export function evaluateByomcpConnector(
         enabled: isEnabled,
         parameterNames,
         requiredParams,
+        parameterDetails,
       });
     });
   } else if (enabledActions.size > 0) {
@@ -508,6 +928,7 @@ export function evaluateByomcpConnector(
         enabled: true,
         parameterNames: [],
         requiredParams: [],
+        parameterDetails: [],
       });
     });
   }
@@ -598,6 +1019,518 @@ export function evaluateByomcpConnector(
   };
 }
 
+export interface ThirdPartyConnectorEvaluation {
+  collectionId: string;
+  connectorName: string;
+  displayName: string;
+  connectorType: string;
+  useCaseLabel: string;
+  isAttachedToEngine: boolean;
+  state: string;
+  entityStoreIds: string[];
+  entityNames: string[];
+  enabledActions: string[];
+  hasCoveringSkill: boolean;
+  recommendedSkill: RecommendedSkillTemplate;
+}
+
+const SYSTEM_OVERRIDE_ANTIPATTERN_REGEX =
+  /\b(ignore\s+(?:all\s+)?(?:previous|prior|system|above)\s+instructions|disregard\s+(?:all\s+)?(?:system|previous|prior)\s+(?:instructions|prompts?|rules)|override\s+(?:safety|guardrails|model\s+armor|system\s+prompt)|forget\s+all\s+(?:prior|previous)\s+rules)\b/i;
+
+export function evaluateThirdPartyConnectorForSkill(
+  collectionId: string,
+  connector: DataConnector,
+  isAttachedToEngine: boolean,
+  attachedEntityStoreIds: string[],
+  collectionDisplayName?: string,
+): ThirdPartyConnectorEvaluation {
+  const params = connector.params || {};
+  const rawType = String(
+    connector.dataSource || connector.connectorType || collectionId || 'THIRD_PARTY',
+  );
+  const displayName =
+    collectionDisplayName ||
+    (typeof params.display_name === 'string' ? params.display_name : '') ||
+    collectionId;
+
+  const entityNames: string[] = [];
+  const entityStoreIdsSet = new Set<string>(attachedEntityStoreIds);
+  if (Array.isArray(connector.entities)) {
+    connector.entities.forEach((ent: Record<string, unknown>) => {
+      if (typeof ent.entityName === 'string' && ent.entityName.trim()) {
+        entityNames.push(ent.entityName.trim());
+      }
+      if (typeof ent.dataStore === 'string' && ent.dataStore.trim()) {
+        const dsShort = ent.dataStore.split('/').pop() || ent.dataStore;
+        if (dsShort) entityStoreIdsSet.add(dsShort);
+      }
+    });
+  }
+  if (entityStoreIdsSet.size === 0) {
+    entityStoreIdsSet.add(collectionId);
+  }
+  const entityStoreIds = Array.from(entityStoreIdsSet);
+
+  const bap = (connector.bapConfig || {}) as {
+    enabledActions?: unknown;
+    supportedActions?: unknown;
+  };
+  const enabledActions = Array.from(
+    new Set([
+      ...(Array.isArray(bap.enabledActions)
+        ? bap.enabledActions.filter((a): a is string => typeof a === 'string')
+        : []),
+      ...(Array.isArray(bap.supportedActions)
+        ? bap.supportedActions.filter((a): a is string => typeof a === 'string')
+        : []),
+    ]),
+  );
+
+  const signal = `${displayName} ${collectionId} ${rawType} ${entityNames.join(' ')}`.toLowerCase();
+
+  let useCaseLabel = 'Enterprise 3rd-Party Connector';
+  let domainTriggers = 'records, documents, and domain entities';
+  let filterGuidance =
+    'Apply specific keyword, status, owner, and date-range filters rather than running broad unfiltered searches.';
+  let sampleQueries: string[] = [
+    `Search ${displayName} for the latest active records and summarize their status.`,
+    `Find high-priority items or recent updates in ${displayName}.`,
+  ];
+
+  if (/\b(jira|atlassian_jira|buganizer|linear)\b/.test(signal)) {
+    useCaseLabel = 'Jira & Issue Tracking Connector';
+    domainTriggers =
+      'Jira tickets, engineering bugs, epics, stories, sprint backlogs, assignees, and blocker issues';
+    filterGuidance =
+      'Filter by exact issue key (e.g., PROJ-123), project key, status (Open, In Progress, Blocked, Done), priority, or assignee. Query the `issue` entity store first before checking `comment` or `worklog` entity stores.';
+    sampleQueries = [
+      `Search ${displayName} for open high-priority engineering issues or sprint blockers and list their issue keys and assignees.`,
+      `Find recent bug reports or epic status updates in ${displayName}.`,
+    ];
+  } else if (/\b(servicenow|service_now|itsm|pagerduty|zendesk)\b/.test(signal)) {
+    useCaseLabel = 'ITSM & Incident Management Connector';
+    domainTriggers =
+      'IT incidents, service requests, change requests, problem tickets, SLA breaches, and IT knowledge articles';
+    filterGuidance =
+      'Filter by incident/ticket number (e.g., INC/RITM/CHG), severity/priority (P1/P2), state, or assignment group. Route active outage/ticket lookups to `incident` first and troubleshooting how-to questions to `kb_knowledge`.';
+    sampleQueries = [
+      `Search ${displayName} for active P1 or P2 incidents and summarize their current state and assignment group.`,
+      `Find IT knowledge base articles or standard change procedures in ${displayName}.`,
+    ];
+  } else if (/\b(salesforce|sfdc|hubspot|crm|dynamics)\b/.test(signal)) {
+    useCaseLabel = 'CRM & Customer Account Connector';
+    domainTriggers =
+      'customer accounts, sales opportunities, pipeline stages, leads, contacts, support cases, and renewal revenue';
+    filterGuidance =
+      'Resolve the exact `Account` or `Opportunity` record first before querying secondary `Case`, `Contact`, or `Task` entity stores. Preserve exact currency amounts, close dates, and pipeline stage names.';
+    sampleQueries = [
+      `Look up active enterprise accounts and open opportunities in ${displayName} and summarize their pipeline stage.`,
+      `Find recent customer support cases or account activity in ${displayName}.`,
+    ];
+  } else if (/\b(confluence|wiki|notion)\b/.test(signal)) {
+    useCaseLabel = 'Enterprise Wiki & Documentation Connector';
+    domainTriggers =
+      'architecture design docs, engineering runbooks, product specifications, team wikis, and onboarding guides';
+    filterGuidance =
+      'Query the primary `page` entity store first with concise domain keywords and space/label filters. Avoid fanning out to `comment` or `attachment` stores unless the primary page search yields no matches.';
+    sampleQueries = [
+      `Search ${displayName} for architecture guidelines, engineering runbooks, or system design documentation.`,
+      `Find the latest product requirements or team onboarding guides in ${displayName}.`,
+    ];
+  } else if (/\b(sharepoint|onedrive|office365|o365|box|gdrive|google_drive|drive)\b/.test(signal)) {
+    useCaseLabel = 'Enterprise Document & Cloud Storage Connector';
+    domainTriggers =
+      'shared enterprise documents, presentations, spreadsheets, contracts, policy manuals, and project folders';
+    filterGuidance =
+      'Formulate targeted document-title and topic queries, prioritize recently modified authoritative files, and cite exact document titles and links.';
+    sampleQueries = [
+      `Search ${displayName} for official policy documents, executive presentations, or standard operating procedures.`,
+      `Find recent project charters or contract templates stored in ${displayName}.`,
+    ];
+  } else if (/\b(workday|bamboo|successfactors|hris|peoplesoft)\b/.test(signal)) {
+    useCaseLabel = 'HRIS & People Operations Connector';
+    domainTriggers =
+      'employee profiles, org structure, PTO balances, benefits policies, job requisitions, and onboarding workflows';
+    filterGuidance =
+      'Route policy/benefit questions to HR knowledge stores and specific employee/org lookups to the primary worker/organization entity store.';
+    sampleQueries = [
+      `Search ${displayName} for employee benefits, PTO policies, or onboarding procedures.`,
+      `Look up department structure or open requisition guidelines in ${displayName}.`,
+    ];
+  } else if (/\b(github|gitlab|bitbucket)\b/.test(signal)) {
+    useCaseLabel = 'Source Control & Engineering Repository Connector';
+    domainTriggers =
+      'pull requests, merge requests, code repositories, commits, release notes, and repository issues';
+    filterGuidance =
+      'Scope queries by repository name, PR/issue number, author, or branch. Query `pull_request` or `issue` entity stores first before scanning full commit histories.';
+    sampleQueries = [
+      `Search ${displayName} for recent pull requests, release notes, or open repository issues.`,
+      `Find code review guidelines or repository documentation in ${displayName}.`,
+    ];
+  } else if (/\b(slack|teams|chat|gchat)\b/.test(signal)) {
+    useCaseLabel = 'Enterprise Messaging & Channel History Connector';
+    domainTriggers =
+      'channel discussions, incident war-room threads, team announcements, and shared decisions';
+    filterGuidance =
+      'Filter by channel name, thread participants, and recency window so stale conversational chatter does not dilute authoritative documentation.';
+    sampleQueries = [
+      `Search ${displayName} for recent channel announcements or incident resolution threads.`,
+      `Find team discussions or shared links regarding recent releases in ${displayName}.`,
+    ];
+  }
+
+  const safeSlug = String(collectionId || 'connector')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 38);
+
+  const safePrefix = sanitizeSkillDisplayName(displayName).slice(0, 36).trim() || 'Connector';
+  const skillDisplayName = sanitizeSkillDisplayName(
+    `${safePrefix} Connector Query Optimizer`,
+  );
+
+  const entityBullets = entityStoreIds
+    .slice(0, 8)
+    .map((id, idx) => {
+      const entName = entityNames[idx] || id.replace(`${collectionId}_`, '');
+      return `- **\`${id}\`** (Entity: \`${entName}\`): Query this store only when the user specifically asks for \`${entName}\` records.`;
+    })
+    .join('\n');
+
+  const actionSection =
+    enabledActions.length > 0
+      ? `\n## Read Retrieval vs. Live Connector Actions\n- **Enabled Connector Actions**: \`${enabledActions.slice(0, 8).join('`, `')}\`\n- Use indexed entity DataStores (${entityStoreIds.slice(0, 4).map((s) => `\`${s}\``).join(', ')}) for read/search questions. Only invoke live connector actions when the user explicitly requests a live record mutation or real-time action, and confirm required parameters with the user before executing write actions.\n`
+      : '';
+
+  const recommendedSkill: RecommendedSkillTemplate = {
+    id: `skill-connector-${collectionId}`,
+    skillIdSuggestion: `connector-${safeSlug}-router`,
+    displayName: skillDisplayName,
+    description: sanitizeSkillDescription(
+      `Routes ${useCaseLabel} queries to ${displayName} (${collectionId}). Trigger when the user asks about ${domainTriggers} across ${entityStoreIds.slice(0, 5).join(', ')}.`,
+      900,
+    ),
+    instruction: `# ${displayName} — 3rd-Party Connector Entity Routing & Query Skill
+
+## When to Activate This Skill (Routing Triggers)
+Activate this skill whenever a user request involves **${useCaseLabel}** (specifically **${domainTriggers}**) handled by **${displayName}** (\`${collectionId}\`).
+
+## Single-Source First & Entity Store Disambiguation
+This connector exposes **${entityStoreIds.length} entity DataStore(s)**. To prevent high-latency intra-connector fan-out, select ONLY the single primary entity DataStore matching the user's intent first:
+${entityBullets}
+- **Intent-First Source Selection**: Route each user query to the single most authoritative DataStore or MCP tool first. Do NOT fan out across all connected DataStores simultaneously unless the user explicitly asks for a cross-system comparison.
+${actionSection}
+## Connector-Specific Query & Filter Rules
+1. **Scoped Filtering**: ${filterGuidance}
+2. **Direct Single-Hop Execution**: Execute at most ONE targeted retrieval call against the primary entity store before synthesizing the answer. Only query secondary entity stores if the primary store returns zero matches.
+3. **Grounded Citations**: Always include clickable source links, record IDs/keys, and last-updated timestamps from ${displayName}.`,
+    rationale: `Prevents intra-connector fan-out across ${entityStoreIds.length} entity store(s) (${entityStoreIds.slice(0, 4).join(', ')}) and optimizes query filtering for the "${displayName}" (${rawType}) 3rd-party connector.`,
+    targetSources: entityStoreIds.slice(0, 8),
+    sampleQueries,
+  };
+
+  return {
+    collectionId,
+    connectorName: connector.name || `collections/${collectionId}/dataConnector`,
+    displayName,
+    connectorType: rawType,
+    useCaseLabel,
+    isAttachedToEngine,
+    state: connector.state || 'ACTIVE',
+    entityStoreIds,
+    entityNames,
+    enabledActions,
+    hasCoveringSkill: false,
+    recommendedSkill,
+  };
+}
+
+/**
+ * Inspects the customer's live Assistant System/Style Instructions, Connector Instructions/Tools/Entities,
+ * and active Organizational Skills to detect cross-resource contradictions WITHOUT embedding or exposing
+ * any internal Google system prompts or proprietary planner code.
+ */
+export function detectSkillAndInstructionConflicts(params: {
+  assistantSystemInstruction: string;
+  enabledSkills: Agent[];
+  byomcpEvaluations: ByomcpConnectorEvaluation[];
+  thirdPartyConnectors: ThirdPartyConnectorEvaluation[];
+  attachedDataStoreIds: Set<string>;
+  attachedConnectorIds: Set<string>;
+}): AssistantEvaluationFinding[] {
+  const {
+    assistantSystemInstruction,
+    enabledSkills,
+    byomcpEvaluations,
+    thirdPartyConnectors,
+    attachedDataStoreIds,
+    attachedConnectorIds,
+  } = params;
+
+  const conflictFindings: AssistantEvaluationFinding[] = [];
+  if (enabledSkills.length === 0) return conflictFindings;
+
+  const sysLower = assistantSystemInstruction.toLowerCase();
+  const sysHasFanout = FANOUT_ANTI_PATTERN_REGEX.test(assistantSystemInstruction);
+  const sysForbidsTables =
+    /\b(never\s+use\s+(?:markdown\s+)?tables?|do\s+not\s+(?:use|output|render)\s+(?:markdown\s+)?tables?|plain\s+text\s+only|json\s+only)\b/i.test(
+      assistantSystemInstruction,
+    );
+
+  // Extract explicit source/tool prohibitions from Assistant System Instructions:
+  // e.g. "never query jira", "do not use servicenow", "avoid searching confluence"
+  const prohibitedSourcesInSys = new Set<string>();
+  const prohibitionRegex =
+    /\b(?:never|do\s+not|don't|must\s+not|prohibit(?:ed)?\s+from)\s+(?:use|using|query|querying|search|searching|call|calling|route\s+to|invoke|invoking)\s+(?:the\s+)?([a-z0-9_-]{3,35})\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = prohibitionRegex.exec(sysLower)) !== null) {
+    const token = match[1].trim();
+    if (!['all', 'any', 'every', 'other', 'multiple', 'unrelated', 'external'].includes(token)) {
+      prohibitedSourcesInSys.add(token);
+    }
+  }
+
+  const assistantConflictDetails: string[] = [];
+  const connectorConflictDetails: string[] = [];
+  const overrideAntiPatternSkills: string[] = [];
+
+  for (const skill of enabledSkills) {
+    const skillName = skill.displayName || skill.name.split('/').pop() || 'Skill';
+    const desc = (skill.description || '').trim();
+    const inst = (skill.skillAgentDefinition?.instruction || '').trim();
+    const combinedSkillText = `${desc}\n${inst}`;
+    const skillLower = combinedSkillText.toLowerCase();
+
+    // 1. Check for System-Override / Prompt-Injection Anti-Patterns inside Skill
+    if (SYSTEM_OVERRIDE_ANTIPATTERN_REGEX.test(combinedSkillText)) {
+      overrideAntiPatternSkills.push(skillName);
+    }
+
+    // 2. Check Skill vs. Assistant Global System Instructions
+    const skillHasSingleSourceRule =
+      /\b(single\s+most\s+authoritative|do\s+not\s+fan\s+out|intent-first\s+source\s+selection|single-source\s+first)\b/i.test(
+        combinedSkillText,
+      );
+    if (sysHasFanout && skillHasSingleSourceRule) {
+      assistantConflictDetails.push(
+        `Skill "${skillName}" enforces Single-Source First routing, but the Assistant's global System Instructions command "search all datastores/sources", overriding the skill on every turn.`,
+      );
+    }
+
+    if (
+      sysForbidsTables &&
+      /\b(markdown\s+tables?|render\s+tabular\s+results\s+in\s+clean\s+markdown\s+tables?)\b/i.test(
+        combinedSkillText,
+      )
+    ) {
+      assistantConflictDetails.push(
+        `Skill "${skillName}" instructs rendering Markdown tables, which directly contradicts the Assistant's global System Instruction formatting constraint ("never use tables / JSON or plain text only").`,
+      );
+    }
+
+    prohibitedSourcesInSys.forEach((forbiddenToken) => {
+      const prioritizeRegex = new RegExp(
+        `\\b(?:route|query|search|prioritize|use|call|activate)\\b[^.\\n]{0,60}\\b${forbiddenToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
+        'i',
+      );
+      if (prioritizeRegex.test(combinedSkillText)) {
+        assistantConflictDetails.push(
+          `Skill "${skillName}" routes queries to "${forbiddenToken}", which the Assistant's global System Instructions explicitly prohibit querying.`,
+        );
+      }
+    });
+
+    // 3. Check Skill vs. BYOMCP Connector Instructions & Disabled Tools
+    for (const mcp of byomcpEvaluations) {
+      const mentionsThisMcp =
+        skillLower.includes(mcp.collectionId.toLowerCase()) ||
+        (mcp.displayName.length >= 4 && skillLower.includes(mcp.displayName.toLowerCase()));
+      if (!mentionsThisMcp) continue;
+
+      // 3a. Skill references a BYOMCP connector that is NOT attached to this Engine
+      if (!mcp.isAttachedToEngine && attachedDataStoreIds.size > 0) {
+        connectorConflictDetails.push(
+          `Skill "${skillName}" routes queries to BYOMCP connector "${mcp.displayName}" (${mcp.collectionId}), which is currently detached from this Engine.`,
+        );
+      }
+
+      // 3b. Skill explicitly instructs calling a tool that is DISABLED on the connector
+      const disabledToolsReferenced = mcp.tools
+        .filter((t) => !t.enabled && t.name.length >= 4 && skillLower.includes(t.name.toLowerCase()))
+        .map((t) => t.name);
+      if (disabledToolsReferenced.length > 0) {
+        connectorConflictDetails.push(
+          `Skill "${skillName}" instructs calling tool(s) (${disabledToolsReferenced.slice(0, 4).join(', ')}) that are currently DISABLED on BYOMCP connector "${mcp.displayName}".`,
+        );
+      }
+
+      // 3c. Connector instructions enforce Read-Only safety while Skill instructs unguarded write mutations
+      const mcpInstReadOnly =
+        /\b(read-only|read\s+only\s+mode|never\s+(?:execute|run|call)\s+(?:write|mutation|create|update|delete|drop))\b/i.test(
+          mcp.currentAgentInstructions,
+        );
+      const skillForcesMutation =
+        /\b(always\s+(?:create|update|delete|modify)|automatically\s+(?:create|update|delete|close)\s+(?:tickets?|records?|issues?)\s+without\s+asking)\b/i.test(
+          combinedSkillText,
+        );
+      if (mcpInstReadOnly && skillForcesMutation) {
+        connectorConflictDetails.push(
+          `Skill "${skillName}" instructs automatic record mutations on "${mcp.displayName}", conflicting with the connector's read-only mcp_agent_instructions.`,
+        );
+      }
+    }
+
+    // 4. Check Skill vs. 3rd-Party Connectors (Detached or Failed State)
+    for (const tp of thirdPartyConnectors) {
+      const mentionsTp =
+        skillLower.includes(tp.collectionId.toLowerCase()) ||
+        (tp.displayName.length >= 4 && skillLower.includes(tp.displayName.toLowerCase()));
+      if (!mentionsTp) continue;
+
+      if (!tp.isAttachedToEngine && attachedConnectorIds.size > 0) {
+        connectorConflictDetails.push(
+          `Skill "${skillName}" routes to 3rd-party connector "${tp.displayName}" (${tp.collectionId}), which is not attached to this Engine.`,
+        );
+      } else if (['FAILED', 'ERROR', 'CREATION_FAILED'].includes(tp.state.toUpperCase())) {
+        connectorConflictDetails.push(
+          `Skill "${skillName}" routes to 3rd-party connector "${tp.displayName}" (${tp.collectionId}), which is currently in ${tp.state} state.`,
+        );
+      }
+    }
+  }
+
+  // 5. Check Skill-vs-Skill Overlapping Trigger Descriptions
+  const tokenizeTrigger = (text: string): Set<string> =>
+    new Set(
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, ' ')
+        .split(/\s+/)
+        .filter(
+          (w) =>
+            w.length >= 4 &&
+            ![
+              'route',
+              'routes',
+              'routing',
+              'query',
+              'queries',
+              'skill',
+              'when',
+              'user',
+              'asks',
+              'about',
+              'trigger',
+              'enterprise',
+              'datastore',
+              'datastores',
+              'connector',
+              'Across',
+              'across',
+              'from',
+              'with',
+              'into',
+              'this',
+              'that',
+            ].includes(w),
+        ),
+    );
+
+  const overlappingPairs: string[] = [];
+  for (let i = 0; i < enabledSkills.length; i++) {
+    for (let j = i + 1; j < enabledSkills.length; j++) {
+      const sA = enabledSkills[i];
+      const sB = enabledSkills[j];
+      const tokA = tokenizeTrigger(sA.description || '');
+      const tokB = tokenizeTrigger(sB.description || '');
+      if (tokA.size < 3 || tokB.size < 3) continue;
+      let intersection = 0;
+      tokA.forEach((t) => {
+        if (tokB.has(t)) intersection++;
+      });
+      const union = new Set([...tokA, ...tokB]).size;
+      const jaccard = union > 0 ? intersection / union : 0;
+      if (jaccard >= 0.65) {
+        overlappingPairs.push(
+          `"${sA.displayName}" & "${sB.displayName}" (${Math.round(jaccard * 100)}% trigger overlap)`,
+        );
+      }
+    }
+  }
+
+  if (assistantConflictDetails.length > 0) {
+    conflictFindings.push({
+      id: 'skills-conflict-with-assistant-instructions',
+      category: 'SKILLS_AND_ROUTING',
+      severity: 'CRITICAL',
+      title: `Skill Instructions Conflict with Assistant Global System Instructions (${assistantConflictDetails.length})`,
+      summary: assistantConflictDetails.join(' '),
+      currentValue: `${assistantConflictDetails.length} Cross-Instruction Contradiction(s)`,
+      recommendedValue: 'Harmonized Assistant Persona + Scoped Skill Routing Rules',
+      impact:
+        'When an active Skill contradicts the Assistant’s global System & Style Instructions, the planner receives conflicting directives on every turn—causing increased deliberation latency, ignored skill routing rules, or inconsistent output formatting.',
+      remediation:
+        'Remove conflicting fan-out or source-prohibition rules from Overview > Assistant Editor (System & Style Instructions), or update the Skill’s SKILL.md instructions so both resources align.',
+      targetTab: 'skills',
+    });
+  }
+
+  if (connectorConflictDetails.length > 0) {
+    conflictFindings.push({
+      id: 'skills-conflict-with-connector-config',
+      category: 'SKILLS_AND_ROUTING',
+      severity: 'WARNING',
+      title: `Skill Instructions Conflict with Connector Capabilities or Instructions (${connectorConflictDetails.length})`,
+      summary: connectorConflictDetails.join(' '),
+      currentValue: `${connectorConflictDetails.length} Skill ↔ Connector Mismatch(es)`,
+      recommendedValue: 'Skills reference only enabled tools & healthy attached connectors',
+      impact:
+        'Instructing the Assistant to call disabled MCP tools, mutate read-only connectors, or query unattached/failed connectors causes failed tool invocations and fallback latency spikes.',
+      remediation:
+        'Open the Skills tab (or Recommended Skills editor) to remove disabled tool names and align the Skill with the connector’s active tools and mcp_agent_instructions.',
+      targetTab: 'skills',
+    });
+  }
+
+  if (overlappingPairs.length > 0) {
+    conflictFindings.push({
+      id: 'skills-overlapping-routing-conflict',
+      category: 'SKILLS_AND_ROUTING',
+      severity: 'INFO',
+      title: `Overlapping Trigger Descriptions Across Active Skills (${overlappingPairs.length} Pair${overlappingPairs.length === 1 ? '' : 's'})`,
+      summary: `Active organizational skills have highly overlapping trigger descriptions: ${overlappingPairs.slice(0, 3).join('; ')}.`,
+      currentValue: `${overlappingPairs.length} Overlapping Skill Pair(s)`,
+      recommendedValue: 'Mutually exclusive domain triggers per Skill',
+      impact:
+        'Overlapping skill descriptions cause the Discovery Engine planner to activate multiple competing skills on the same turn or oscillate between skills, increasing TTFT latency.',
+      remediation:
+        'Differentiate each Skill’s Trigger Description so each skill owns a distinct set of connectors, DataStores, or user intents, or consolidate duplicate skills.',
+      targetTab: 'skills',
+    });
+  }
+
+  if (overrideAntiPatternSkills.length > 0) {
+    conflictFindings.push({
+      id: 'skills-system-override-antipattern',
+      category: 'SECURITY_AND_GOVERNANCE',
+      severity: 'CRITICAL',
+      title: `Skill Contains System-Instruction Override Anti-Pattern (${overrideAntiPatternSkills.join(', ')})`,
+      summary: `Active skill(s) (${overrideAntiPatternSkills.join(', ')}) contain "ignore previous/system instructions" or guardrail-override phrasing.`,
+      currentValue: `System-override phrasing in ${overrideAntiPatternSkills.length} Skill(s)`,
+      recommendedValue: 'Additive domain routing instructions without system-prompt overrides',
+      impact:
+        'Directives to ignore prior/system instructions conflict with the Assistant’s built-in orchestration framing and can trigger Model Armor Prompt Injection & Jailbreak blocks during turn execution.',
+      remediation:
+        'Edit the Skill’s SKILL.md instructions to remove "ignore previous/system instructions" phrasing and state routing rules positively.',
+      targetTab: 'skills',
+    });
+  }
+
+  return conflictFindings;
+}
+
 /**
  * Applies the recommended `mcp_server_description` and `mcp_agent_instructions`
  * directly to a BYOMCP `DataConnector` without triggering unintended OAuth credential rotation.
@@ -686,6 +1619,7 @@ export function evaluateAssistantData(
   const findings: AssistantEvaluationFinding[] = [];
   const recommendedSkills: RecommendedSkillTemplate[] = [];
   const byomcpEvaluations: ByomcpConnectorEvaluation[] = [];
+  const thirdPartyEvaluations: ThirdPartyConnectorEvaluation[] = [];
 
   const engineId = engine.name.split('/').pop() || config.appId || 'default_engine';
   const assistantId =
@@ -754,18 +1688,23 @@ export function evaluateAssistantData(
   }
 
   // Classify Skills vs Conversational/Workflow Agents
-  const skillAgents = agents.filter((a) => isSkillAgentResource(a));
+  // Ignore private/personal user skills (state === 'PRIVATE' or sharingConfig.scope === 'PRIVATE' or sharingScope === 'PRIVATE_PERSONAL')
+  const allSkillAgents = agents.filter((a) => isSkillAgentResource(a));
+  const skillAgents = allSkillAgents.filter((s) => {
+    const state = (s.state || 'PRIVATE').toUpperCase();
+    if (state === 'PRIVATE' || s.sharingConfig?.scope === 'PRIVATE') return false;
+    const classification = classifySkillAgent(s);
+    return classification.sharingScope === 'ORG_WIDE';
+  });
   const conversationalAgents = agents.filter((a) => !isSkillAgentResource(a));
 
   const enabledSkills = skillAgents.filter(
-    (s) =>
-      (s.state || 'PRIVATE').toUpperCase() === 'ENABLED' &&
-      s.sharingConfig?.scope !== 'PRIVATE',
+    (s) => (s.state || '').toUpperCase() === 'ENABLED',
   );
+  // Only organizational (ORG_WIDE / ALL_USERS) skills that were explicitly disabled are tracked here;
+  // private/personal user skills are excluded completely.
   const privateOrDisabledSkills = skillAgents.filter(
-    (s) =>
-      (s.state || 'PRIVATE').toUpperCase() !== 'ENABLED' ||
-      s.sharingConfig?.scope === 'PRIVATE',
+    (s) => (s.state || '').toUpperCase() === 'DISABLED',
   );
   const skillsMissingDescription = enabledSkills.filter((s) => {
     const classification = classifySkillAgent(s);
@@ -773,7 +1712,7 @@ export function evaluateAssistantData(
     return !(s.description || '').trim();
   });
 
-  // Helper to check if a recommended skill is already deployed
+  // Helper to check if a recommended organizational skill is already deployed
   const existingSkillKeys = new Set<string>();
   skillAgents.forEach((s) => {
     const shortId = s.name?.split('/').pop()?.toLowerCase();
@@ -789,14 +1728,25 @@ export function evaluateAssistantData(
     );
   };
 
-  // Evaluate BYOMCP Connectors
+  // Evaluate BYOMCP and 3rd-Party Connectors
   Object.entries(connectorsByCollectionId).forEach(([cid, connector]) => {
     const coll = collectionMap.get(cid);
+    const entityStoreShortIds = Array.isArray(connector.entities)
+      ? connector.entities
+          .map((ent: Record<string, unknown>) =>
+            typeof ent.dataStore === 'string'
+              ? ent.dataStore.split('/').pop() || ent.dataStore
+              : '',
+          )
+          .filter(Boolean)
+      : [];
+    const attachedFromEntities = entityStoreShortIds.filter((id) => attachedIds.has(id));
+    const isAttached =
+      attachedConnectorIds.has(cid) ||
+      attachedIds.has(cid) ||
+      attachedFromEntities.length > 0 ||
+      Array.from(attachedIds).some((id) => id.startsWith(`${cid}_`));
     if (isByomcpConnector(connector, coll)) {
-      const isAttached =
-        attachedConnectorIds.has(cid) ||
-        attachedIds.has(cid) ||
-        Array.from(attachedIds).some((id) => id.startsWith(`${cid}_`));
       const evalItem = evaluateByomcpConnector(
         cid,
         connector,
@@ -804,6 +1754,31 @@ export function evaluateAssistantData(
         coll?.displayName,
       );
       byomcpEvaluations.push(evalItem);
+    } else {
+      const attachedEntityStores = Array.from(
+        new Set([
+          ...attachedFromEntities,
+          ...Array.from(attachedIds).filter((id) => id === cid || id.startsWith(`${cid}_`)),
+        ]),
+      );
+      const tpEval = evaluateThirdPartyConnectorForSkill(
+        cid,
+        connector,
+        isAttached,
+        attachedEntityStores,
+        coll?.displayName,
+      );
+      const coveredByExistingSkill = enabledSkills.some((sk) => {
+        const text = `${sk.displayName || ''} ${sk.description || ''} ${sk.skillAgentDefinition?.instruction || ''}`.toLowerCase();
+        return (
+          text.includes(cid.toLowerCase()) ||
+          (tpEval.displayName.length >= 4 && text.includes(tpEval.displayName.toLowerCase())) ||
+          tpEval.entityStoreIds.some((es) => text.includes(es.toLowerCase()))
+        );
+      });
+      tpEval.hasCoveringSkill =
+        coveredByExistingSkill || isSkillAlreadyDeployed(tpEval.recommendedSkill);
+      thirdPartyEvaluations.push(tpEval);
     }
   });
 
@@ -980,38 +1955,123 @@ export function evaluateAssistantData(
   // ============================================================================
   // Build recommended DataStore routing skill whenever DataStores or Connectors exist
   if (connectedDataStoresCount > 0 || attachedConnectorIds.size > 0) {
-    const storeListText =
-      attachedDataStoreDisplayNames.length > 0
-        ? attachedDataStoreDisplayNames
-            .slice(0, 12)
-            .map((name) => `- **${name}**`)
-            .join('\n')
-        : Array.from(attachedIds)
-            .slice(0, 12)
-            .map((id) => `- \`${id}\``)
-            .join('\n');
+    const inferStoreRoutingHint = (name: string, id: string, rawSource?: string): string => {
+      const combined = `${name} ${id} ${rawSource || ''}`.toLowerCase();
+      if (/\b(jira|bug|ticket|sprint|backlog|linear)\b/.test(combined)) {
+        return 'Route engineering tickets, bugs, sprint status, and issue-tracking queries here.';
+      }
+      if (/\b(servicenow|incident|itsm|pagerduty|zendesk)\b/.test(combined)) {
+        return 'Route IT incidents, service requests, change tickets, and SLA inquiries here.';
+      }
+      if (/\b(confluence|wiki|runbook|handbook|notion)\b/.test(combined)) {
+        return 'Route internal wiki documentation, engineering runbooks, and architecture guides here.';
+      }
+      if (/\b(hr|benefit|workday|policy|policies|employee|onboarding|pto)\b/.test(combined)) {
+        return 'Route employee HR policies, benefits, PTO, and people-operations questions here.';
+      }
+      if (/\b(salesforce|crm|account|opportunity|customer|revenue|sap|erp)\b/.test(combined)) {
+        return 'Route customer account, sales opportunity, pipeline, and ERP order queries here.';
+      }
+      if (/\b(gdrive|drive|sharepoint|onedrive|box|gcs|document|contract)\b/.test(combined)) {
+        return 'Route shared enterprise documents, decks, spreadsheets, and formal policy files here.';
+      }
+      if (/\b(bigquery|sql|alloydb|spanner|snowflake|analytics|warehouse)\b/.test(combined)) {
+        return 'Route structured data tables, KPI metrics, and analytical SQL lookups here.';
+      }
+      return 'Route domain questions matching this source name and document scope here.';
+    };
+
+    const attachedStoresList = dataStores.filter((ds) => {
+      const dsId = ds.name.split('/').pop() || ds.name;
+      return attachedIds.has(dsId);
+    });
+
+    const storeRoutingBullets: string[] = [];
+    if (attachedStoresList.length > 0) {
+      attachedStoresList.slice(0, 12).forEach((ds) => {
+        const dsId = ds.name.split('/').pop() || ds.name;
+        const dsParts = ds.name.split('/');
+        const collIdx = dsParts.indexOf('collections');
+        const cid = collIdx !== -1 && dsParts[collIdx + 1] ? dsParts[collIdx + 1] : '';
+        const conn = cid ? connectorsByCollectionId[cid] : undefined;
+        const rawSource = conn?.dataSource || conn?.connectorType;
+        const sourceType = typeof rawSource === 'string' ? rawSource : '';
+        const label = ds.displayName || dsId;
+        const hint = inferStoreRoutingHint(label, dsId, sourceType);
+        storeRoutingBullets.push(`- **${label}** (\`${dsId}\`) — ${hint}`);
+      });
+    } else if (attachedDataStoreDisplayNames.length > 0) {
+      attachedDataStoreDisplayNames.slice(0, 12).forEach((name) => {
+        storeRoutingBullets.push(`- **${name}** — ${inferStoreRoutingHint(name, name)}`);
+      });
+    } else {
+      Array.from(attachedIds)
+        .slice(0, 12)
+        .forEach((id) => {
+          storeRoutingBullets.push(`- \`${id}\` — ${inferStoreRoutingHint(id, id)}`);
+        });
+    }
+
+    const attachedMcpServers = byomcpEvaluations.filter((m) => m.isAttachedToEngine);
+    attachedMcpServers.slice(0, 8).forEach((mcp) => {
+      const toolPreview =
+        mcp.tools
+          .filter((t) => t.enabled)
+          .slice(0, 4)
+          .map((t) => t.name)
+          .join(', ') || 'MCP tools';
+      storeRoutingBullets.push(
+        `- **${mcp.displayName}** (\`${mcp.collectionId}\` — BYOMCP: ${mcp.useCaseLabel}) — Route live ${mcp.useCaseLabel.toLowerCase()} lookups and tool actions (${toolPreview}) here.`,
+      );
+    });
+
+    const storeListText = storeRoutingBullets.join('\n');
+
+    const primaryStoreLabel =
+      attachedStoresList[0]?.displayName ||
+      attachedDataStoreDisplayNames[0] ||
+      Array.from(attachedIds)[0] ||
+      'our primary knowledge base';
+    const secondaryStoreLabel =
+      attachedStoresList[1]?.displayName ||
+      attachedDataStoreDisplayNames[1] ||
+      attachedMcpServers[0]?.displayName ||
+      Array.from(attachedIds)[1] ||
+      primaryStoreLabel;
+
+    const routerSampleQueries = [
+      `Search ${primaryStoreLabel} for the key architecture guidelines, policies, or standard operating procedures.`,
+      `Find troubleshooting steps, recent updates, or reference documentation in ${secondaryStoreLabel}.`,
+    ];
 
     const routerSkillTemplate: RecommendedSkillTemplate = {
       id: 'skill-datastore-router',
       skillIdSuggestion: 'enterprise-datastore-query-optimizer',
       displayName: sanitizeSkillDisplayName('Enterprise DataStore Query Router and Optimizer'),
-      description: `Optimizes search query formulation, source selection, and metadata filtering across the ${connectedDataStoresCount} connected enterprise DataStores to minimize latency and maximize answer precision.`,
+      description: `Optimizes search query formulation, source selection, and metadata filtering across the ${connectedDataStoresCount} connected enterprise DataStores${
+        attachedMcpServers.length > 0 ? ` and ${attachedMcpServers.length} BYOMCP server(s)` : ''
+      } to minimize latency and maximize answer precision.`,
       instruction: `# Enterprise DataStore Query Router & Retrieval Optimizer
 
 ## Objective
-You are connected to **${connectedDataStoresCount} enterprise DataStore(s)**. To prevent high-latency fan-out and noisy search results, follow these strict query-routing and retrieval optimization rules before executing searches:
+You are connected to **${connectedDataStoresCount} enterprise DataStore(s)**${
+        attachedMcpServers.length > 0
+          ? ` and **${attachedMcpServers.length} BYOMCP tool server(s)**`
+          : ''
+      }. To prevent high-latency fan-out and noisy search results, follow this Source Routing Matrix and query optimization workflow before executing searches:
 
-## Connected Enterprise Data Sources
+## Connected Enterprise Data Sources & Routing Matrix
 ${storeListText}
 
 ## Query Optimization & Routing Rules
-1. **Intent-First Source Selection**: Identify the single most authoritative DataStore or Connector for the user's question before searching. Do NOT fan out across all connected DataStores simultaneously unless the user explicitly asks for a cross-system comparison.
+1. **Intent-First Source Selection**: Match the user's intent to the single most authoritative DataStore or BYOMCP server listed above before searching. Do NOT fan out across all connected DataStores simultaneously unless the user explicitly asks for a cross-system comparison.
 2. **Deconstruct Complex Prompts**: Rewrite conversational user prompts into concise, high-signal keyword/semantic queries stripped of conversational filler.
-3. **Apply Metadata & Recency Filters**: Whenever the user mentions a timeframe, project, author, or document type, apply explicit filter constraints rather than retrieving unbounded document sets.
+3. **Apply Metadata & Recency Filters**: Whenever the user mentions a timeframe, project, author, status, or document type, apply explicit filter constraints rather than retrieving unbounded document sets.
 4. **Iterative Retrieval over Exhaustive Fan-Out**: Query the primary authoritative source first. Only expand to secondary DataStores if the primary source returns zero relevant passages.
 5. **Grounded Synthesis & Citations**: Cite the exact source document title and link for every claim, and clearly state if information was not found in the queried store.`,
-      rationale: `Directly addresses high retrieval latency and unguided query fan-out across ${connectedDataStoresCount} connected DataStore(s) by teaching the Assistant how to scope and formulate queries.`,
+      rationale: `Directly addresses high retrieval latency and unguided query fan-out across ${connectedDataStoresCount} connected DataStore(s) by teaching the Assistant which specific source handles each domain.`,
       targetSources: Array.from(attachedIds).slice(0, 10),
+      sampleQueries: routerSampleQueries,
     };
 
     if (!isSkillAlreadyDeployed(routerSkillTemplate)) {
@@ -1066,29 +2126,29 @@ ${storeListText}
     });
   }
 
-  // Private / Disabled Skills Trap
+  // Disabled Organizational Skills Check (Private/Personal user skills are intentionally ignored)
   if (privateOrDisabledSkills.length > 0) {
     const names = privateOrDisabledSkills
       .slice(0, 4)
-      .map((s) => `${s.displayName} (${s.state || 'PRIVATE'})`)
+      .map((s) => `${s.displayName} (DISABLED)`)
       .join(', ');
     const hasActiveOrgSkills = enabledSkills.length > 0;
     findings.push({
       id: 'skills-private-or-disabled-trap',
       category: 'SKILLS_AND_ROUTING',
       severity: hasActiveOrgSkills ? 'INFO' : 'WARNING',
-      title: `${privateOrDisabledSkills.length} Skill(s) Are PRIVATE or DISABLED (Inactive for End Users)`,
-      summary: `Found ${privateOrDisabledSkills.length} skill(s) (${names}) that are not in ENABLED organizational state${
+      title: `${privateOrDisabledSkills.length} Organizational Skill(s) Are Currently DISABLED`,
+      summary: `Found ${privateOrDisabledSkills.length} organizational skill(s) (${names}) in DISABLED state${
         hasActiveOrgSkills
           ? ` (alongside ${enabledSkills.length} active ENABLED organizational skill(s)).`
           : '.'
       }`,
-      currentValue: `${privateOrDisabledSkills.length} Private/Disabled Skill(s)`,
+      currentValue: `${privateOrDisabledSkills.length} Disabled Org Skill(s)`,
       recommendedValue: 'State = ENABLED (Shared Org-Wide) for production skills',
       impact:
-        'Skills left in PRIVATE or DISABLED state are invisible to general end users and will NOT be used by the Assistant to optimize DataStore queries for your organization.',
+        'Organizational skills in DISABLED state are inactive and will not be used by the Assistant to optimize DataStore queries.',
       remediation:
-        'Open the Skills tab, inspect the private/disabled skills, and publish or re-create organizational skills with state set to ENABLED.',
+        'Enable the organizational skill(s) in the Skills tab if they should be active for end users, or delete obsolete disabled skills.',
       targetTab: 'skills',
     });
   }
@@ -1186,13 +2246,13 @@ ${storeListText}
   // 3. BYOMCP DATASTORES / CONNECTORS EVALUATION
   // ============================================================================
   byomcpEvaluations.forEach((mcpEval) => {
-    if (!isSkillAlreadyDeployed(mcpEval.recommendedCompanionSkill)) {
+    const isUnattachedInProject =
+      !mcpEval.isAttachedToEngine && connectedDataStoresCount > 0;
+    if (!isUnattachedInProject && !isSkillAlreadyDeployed(mcpEval.recommendedCompanionSkill)) {
       recommendedSkills.push(mcpEval.recommendedCompanionSkill);
     }
 
     if (mcpEval.status === 'NEEDS_ATTENTION') {
-      const isUnattachedInProject =
-        !mcpEval.isAttachedToEngine && connectedDataStoresCount > 0;
       const byomcpSeverity: EvaluationSeverity = isUnattachedInProject
         ? 'INFO'
         : 'WARNING';
@@ -1220,7 +2280,9 @@ ${storeListText}
           'Without a clear mcp_server_description and parameter-specific mcp_agent_instructions, Gemini either fails to route relevant queries to this MCP server, invokes tools with unindexed/unbounded arguments (causing high latency), or omits clickable source citations.',
         remediation: `Click "Fix in BYOMCP Advisor" above to review and apply the auto-generated ${mcpEval.useCaseLabel} description & instructions in 1 click (and optionally deploy the Companion Skill).`,
         byomcpCollectionId: mcpEval.collectionId,
-        recommendedSkillId: mcpEval.recommendedCompanionSkill.id,
+        ...(isUnattachedInProject
+          ? {}
+          : { recommendedSkillId: mcpEval.recommendedCompanionSkill.id }),
       });
     } else {
       findings.push({
@@ -1243,7 +2305,43 @@ ${storeListText}
   });
 
   // ============================================================================
-  // 4. ASSISTANT & ENGINE CONFIGURATION HYGIENE
+  // 3B. 3RD-PARTY CONNECTOR SKILL EVALUATION (Entity Disambiguation & Actions)
+  // ============================================================================
+  thirdPartyEvaluations.forEach((tpEval) => {
+    const isUnattachedInProject =
+      !tpEval.isAttachedToEngine && connectedDataStoresCount > 0;
+    if (!isUnattachedInProject && !isSkillAlreadyDeployed(tpEval.recommendedSkill)) {
+      recommendedSkills.push(tpEval.recommendedSkill);
+    }
+
+    if (
+      !isUnattachedInProject &&
+      !tpEval.hasCoveringSkill &&
+      (tpEval.entityStoreIds.length >= 2 || tpEval.enabledActions.length > 0)
+    ) {
+      findings.push({
+        id: `connector-skill-recommendation-${tpEval.collectionId}`,
+        category: 'SKILLS_AND_ROUTING',
+        severity: 'INFO',
+        title: `3rd-Party Connector "${tpEval.displayName}" (${tpEval.useCaseLabel}): Dedicated Routing Skill Recommended`,
+        summary: `Connector "${tpEval.displayName}" (${tpEval.collectionId}) exposes ${tpEval.entityStoreIds.length} entity DataStore(s) (${tpEval.entityStoreIds.slice(0, 4).join(', ')})${
+          tpEval.enabledActions.length > 0
+            ? ` and ${tpEval.enabledActions.length} live action(s)`
+            : ''
+        }, but no active organizational Skill explicitly disambiguates its entity stores.`,
+        currentValue: `${tpEval.entityStoreIds.length} Entity Store(s) / No Dedicated Connector Skill`,
+        recommendedValue: `Deploy "${tpEval.recommendedSkill.displayName}"`,
+        impact:
+          'Without entity-store routing instructions, queries targeting this 3rd-party connector can fan out across all of its entity DataStores simultaneously, increasing retrieval latency.',
+        remediation: `Click "Review & Create Skill" to deploy the tailored "${tpEval.recommendedSkill.displayName}" skill for ${tpEval.displayName}.`,
+        targetTab: 'skills',
+        recommendedSkillId: tpEval.recommendedSkill.id,
+      });
+    }
+  });
+
+  // ============================================================================
+  // 4. ASSISTANT & ENGINE CONFIGURATION HYGIENE + CROSS-INSTRUCTION HARMONY
   // ============================================================================
   const sysInst =
     assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '';
@@ -1252,6 +2350,18 @@ ${storeListText}
     sysInst.trim() && styleInst.trim() && sysInst.trim() !== styleInst.trim()
       ? `${sysInst.trim()}\n\n${styleInst.trim()}`
       : sysInst || styleInst;
+
+  // Run Zero-Internal-Prompt Cross-Resource Conflict Detection across Assistant Instructions,
+  // Connector Instructions/Capabilities, and Active Organizational Skills
+  const instructionConflictFindings = detectSkillAndInstructionConflicts({
+    assistantSystemInstruction: combinedInst,
+    enabledSkills,
+    byomcpEvaluations,
+    thirdPartyConnectors: thirdPartyEvaluations,
+    attachedDataStoreIds: attachedIds,
+    attachedConnectorIds,
+  });
+  findings.push(...instructionConflictFindings);
 
   if (combinedInst.length > 4000) {
     findings.push({
@@ -1919,6 +3029,20 @@ ${storeListText}
   };
   findings.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
+  const matchedDataStores = dataStores.filter((ds) => {
+    const dsId = ds.name.split('/').pop() || ds.name;
+    return attachedIds.has(dsId);
+  });
+  const connectedDataStoreResourceNames =
+    matchedDataStores.length > 0
+      ? matchedDataStores.map((ds) => ds.name)
+      : Array.from(attachedIds).map(
+          (id) =>
+            `projects/${config.projectId}/locations/${config.appLocation || 'global'}/collections/${
+              config.collectionId || 'default_collection'
+            }/dataStores/${id}`,
+        );
+
   return {
     evaluatedAt: new Date().toISOString(),
     projectId: config.projectId,
@@ -1944,6 +3068,7 @@ ${storeListText}
     findings,
     byomcpEvaluations,
     recommendedSkills,
+    connectedDataStoreResourceNames,
     probeWarnings,
   };
 }
@@ -2194,3 +3319,772 @@ export function generateAssistantEvaluationMarkdown(
 
   return lines.join('\n');
 }
+
+interface VertexGenerateContentResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+}
+
+function resolveVertexAiLocation(appLocation?: string): string {
+  if (!appLocation || appLocation === 'global' || appLocation === 'us') {
+    return 'us-central1';
+  }
+  if (appLocation === 'eu') {
+    return 'europe-west4';
+  }
+  return appLocation;
+}
+
+async function callVertexGeminiJson<T>(
+  prompt: string,
+  config: Config,
+): Promise<T> {
+  if (!config.projectId) {
+    throw new Error('Project ID is required to synthesize custom guidance with Vertex AI Gemini.');
+  }
+  const validLoc = resolveVertexAiLocation(config.appLocation);
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+  let response: VertexGenerateContentResponse | null = null;
+  let lastError: unknown = null;
+
+  for (const model of modelsToTry) {
+    try {
+      const url = `https://${validLoc}-aiplatform.googleapis.com/v1beta1/projects/${config.projectId}/locations/${validLoc}/publishers/google/models/${model}:generateContent`;
+      const requestBody = {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: 'application/json',
+        },
+      };
+      response = await api.gapiRequest<VertexGenerateContentResponse>(
+        url,
+        'POST',
+        config.projectId,
+        undefined,
+        requestBody,
+        undefined,
+        true,
+      );
+      if (response?.candidates?.[0]?.content?.parts?.[0]?.text) {
+        break;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  const rawText = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!rawText) {
+    throw (
+      lastError ||
+      new Error('No candidate content returned from Vertex AI Gemini. Verify Vertex AI API is enabled.')
+    );
+  }
+
+  const jsonMatch =
+    rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || rawText.match(/(\{[\s\S]*\})/);
+  const cleanedJson = jsonMatch ? jsonMatch[1].trim() : rawText.trim();
+  return JSON.parse(cleanedJson) as T;
+}
+
+/**
+ * Uses Vertex AI Gemini (`gemini-2.5-flash` / `gemini-2.5-pro`) to inspect the live
+ * MCP server's full tool schemas (including parameter types, descriptions, and enums)
+ * and synthesize a bespoke `mcp_server_description`, `mcp_agent_instructions`, and
+ * Companion Skill tailored specifically to this MCP server.
+ */
+export async function synthesizeByomcpWithGemini(
+  mcpEval: ByomcpConnectorEvaluation,
+  connectedDataStoreNames: string[],
+  config: Config,
+): Promise<{
+  serverDescription: string;
+  agentInstructions: string;
+  companionSkill: {
+    displayName: string;
+    description: string;
+    instruction: string;
+  };
+}> {
+  const toolSchemasPayload = mcpEval.tools.map((t) => ({
+    name: t.name,
+    displayName: t.displayName,
+    enabled: t.enabled,
+    description: t.description,
+    requiredParams: t.requiredParams,
+    parameters: t.parameterDetails || t.parameterNames,
+  }));
+
+  const prompt = `You are a Principal Google Cloud Gemini Enterprise (Agentspace) Architect.
+Analyze the following Custom BYOMCP Server and its discovered MCP Tool JSON Schemas, and synthesize a custom, high-precision configuration.
+
+MCP Server Display Name: "${mcpEval.displayName}"
+Collection ID: "${mcpEval.collectionId}"
+Endpoint URI: "${mcpEval.instanceUri || 'N/A'}"
+Detected Domain: "${mcpEval.useCaseLabel}"
+Other Connected DataStores on this Assistant: ${
+    connectedDataStoreNames.length > 0 ? connectedDataStoreNames.join(', ') : 'None'
+  }
+
+Discovered MCP Tools & Parameter Schemas:
+${JSON.stringify(toolSchemasPayload, null, 2)}
+
+Return ONLY a valid JSON object matching this exact schema:
+{
+  "serverDescription": "Concise 1-2 sentence authoritative domain description (80-220 chars) for mcp_server_description telling the Gemini Enterprise planner exactly what domain questions and entities should route to this MCP server and naming its primary tools.",
+  "agentInstructions": "Structured multi-line plain-text instructions for mcp_agent_instructions covering: (1) Role & routing scope, (2) Exact tool invocation contracts with required parameters, types, and enum values, (3) Multi-step tool chaining order (e.g. search/list ID resolution before get/detail or create/update calls), and (4) Output formatting & safety guardrails.",
+  "companionSkill": {
+    "displayName": "Alphanumeric skill name (letters, numbers, spaces, hyphens ONLY, max 60 chars, no ampersands or punctuation)",
+    "description": "Concise 1-2 sentence trigger description (100-400 chars, STRICT MAX 900 Unicode characters; Discovery Engine rejects agent.description > 1024 chars) used by the Gemini Enterprise planner to decide when to activate this skill based on user intent and domain nouns.",
+    "instruction": "Comprehensive Markdown skill instructions teaching the planner when to route to this MCP server vs other DataStores, how to chain tools, how to populate filter parameters, and how to format grounded answers."
+  }
+}`;
+
+  const parsed = await callVertexGeminiJson<{
+    serverDescription?: string;
+    agentInstructions?: string;
+    companionSkill?: {
+      displayName?: string;
+      description?: string;
+      instruction?: string;
+    };
+  }>(prompt, config);
+
+  const serverDescription = (parsed.serverDescription || '').trim();
+  const agentInstructions = (parsed.agentInstructions || '').trim();
+  if (!serverDescription || !agentInstructions) {
+    throw new Error('Gemini response did not include non-empty serverDescription and agentInstructions.');
+  }
+
+  const rawCompanionDesc =
+    (parsed.companionSkill?.description || '').trim() ||
+    mcpEval.recommendedCompanionSkill.description;
+  let companionInst =
+    (parsed.companionSkill?.instruction || '').trim() ||
+    mcpEval.recommendedCompanionSkill.instruction;
+  if (
+    Array.from(rawCompanionDesc).length > 1024 &&
+    !companionInst.includes(rawCompanionDesc.slice(0, 120))
+  ) {
+    companionInst = `${companionInst}\n\n## Extended Trigger & Scope Details\n${rawCompanionDesc}`;
+  }
+
+  return {
+    serverDescription,
+    agentInstructions,
+    companionSkill: {
+      displayName: sanitizeSkillDisplayName(
+        parsed.companionSkill?.displayName || mcpEval.recommendedCompanionSkill.displayName,
+      ),
+      description: sanitizeSkillDescription(rawCompanionDesc),
+      instruction: companionInst,
+    },
+  };
+}
+
+/**
+ * Uses Vertex AI Gemini (`gemini-2.5-flash` / `gemini-2.5-pro`) to synthesize a bespoke
+ * Organizational Query-Routing Skill tailored to the Assistant's connected DataStores and BYOMCP servers.
+ */
+export async function synthesizeSkillWithGemini(
+  template: RecommendedSkillTemplate,
+  byomcpEvaluations: ByomcpConnectorEvaluation[],
+  connectedDataStoreNames: string[],
+  config: Config,
+  alignmentContext?: {
+    assistantSystemInstruction?: string;
+    existingSkillNames?: string[];
+  },
+): Promise<{
+  displayName: string;
+  description: string;
+  instruction: string;
+}> {
+  const attachedMcpSummary = byomcpEvaluations
+    .filter((m) => m.isAttachedToEngine || byomcpEvaluations.length <= 5)
+    .map((m) => ({
+      displayName: m.displayName,
+      collectionId: m.collectionId,
+      domain: m.useCaseLabel,
+      connectorAgentInstructions: m.currentAgentInstructions
+        ? sanitizeSkillDescription(m.currentAgentInstructions, 300)
+        : undefined,
+      tools: m.tools
+        .filter((t) => t.enabled)
+        .map((t) => ({
+          name: t.name,
+          description: sanitizeSkillDescription(t.description, 220),
+          requiredParams: t.requiredParams,
+          parameters: t.parameterDetails || t.parameterNames,
+        })),
+    }));
+
+  const assistantInstSnippet = alignmentContext?.assistantSystemInstruction?.trim()
+    ? sanitizeSkillDescription(alignmentContext.assistantSystemInstruction.trim(), 600)
+    : 'None configured';
+
+  const prompt = `You are a Principal Google Cloud Gemini Enterprise (Agentspace) Architect.
+Tailor and enhance the following Organizational Query-Routing Skill so it is 100% customized to the customer's actual connected DataStores and BYOMCP tool servers, and harmonizes with the Assistant's and Connectors' configured instructions.
+
+Current Skill Template ID: "${template.skillIdSuggestion}"
+Current Skill Display Name: "${template.displayName}"
+Target Sources: ${template.targetSources.join(', ') || 'All connected sources'}
+Connected Enterprise DataStores: ${
+    connectedDataStoreNames.length > 0 ? connectedDataStoreNames.join(', ') : 'None'
+  }
+Customer's Current Assistant System Instructions (DO NOT CONTRADICT):
+${assistantInstSnippet}
+Connected BYOMCP Servers, Active Tools & Connector Instructions (ONLY reference enabled tools listed here):
+${JSON.stringify(attachedMcpSummary, null, 2)}
+
+Baseline Skill Instructions:
+${template.instruction}
+
+CRITICAL HARMONY RULES:
+1. Never include "ignore previous instructions" or system-prompt override phrasing.
+2. Never contradict the Customer's Current Assistant System Instructions or Connector Instructions above.
+3. Only reference enabled tools and connected DataStores listed above.
+
+Return ONLY a valid JSON object matching this exact schema:
+{
+  "displayName": "Alphanumeric skill display name (letters, numbers, spaces, hyphens ONLY, max 60 chars, no ampersands or special characters)",
+  "description": "Concise 1-2 sentence planner trigger description (100-400 chars, STRICT MAX 900 Unicode characters; Discovery Engine API rejects agent.description > 1024 chars) naming the specific domains, systems, and user intents that should activate this skill.",
+  "instruction": "Rich, well-structured Markdown skill instructions with an explicit Source Routing Matrix (mapping each DataStore/MCP server to its domain intents), multi-step tool chaining workflows, query decomposition rules, and citation standards."
+}`;
+
+  const parsed = await callVertexGeminiJson<{
+    displayName?: string;
+    description?: string;
+    instruction?: string;
+  }>(prompt, config);
+
+  const rawDescription = (parsed.description || '').trim();
+  let instruction = (parsed.instruction || '').trim();
+  if (!rawDescription || !instruction) {
+    throw new Error('Gemini response did not include non-empty skill description and instruction.');
+  }
+
+  if (
+    Array.from(rawDescription).length > 1024 &&
+    !instruction.includes(rawDescription.slice(0, 120))
+  ) {
+    instruction = `${instruction}\n\n## Extended Trigger & Scope Details\n${rawDescription}`;
+  }
+
+  return {
+    displayName: sanitizeSkillDisplayName(parsed.displayName || template.displayName),
+    description: sanitizeSkillDescription(rawDescription),
+    instruction,
+  };
+}
+
+const BENCHMARK_QUERY_STOPWORDS = new Set([
+  'search',
+  'find',
+  'look',
+  'what',
+  'when',
+  'where',
+  'which',
+  'from',
+  'with',
+  'using',
+  'into',
+  'about',
+  'latest',
+  'recent',
+  'active',
+  'status',
+  'summary',
+  'summarize',
+  'details',
+  'detailed',
+  'records',
+  'items',
+  'updates',
+  'list',
+  'show',
+  'tell',
+  'give',
+  'please',
+  'their',
+  'there',
+  'these',
+  'those',
+  'that',
+  'this',
+  'have',
+  'does',
+  'without',
+  'unrelated',
+]);
+
+/**
+ * Returns default benchmark test queries tailored to a recommended skill template.
+ */
+export function generateDefaultBenchmarkQueriesForSkill(
+  template: RecommendedSkillTemplate,
+): string[] {
+  if (template.sampleQueries && template.sampleQueries.length >= 2) {
+    return [...template.sampleQueries];
+  }
+  const firstSource = template.targetSources[0] || template.displayName || 'our knowledge base';
+  const secondSource = template.targetSources[1] || firstSource;
+  return [
+    `Search ${firstSource} for the key architecture guidelines, policies, or standard operating procedures.`,
+    `Find troubleshooting steps, recent updates, or reference documentation in ${secondSource}.`,
+  ];
+}
+
+/**
+ * Executes a set of benchmark queries against the live `:streamAssist` endpoint (`api.streamChat`)
+ * and captures end-to-end latency, Time-to-First-Byte (TTFB), planner thought steps, grounded citations,
+ * and source/skill routing signals.
+ */
+export async function runSkillBenchmarkPhase(
+  queries: string[],
+  config: Config,
+  skillDraft: {
+    skillId: string;
+    displayName: string;
+    description: string;
+    instruction: string;
+    targetSources: string[];
+  },
+  dataStoreResourceNames: string[] = [],
+  onProgress?: (step: string) => void,
+): Promise<SkillPerformanceBenchmarkPhase> {
+  const cleanQueries = queries.map((q) => q.trim()).filter(Boolean);
+  if (cleanQueries.length === 0) {
+    throw new Error('At least one non-empty test query is required to run the performance benchmark.');
+  }
+
+  const toolsSpec =
+    dataStoreResourceNames.length > 0
+      ? {
+          vertexAiSearchSpec: {
+            dataStoreSpecs: dataStoreResourceNames.map((ds) => ({ dataStore: ds })),
+          },
+        }
+      : undefined;
+
+  const runs: SkillBenchmarkQueryRun[] = [];
+
+  for (let i = 0; i < cleanQueries.length; i++) {
+    const query = cleanQueries[i];
+    onProgress?.(`Running query ${i + 1}/${cleanQueries.length}: "${query.slice(0, 60)}..."`);
+
+    const startMs = Date.now();
+    let firstByteMs: number | null = null;
+    const thoughtSteps: string[] = [];
+    let answerText = '';
+    let citationsCount = 0;
+    let skippedReason: string | undefined;
+    let diagnosticJson = '';
+    let errorMessage: string | undefined;
+
+    try {
+      await api.streamChat(
+        null,
+        query,
+        null,
+        config,
+        '',
+        (chunk) => {
+          if (chunk.answer?.diagnosticInfo) {
+            try {
+              diagnosticJson += JSON.stringify(chunk.answer.diagnosticInfo) + ' ';
+            } catch {
+              // Ignore circular serialization issues in diagnostic trace
+            }
+          }
+          const skipped = chunk.answer?.assistSkippedReasons;
+          if (Array.isArray(skipped) && skipped.length > 0) {
+            skippedReason = skipped.join(', ');
+          }
+
+          if (chunk.answer?.replies) {
+            for (const reply of chunk.answer.replies) {
+              const refs = reply.groundedContent?.textGroundingMetadata?.references;
+              if (Array.isArray(refs)) {
+                citationsCount += refs.length;
+              }
+              const replyContent = reply.groundedContent?.content || reply.content;
+              if (replyContent) {
+                if (firstByteMs === null && (replyContent.text || replyContent.thought)) {
+                  firstByteMs = Math.max(1, Date.now() - startMs);
+                }
+                if (replyContent.thought && replyContent.text) {
+                  thoughtSteps.push(replyContent.text);
+                } else if (replyContent.text) {
+                  answerText += replyContent.text;
+                }
+              }
+            }
+          }
+        },
+        toolsSpec,
+      );
+    } catch (err: unknown) {
+      errorMessage = toErrorMessage(err, 'Failed to execute :streamAssist query.');
+    }
+
+    const totalLatencyMs = Math.max(1, Date.now() - startMs);
+    const ttfbMs = firstByteMs !== null ? firstByteMs : totalLatencyMs;
+
+    const combinedTrace = `${thoughtSteps.join(' ')} ${diagnosticJson}`.toLowerCase();
+    const routedSources = skillDraft.targetSources.filter((src) =>
+      combinedTrace.includes(src.toLowerCase()),
+    );
+
+    const skillNameLower = skillDraft.displayName.trim().toLowerCase();
+    const skillIdLower = skillDraft.skillId.trim().toLowerCase();
+    const mentionsSkill =
+      (skillNameLower.length >= 4 && combinedTrace.includes(skillNameLower)) ||
+      (skillIdLower.length >= 4 && combinedTrace.includes(skillIdLower));
+
+    const skillTriggered =
+      !errorMessage &&
+      !skippedReason &&
+      (mentionsSkill || routedSources.length > 0 || (thoughtSteps.length > 0 && citationsCount > 0));
+
+    runs.push({
+      query,
+      totalLatencyMs,
+      ttfbMs,
+      answerPreview: answerText.trim().slice(0, 320),
+      thoughtSteps,
+      citationsCount,
+      routedSources,
+      skillTriggered,
+      ...(skippedReason ? { skippedReason } : {}),
+      ...(errorMessage ? { errorMessage } : {}),
+    });
+  }
+
+  const avgLatencyMs = Math.round(
+    runs.reduce((sum, r) => sum + r.totalLatencyMs, 0) / Math.max(1, runs.length),
+  );
+  const avgTtfbMs = Math.round(
+    runs.reduce((sum, r) => sum + r.ttfbMs, 0) / Math.max(1, runs.length),
+  );
+  const triggeredCount = runs.filter((r) => r.skillTriggered).length;
+  const skillTriggerRate = Math.round((triggeredCount / Math.max(1, runs.length)) * 100);
+
+  return {
+    ranAt: new Date().toISOString(),
+    runs,
+    avgLatencyMs,
+    avgTtfbMs,
+    skillTriggerRate,
+  };
+}
+
+/**
+ * Analyzes Before vs. After `:streamAssist` latency and inspects the drafted Skill's
+ * Trigger Description and Markdown Instructions to identify concrete mistakes (including
+ * cross-instruction conflicts with the Assistant or Connectors) when performance did not
+ * improve or when the Skill failed to trigger.
+ */
+export function diagnoseSkillPerformanceAndMistakes(
+  skillDraft: {
+    skillId: string;
+    displayName: string;
+    description: string;
+    instruction: string;
+    targetSources: string[];
+  },
+  queries: string[],
+  baseline?: SkillPerformanceBenchmarkPhase,
+  postSkill?: SkillPerformanceBenchmarkPhase,
+  conflictContext?: {
+    assistantSystemInstruction?: string;
+    byomcpEvaluations?: ByomcpConnectorEvaluation[];
+  },
+): SkillPerformanceComparisonReport {
+  const mistakes: SkillDiagnosticMistake[] = [];
+  const activePhase = postSkill || baseline;
+
+  // 1. Check for failed/skipped/empty responses
+  if (activePhase) {
+    const failedRuns = activePhase.runs.filter(
+      (r) => Boolean(r.errorMessage) || Boolean(r.skippedReason) || !r.answerPreview.trim(),
+    );
+    if (failedRuns.length > 0) {
+      const firstFail = failedRuns[0];
+      const reason =
+        firstFail.errorMessage ||
+        (firstFail.skippedReason
+          ? `Assistant skipped query (${firstFail.skippedReason})`
+          : 'Assistant returned an empty response body');
+      mistakes.push({
+        code: 'NO_GROUNDED_ANSWER',
+        severity: firstFail.errorMessage ? 'CRITICAL' : 'WARNING',
+        title: `${failedRuns.length}/${activePhase.runs.length} Benchmark Query(s) Returned No Grounded Answer`,
+        explanation: `Query "${firstFail.query}" did not produce a grounded answer: ${reason}. Conversational greetings or overly restrictive negative constraints in the skill can cause :streamAssist to skip or return empty output.`,
+        suggestedFix:
+          'Use specific, information-seeking domain questions in your benchmark queries, and ensure your Skill instructions do not prohibit answering when partial context is found.',
+      });
+    }
+  }
+
+  // 2. Check Trigger Description vocabulary coverage against test queries
+  const descLower = skillDraft.description.toLowerCase();
+  const queryTokens = Array.from(
+    new Set(
+      queries
+        .join(' ')
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, ' ')
+        .split(/\s+/)
+        .filter((tok) => tok.length >= 4 && !BENCHMARK_QUERY_STOPWORDS.has(tok)),
+    ),
+  );
+  const missingQueryTokens = queryTokens.filter((tok) => !descLower.includes(tok));
+  const triggerCoverageRatio =
+    queryTokens.length > 0
+      ? (queryTokens.length - missingQueryTokens.length) / queryTokens.length
+      : 1;
+  const lowTriggerRate = postSkill ? postSkill.skillTriggerRate < 50 : false;
+
+  if (
+    skillDraft.description.trim().length < 40 ||
+    (missingQueryTokens.length >= 2 && (triggerCoverageRatio < 0.45 || lowTriggerRate))
+  ) {
+    const missingPreview = missingQueryTokens.slice(0, 6).join(', ');
+    const baseDesc = sanitizeSkillDescription(skillDraft.description.trim(), 900).replace(
+      /\.$/,
+      '',
+    );
+    const patchedDescription = sanitizeSkillDescription(
+      missingQueryTokens.length > 0
+        ? `${baseDesc}. Trigger on queries involving ${missingQueryTokens.slice(0, 6).join(', ')}.`
+        : `${baseDesc} across ${skillDraft.targetSources.join(', ') || 'connected enterprise sources'}.`,
+    );
+
+    mistakes.push({
+      code: 'TRIGGER_VOCABULARY_MISMATCH',
+      severity: lowTriggerRate ? 'CRITICAL' : 'WARNING',
+      title: 'Trigger Description Missing Domain Keywords from Test Queries',
+      explanation: `The Discovery Engine planner decides whether to activate "${skillDraft.displayName}" primarily by matching user query vocabulary against the Skill's Trigger Description. ${
+        missingPreview
+          ? `Key terms from your test queries (${missingPreview}) are absent from the Trigger Description`
+          : 'Your Trigger Description is under 40 characters'
+      }, which can cause the planner to bypass this Skill entirely.`,
+      suggestedFix: `Add explicit domain nouns, system names, and user intents (${
+        missingPreview || 'target source keywords'
+      }) to the Trigger Description so the planner routes matching prompts to this Skill.`,
+      recommendedDescriptionPatch: patchedDescription,
+    });
+  }
+
+  // 3. Check Skill Instructions for Fan-Out Anti-Patterns or Missing Single-Source Directive
+  const instText = skillDraft.instruction.trim();
+  const hasFanoutAntiPattern = FANOUT_ANTI_PATTERN_REGEX.test(instText);
+  const hasSingleSourceDirective =
+    /\b(intent-first|single most authoritative|primary authoritative source first|do not fan out|prioritize\b.*?\bover)\b/i.test(
+      instText,
+    );
+
+  if (hasFanoutAntiPattern || !hasSingleSourceDirective) {
+    const appendRule = `\n\n## Single-Source First & Fan-Out Prevention Rule\n- **Intent-First Source Selection**: Route each user query to the single most authoritative DataStore or MCP tool first. Do NOT fan out across all connected DataStores simultaneously unless the user explicitly asks for a cross-system comparison.`;
+    mistakes.push({
+      code: 'BROAD_FANOUT_INSTRUCTION',
+      severity: hasFanoutAntiPattern ? 'CRITICAL' : 'WARNING',
+      title: hasFanoutAntiPattern
+        ? 'Skill Instructions Contain Broad Multi-Store Fan-Out Directive'
+        : 'Skill Instructions Lack an Explicit "Single-Source First" Routing Rule',
+      explanation: hasFanoutAntiPattern
+        ? 'Your Skill instructions explicitly tell the Assistant to search across all sources/datastores. This forces parallel/sequential fan-out across every connected connector and increases end-to-end latency.'
+        : 'Your Skill instructions do not explicitly instruct the planner to query the single most authoritative source first and avoid multi-store fan-out.',
+      suggestedFix:
+        'Remove any "search all sources" phrasing and add an explicit Single-Source First routing rule so the planner stops after querying the primary store.',
+      recommendedInstructionAppend: appendRule,
+    });
+  }
+
+  // 4. Check if targetSources are missing from Skill Instructions
+  const instLower = instText.toLowerCase();
+  const unmentionedSources = skillDraft.targetSources.filter(
+    (src) => src.trim().length > 0 && !instLower.includes(src.toLowerCase()),
+  );
+  if (unmentionedSources.length > 0) {
+    const sourceBullets = unmentionedSources
+      .map((s) => `- **\`${s}\`**: Route domain queries targeting \`${s}\` directly to this source.`)
+      .join('\n');
+    mistakes.push({
+      code: 'MISSING_TARGET_SOURCE_IDENTIFIER',
+      severity: 'WARNING',
+      title: `${unmentionedSources.length} Target Source ID(s) Omitted from Skill Instructions`,
+      explanation: `Target source identifier(s) (${unmentionedSources.join(', ')}) do not appear in your Skill Markdown Instructions. When exact DataStore/MCP IDs are omitted, the planner has to guess which backend store corresponds to your prose rules.`,
+      suggestedFix: `Include the exact source identifier(s) (${unmentionedSources.join(', ')}) in the Skill's Source Routing Matrix.`,
+      recommendedInstructionAppend: `\n\n## Explicit Source Identifiers\n${sourceBullets}`,
+    });
+  }
+
+  // 5. Check for thin/vague instructions
+  if (instText.length < 160) {
+    mistakes.push({
+      code: 'THIN_OR_VAGUE_INSTRUCTION',
+      severity: 'WARNING',
+      title: `Skill Instructions Are Too Brief (${instText.length} chars)`,
+      explanation:
+        'Skills with fewer than 160 characters rarely provide enough concrete routing criteria, parameter constraints, or query decomposition rules to reduce planner latency.',
+      suggestedFix:
+        'Use "✨ Tailor with Gemini" or expand the instructions with concrete source routing bullets and filter rules.',
+    });
+  }
+
+  // 5B. Check for Cross-Resource Instruction Conflicts (Assistant System Instructions, Connector Tools, or System-Override Phrasing)
+  const combinedSkillText = `${skillDraft.description}\n${instText}`;
+  if (SYSTEM_OVERRIDE_ANTIPATTERN_REGEX.test(combinedSkillText)) {
+    mistakes.push({
+      code: 'SKILL_INSTRUCTION_CONFLICT',
+      severity: 'CRITICAL',
+      title: 'Skill Contains System-Prompt Override Anti-Pattern',
+      explanation:
+        'Your Skill contains "ignore previous/system instructions" or guardrail-override phrasing. This conflicts with the Assistant’s system framing and can trigger Model Armor Prompt Injection & Jailbreak blocks.',
+      suggestedFix:
+        'Remove any "ignore previous/system instructions" phrasing and state domain routing rules as additive guidelines.',
+    });
+  } else if (conflictContext) {
+    const sysInst = conflictContext.assistantSystemInstruction || '';
+    const disabledToolsInDraft: string[] = [];
+    for (const mcp of conflictContext.byomcpEvaluations || []) {
+      const mentionsMcp =
+        instLower.includes(mcp.collectionId.toLowerCase()) ||
+        skillDraft.targetSources.includes(mcp.collectionId);
+      if (mentionsMcp) {
+        mcp.tools.forEach((t) => {
+          if (!t.enabled && t.name.length >= 4 && instLower.includes(t.name.toLowerCase())) {
+            disabledToolsInDraft.push(`${t.name} (${mcp.displayName})`);
+          }
+        });
+      }
+    }
+    if (disabledToolsInDraft.length > 0) {
+      mistakes.push({
+        code: 'SKILL_INSTRUCTION_CONFLICT',
+        severity: 'WARNING',
+        title: `Skill References Disabled Connector Tool(s) (${disabledToolsInDraft.slice(0, 3).join(', ')})`,
+        explanation: `Your Skill instructions explicitly reference tool(s) (${disabledToolsInDraft.join(', ')}) that are currently disabled on the connector. The planner will waste deliberation steps attempting to resolve unavailable tools.`,
+        suggestedFix:
+          'Either enable the referenced tool(s) on the connector or restrict the Skill instructions to currently enabled tools.',
+        recommendedInstructionAppend: `\n\n## Active Tool & Instruction Harmony Rule\n- Invoke ONLY currently enabled connector tools and respect the Assistant's global system persona and formatting constraints.`,
+      });
+    } else if (
+      sysInst &&
+      /\b(never\s+use\s+(?:markdown\s+)?tables?|plain\s+text\s+only|json\s+only)\b/i.test(
+        sysInst,
+      ) &&
+      /\b(markdown\s+tables?)\b/i.test(instText)
+    ) {
+      mistakes.push({
+        code: 'SKILL_INSTRUCTION_CONFLICT',
+        severity: 'WARNING',
+        title: 'Skill Output Formatting Conflicts with Assistant System Instructions',
+        explanation:
+          'Your Skill instructs rendering Markdown tables, while the Assistant’s global System Instructions specify plain-text/JSON-only or forbid tables.',
+        suggestedFix:
+          'Align the Skill output formatting rule with the Assistant’s global System Instructions.',
+        recommendedInstructionAppend: `\n\n## Assistant System Instruction Alignment\n- Follow the Assistant's global System & Style Instructions for response formatting whenever a formatting rule is specified globally.`,
+      });
+    }
+  }
+
+  let latencyDeltaMs: number | undefined;
+  let latencyDeltaPercent: number | undefined;
+  let ttfbDeltaMs: number | undefined;
+  let improved = false;
+  let verdictSummary = '';
+
+  if (baseline && postSkill) {
+    latencyDeltaMs = postSkill.avgLatencyMs - baseline.avgLatencyMs;
+    latencyDeltaPercent = Math.round(
+      (latencyDeltaMs / Math.max(1, baseline.avgLatencyMs)) * 100,
+    );
+    ttfbDeltaMs = postSkill.avgTtfbMs - baseline.avgTtfbMs;
+
+    // 6. Check for Behavioral Grounding / Citation Drop after enabling Skill
+    const baseCitations = baseline.runs.reduce((s, r) => s + r.citationsCount, 0);
+    const postCitations = postSkill.runs.reduce((s, r) => s + r.citationsCount, 0);
+    if (baseCitations > 0 && postCitations === 0) {
+      mistakes.push({
+        code: 'BEHAVIORAL_GROUNDING_CONFLICT',
+        severity: 'WARNING',
+        title: `Grounding Citations Dropped from ${baseCitations} (Skill Disabled) to 0 (Skill Enabled)`,
+        explanation: `When the Skill was disabled during Baseline testing, :streamAssist returned ${baseCitations} grounded citation(s), but after enabling the Skill, 0 citations were returned. Overly restrictive filter constraints or conflicting source routing rules in the Skill prevented the connector from returning grounded matches.`,
+        suggestedFix:
+          'Add a Fallback Broadened Retrieval rule so that if strict filter parameters return 0 hits, the Assistant immediately falls back to semantic keyword retrieval on the target store.',
+        recommendedInstructionAppend: `\n\n## Fallback Grounding & Connector Compatibility Rule\n- **Graceful Filter Fallback**: If a strictly filtered query returns 0 matching documents or records, immediately fall back to a concise semantic keyword query against the same primary DataStore so grounded citations are preserved.`,
+      });
+    }
+
+    // 7. Check for latency regression after skill deployment
+    if (latencyDeltaMs > 0 && postSkill.avgLatencyMs > baseline.avgLatencyMs * 1.05) {
+      const baseThoughts = baseline.runs.reduce((s, r) => s + r.thoughtSteps.length, 0);
+      const postThoughts = postSkill.runs.reduce((s, r) => s + r.thoughtSteps.length, 0);
+      mistakes.push({
+        code: 'LATENCY_REGRESSION_MULTI_HOP',
+        severity: latencyDeltaPercent >= 20 ? 'CRITICAL' : 'WARNING',
+        title: `Post-Skill Latency Increased by +${latencyDeltaMs.toLocaleString()} ms (+${latencyDeltaPercent}%)`,
+        explanation:
+          postThoughts > baseThoughts
+            ? `After deploying the Skill, planner thought steps increased from ${baseThoughts} to ${postThoughts}, indicating the Skill instructions caused multi-hop deliberation or sequential tool chaining.`
+            : `Average query latency increased from ${baseline.avgLatencyMs.toLocaleString()} ms to ${postSkill.avgLatencyMs.toLocaleString()} ms. Complex multi-step rules or ambiguous source mapping can add extra planner turns.`,
+        suggestedFix:
+          'Add a "Direct Single-Hop Execution" constraint instructing the planner to execute at most 1 targeted retrieval call before synthesizing the final response.',
+        recommendedInstructionAppend: `\n\n## Direct Single-Hop Execution Constraint\n- **Single-Turn Retrieval**: Execute at most ONE targeted retrieval/tool call against the primary matching source and synthesize the answer immediately. Do not chain secondary verification searches when the first call returns relevant results.`,
+      });
+    }
+
+    improved = latencyDeltaMs < 0 && mistakes.filter((m) => m.severity === 'CRITICAL').length === 0;
+    if (latencyDeltaMs < 0) {
+      verdictSummary = `Performance improved by ${Math.abs(latencyDeltaPercent)}% (${Math.abs(
+        latencyDeltaMs,
+      ).toLocaleString()} ms faster average response, ${
+        postSkill.skillTriggerRate
+      }% skill/source routing match).`;
+    } else if (latencyDeltaMs === 0) {
+      verdictSummary = `Average latency unchanged (${postSkill.avgLatencyMs.toLocaleString()} ms). Review any diagnostic suggestions below to tighten source routing.`;
+    } else {
+      verdictSummary = `Post-skill average latency was +${latencyDeltaMs.toLocaleString()} ms (+${latencyDeltaPercent}%) slower than baseline. Review the ${mistakes.length} diagnostic finding(s) below to fix the Skill configuration.`;
+    }
+  } else if (postSkill) {
+    improved =
+      postSkill.skillTriggerRate >= 50 &&
+      mistakes.filter((m) => m.severity !== 'INFO').length === 0;
+    verdictSummary = `Post-skill benchmark completed: ${postSkill.avgLatencyMs.toLocaleString()} ms avg latency (${postSkill.avgTtfbMs.toLocaleString()} ms TTFB), ${postSkill.skillTriggerRate}% skill routing rate.${
+      mistakes.length > 0
+        ? ` Found ${mistakes.length} potential Skill issue(s) to review.`
+        : ' No Skill configuration mistakes detected.'
+    }`;
+  } else if (baseline) {
+    verdictSummary = `Baseline (Before Skill) recorded: ${baseline.avgLatencyMs.toLocaleString()} ms avg latency (${baseline.avgTtfbMs.toLocaleString()} ms TTFB). Deploy the Skill and run "2. Test After Skill" to measure improvement.`;
+  }
+
+  return {
+    skillId: skillDraft.skillId,
+    baseline,
+    postSkill,
+    latencyDeltaMs,
+    latencyDeltaPercent,
+    ttfbDeltaMs,
+    improved,
+    verdictSummary,
+    mistakes,
+  };
+}
+
+

@@ -23,7 +23,11 @@ import ExportSkillsModal from '../assistants/ExportSkillsModal';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
 import { useModalA11y } from '../../hooks/useModalA11y';
-import { normalizeRegistrySkillForExport } from '../../utils/skillExportUtils';
+import {
+  buildSkillMarkdownDocument,
+  normalizeRegistrySkillForExport,
+  parseSkillMarkdown,
+} from '../../utils/skillExportUtils';
 
 interface RegistrySkillDetailModalProps {
   skill: RegistrySkill | null;
@@ -41,6 +45,7 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
   onSkillUpdated,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mdFileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<'overview' | 'revisions' | 'json'>('overview');
   const [revisions, setRevisions] = useState<RegistrySkillRevision[]>([]);
@@ -52,6 +57,13 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+
+  // SKILL.md Editing State for Central Registry
+  const [isEditingSkillMd, setIsEditingSkillMd] = useState(false);
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [skillMdContent, setSkillMdContent] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
 
   const [backgroundWarnings, setBackgroundWarnings] = useState<string[]>([]);
   const [revisionsError, setRevisionsError] = useState<string | null>(null);
@@ -65,12 +77,48 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
 
   useEffect(() => {
     if (isOpen && skill) {
+      const rawId = skill.name.split('/').pop() || 'skill';
+      const cleanId = rawId.replace(/^private-(?:admin-mcp-|byomcp-)?/, '');
+      const fallbackMd = buildSkillMarkdownDocument({
+        name: cleanId,
+        description: skill.description || skill.displayName,
+        body:
+          (typeof skill.frontmatter?.instruction === 'string' && skill.frontmatter.instruction) ||
+          `# ${skill.displayName}\n\n${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`,
+      });
+      setEditDisplayName(skill.displayName || cleanId);
+      setEditDescription(skill.description || '');
+      setSkillMdContent(fallbackMd);
+      setIsEditingSkillMd(false);
+      setEditError(null);
+
       setBackgroundWarnings([]);
       setRevisionsError(null);
       setIsLoadingRevisions(true);
       api.listRegistrySkillRevisions(skill.name, config)
-        .then((revs) => {
+        .then(async (revs) => {
           setRevisions(revs);
+          const activeRev =
+            revs.find(
+              (r: RegistrySkillRevision) => r.name === skill.defaultRevision || r.state === 'ACTIVE'
+            ) || revs[0];
+          const archiveContent =
+            activeRev?.archiveUploadSource?.archiveContent ||
+            skill.initialRevision?.archiveUploadSource?.archiveContent;
+          if (archiveContent) {
+            try {
+              const zip = await JSZip.loadAsync(archiveContent, { base64: true });
+              const skillMdFile = zip.file('SKILL.md') || zip.file(/SKILL\.md$/i)[0];
+              if (skillMdFile) {
+                const extractedText = await skillMdFile.async('text');
+                if (extractedText.trim()) {
+                  setSkillMdContent(extractedText);
+                }
+              }
+            } catch (zipErr: unknown) {
+              console.warn('Could not extract SKILL.md from revision archive on open:', zipErr);
+            }
+          }
         })
         .catch((err: unknown) => {
           console.warn('Could not load revisions for skill:', err);
@@ -103,6 +151,107 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
   }, [isOpen, skill, config]);
 
   if (!isOpen || !skill) return null;
+
+  const handleImportRegistryMdFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setEditError(null);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = String(ev.target?.result || '');
+      try {
+        const parsed = parseSkillMarkdown(text);
+        if (parsed.description) {
+          setEditDescription(parsed.description);
+        }
+        if (parsed.displayName) {
+          setEditDisplayName(parsed.displayName);
+        }
+        setSkillMdContent(text);
+        toast.success(`Imported ${file.name} into SKILL.md editor.`);
+      } catch (err) {
+        setEditError(toErrorMessage(err));
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleSaveRegistrySkillMd = async () => {
+    setEditError(null);
+    const rawId = skill.name.split('/').pop() || 'skill';
+    const cleanId = rawId.replace(/^private-(?:admin-mcp-|byomcp-)?/, '');
+
+    if (!skillMdContent.trim()) {
+      setEditError('SKILL.md Markdown instructions cannot be empty.');
+      return;
+    }
+
+    let finalDoc = skillMdContent.trim();
+    let finalDesc = editDescription.trim();
+    try {
+      const parsed = parseSkillMarkdown(finalDoc);
+      if (parsed.hasFrontmatter) {
+        if (parsed.description && !finalDesc) {
+          finalDesc = parsed.description.trim();
+        }
+        finalDoc = buildSkillMarkdownDocument({
+          name: parsed.name || cleanId,
+          description: finalDesc || parsed.description || editDisplayName,
+          body: parsed.body,
+        });
+      } else {
+        finalDoc = buildSkillMarkdownDocument({
+          name: cleanId,
+          description: finalDesc || editDisplayName,
+          body: finalDoc,
+        });
+      }
+    } catch (err) {
+      setEditError(toErrorMessage(err));
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      const zip = new JSZip();
+      zip.file('SKILL.md', finalDoc);
+      const b64Zip = await zip.generateAsync({ type: 'base64' });
+
+      const newRev = await api.createRegistrySkillRevision(
+        skill.name,
+        {
+          archiveUploadSource: {
+            archiveContent: b64Zip,
+          },
+        },
+        config
+      );
+
+      const updatePayload: Partial<RegistrySkill> = {
+        displayName: editDisplayName.trim() || skill.displayName,
+        description: finalDesc || skill.description,
+      };
+      const updateMask = ['display_name', 'description'];
+      if (newRev?.name) {
+        updatePayload.defaultRevision = newRev.name;
+        updateMask.push('default_revision');
+      }
+
+      await api.updateRegistrySkill(skill.name, updatePayload, updateMask, config);
+      setSkillMdContent(finalDoc);
+      setIsEditingSkillMd(false);
+      toast.success(`Published new SKILL.md revision for "${updatePayload.displayName}".`);
+      onSkillUpdated();
+    } catch (err: unknown) {
+      console.error('Failed to publish updated SKILL.md revision:', err);
+      const msg = toErrorMessage(err);
+      setEditError(msg);
+      toast.error(`Failed to update SKILL.md: ${msg}`);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const handleCopyJson = () => {
     navigator.clipboard.writeText(JSON.stringify(skill, null, 2));
@@ -459,11 +608,149 @@ ${skill.description || 'Enterprise Skill for Gemini Enterprise.'}`);
               {/* Description */}
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Semantic Activation Trigger & Description
+                  Semantic Activation Trigger &amp; Description
                 </label>
                 <div className="p-3 bg-gray-900 rounded-lg border border-gray-700 text-xs text-gray-200 leading-relaxed">
                   {skill.description || 'No description provided.'}
                 </div>
+              </div>
+
+              {/* SKILL.md Markdown Instructions Viewer & Editor */}
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Global Skill Instructions (<code className="font-mono text-purple-300">SKILL.md</code>)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={mdFileInputRef}
+                      type="file"
+                      accept=".md,.markdown,.txt"
+                      onChange={handleImportRegistryMdFile}
+                      className="hidden"
+                      data-testid="registry-skill-md-file-input"
+                    />
+                    {isEditingSkillMd && (
+                      <button
+                        type="button"
+                        onClick={() => mdFileInputRef.current?.click()}
+                        className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded text-xs font-semibold border border-gray-600 transition-colors"
+                      >
+                        📂 Import `.md` File
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      data-testid="toggle-edit-registry-skill-md-btn"
+                      onClick={() => {
+                        setIsEditingSkillMd((prev) => !prev);
+                        setEditError(null);
+                      }}
+                      className={`px-2.5 py-1 rounded text-xs font-semibold border transition-colors ${
+                        isEditingSkillMd
+                          ? 'bg-purple-600 text-white border-purple-500'
+                          : 'bg-purple-950/60 hover:bg-purple-900/70 text-purple-200 border-purple-700/70'
+                      }`}
+                    >
+                      ✏️ {isEditingSkillMd ? 'Editing SKILL.md' : 'Edit SKILL.md'}
+                    </button>
+                  </div>
+                </div>
+
+                {isEditingSkillMd ? (
+                  <div
+                    data-testid="registry-skill-md-editor"
+                    className="p-4 bg-gray-900/90 border border-purple-700/70 rounded-xl space-y-3"
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label
+                          htmlFor="registry-edit-display-name"
+                          className="block text-xs font-semibold text-gray-300 mb-1"
+                        >
+                          Display Name
+                        </label>
+                        <input
+                          id="registry-edit-display-name"
+                          type="text"
+                          value={editDisplayName}
+                          onChange={(e) => setEditDisplayName(e.target.value)}
+                          className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white focus:border-purple-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="registry-edit-description"
+                          className="block text-xs font-semibold text-gray-300 mb-1"
+                        >
+                          Trigger Description
+                        </label>
+                        <input
+                          id="registry-edit-description"
+                          type="text"
+                          value={editDescription}
+                          onChange={(e) => setEditDescription(e.target.value)}
+                          className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white focus:border-purple-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="registry-edit-skill-md-textarea"
+                        className="block text-xs font-semibold text-gray-300 mb-1"
+                      >
+                        `SKILL.md` Markdown Content (YAML Frontmatter + Instructions)
+                      </label>
+                      <textarea
+                        id="registry-edit-skill-md-textarea"
+                        data-testid="registry-edit-skill-md-textarea"
+                        rows={12}
+                        value={skillMdContent}
+                        onChange={(e) => setSkillMdContent(e.target.value)}
+                        className="w-full bg-gray-950 border border-gray-700 rounded-lg p-3 text-xs font-mono text-gray-100 leading-relaxed focus:border-purple-500 focus:outline-none"
+                      />
+                    </div>
+
+                    {editError && (
+                      <div
+                        role="alert"
+                        className="p-2.5 bg-red-950/60 border border-red-700 rounded-lg text-xs text-red-200"
+                      >
+                        {editError}
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-800">
+                      <button
+                        type="button"
+                        disabled={isUpdating}
+                        onClick={() => {
+                          setIsEditingSkillMd(false);
+                          setEditError(null);
+                        }}
+                        className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-semibold transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="save-registry-skill-md-btn"
+                        disabled={isUpdating}
+                        onClick={() => void handleSaveRegistrySkillMd()}
+                        className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 text-white rounded-lg text-xs font-bold shadow transition-colors"
+                      >
+                        {isUpdating
+                          ? 'Publishing Revision...'
+                          : '💾 Save & Publish New SKILL.md Revision'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <pre className="p-3.5 bg-gray-900 rounded-lg border border-gray-700 font-mono text-xs text-gray-200 whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto">
+                    {skillMdContent}
+                  </pre>
+                )}
               </div>
 
               {/* Default Revision Info */}

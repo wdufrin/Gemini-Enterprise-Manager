@@ -517,6 +517,47 @@ describe('agents & agentDatasources API - PATCH sanitization, Deploy/Publish, an
         expect(sentDef.nodes).toBeDefined();
     });
 
+    it('updateAgent never includes immutable state in updateMask on PATCH and delegates state-only updates to :enableAgent', async () => {
+        vi.mocked(core.gapiRequest).mockResolvedValue(sampleLowCodeAgent);
+
+        // 1. Mixed update (mutable fields + state): state must be stripped from updateMask and PATCH payload
+        await updateAgent(
+            sampleLowCodeAgent,
+            {
+                displayName: 'Updated Skill Name',
+                description: 'Updated description',
+                state: 'ENABLED',
+                sharingConfig: { scope: 'ALL_USERS' },
+                skillAgentDefinition: {
+                    instruction: '# Routing Rules',
+                },
+            },
+            mockConfig
+        );
+
+        expect(core.gapiRequest).toHaveBeenCalledTimes(1);
+        const [patchUrl, patchMethod, , , patchPayload] = vi.mocked(core.gapiRequest).mock.calls[0];
+        expect(patchMethod).toBe('PATCH');
+        expect(patchUrl).not.toContain('state');
+        expect(patchUrl).toContain(
+            'updateMask=display_name,description,skill_agent_definition,sharing_config'
+        );
+        expect((patchPayload as Record<string, unknown>).state).toBeUndefined();
+
+        // 2. State-only update: delegates to :enableAgent POST RPC instead of PATCH ?updateMask=state
+        vi.clearAllMocks();
+        vi.mocked(core.gapiRequest).mockResolvedValue(sampleLowCodeAgent);
+
+        await updateAgent(sampleLowCodeAgent, { state: 'ENABLED' }, mockConfig);
+        expect(core.gapiRequest).toHaveBeenCalledTimes(2);
+        const [rpcUrl, rpcMethod] = vi.mocked(core.gapiRequest).mock.calls[0];
+        expect(rpcMethod).toBe('POST');
+        expect(rpcUrl).toContain(':enableAgent');
+        expect(rpcUrl).not.toContain('updateMask');
+        const [, getMethod] = vi.mocked(core.gapiRequest).mock.calls[1];
+        expect(getMethod).toBe('GET');
+    });
+
     it('deployLowCodeAgent and publishAgent invoke :deployLowCode and :publish POST endpoints', async () => {
         vi.mocked(core.gapiRequest).mockResolvedValue(sampleLowCodeAgent);
 

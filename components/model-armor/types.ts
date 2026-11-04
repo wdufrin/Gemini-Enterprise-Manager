@@ -420,7 +420,8 @@ export const extractLogExclusionAndStreamingInfo = (
     sanitizationResult?.sanitizationMetadata || payload?.sanitizationMetadata || {};
   const streamChunkProcessed =
     metadata?.streamChunkProcessed === true ||
-    metadata?.streamChunkProcessed === 'true';
+    metadata?.streamChunkProcessed === 'true' ||
+    labels['modelarmor.googleapis.com/stream_chunk_processed'] === 'true';
 
   const skippedExecutionFilterKeys: string[] = [];
   const filterResults = sanitizationResult?.filterResults;
@@ -490,6 +491,102 @@ export type ExclusionRecommendationVerdict =
   | 'HIGH_RISK_TRUE_POSITIVE'
   | 'UNSUPPORTED_FILTER';
 
+export type ExclusionMechanismStrategy = 'KEYWORD_DICTIONARY' | 'PATTERN_FORMULA_REGEX';
+
+export interface SmartTriggerExtractionResult {
+  extractedTriggerClause: string;
+  wasClauseNarrowedFromFullInput: boolean;
+  suggestedDictionaryPhrase: string;
+  suggestedRegexPattern: string;
+  ruleMechanismStrategy: ExclusionMechanismStrategy;
+  recommendedRuleType: 'DICTIONARY' | 'REGEX';
+  strategyTitle: string;
+  strategyRationale: string;
+  estimatedCoverageSummary: string;
+  detectedVariableTokens: string[];
+  matchedDomainCategory: string | null;
+}
+
+export interface EnterpriseExclusionFormulaPreset {
+  id: string;
+  label: string;
+  domain: string;
+  filterType: 'PROMPT_INJECTION_AND_JAILBREAK' | 'RESPONSIBLE_AI';
+  ruleType: 'REGEX' | 'DICTIONARY';
+  matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH';
+  patternOrPhrases: string;
+  description: string;
+  replacesApproxExceptions: string;
+}
+
+export const ENTERPRISE_EXCLUSION_FORMULA_PRESETS: EnterpriseExclusionFormulaPreset[] = [
+  {
+    id: 'devops-process-lifecycle-formula',
+    label: 'DevOps / SRE Process & Pod Lifecycle Formula',
+    domain: 'DevOps & SRE',
+    filterType: 'PROMPT_INJECTION_AND_JAILBREAK',
+    ruleType: 'REGEX',
+    matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH',
+    patternOrPhrases:
+      '(?i)\\b(?:kill|terminate|abort|stop|reap)\\s+(?:the\\s+)?(?:(?:zombie|orphan(?:ed)?|hung|stale|background|stuck|worker)\\s+)*(?:process(?:es)?|pid|port|pod|container|job|thread|worker|session|task)(?:\\s+#?[a-z0-9._-]+)?\\b',
+    description:
+      'Single parameterized Regex Formula covering all DevOps/Kubernetes process, PID, pod, and worker termination commands across arbitrary numeric IDs and pod hashes.',
+    replacesApproxExceptions: 'Replaces 10,000+ PID / pod-name dictionary exceptions with 1 Regex rule',
+  },
+  {
+    id: 'data-sql-etl-cleaning-formula',
+    label: 'Data / SQL / ETL Row & Schema Cleaning Formula',
+    domain: 'Data & Analytics',
+    filterType: 'PROMPT_INJECTION_AND_JAILBREAK',
+    ruleType: 'REGEX',
+    matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH',
+    patternOrPhrases:
+      '(?i)\\b(?:ignore|skip|disregard|drop| omit)\\s+(?:all\\s+|the\\s+)?(?:empty\\s+rows?|blank\\s+lines?|case|uppercase|lowercase|whitespace|null(?:\\s+values?)?|nan|duplicates?|duplicate\\s+records?|warnings?|headers?|footers?|comments?|malformed\\s+records?)\\b',
+    description:
+      'Parameterized formula for benign spreadsheet, SQL, and ETL data-cleaning directives ("ignore empty rows", "skip null values", "ignore case").',
+    replacesApproxExceptions: 'Consolidates 50+ data-cleaning phrasing variants into 1 Regex rule',
+  },
+  {
+    id: 'infra-cache-proxy-bypass-formula',
+    label: 'Network / CDN Cache & Timeout Override Formula',
+    domain: 'Cloud Infrastructure',
+    filterType: 'PROMPT_INJECTION_AND_JAILBREAK',
+    ruleType: 'REGEX',
+    matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH',
+    patternOrPhrases:
+      '(?i)\\b(?:bypass|override|clear|flush|invalidate)\\s+(?:the\\s+)?(?:cdn\\s+|local\\s+|dns\\s+|browser\\s+|read\\s+|edge\\s+|redis\\s+)?(?:cache|proxy|default\\s+timeout|rate\\s+limit|pagination\\s+limit)\\b',
+    description:
+      'Covers legitimate CDN, DNS, Redis cache-busting, and proxy configuration troubleshooting prompts without weakening safety guardrails.',
+    replacesApproxExceptions: 'Consolidates 35+ cache/proxy troubleshooting phrases into 1 Regex rule',
+  },
+  {
+    id: 'secops-cve-triage-formula',
+    label: 'SecOps / Vulnerability & CVE Triage Formula',
+    domain: 'Cybersecurity & SecOps',
+    filterType: 'PROMPT_INJECTION_AND_JAILBREAK',
+    ruleType: 'REGEX',
+    matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH',
+    patternOrPhrases:
+      '(?i)\\b(?:cve-\\d{4}-\\d{4,7}|(?:remediate|patch|mitigate|triage|assess)\\s+(?:the\\s+)?(?:attack\\s+surface|vulnerability\\s+scan|penetration\\s+test\\s+finding|threat\\s+model|exploit\\s+vector))\\b',
+    description:
+      'Allows defensive security engineers to query any CVE identifier (CVE-YYYY-NNNN) and defensive remediation workflows without creating a rule per CVE.',
+    replacesApproxExceptions: 'Replaces 250,000+ individual CVE ID exceptions with 1 Regex formula',
+  },
+  {
+    id: 'clinical-toxicology-rai-formula',
+    label: 'Healthcare / Clinical Protocol & Toxicology Formula',
+    domain: 'Healthcare & Life Sciences',
+    filterType: 'RESPONSIBLE_AI',
+    ruleType: 'REGEX',
+    matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH',
+    patternOrPhrases:
+      '(?i)\\b(?:suicide\\s+risk\\s+(?:screening|assessment|protocol)|overdose\\s+(?:reversal|management|protocol|triage)|toxicology\\s+(?:screen(?:ing)?|panel|report)|adverse\\s+drug\\s+event\\s+reporting)\\b',
+    description:
+      'Scoped Responsible AI formula for clinical decision support, emergency triage protocols, and pharmacovigilance documentation.',
+    replacesApproxExceptions: 'Consolidates clinical protocol terminology into 1 scoped RAI rule',
+  },
+];
+
 export interface LogEntryExclusionEvaluation {
   eligibleForExclusion: boolean;
   triggeredFilterKey: string | null;
@@ -499,9 +596,17 @@ export interface LogEntryExclusionEvaluation {
   verdictLabel: string;
   verdictSummary: string;
   sanitizedInputText: string;
+  extractedTriggerClause: string;
+  wasClauseNarrowedFromFullInput: boolean;
   suggestedDictionaryPhrase: string;
   suggestedRegexPattern: string;
   recommendedRuleType: 'DICTIONARY' | 'REGEX';
+  ruleMechanismStrategy: ExclusionMechanismStrategy;
+  strategyTitle: string;
+  strategyRationale: string;
+  estimatedCoverageSummary: string;
+  detectedVariableTokens: string[];
+  matchedDomainCategory: string | null;
   recommendedMatchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH' | 'MATCHING_SCOPE_FULL_MATCH';
   detectedTemplateName: string | null;
   detectedTemplateSource: string | null;
@@ -530,24 +635,89 @@ const ADVERSARIAL_TRUE_POSITIVE_PATTERNS: Array<{ pattern: RegExp; label: string
   },
 ];
 
-const BENIGN_OPERATIONAL_FALSE_POSITIVE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+interface BenignOperationalDomainPattern {
+  pattern: RegExp;
+  clauseExtractor: RegExp;
+  label: string;
+  domainCategory: string;
+  formulaPattern: string;
+  preferFormulaByDefault: boolean;
+  coverageExplanation: string;
+}
+
+const BENIGN_OPERATIONAL_FALSE_POSITIVE_PATTERNS: BenignOperationalDomainPattern[] = [
   {
-    pattern: /\b(?:ignore|skip|disregard)\s+(?:the\s+)?(?:empty\s+rows?|blank\s+lines?|case|uppercase|lowercase|whitespace|nulls?|duplicates?|warnings?|drafts?|typos?|headers?|footers?|comments?|noise)\b/i,
+    pattern: /\b(?:ignore|skip|disregard|drop|omit)\s+(?:all\s+|the\s+)?(?:empty\s+rows?|blank\s+lines?|case|uppercase|lowercase|whitespace|null(?:s|\s+values?)?|nan|duplicates?|duplicate\s+records?|warnings?|drafts?|typos?|headers?|footers?|comments?|noise|malformed\s+records?)\b/i,
+    clauseExtractor: /\b(?:ignore|skip|disregard|drop|omit)\s+(?:all\s+|the\s+)?(?:empty\s+rows?|blank\s+lines?|case|uppercase|lowercase|whitespace|null(?:s|\s+values?)?|nan|duplicates?|duplicate\s+records?|warnings?|drafts?|typos?|headers?|footers?|comments?|noise|malformed\s+records?)(?:\s+(?:when|in|from|during)\s+[a-z0-9_-]+(?:\s+[a-z0-9_-]+)?)?\b/i,
     label: 'benign data/text processing instruction ("ignore case / empty rows / warnings")',
+    domainCategory: 'Data / SQL / Spreadsheet Processing',
+    formulaPattern:
+      '(?i)\\b(?:ignore|skip|disregard|drop|omit)\\s+(?:all\\s+|the\\s+)?(?:empty\\s+rows?|blank\\s+lines?|case|uppercase|lowercase|whitespace|null(?:s|\\s+values?)?|nan|duplicates?|duplicate\\s+records?|warnings?|drafts?|typos?|headers?|footers?|comments?|noise|malformed\\s+records?)\\b',
+    preferFormulaByDefault: false,
+    coverageExplanation:
+      'Matches data-cleaning directives across spreadsheets, SQL queries, and ETL pipelines without requiring separate rules for each column or table.',
   },
   {
-    pattern: /\b(?:kill|terminate|abort|stop)\s+(?:the\s+)?(?:zombie\s+|orphan(?:ed)?\s+|hung\s+|stale\s+|background\s+)?(?:process(?:es)?|pid|port|pod|container|job|thread|worker|session|task)\b/i,
+    pattern: /\b(?:kill|terminate|abort|stop|reap)\s+(?:the\s+)?(?:(?:zombie|orphan(?:ed)?|hung|stale|background|stuck|worker)\s+)*(?:process(?:es)?|pid|port|pod|container|job|thread|worker|session|task)\b/i,
+    clauseExtractor: /\b(?:kill|terminate|abort|stop|reap)\s+(?:the\s+)?(?:(?:zombie|orphan(?:ed)?|hung|stale|background|stuck|worker)\s+)*(?:process(?:es)?|pid|port|pod|container|job|thread|worker|session|task)(?:\s+#?[a-z0-9._-]+)?\b/i,
     label: 'benign DevOps/SRE process lifecycle command ("kill process / pod / job")',
+    domainCategory: 'DevOps / SRE Process & Cluster Lifecycle',
+    formulaPattern:
+      '(?i)\\b(?:kill|terminate|abort|stop|reap)\\s+(?:the\\s+)?(?:(?:zombie|orphan(?:ed)?|hung|stale|background|stuck|worker)\\s+)*(?:process(?:es)?|pid|port|pod|container|job|thread|worker|session|task)(?:\\s+#?[a-z0-9._-]+)?\\b',
+    preferFormulaByDefault: true,
+    coverageExplanation:
+      '1 Regex Formula covers all PID numbers, port numbers, Kubernetes pod hashes, and worker IDs so you do not burn the 10-rule / 100-word quota on thousands of individual process IDs.',
   },
   {
-    pattern: /\b(?:bypass|override|clear|flush)\s+(?:the\s+)?(?:cdn\s+|local\s+|dns\s+|browser\s+|read\s+)?(?:cache|proxy|default\s+timeout|pagination\s+limit)\b/i,
+    pattern: /\b(?:bypass|override|clear|flush|invalidate)\s+(?:the\s+)?(?:cdn\s+|local\s+|dns\s+|browser\s+|read\s+|edge\s+|redis\s+)?(?:cache|proxy|default\s+timeout|rate\s+limit|pagination\s+limit)\b/i,
+    clauseExtractor: /\b(?:bypass|override|clear|flush|invalidate)\s+(?:the\s+)?(?:cdn\s+|local\s+|dns\s+|browser\s+|read\s+|edge\s+|redis\s+)?(?:cache|proxy|default\s+timeout|rate\s+limit|pagination\s+limit)(?:\s+(?:on|for)\s+[a-z0-9._/-]+)?\b/i,
     label: 'benign infrastructure configuration phrase ("bypass cache / timeout")',
+    domainCategory: 'Cloud Network / Cache / Proxy Configuration',
+    formulaPattern:
+      '(?i)\\b(?:bypass|override|clear|flush|invalidate)\\s+(?:the\\s+)?(?:cdn\\s+|local\\s+|dns\\s+|browser\\s+|read\\s+|edge\\s+|redis\\s+)?(?:cache|proxy|default\\s+timeout|rate\\s+limit|pagination\\s+limit)\\b',
+    preferFormulaByDefault: true,
+    coverageExplanation:
+      '1 Regex Formula covers CDN, DNS, Redis, browser, and local cache/timeout troubleshooting permutations in a single rule.',
   },
   {
-    pattern: /\b(?:attack\s+surface|penetration\s+test(?:ing)?|threat\s+model(?:ing)?|vulnerability\s+scan(?:ning)?|cve-\d{4}-\d+)\b/i,
+    pattern: /\b(?:attack\s+surface|penetration\s+test(?:ing)?|threat\s+model(?:ing)?|vulnerability\s+scan(?:ning)?|cve-\d{4}-\d{4,7}|exploit\s+mitigation)\b/i,
+    clauseExtractor: /\b(?:(?:remediate|patch|mitigate|triage|assess|run|evaluate)\s+(?:the\s+|a\s+)?)?(?:attack\s+surface|penetration\s+test(?:ing)?(?:\s+finding)?|threat\s+model(?:ing)?|vulnerability\s+scan(?:ning)?(?:\s+for\s+cve-\d{4}-\d{4,7})?|cve-\d{4}-\d{4,7}|exploit\s+mitigation)\b/i,
     label: 'defensive security/SecOps terminology',
+    domainCategory: 'Cybersecurity / SecOps / Vulnerability Triage',
+    formulaPattern:
+      '(?i)\\b(?:cve-\\d{4}-\\d{4,7}|(?:remediate|patch|mitigate|triage|assess|evaluate|run)?\\s*(?:the\\s+|a\\s+)?(?:attack\\s+surface|penetration\\s+test(?:ing)?|threat\\s+model(?:ing)?|vulnerability\\s+scan(?:ning)?|exploit\\s+mitigation))\\b',
+    preferFormulaByDefault: true,
+    coverageExplanation:
+      '1 Regex Formula matches any CVE-YYYY-NNNN identifier and defensive SecOps workflow without requiring a separate dictionary rule per CVE.',
+  },
+  {
+    pattern: /\b(?:suicide\s+risk\s+(?:screening|assessment|protocol)|overdose\s+(?:reversal|management|protocol|triage)|toxicology\s+(?:screen(?:ing)?|panel|report)|adverse\s+drug\s+event)\b/i,
+    clauseExtractor: /\b(?:perform\s+|review\s+)?(?:suicide\s+risk\s+(?:screening|assessment|protocol)|overdose\s+(?:reversal|management|protocol|triage)|toxicology\s+(?:screen(?:ing)?|panel|report)|adverse\s+drug\s+event(?:\s+reporting)?)\b/i,
+    label: 'clinical/healthcare triage & toxicology terminology',
+    domainCategory: 'Healthcare / Clinical / Pharmacovigilance',
+    formulaPattern:
+      '(?i)\\b(?:suicide\\s+risk\\s+(?:screening|assessment|protocol)|overdose\\s+(?:reversal|management|protocol|triage)|toxicology\\s+(?:screen(?:ing)?|panel|report)|adverse\\s+drug\\s+event(?:\\s+reporting)?)\\b',
+    preferFormulaByDefault: false,
+    coverageExplanation:
+      'Scoped clinical protocol exclusion that permits legitimate medical triage and toxicology documentation.',
+  },
+  {
+    pattern: /\b(?:harassment\s+(?:policy|training|investigation|complaint)|discrimination\s+(?:policy|claim|investigation)|workplace\s+violence\s+prevention|wrongful\s+termination\s+review)\b/i,
+    clauseExtractor: /\b(?:harassment\s+(?:policy|training|investigation|complaint)|discrimination\s+(?:policy|claim|investigation)|workplace\s+violence\s+prevention|wrongful\s+termination\s+review)\b/i,
+    label: 'HR/Legal workplace compliance & policy terminology',
+    domainCategory: 'HR / Legal / Workplace Compliance',
+    formulaPattern:
+      '(?i)\\b(?:harassment\\s+(?:policy|training|investigation|complaint)|discrimination\\s+(?:policy|claim|investigation)|workplace\\s+violence\\s+prevention|wrongful\\s+termination\\s+review)\\b',
+    preferFormulaByDefault: false,
+    coverageExplanation:
+      'Allows HR and Legal teams to query standardized compliance, anti-harassment, and investigation policy phrases.',
   },
 ];
+
+// Heuristic trigger-word locator used when a prompt does not match a pre-built domain pattern
+// so we still isolate the 3-8 word triggering sub-clause from a multi-sentence prompt.
+const GENERIC_TRIGGER_CUE_REGEX =
+  /\b(?:ignore|disregard|skip|forget|bypass|override|kill|terminate|abort|drop|delete|truncate|attack|exploit|payload|inject|injection|jailbreak|suicide|overdose|harassment|threat|weapon|toxic|vuln(?:erability)?|cve-\d{4}-\d+)\b/i;
 
 /**
  * Generates a word-boundary anchored, case-insensitive regex (`(?i)\b...\b`) from a sample phrase
@@ -562,6 +732,191 @@ export const buildScopedRegexFromPhrase = (phrase: string): string => {
   const startsWithWord = /^\w/.test(trimmed);
   const endsWithWord = /\w$/.test(trimmed);
   return `(?i)${startsWithWord ? '\\b' : ''}(?:${escaped})${endsWithWord ? '\\b' : ''}`;
+};
+
+/**
+ * Converts a specific operational clause containing variable tokens (IDs, numbers, pod hashes, CVEs, verbs)
+ * into a generalized, word-boundary anchored Regex Formula (`(?i)\b...\b`) using Regex Pattern Matching.
+ * Known limits: Uses lexical token classification via regular expressions; does not perform full NLP/AST parsing.
+ */
+export const buildGeneralizedFormulaFromClause = (
+  clause: string,
+): { formula: string; detectedVariables: string[] } => {
+  const trimmed = clause.trim().slice(0, 200);
+  if (!trimmed) return { formula: '', detectedVariables: [] };
+
+  const detectedVariables: string[] = [];
+  const tokens = trimmed.split(/\s+/);
+
+  const patternTokens = tokens.map((rawToken, idx) => {
+    const clean = rawToken.replace(/^[,.;:!?()"']+|[,.;:!?()"']+$/g, '');
+    if (!clean) {
+      return rawToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    // 1. CVE identifiers (e.g. CVE-2025-3194)
+    if (/^cve-\d{4}-\d+$/i.test(clean)) {
+      detectedVariables.push(`${clean} → CVE-YYYY-NNNN`);
+      return 'cve-\\d{4}-\\d{4,7}';
+    }
+    // 2. Issue / Ticket / Partition keys (e.g. PROJ-1234, INC-99812)
+    if (/^[A-Z]{2,10}-\d+$/i.test(clean) && /\d/.test(clean)) {
+      detectedVariables.push(`${clean} → Ticket/Key ID`);
+      return '[a-z]{2,10}-\\d+';
+    }
+    // 3. UUIDs or hex hashes (8+ hex chars)
+    if (/^[a-f0-9]{8,}(?:-[a-f0-9]{4,})*$/i.test(clean) && /\d/.test(clean) && /[a-f]/i.test(clean)) {
+      detectedVariables.push(`${clean} → Hex/UUID`);
+      return '[a-f0-9-]{8,}';
+    }
+    // 4. Hyphenated/underscored resource slugs containing digits or multiple segments (e.g. api-gateway-7f9b, prod-us-east1, 2026_11)
+    if (/^[a-z0-9._-]+$/i.test(clean) && /[-_.]/.test(clean) && /\d/.test(clean)) {
+      detectedVariables.push(`${clean} → Resource/Slug ID`);
+      return '[a-z0-9._-]+';
+    }
+    // 5. Pure numbers, PIDs, ports, chart numbers (e.g. 49182, #88412)
+    if (/^#?\d+$/.test(clean)) {
+      detectedVariables.push(`${clean} → Numeric ID/Count`);
+      return '#?\\d+';
+    }
+    // 6. Common operational verb families at the start of the clause
+    if (idx === 0 || idx === 1) {
+      if (/^(?:kill|terminate|abort|stop|reap)$/i.test(clean)) {
+        return '(?:kill|terminate|abort|stop|reap)';
+      }
+      if (/^(?:ignore|skip|disregard|omit)$/i.test(clean)) {
+        return '(?:ignore|skip|disregard|omit)';
+      }
+      if (/^(?:bypass|override|flush|clear|invalidate)$/i.test(clean)) {
+        return '(?:bypass|override|flush|clear|invalidate)';
+      }
+    }
+    // 7. Common DevOps target nouns
+    if (/^(?:process|processes|pid|port|pod|container|job|worker|thread|session|task)$/i.test(clean)) {
+      return '(?:process(?:es)?|pid|port|pod|container|job|worker|thread|session|task)';
+    }
+
+    return clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  });
+
+  const joined = patternTokens.join('\\s+');
+  const startsWithWord = /^\w|\(\?:|^\[/.test(joined);
+  const endsWithWord = /\w|\)|\]|\+$/.test(joined);
+  const formula = `(?i)${startsWithWord ? '\\b' : ''}(?:${joined})${endsWithWord ? '\\b' : ''}`;
+  return { formula, detectedVariables };
+};
+
+/**
+ * Extracts the narrow 3-8 word triggering clause from a prompt and determines whether
+ * the customer should use a Static Keyword Phrase (`DICTIONARY`) or a Parameterized Pattern Formula (`REGEX`).
+ */
+export const extractSmartTriggerClauseAndFormula = (
+  inputText: string,
+  _filterType: 'PROMPT_INJECTION_AND_JAILBREAK' | 'RESPONSIBLE_AI' = 'PROMPT_INJECTION_AND_JAILBREAK',
+): SmartTriggerExtractionResult => {
+  const trimmed = inputText.trim();
+  if (!trimmed) {
+    return {
+      extractedTriggerClause: '',
+      wasClauseNarrowedFromFullInput: false,
+      suggestedDictionaryPhrase: '',
+      suggestedRegexPattern: '',
+      ruleMechanismStrategy: 'KEYWORD_DICTIONARY',
+      recommendedRuleType: 'DICTIONARY',
+      strategyTitle: 'Exact Keyword Phrase (DICTIONARY)',
+      strategyRationale: 'Enter the specific 3–6 word operational phrase that triggered the false positive.',
+      estimatedCoverageSummary: 'Matches exact phrase occurrences.',
+      detectedVariableTokens: [],
+      matchedDomainCategory: null,
+    };
+  }
+
+  // 1. Check if the input matches one of the curated enterprise operational domain patterns
+  for (const domainDef of BENIGN_OPERATIONAL_FALSE_POSITIVE_PATTERNS) {
+    const clauseMatch = trimmed.match(domainDef.clauseExtractor) || trimmed.match(domainDef.pattern);
+    if (clauseMatch && clauseMatch[0]) {
+      const extractedClause = clauseMatch[0].trim().slice(0, 200);
+      const wasNarrowed = extractedClause.length < trimmed.length;
+      // Also inspect the extracted clause + immediate following token (e.g., PID/pod ID right after the noun)
+      const { detectedVariables } = buildGeneralizedFormulaFromClause(extractedClause);
+      const hasVariables = detectedVariables.length > 0;
+      const useFormula = domainDef.preferFormulaByDefault || hasVariables || trimmed.length > 200;
+
+      return {
+        extractedTriggerClause: extractedClause,
+        wasClauseNarrowedFromFullInput: wasNarrowed,
+        suggestedDictionaryPhrase: extractedClause,
+        suggestedRegexPattern: domainDef.formulaPattern,
+        ruleMechanismStrategy: useFormula ? 'PATTERN_FORMULA_REGEX' : 'KEYWORD_DICTIONARY',
+        recommendedRuleType: useFormula ? 'REGEX' : 'DICTIONARY',
+        strategyTitle: useFormula
+          ? 'Parameterized Pattern Formula (REGEX — Recommended)'
+          : 'Canonical Keyword Phrase (DICTIONARY — Recommended)',
+        strategyRationale: useFormula
+          ? hasVariables
+            ? `Detected dynamic tokens (${detectedVariables.join(', ')}) inside "${extractedClause}". A static Dictionary rule would only match this exact ID and require thousands of exceptions. Use a Pattern Formula (REGEX) so 1 rule covers all future IDs and verb variations within Model Armor's 10-rule limit.`
+            : `"${extractedClause}" belongs to ${domainDef.domainCategory}, where engineers use interchangeable verbs and target nouns. Using 1 Pattern Formula (REGEX) prevents burning your 100-word / 10-rule quota on repetitive variations.`
+          : `"${extractedClause}" is a fixed, invariant domain phrase without dynamic IDs or numbers. A Narrow Keyword Phrase (DICTIONARY) with PARTIAL_MATCH is the simplest and lowest-overhead exclusion.`,
+        estimatedCoverageSummary: domainDef.coverageExplanation,
+        detectedVariableTokens: detectedVariables,
+        matchedDomainCategory: domainDef.domainCategory,
+      };
+    }
+  }
+
+  // 2. If not a pre-built domain pattern, split long inputs into clauses and isolate a 3-8 word window around the trigger cue
+  let extractedClause = trimmed;
+  const words = trimmed.split(/\s+/);
+  if (words.length > 8) {
+    // Split on sentence/clause boundaries first
+    const segments = trimmed
+      .split(/(?:[.!?\n;]+|\s+--\s+|\s+-\s+|\b(?:please|and\s+then|so\s+that|because)\b)/i)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const matchingSegment = segments.find((seg) => GENERIC_TRIGGER_CUE_REGEX.test(seg)) || segments[0] || trimmed;
+    const segWords = matchingSegment.split(/\s+/);
+    if (segWords.length > 8) {
+      const cueIdx = segWords.findIndex((w) => GENERIC_TRIGGER_CUE_REGEX.test(w));
+      if (cueIdx >= 0) {
+        const start = Math.max(0, cueIdx - 1);
+        const end = Math.min(segWords.length, start + 7);
+        extractedClause = segWords.slice(start, end).join(' ').replace(/^[,.;:!?]+|[,.;:!?]+$/g, '');
+      } else {
+        extractedClause = segWords.slice(0, 7).join(' ').replace(/^[,.;:!?]+|[,.;:!?]+$/g, '');
+      }
+    } else {
+      extractedClause = matchingSegment.replace(/^[,.;:!?]+|[,.;:!?]+$/g, '');
+    }
+  }
+
+  extractedClause = extractedClause.slice(0, 200);
+  const wasNarrowed = extractedClause.length < trimmed.length;
+  const { formula, detectedVariables } = buildGeneralizedFormulaFromClause(extractedClause);
+  const hasVariables = detectedVariables.length > 0;
+  const useFormula = hasVariables || trimmed.length > 200;
+
+  return {
+    extractedTriggerClause: extractedClause,
+    wasClauseNarrowedFromFullInput: wasNarrowed,
+    suggestedDictionaryPhrase: extractedClause,
+    suggestedRegexPattern: hasVariables ? formula : buildScopedRegexFromPhrase(extractedClause),
+    ruleMechanismStrategy: useFormula ? 'PATTERN_FORMULA_REGEX' : 'KEYWORD_DICTIONARY',
+    recommendedRuleType: useFormula ? 'REGEX' : 'DICTIONARY',
+    strategyTitle: useFormula
+      ? 'Parameterized Pattern Formula (REGEX — Recommended)'
+      : 'Scoped Keyword Phrase (DICTIONARY — Recommended)',
+    strategyRationale: hasVariables
+      ? `Isolated trigger clause "${extractedClause}" contains variable tokens (${detectedVariables.join(', ')}). Do not create static dictionary exceptions per ID/number — use the generalized Regex Formula below so 1 rule handles all parameter values.`
+      : wasNarrowed
+        ? `Narrowed ${trimmed.length}-character prompt down to the ${extractedClause.split(/\s+/).length}-word trigger clause "${extractedClause}". Because this phrase has no dynamic IDs or numbers, a Keyword Phrase (DICTIONARY) is recommended.`
+        : `Short static phrase with no variable IDs or numbers. A Keyword Phrase (DICTIONARY) with PARTIAL_MATCH is sufficient; switch to Regex Formula only if users vary the phrasing or include numbers.`,
+    estimatedCoverageSummary: hasVariables
+      ? `Generalizes ${detectedVariables.length} variable token(s) into reusable regex character classes.`
+      : 'Matches this exact multi-word phrase anywhere in a prompt or response.',
+    detectedVariableTokens: detectedVariables,
+    matchedDomainCategory: null,
+  };
 };
 
 export interface ExclusionRuleValidationResult {
@@ -753,14 +1108,16 @@ export const evaluateLogEntryForExclusion = (
     detectedTemplateSource = 'Default active template in project';
   }
 
-  // 3. Evaluate input text for adversarial risk vs. benign operational false positive
+  // 3. Smart Trigger-Clause Extraction & Keyword vs. Formula Decision
   const warnings: string[] = [];
-  const suggestedDictionaryPhrase = sanitizedInputText.slice(0, 200);
-  const suggestedRegexPattern = buildScopedRegexFromPhrase(sanitizedInputText);
+  const smartExtraction = extractSmartTriggerClauseAndFormula(
+    sanitizedInputText,
+    mappedExclusionFilterType,
+  );
 
   if (sanitizedInputText.length > 200) {
     warnings.push(
-      `Sanitized input is ${sanitizedInputText.length} characters long, exceeding the 200-character limit for a single Dictionary wordList entry. Narrow the phrase to the specific triggering clause or use a Scoped Regex rule.`,
+      `Full sanitized input is ${sanitizedInputText.length} characters (exceeds the 200-char Dictionary limit). Isolated the ${smartExtraction.extractedTriggerClause.length}-character trigger clause "${smartExtraction.extractedTriggerClause}".`,
     );
   }
   if (sanitizedInputText.length > 500_000) {
@@ -774,10 +1131,41 @@ export const evaluateLogEntryForExclusion = (
     );
   }
 
+  // 4. Check live template quota utilization & streaming chunk boundary risks
+  const logStreamingInfo = extractLogExclusionAndStreamingInfo(rawLog);
+  if (logStreamingInfo.streamChunkProcessed) {
+    warnings.push(
+      'This log entry was processed in real-time streaming chunks (stream_chunk_processed=true). Keep exclusion clauses concise (3–6 words) so a phrase is less likely to split across a streaming chunk boundary.',
+    );
+  }
+
+  if (detectedTemplateName) {
+    const matchedTplObj = templates.find((t) => t.name === detectedTemplateName);
+    const ruleSets = matchedTplObj?.filterConfig?.filterRuleSettings?.ruleSets;
+    if (Array.isArray(ruleSets)) {
+      const targetRs = ruleSets.find(
+        (rs) => Array.isArray(rs?.filterTypes) && rs.filterTypes.includes(mappedExclusionFilterType),
+      );
+      const currentRulesCount = Array.isArray(targetRs?.rules) ? targetRs.rules.length : 0;
+      if (currentRulesCount >= 8) {
+        warnings.push(
+          `Target template "${detectedTemplateName.split('/').pop()}" already uses ${currentRulesCount}/10 exclusion rules for ${mappedExclusionFilterType}. Prefer consolidating exceptions into a Regex Formula or appending to an existing Dictionary wordList.`,
+        );
+      }
+    }
+  }
+
   let verdict: ExclusionRecommendationVerdict = 'REVIEW_REQUIRED';
   let verdictLabel = 'Manual Admin Review Recommended';
   let verdictSummary =
     'Verify that this input is a legitimate business/operational false positive before adding an exclusion rule. Prefer narrowing the phrase to the specific domain clause rather than excluding broad words.';
+
+  let suggestedDictionaryPhrase = smartExtraction.suggestedDictionaryPhrase;
+  let suggestedRegexPattern = smartExtraction.suggestedRegexPattern;
+  let recommendedRuleType = smartExtraction.recommendedRuleType;
+  let ruleMechanismStrategy = smartExtraction.ruleMechanismStrategy;
+  let strategyTitle = smartExtraction.strategyTitle;
+  let strategyRationale = smartExtraction.strategyRationale;
 
   if (!eligibleForExclusion) {
     verdict = 'UNSUPPORTED_FILTER';
@@ -800,12 +1188,27 @@ export const evaluateLogEntryForExclusion = (
         0,
         80,
       )}". Excluding this input will weaken ${mappedExclusionFilterType} protection and allow prompts containing this phrase to bypass blocking. Only apply to policy if this is an intentional red-team or evaluation fixture.`;
+      // For adversarial true positives, never generalize into a broader wildcard formula by default
+      suggestedDictionaryPhrase = sanitizedInputText.slice(0, 200);
+      suggestedRegexPattern = buildScopedRegexFromPhrase(sanitizedInputText);
+      recommendedRuleType = sanitizedInputText.length > 200 ? 'REGEX' : 'DICTIONARY';
+      ruleMechanismStrategy = recommendedRuleType === 'REGEX' ? 'PATTERN_FORMULA_REGEX' : 'KEYWORD_DICTIONARY';
+      strategyTitle =
+        recommendedRuleType === 'REGEX'
+          ? 'Exact Escaped Regex (Adversarial Fixture Only)'
+          : 'Exact Literal Phrase (Adversarial Fixture Only)';
+      strategyRationale =
+        'Because this prompt matched an adversarial/jailbreak pattern, we intentionally avoid generalizing numbers or tokens into a broader formula so production guardrails are not weakened.';
     } else if (benignMatches.length > 0) {
       verdict = 'LIKELY_FALSE_POSITIVE';
       verdictLabel = 'Likely Benign Operational False Positive';
       verdictSummary = `Matched ${benignMatches
         .map((m) => m.label)
-        .join(', ')}. Recommended: apply a scoped PARTIAL_MATCH exclusion rule so legitimate operational queries are not blocked in real-time or buffered streaming.`;
+        .join(', ')}. Isolated trigger clause "${smartExtraction.extractedTriggerClause}" (${
+        smartExtraction.recommendedRuleType === 'REGEX'
+          ? 'Recommended: Pattern Formula REGEX to cover all parameter variations in 1 rule'
+          : 'Recommended: Scoped Keyword Phrase DICTIONARY'
+      }).`;
     } else if (!sanitizedInputText) {
       verdict = 'REVIEW_REQUIRED';
       verdictLabel = 'No Input Text Logged — Custom Phrase Required';
@@ -823,9 +1226,17 @@ export const evaluateLogEntryForExclusion = (
     verdictLabel,
     verdictSummary,
     sanitizedInputText,
+    extractedTriggerClause: smartExtraction.extractedTriggerClause,
+    wasClauseNarrowedFromFullInput: smartExtraction.wasClauseNarrowedFromFullInput,
     suggestedDictionaryPhrase,
     suggestedRegexPattern,
-    recommendedRuleType: sanitizedInputText.length > 200 ? 'REGEX' : 'DICTIONARY',
+    recommendedRuleType,
+    ruleMechanismStrategy,
+    strategyTitle,
+    strategyRationale,
+    estimatedCoverageSummary: smartExtraction.estimatedCoverageSummary,
+    detectedVariableTokens: smartExtraction.detectedVariableTokens,
+    matchedDomainCategory: smartExtraction.matchedDomainCategory,
     recommendedMatchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH',
     detectedTemplateName,
     detectedTemplateSource,

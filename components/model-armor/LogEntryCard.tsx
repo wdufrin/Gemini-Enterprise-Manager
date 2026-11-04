@@ -162,6 +162,9 @@ export const LogEntryCard: React.FC<LogEntryCardProps> = ({
   const [isApplying, setIsApplying] = useState<boolean>(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [applySuccess, setApplySuccess] = useState<string | null>(null);
+  const [isAnalyzingWithGemini, setIsAnalyzingWithGemini] = useState<boolean>(false);
+  const [geminiSynthesis, setGeminiSynthesis] = useState<api.GeminiExclusionSynthesisResult | null>(null);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
 
   // Sync detected template when templates/engines finish loading
   useEffect(() => {
@@ -190,6 +193,35 @@ export const LogEntryCard: React.FC<LogEntryCardProps> = ({
     setShowExclusionEvaluator(nextState);
     if (nextState && templates.length === 0 && !isPoliciesLoading && onRequestPolicies) {
       onRequestPolicies();
+    }
+  };
+
+  const handleAnalyzeWithGemini = async () => {
+    if (!projectNumber) {
+      setGeminiError('Project ID is required to run Vertex AI Gemini exclusion analysis.');
+      return;
+    }
+    if (!evaluation.sanitizedInputText) {
+      setGeminiError('No sanitizedInput.text available in this log entry to analyze.');
+      return;
+    }
+
+    setIsAnalyzingWithGemini(true);
+    setGeminiError(null);
+    try {
+      const result = await api.synthesizeExclusionRuleWithGemini(projectNumber, {
+        inputText: evaluation.sanitizedInputText,
+        filterType,
+        currentVerdict: evaluation.verdict,
+      });
+      setGeminiSynthesis(result);
+      setDictionaryText(result.suggestedDictionaryPhrase);
+      setRegexPattern(result.suggestedRegexFormula);
+      setRuleType(result.recommendedRuleType);
+    } catch (err: unknown) {
+      setGeminiError(toErrorMessage(err, 'Failed to analyze exclusion clause with Vertex AI Gemini.'));
+    } finally {
+      setIsAnalyzingWithGemini(false);
     }
   };
 
@@ -271,6 +303,13 @@ export const LogEntryCard: React.FC<LogEntryCardProps> = ({
       : evaluation.verdict === 'UNSUPPORTED_FILTER'
       ? 'bg-gray-900 border-gray-700 text-gray-300'
       : 'bg-amber-950/40 border-amber-700/70 text-amber-200';
+
+  const activeStrategyTitle = geminiSynthesis?.strategyTitle || evaluation.strategyTitle;
+  const activeStrategyRationale = geminiSynthesis?.strategyRationale || evaluation.strategyRationale;
+  const activeExtractedClause = geminiSynthesis?.extractedTriggerClause || evaluation.extractedTriggerClause;
+  const activeRecommendedRuleType = geminiSynthesis?.recommendedRuleType || evaluation.recommendedRuleType;
+  const activeSuggestedDict = geminiSynthesis?.suggestedDictionaryPhrase || evaluation.suggestedDictionaryPhrase;
+  const activeSuggestedRegex = geminiSynthesis?.suggestedRegexFormula || evaluation.suggestedRegexPattern;
 
   return (
     <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden shadow-sm transition-all hover:border-gray-600">
@@ -439,11 +478,35 @@ export const LogEntryCard: React.FC<LogEntryCardProps> = ({
                 an active Model Armor policy via live <code className="font-mono">PATCH</code>.
               </p>
             </div>
-            {evaluation.detectedTemplateName && (
-              <span className="text-[11px] font-mono bg-indigo-950/60 text-indigo-200 px-2.5 py-1 rounded border border-indigo-800/60">
-                Matched Policy: {evaluation.detectedTemplateName.split('/').pop()} ({evaluation.detectedTemplateSource})
-              </span>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {evaluation.sanitizedInputText && evaluation.eligibleForExclusion && (
+                <button
+                  type="button"
+                  data-testid="gemini-analyze-exclusion-button"
+                  onClick={handleAnalyzeWithGemini}
+                  disabled={isAnalyzingWithGemini}
+                  className="px-2.5 py-1 rounded text-xs font-semibold bg-purple-950/70 hover:bg-purple-900/80 text-purple-200 border border-purple-700/70 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isAnalyzingWithGemini ? (
+                    <span className="w-3 h-3 border-2 border-purple-300/40 border-t-purple-200 rounded-full animate-spin" />
+                  ) : (
+                    <span>✨</span>
+                  )}
+                  <span>
+                    {isAnalyzingWithGemini
+                      ? 'Analyzing with Gemini...'
+                      : geminiSynthesis
+                        ? 'Re-Analyze with Gemini'
+                        : 'Smart Analyze with Gemini'}
+                  </span>
+                </button>
+              )}
+              {evaluation.detectedTemplateName && (
+                <span className="text-[11px] font-mono bg-indigo-950/60 text-indigo-200 px-2.5 py-1 rounded border border-indigo-800/60">
+                  Matched Policy: {evaluation.detectedTemplateName.split('/').pop()} ({evaluation.detectedTemplateSource})
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Verdict Banner */}
@@ -456,6 +519,143 @@ export const LogEntryCard: React.FC<LogEntryCardProps> = ({
             </div>
             <p className="leading-relaxed opacity-95">{evaluation.verdictSummary}</p>
           </div>
+
+          {geminiError && (
+            <div
+              data-testid="gemini-exclusion-error"
+              className="text-xs text-red-300 bg-red-950/40 border border-red-800/70 rounded p-2.5"
+            >
+              <strong>Gemini Analysis Error:</strong> {geminiError}
+            </div>
+          )}
+
+          {/* Smart Trigger-Clause & Exception Strategy (Keyword vs. Formula) */}
+          {evaluation.eligibleForExclusion && evaluation.sanitizedInputText && (
+            <div
+              data-testid="smart-trigger-strategy-card"
+              className="bg-indigo-950/25 border border-indigo-800/60 rounded-lg p-3.5 space-y-3 text-xs"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold text-indigo-200 uppercase tracking-wide">
+                    Exception Strategy: Keyword Phrase vs. Pattern Formula
+                  </span>
+                  {evaluation.matchedDomainCategory && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-900/60 text-indigo-200 border border-indigo-700/60">
+                      {evaluation.matchedDomainCategory}
+                    </span>
+                  )}
+                  {geminiSynthesis && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-900/60 text-purple-200 border border-purple-700/60">
+                      ✨ Tailored by Vertex AI Gemini
+                    </span>
+                  )}
+                </div>
+                <span
+                  data-testid="recommended-strategy-badge"
+                  className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                    activeRecommendedRuleType === 'REGEX'
+                      ? 'bg-amber-950/60 text-amber-200 border-amber-700/70'
+                      : 'bg-emerald-950/60 text-emerald-200 border-emerald-700/70'
+                  }`}
+                >
+                  {activeStrategyTitle}
+                </span>
+              </div>
+
+              <div className="text-gray-300 leading-relaxed space-y-1.5">
+                <p>{activeStrategyRationale}</p>
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  <span className="text-[11px] text-gray-400">Isolated Trigger Clause:</span>
+                  <code
+                    data-testid="isolated-trigger-clause"
+                    className="font-mono text-indigo-200 bg-black/50 px-2 py-0.5 rounded border border-indigo-800/50"
+                  >
+                    {activeExtractedClause}
+                  </code>
+                  {evaluation.wasClauseNarrowedFromFullInput && (
+                    <span className="text-[10px] text-emerald-300 bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-800/50">
+                      Narrowed from {evaluation.sanitizedInputText.length} chars →{' '}
+                      {activeExtractedClause.split(/\s+/).filter(Boolean).length} words
+                    </span>
+                  )}
+                  {evaluation.detectedVariableTokens.map((tok, i) => (
+                    <span
+                      key={i}
+                      className="text-[10px] font-mono text-amber-200 bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-800/50"
+                    >
+                      Variable: {tok}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Side-by-Side Comparison: Keyword Phrase (DICTIONARY) vs. Pattern Formula (REGEX) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+                <button
+                  type="button"
+                  data-testid="select-keyword-strategy-button"
+                  onClick={() => {
+                    setRuleType('DICTIONARY');
+                    setDictionaryText(activeSuggestedDict);
+                  }}
+                  className={`text-left p-2.5 rounded border transition-all ${
+                    ruleType === 'DICTIONARY'
+                      ? 'bg-indigo-900/40 border-indigo-500 text-white'
+                      : 'bg-gray-900/60 border-gray-700/80 text-gray-300 hover:border-gray-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="font-bold text-[11px] text-indigo-200">
+                      Option A: Static Keyword Phrase (DICTIONARY)
+                    </span>
+                    {activeRecommendedRuleType === 'DICTIONARY' && (
+                      <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-900/70 text-emerald-200 border border-emerald-700/70">
+                        Recommended
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400 mb-1.5">
+                    Best for fixed canonical phrases with zero dynamic IDs, numbers, or verb variations.
+                  </p>
+                  <code className="block font-mono text-[11px] text-white bg-black/40 p-1.5 rounded truncate">
+                    {activeSuggestedDict}
+                  </code>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="select-formula-strategy-button"
+                  onClick={() => {
+                    setRuleType('REGEX');
+                    setRegexPattern(activeSuggestedRegex);
+                  }}
+                  className={`text-left p-2.5 rounded border transition-all ${
+                    ruleType === 'REGEX'
+                      ? 'bg-amber-950/35 border-amber-500 text-white'
+                      : 'bg-gray-900/60 border-gray-700/80 text-gray-300 hover:border-gray-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="font-bold text-[11px] text-amber-200">
+                      Option B: Parameterized Pattern Formula (REGEX)
+                    </span>
+                    {activeRecommendedRuleType === 'REGEX' && (
+                      <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-900/70 text-amber-200 border border-amber-700/70">
+                        Recommended
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400 mb-1.5">
+                    Best when prompts contain PIDs, numbers, pod hashes, CVEs, or verb variations (1 rule replaces 10,000+ exceptions).
+                  </p>
+                  <code className="block font-mono text-[11px] text-amber-300 bg-black/40 p-1.5 rounded truncate">
+                    {activeSuggestedRegex}
+                  </code>
+                </button>
+              </div>
+            </div>
+          )}
 
           {evaluation.warnings.length > 0 && (
             <div className="space-y-1.5">
@@ -610,9 +810,9 @@ export const LogEntryCard: React.FC<LogEntryCardProps> = ({
                       type="button"
                       onClick={() => {
                         if (ruleType === 'DICTIONARY') {
-                          setDictionaryText(evaluation.suggestedDictionaryPhrase);
+                          setDictionaryText(activeSuggestedDict);
                         } else {
-                          setRegexPattern(evaluation.suggestedRegexPattern);
+                          setRegexPattern(activeSuggestedRegex);
                         }
                       }}
                       className="text-[11px] text-indigo-300 hover:text-indigo-200 underline"
@@ -632,15 +832,20 @@ export const LogEntryCard: React.FC<LogEntryCardProps> = ({
                     className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-xs text-white font-mono"
                   />
                 ) : (
-                  <input
-                    id={`exclusion-value-${log.receiveTimestamp}`}
-                    aria-label="Exclusion Phrase or Pattern"
-                    type="text"
-                    value={regexPattern}
-                    onChange={(e) => setRegexPattern(e.target.value)}
-                    placeholder="e.g. (?i)\b(?:ignore\s+empty\s+rows)\b"
-                    className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-xs text-amber-300 font-mono"
-                  />
+                  <div className="space-y-1">
+                    <input
+                      id={`exclusion-value-${log.receiveTimestamp}`}
+                      aria-label="Exclusion Phrase or Pattern"
+                      type="text"
+                      value={regexPattern}
+                      onChange={(e) => setRegexPattern(e.target.value)}
+                      placeholder="e.g. (?i)\b(?:ignore\s+empty\s+rows)\b"
+                      className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-xs text-amber-300 font-mono"
+                    />
+                    <p className="text-[11px] text-gray-400">
+                      Word-boundary anchored, case-insensitive regex formula (<code className="font-mono">(?i)\b...\b</code>) that generalizes variable IDs/verbs into a single quota-efficient rule.
+                    </p>
+                  </div>
                 )}
               </div>
 

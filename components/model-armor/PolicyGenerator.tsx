@@ -17,7 +17,13 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import * as api from '../../services/apiService';
 import { toErrorMessage } from '../../utils/errors';
-import { EngineArmorState, DEFAULT_FAILURE_MODE, readArmorConfig } from './types';
+import {
+  EngineArmorState,
+  DEFAULT_FAILURE_MODE,
+  readArmorConfig,
+  ENTERPRISE_EXCLUSION_FORMULA_PRESETS,
+  EnterpriseExclusionFormulaPreset,
+} from './types';
 
 const CopyIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -121,6 +127,21 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
         matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH',
         wordsInput: '',
         regexPattern: '(?i)kill process [0-9]+',
+      },
+    ]);
+    setLogSanitizeOperations(true);
+  };
+
+  const addEnterpriseFormulaPreset = (preset: EnterpriseExclusionFormulaPreset) => {
+    setExclusionRules((prev) => [
+      ...prev,
+      {
+        id: `ex-formula-${preset.id}-${Date.now()}`,
+        filterType: preset.filterType,
+        ruleType: preset.ruleType,
+        matchingScope: preset.matchingScope,
+        wordsInput: preset.ruleType === 'DICTIONARY' ? preset.patternOrPhrases : '',
+        regexPattern: preset.ruleType === 'REGEX' ? preset.patternOrPhrases : '',
       },
     ]);
     setLogSanitizeOperations(true);
@@ -689,7 +710,28 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
                   Exclude known benign phrases or regex patterns from PI &amp; Jailbreak or RAI filters (`filterRuleSettings`).
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  aria-label="Add Enterprise Formula Preset"
+                  defaultValue=""
+                  onChange={(e) => {
+                    const chosen = ENTERPRISE_EXCLUSION_FORMULA_PRESETS.find((p) => p.id === e.target.value);
+                    if (chosen) {
+                      addEnterpriseFormulaPreset(chosen);
+                      e.target.value = '';
+                    }
+                  }}
+                  className="bg-amber-950/50 hover:bg-amber-900/50 text-amber-200 text-xs font-semibold rounded border border-amber-700/60 px-2.5 py-1 transition-colors"
+                >
+                  <option value="" disabled>
+                    + Add Enterprise Formula Preset...
+                  </option>
+                  {ENTERPRISE_EXCLUSION_FORMULA_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.domain}: {preset.label} ({preset.replacesApproxExceptions})
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
                   onClick={applyExclusionPreset}

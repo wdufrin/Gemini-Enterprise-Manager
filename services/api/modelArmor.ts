@@ -270,4 +270,159 @@ export const updateModelArmorTemplateExclusionRules = async (
   return gapiRequest<ModelArmorTemplate>(url, "PATCH", projectId, undefined, payload);
 };
 
+export interface GeminiExclusionSynthesisResult {
+  extractedTriggerClause: string;
+  recommendedRuleType: "DICTIONARY" | "REGEX";
+  suggestedDictionaryPhrase: string;
+  suggestedRegexFormula: string;
+  strategyTitle: string;
+  strategyRationale: string;
+  isAdversarialTruePositive: boolean;
+}
+
+const GEMINI_WILDCARD_GUARD_REGEX =
+  /^(?:\(\?[imsU]+\))?\^?(?:\((?:\?:)?)?(?:\.\*|\.\+|\.\{0,\}|\.\{1,\}|\[\\s\\S\][*+]|\[\\d\\D\][*+]|\[\\w\\W\][*+])\)*\$?$/;
+
+/**
+ * Uses Vertex AI Gemini (`gemini-2.5-flash`) to analyze a blocked Model Armor prompt,
+ * isolate the narrow 3–7 word triggering clause, decide between a Static Keyword Phrase (`DICTIONARY`)
+ * vs. a Parameterized Pattern Formula (`REGEX`), and synthesize a quota-efficient exclusion rule.
+ */
+export const synthesizeExclusionRuleWithGemini = async (
+  projectId: string,
+  params: {
+    inputText: string;
+    filterType: "PROMPT_INJECTION_AND_JAILBREAK" | "RESPONSIBLE_AI";
+    currentVerdict?: string;
+  },
+): Promise<GeminiExclusionSynthesisResult> => {
+  const cleanProject = projectId.trim();
+  if (!cleanProject) {
+    throw new Error("A valid GCP projectId is required to synthesize Model Armor exclusions with Vertex AI Gemini.");
+  }
+  const cleanInput = params.inputText.trim();
+  if (!cleanInput) {
+    throw new Error("Cannot synthesize an exclusion rule from an empty sanitizationInput.text.");
+  }
+
+  const endpoint = `https://aiplatform.googleapis.com/v1/projects/${encodeURIComponent(
+    cleanProject,
+  )}/locations/global/publishers/google/models/gemini-2.5-flash:generateContent`;
+
+  const systemInstruction = [
+    "You are a Google Cloud Model Armor Principal Security Architect.",
+    "Enterprises have strict Model Armor template limits: max 2 ruleSets per template, max 10 rules per ruleSet, and max 100 words per dictionary.wordList (each <= 200 chars; regex <= 1000 chars).",
+    "Customers cannot create 10,000 individual dictionary exceptions for every PID, pod name, ticket number, CVE ID, or phrasing variation.",
+    "Given a blocked prompt and triggered filterType, you must:",
+    "1. Isolate the narrowest 3-7 word triggering sub-clause (`extractedTriggerClause`) that caused the false positive, stripping away surrounding conversational text.",
+    "2. Decide whether the customer should use `DICTIONARY` (Static Keyword Phrase) or `REGEX` (Parameterized Pattern Formula):",
+    "   - Choose `REGEX` whenever the clause has variable IDs, numbers, PIDs, ports, pod hashes, CVE IDs, ticket numbers, or interchangeable operational verbs/nouns so 1 Regex Formula covers thousands of variations.",
+    "   - Choose `DICTIONARY` only when the trigger is a fixed, invariant multi-word canonical phrase with zero dynamic parameters.",
+    "3. Produce both a concise `suggestedDictionaryPhrase` (3-7 words, <= 200 chars, never a single generic word) and a word-boundary anchored case-insensitive `suggestedRegexFormula` starting with `(?i)\\b` and ending with `\\b`. Never output unconstrained wildcards like `.*` or `.+`.",
+    "Return strict JSON matching the requested schema.",
+  ].join("\n");
+
+  const userPrompt = JSON.stringify(
+    {
+      triggeredFilterType: params.filterType,
+      currentHeuristicVerdict: params.currentVerdict || "REVIEW_REQUIRED",
+      sanitizedInputText: cleanInput.slice(0, 4000),
+    },
+    null,
+    2,
+  );
+
+  const response = await gapiRequest<{
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{ text?: string }>;
+      };
+    }>;
+  }>(endpoint, "POST", cleanProject, undefined, {
+    systemInstruction: {
+      parts: [{ text: systemInstruction }],
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: userPrompt }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "OBJECT",
+        required: [
+          "extractedTriggerClause",
+          "recommendedRuleType",
+          "suggestedDictionaryPhrase",
+          "suggestedRegexFormula",
+          "strategyTitle",
+          "strategyRationale",
+          "isAdversarialTruePositive",
+        ],
+        properties: {
+          extractedTriggerClause: { type: "STRING" },
+          recommendedRuleType: { type: "STRING", enum: ["DICTIONARY", "REGEX"] },
+          suggestedDictionaryPhrase: { type: "STRING" },
+          suggestedRegexFormula: { type: "STRING" },
+          strategyTitle: { type: "STRING" },
+          strategyRationale: { type: "STRING" },
+          isAdversarialTruePositive: { type: "BOOLEAN" },
+        },
+      },
+    },
+  });
+
+  const rawText = response?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+  if (!rawText) {
+    throw new Error("Vertex AI Gemini returned an empty exclusion analysis response.");
+  }
+
+  let parsed: Partial<GeminiExclusionSynthesisResult>;
+  try {
+    parsed = JSON.parse(rawText) as Partial<GeminiExclusionSynthesisResult>;
+  } catch (err) {
+    throw new Error(
+      `Failed to parse Vertex AI Gemini exclusion JSON response: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const extractedTriggerClause = (parsed.extractedTriggerClause || "").trim().slice(0, 200);
+  const suggestedDictionaryPhrase = (parsed.suggestedDictionaryPhrase || extractedTriggerClause)
+    .trim()
+    .slice(0, 200);
+  const suggestedRegexFormula = (parsed.suggestedRegexFormula || "").trim().slice(0, 1000);
+
+  if (!suggestedDictionaryPhrase || !suggestedRegexFormula) {
+    throw new Error("Vertex AI Gemini response omitted required dictionary phrase or regex formula.");
+  }
+
+  if (GEMINI_WILDCARD_GUARD_REGEX.test(suggestedRegexFormula)) {
+    throw new Error(
+      `Rejected unsafe wildcard regex "${suggestedRegexFormula}" synthesized by Gemini.`,
+    );
+  }
+
+  return {
+    extractedTriggerClause: extractedTriggerClause || suggestedDictionaryPhrase,
+    recommendedRuleType: parsed.recommendedRuleType === "REGEX" ? "REGEX" : "DICTIONARY",
+    suggestedDictionaryPhrase,
+    suggestedRegexFormula,
+    strategyTitle:
+      (parsed.strategyTitle || "").trim() ||
+      (parsed.recommendedRuleType === "REGEX"
+        ? "Parameterized Pattern Formula (REGEX — Gemini Recommended)"
+        : "Canonical Keyword Phrase (DICTIONARY — Gemini Recommended)"),
+    strategyRationale:
+      (parsed.strategyRationale || "").trim() ||
+      "Tailored by Vertex AI Gemini to minimize Model Armor rule quota consumption.",
+    isAdversarialTruePositive: Boolean(parsed.isAdversarialTruePositive),
+  };
+};
+
+
 

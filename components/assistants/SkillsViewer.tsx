@@ -69,123 +69,195 @@ const getSourceBadge = (skill: Agent) => {
 
 interface SkillTableRowProps {
   skill: Agent;
+  isSelected: boolean;
+  onToggleSelect: (skillName: string) => void;
   onInspect: (skill: Agent) => void;
+  onEdit: (skill: Agent) => void;
   onDelete: (skill: Agent) => void;
 }
 
-const SkillTableRow = React.memo<SkillTableRowProps>(({ skill, onInspect, onDelete }) => {
-  const skillId = skill.name.split('/').pop() || '';
-  const classification = classifySkillAgent(skill);
-  const ownerEmail = classification.ownerPrincipal;
-  const normalizedState = (skill.state || 'PRIVATE').toUpperCase();
+const SkillTableRow = React.memo<SkillTableRowProps>(
+  ({ skill, isSelected, onToggleSelect, onInspect, onEdit, onDelete }) => {
+    const skillId = skill.name.split('/').pop() || '';
+    const classification = classifySkillAgent(skill);
+    const ownerEmail = classification.ownerPrincipal;
+    const normalizedState = (skill.state || 'PRIVATE').toUpperCase();
+    const canEditMd =
+      classification.origin !== 'GOOGLE_1P' && !classification.isInstructionRedactedForAdmin;
 
-  const statusBadgeStyle =
-    normalizedState === 'ENABLED'
-      ? 'bg-green-900/40 text-green-300 border-green-700'
-      : normalizedState === 'DISABLED'
-      ? 'bg-red-900/40 text-red-300 border-red-700'
-      : normalizedState === 'SUSPENDED'
-      ? 'bg-amber-900/40 text-amber-300 border-amber-700'
-      : 'bg-yellow-900/40 text-yellow-300 border-yellow-700';
+    const statusBadgeStyle =
+      normalizedState === 'ENABLED'
+        ? 'bg-green-900/40 text-green-300 border-green-700'
+        : normalizedState === 'DISABLED'
+        ? 'bg-red-900/40 text-red-300 border-red-700'
+        : normalizedState === 'SUSPENDED'
+        ? 'bg-amber-900/40 text-amber-300 border-amber-700'
+        : 'bg-yellow-900/40 text-yellow-300 border-yellow-700';
 
-  const statusDotStyle =
-    normalizedState === 'ENABLED'
-      ? 'bg-green-400'
-      : normalizedState === 'DISABLED'
-      ? 'bg-red-400'
-      : normalizedState === 'SUSPENDED'
-      ? 'bg-amber-400'
-      : 'bg-yellow-400';
+    const statusDotStyle =
+      normalizedState === 'ENABLED'
+        ? 'bg-green-400'
+        : normalizedState === 'DISABLED'
+        ? 'bg-red-400'
+        : normalizedState === 'SUSPENDED'
+        ? 'bg-amber-400'
+        : 'bg-yellow-400';
 
-  return (
-    <tr className="hover:bg-gray-750/50 transition-colors">
-      {/* Name & ID */}
-      <td className="px-6 py-4 whitespace-nowrap">
-        <div className="font-semibold text-gray-100">{skill.displayName}</div>
-        <div className="text-[11px] text-gray-500 font-mono mt-0.5">{skillId}</div>
-      </td>
+    return (
+      <tr
+        className={`hover:bg-gray-750/50 transition-colors ${
+          isSelected ? 'bg-blue-950/25' : ''
+        }`}
+      >
+        {/* Bulk Select Checkbox */}
+        <td className="pl-5 pr-2 py-4 whitespace-nowrap w-10">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onToggleSelect(skill.name)}
+            aria-label={`Select ${skill.displayName || skillId}`}
+            className="w-4 h-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 bg-gray-900 cursor-pointer"
+          />
+        </td>
 
-      {/* Origin & Scope Badge */}
-      <td className="px-6 py-4 whitespace-nowrap">
-        <div className="flex flex-col items-start gap-1">
-          {classification.origin === 'GOOGLE_1P' ? (
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-900/40 text-emerald-300 border border-emerald-700/60">
-              <span>{classification.originLabel}</span>
-            </div>
-          ) : classification.origin === 'USER_CREATED' ? (
-            <div
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-purple-900/40 text-purple-300 border border-purple-700/60"
-              title={ownerEmail || undefined}
-            >
-              <span>{classification.originLabel}</span>
-            </div>
-          ) : (
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-900/40 text-blue-300 border border-blue-700/60">
-              <span>{classification.originLabel}</span>
-            </div>
-          )}
-          <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-            <span className="px-1.5 py-0.5 rounded bg-gray-900/70 border border-gray-700 text-gray-300 font-medium">
-              {classification.sharingLabel}
-            </span>
-            {ownerEmail && (
-              <span className="truncate max-w-[150px] font-mono text-gray-300" title={ownerEmail}>
-                {ownerEmail}
-              </span>
+        {/* Name & ID */}
+        <td className="px-4 py-4 whitespace-nowrap">
+          <div className="font-semibold text-gray-100">{skill.displayName}</div>
+          <div className="text-[11px] text-gray-500 font-mono mt-0.5">{skillId}</div>
+        </td>
+
+        {/* Origin & Scope Badge */}
+        <td className="px-6 py-4 whitespace-nowrap">
+          <div className="flex flex-col items-start gap-1">
+            {classification.origin === 'GOOGLE_1P' ? (
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-900/40 text-emerald-300 border border-emerald-700/60">
+                <span>{classification.originLabel}</span>
+              </div>
+            ) : classification.origin === 'USER_CREATED' ? (
+              <div
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-purple-900/40 text-purple-300 border border-purple-700/60"
+                title={ownerEmail || undefined}
+              >
+                <span>{classification.originLabel}</span>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-900/40 text-blue-300 border border-blue-700/60">
+                <span>{classification.originLabel}</span>
+              </div>
             )}
+            <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+              <span className="px-1.5 py-0.5 rounded bg-gray-900/70 border border-gray-700 text-gray-300 font-medium">
+                {classification.sharingLabel}
+              </span>
+              {ownerEmail && (
+                <span className="truncate max-w-[150px] font-mono text-gray-300" title={ownerEmail}>
+                  {ownerEmail}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      </td>
+        </td>
 
-      {/* Status */}
-      <td className="px-6 py-4 whitespace-nowrap">
-        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${statusBadgeStyle}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${statusDotStyle}`} />
-          {skill.state || 'Private'}
-        </span>
-      </td>
-
-      {/* Source Type */}
-      <td className="px-6 py-4 whitespace-nowrap">
-        {getSourceBadge(skill)}
-      </td>
-
-      {/* Description */}
-      <td className="px-6 py-4 text-gray-300 max-w-xs truncate">
-        {skill.description || (
-          <span className="text-gray-500 italic">No description provided</span>
-        )}
-      </td>
-
-      {/* Actions */}
-      <td className="px-6 py-4 whitespace-nowrap text-right font-medium">
-        <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={() => onInspect(skill)}
-            className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 rounded transition-colors"
-            title="Inspect Skill & Instructions"
-            aria-label={`Inspect ${skill.displayName || skillId}`}
+        {/* Status */}
+        <td className="px-6 py-4 whitespace-nowrap">
+          <span
+            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${statusBadgeStyle}`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
-          </button>
-          <button
-            onClick={() => onDelete(skill)}
-            className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition-colors"
-            title="Delete Skill"
-            aria-label={`Delete ${skill.displayName || skillId}`}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
-});
+            <span className={`h-1.5 w-1.5 rounded-full ${statusDotStyle}`} />
+            {skill.state || 'Private'}
+          </span>
+        </td>
+
+        {/* Source Type */}
+        <td className="px-6 py-4 whitespace-nowrap">{getSourceBadge(skill)}</td>
+
+        {/* Description */}
+        <td className="px-6 py-4 text-gray-300 max-w-xs truncate">
+          {skill.description || (
+            <span className="text-gray-500 italic">No description provided</span>
+          )}
+        </td>
+
+        {/* Actions */}
+        <td className="px-6 py-4 whitespace-nowrap text-right font-medium">
+          <div className="flex items-center justify-end gap-2">
+            {canEditMd && (
+              <button
+                onClick={() => onEdit(skill)}
+                className="p-1.5 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-900/20 rounded transition-colors"
+                title="Edit SKILL.md Markdown Instructions"
+                aria-label={`Edit SKILL.md for ${skill.displayName || skillId}`}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                  />
+                </svg>
+              </button>
+            )}
+            <button
+              onClick={() => onInspect(skill)}
+              className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 rounded transition-colors"
+              title="Inspect Skill & Instructions"
+              aria-label={`Inspect ${skill.displayName || skillId}`}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                />
+              </svg>
+            </button>
+            <button
+              onClick={() => onDelete(skill)}
+              className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition-colors"
+              title="Delete Skill"
+              aria-label={`Delete ${skill.displayName || skillId}`}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                />
+              </svg>
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+);
 
 SkillTableRow.displayName = 'SkillTableRow';
 
@@ -208,8 +280,12 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [scopeFilter, setScopeFilter] = useState<'ALL' | 'ORGANIZATIONAL' | 'USER_CREATED'>('ALL');
   const [selectedSkill, setSelectedSkill] = useState<Agent | null>(null);
+  const [openInEditMode, setOpenInEditMode] = useState(false);
   const [skillToDelete, setSkillToDelete] = useState<Agent | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [selectedSkillNames, setSelectedSkillNames] = useState<Set<string>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isEnablingEngineFeatures, setIsEnablingEngineFeatures] = useState(false);
@@ -259,6 +335,45 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
     });
   }, [skillsList, scopeFilter, searchQuery]);
 
+  // Keep only selected skills that still exist in skillsList
+  const activeSelectedSkills = useMemo(
+    () => skillsList.filter((s) => selectedSkillNames.has(s.name)),
+    [skillsList, selectedSkillNames]
+  );
+
+  const allFilteredSelected = useMemo(
+    () =>
+      filteredSkills.length > 0 &&
+      filteredSkills.every((s) => selectedSkillNames.has(s.name)),
+    [filteredSkills, selectedSkillNames]
+  );
+
+  const handleToggleSelectSkill = useCallback((skillName: string) => {
+    setSelectedSkillNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(skillName)) {
+        next.delete(skillName);
+      } else {
+        next.add(skillName);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleToggleSelectAllFiltered = useCallback(() => {
+    setSelectedSkillNames((prev) => {
+      const next = new Set(prev);
+      const everySelected =
+        filteredSkills.length > 0 && filteredSkills.every((s) => next.has(s.name));
+      if (everySelected) {
+        filteredSkills.forEach((s) => next.delete(s.name));
+      } else {
+        filteredSkills.forEach((s) => next.add(s.name));
+      }
+      return next;
+    });
+  }, [filteredSkills]);
+
   const exportRecords = useMemo(
     () => filteredSkills.map((s) => normalizeAppSkillForExport(s)),
     [filteredSkills]
@@ -295,6 +410,11 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
     setIsDeleting(true);
     try {
       await api.deleteSkillAgent(skillToDelete.name, config);
+      setSelectedSkillNames((prev) => {
+        const next = new Set(prev);
+        next.delete(skillToDelete.name);
+        return next;
+      });
       setSkillToDelete(null);
       onRefreshSkills();
     } catch (err) {
@@ -305,13 +425,64 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
     }
   };
 
+  const handleBulkDeleteConfirm = async () => {
+    if (activeSelectedSkills.length === 0) return;
+    setIsBulkDeleting(true);
+    let deletedCount = 0;
+    const failedMessages: string[] = [];
+    const deletedNames = new Set<string>();
+
+    for (const skill of activeSelectedSkills) {
+      try {
+        await api.deleteSkillAgent(skill.name, config);
+        deletedCount += 1;
+        deletedNames.add(skill.name);
+      } catch (err) {
+        const label = skill.displayName || skill.name.split('/').pop() || skill.name;
+        failedMessages.push(`${label}: ${toErrorMessage(err)}`);
+      }
+    }
+
+    setSelectedSkillNames((prev) => {
+      const next = new Set(prev);
+      deletedNames.forEach((n) => next.delete(n));
+      return next;
+    });
+    setIsBulkDeleting(false);
+    setIsBulkDeleteModalOpen(false);
+
+    if (deletedCount > 0) {
+      onRefreshSkills();
+    }
+    if (failedMessages.length === 0) {
+      toast.success(
+        `Deleted ${deletedCount} selected skill${deletedCount === 1 ? '' : 's'}.`
+      );
+    } else {
+      toast.error(
+        `Deleted ${deletedCount}/${activeSelectedSkills.length} skill(s). Errors: ${failedMessages.join('; ')}`
+      );
+    }
+  };
+
   const handleInspect = useCallback((skill: Agent) => {
+    setOpenInEditMode(false);
+    setSelectedSkill(skill);
+  }, []);
+
+  const handleEdit = useCallback((skill: Agent) => {
+    setOpenInEditMode(true);
     setSelectedSkill(skill);
   }, []);
 
   const handleDelete = useCallback((skill: Agent) => {
     setSkillToDelete(skill);
   }, []);
+
+  const activeModalSkill = useMemo(() => {
+    if (!selectedSkill) return null;
+    return skillsList.find((s) => s.name === selectedSkill.name) || selectedSkill;
+  }, [selectedSkill, skillsList]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -455,24 +626,66 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
           </button>
         </div>
 
-        {/* Search Input */}
-        <div className="relative w-full md:w-72">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search skills by name, owner, description..."
-            className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-          />
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-4 w-4 absolute left-3 top-2 text-gray-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+        {/* Search Input & Bulk Action Controls */}
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-end">
+          {activeSelectedSkills.length > 0 && (
+            <div
+              data-testid="skills-bulk-action-bar"
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-950/40 border border-red-700/70 rounded-lg text-xs"
+            >
+              <span className="text-red-200 font-semibold">
+                {activeSelectedSkills.length} selected
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedSkillNames(new Set())}
+                className="text-gray-300 hover:text-white underline text-[11px]"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                data-testid="bulk-delete-skills-button"
+                onClick={() => setIsBulkDeleteModalOpen(true)}
+                className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded transition-colors flex items-center gap-1 shadow-sm"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+                <span>Delete Selected ({activeSelectedSkills.length})</span>
+              </button>
+            </div>
+          )}
+
+          <div className="relative w-full md:w-72">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search skills by name, owner, description..."
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-4 w-4 absolute left-3 top-2 text-gray-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
         </div>
       </div>
 
@@ -506,7 +719,16 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
             <table className="min-w-full divide-y divide-gray-700 text-left">
               <thead className="bg-gray-900/60 text-gray-400 text-[11px] uppercase tracking-wider font-semibold">
                 <tr>
-                  <th scope="col" className="px-6 py-3.5">Skill Name & ID</th>
+                  <th scope="col" className="pl-5 pr-2 py-3.5 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredSelected}
+                      onChange={handleToggleSelectAllFiltered}
+                      aria-label="Select all visible skills"
+                      className="w-4 h-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 bg-gray-900 cursor-pointer"
+                    />
+                  </th>
+                  <th scope="col" className="px-4 py-3.5">Skill Name & ID</th>
                   <th scope="col" className="px-6 py-3.5">Origin & Scope</th>
                   <th scope="col" className="px-6 py-3.5">Status</th>
                   <th scope="col" className="px-6 py-3.5">Source Type</th>
@@ -519,7 +741,10 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
                   <SkillTableRow
                     key={skill.name}
                     skill={skill}
+                    isSelected={selectedSkillNames.has(skill.name)}
+                    onToggleSelect={handleToggleSelectSkill}
                     onInspect={handleInspect}
+                    onEdit={handleEdit}
                     onDelete={handleDelete}
                   />
                 ))}
@@ -550,17 +775,21 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
       />
 
       {/* Skill Detail Modal */}
-      {selectedSkill && (
+      {activeModalSkill && (
         <SkillDetailModal
-          skill={selectedSkill}
-          isOpen={!!selectedSkill}
-          onClose={() => setSelectedSkill(null)}
+          skill={activeModalSkill}
+          isOpen={!!activeModalSkill}
+          onClose={() => {
+            setSelectedSkill(null);
+            setOpenInEditMode(false);
+          }}
           config={config}
           onSkillUpdated={onRefreshSkills}
+          initialEditMode={openInEditMode}
         />
       )}
 
-      {/* Confirmation Modal for Deletion */}
+      {/* Confirmation Modal for Single Skill Deletion */}
       <ConfirmationModal
         isOpen={!!skillToDelete}
         onClose={() => setSkillToDelete(null)}
@@ -579,6 +808,34 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
             </p>
           </div>
         )}
+      </ConfirmationModal>
+
+      {/* Confirmation Modal for Bulk Skill Deletion */}
+      <ConfirmationModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        onConfirm={handleBulkDeleteConfirm}
+        title={`Delete ${activeSelectedSkills.length} Selected Skill${activeSelectedSkills.length === 1 ? '' : 's'}`}
+        confirmText={`Delete ${activeSelectedSkills.length} Skill${activeSelectedSkills.length === 1 ? '' : 's'}`}
+        isConfirming={isBulkDeleting}
+      >
+        <div className="space-y-3 text-sm text-gray-300">
+          <p>
+            Are you sure you want to permanently delete the following{' '}
+            <strong className="text-white">{activeSelectedSkills.length}</strong> skill
+            {activeSelectedSkills.length === 1 ? '' : 's'} from this assistant?
+          </p>
+          <ul className="max-h-40 overflow-y-auto bg-gray-900/80 border border-gray-700 rounded-lg p-2.5 space-y-1 text-xs font-mono text-gray-200">
+            {activeSelectedSkills.map((sk) => (
+              <li key={sk.name} className="truncate">
+                • {sk.displayName} <span className="text-gray-500">({sk.name.split('/').pop()})</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-gray-400">
+            This action cannot be undone and will remove these skill definitions from the assistant.
+          </p>
+        </div>
       </ConfirmationModal>
     </div>
   );

@@ -25,6 +25,11 @@ import {
   formatSkillsToJson,
   formatSkillsToJsonl,
   formatSkillsToMarkdown,
+  parseSkillMarkdown,
+  buildSkillMarkdownDocument,
+  sanitizeSkillDescription,
+  validateSkillDescription,
+  MAX_SKILL_DESCRIPTION_LENGTH,
 } from './skillExportUtils';
 import { Agent, RegistrySkill } from '../types';
 
@@ -257,4 +262,63 @@ describe('skillExportUtils', () => {
       );
     });
   });
+
+  describe('parseSkillMarkdown & buildSkillMarkdownDocument', () => {
+    it('parses SKILL.md YAML frontmatter and extracts name, description, and Markdown body', () => {
+      const raw = [
+        '---',
+        'name: global-router-skill',
+        'display_name: "Global Router Skill"',
+        'description: Route HR and Finance queries to single datastore.',
+        '---',
+        '',
+        '# Global Routing Rules',
+        '1. Never query more than 1 datastore per turn.',
+      ].join('\n');
+
+      const parsed = parseSkillMarkdown(raw);
+      expect(parsed.hasFrontmatter).toBe(true);
+      expect(parsed.name).toBe('global-router-skill');
+      expect(parsed.displayName).toBe('Global Router Skill');
+      expect(parsed.description).toBe('Route HR and Finance queries to single datastore.');
+      expect(parsed.body).toBe('# Global Routing Rules\n1. Never query more than 1 datastore per turn.');
+
+      const rebuilt = buildSkillMarkdownDocument({
+        name: 'Updated Name!',
+        description: 'Updated trigger description.',
+        body: raw,
+      });
+      expect(rebuilt).toContain('name: updated-name');
+      expect(rebuilt).toContain('description: Updated trigger description.');
+      expect(rebuilt).toContain('# Global Routing Rules');
+    });
+
+    it('rejects malformed unclosed YAML frontmatter and non-string inputs (negative tests)', () => {
+      const unclosedFrontmatter = '---\nname: broken-skill\ndescription: missing closing dashes\n# Body';
+      expect(() => parseSkillMarkdown(unclosedFrontmatter)).toThrow(
+        /Malformed SKILL\.md YAML frontmatter: opening "---" delimiter is missing a closing "---" delimiter/
+      );
+      expect(() => parseSkillMarkdown(null as unknown as string)).toThrow(
+        /Expected a string when parsing SKILL\.md Markdown content/
+      );
+    });
+
+    it('sanitizes and truncates 3160-character Skill descriptions to <= 1024 Unicode characters and validates length limits', () => {
+      const sentence =
+        'Routes enterprise queries across connected DataStores and BYOMCP tool servers with strict single-source selection. ';
+      const oversizedDescription = sentence.repeat(30); // ~3,450 Unicode characters (> 3160)
+      expect(Array.from(oversizedDescription).length).toBeGreaterThan(3160);
+
+      // Negative validation check on raw oversized description
+      const validationErr = validateSkillDescription(oversizedDescription);
+      expect(validationErr).toMatch(/must be at most 1024 Unicode characters/i);
+
+      // Sanitization must truncate cleanly to <= 1024 Unicode characters
+      const sanitized = sanitizeSkillDescription(oversizedDescription);
+      expect(Array.from(sanitized).length).toBeLessThanOrEqual(MAX_SKILL_DESCRIPTION_LENGTH);
+      expect(sanitized.endsWith('.')).toBe(true);
+      expect(validateSkillDescription(sanitized)).toBeNull();
+    });
+  });
 });
+

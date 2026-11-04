@@ -182,7 +182,13 @@ export const streamChat = async (
 ) => {
   const { projectId, appLocation, collectionId, appId, assistantId } = config;
   const baseUrl = getDiscoveryEngineUrl(appLocation);
-  const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}:streamAssist`;
+  const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/collections/${collectionId || "default_collection"}/engines/${appId}/assistants/${assistantId || "default_assistant"}:streamAssist`;
+
+  let resolvedToken = accessToken;
+  if (!resolvedToken) {
+    const client = await getGapiClient();
+    resolvedToken = client.getToken()?.access_token || "";
+  }
 
   const body: {
     query: { text: string };
@@ -208,7 +214,7 @@ export const streamChat = async (
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${resolvedToken}`,
       "Content-Type": "application/json",
       "X-Goog-User-Project": projectId,
     },

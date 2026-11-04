@@ -18,7 +18,12 @@ import React, { useState, useRef } from 'react';
 import { Config, UserProfile, SkillScope } from '../../types';
 import * as api from '../../services/apiService';
 import { useModalA11y } from '../../hooks/useModalA11y';
-import { sanitizeSkillDisplayName } from '../../utils/skillExportUtils';
+import {
+  MAX_SKILL_DESCRIPTION_LENGTH,
+  parseSkillMarkdown,
+  sanitizeSkillDescription,
+  sanitizeSkillDisplayName,
+} from '../../utils/skillExportUtils';
 
 interface AddSkillModalProps {
   isOpen: boolean;
@@ -87,14 +92,34 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
-      setUploadedFileContent(text);
+      let extractedBody = text;
+      if (file.name.toLowerCase().endsWith('.md')) {
+        try {
+          const parsed = parseSkillMarkdown(text);
+          if (parsed.hasFrontmatter) {
+            extractedBody = parsed.body;
+            if (parsed.description && !description) {
+              setDescription(sanitizeSkillDescription(parsed.description));
+            }
+            if (parsed.displayName && !displayName) {
+              setDisplayName(sanitizeSkillDisplayName(parsed.displayName));
+            }
+            if (parsed.name && !skillId) {
+              setSkillId(parsed.name.toLowerCase().replace(/[^a-z0-9-_]/g, '-'));
+            }
+          }
+        } catch {
+          extractedBody = text;
+        }
+      }
+      setUploadedFileContent(extractedBody);
       if (!displayName) {
         const baseName = file.name.replace(/\.[^/.]+$/, '');
         setDisplayName(baseName.charAt(0).toUpperCase() + baseName.slice(1).replace(/[-_]/g, ' '));
         setSkillId(baseName.toLowerCase().replace(/[^a-z0-9-_]/g, '-'));
       }
-      if (file.name.endsWith('.md') && !instruction) {
-        setInstruction(text);
+      if (file.name.endsWith('.md')) {
+        setInstruction(extractedBody);
       }
     };
     reader.readAsText(file);
@@ -160,10 +185,13 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
       }
 
       const safeDisplayName = sanitizeSkillDisplayName(displayName);
+      const safeDescription = description.trim()
+        ? sanitizeSkillDescription(description)
+        : undefined;
 
       const payload = {
         displayName: safeDisplayName,
-        description: description.trim() || undefined,
+        description: safeDescription,
         state,
         skillAgentDefinition,
       };
@@ -378,11 +406,20 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-300 mb-1">
-              Description
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-gray-300">
+                Description{' '}
+                <span className="text-[10px] font-normal text-gray-400">
+                  (max {MAX_SKILL_DESCRIPTION_LENGTH} chars)
+                </span>
+              </label>
+              <span className="text-[10px] font-mono text-gray-400">
+                {Array.from(description).length} / {MAX_SKILL_DESCRIPTION_LENGTH}
+              </span>
+            </div>
             <input
               type="text"
+              maxLength={MAX_SKILL_DESCRIPTION_LENGTH}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Brief description of what this skill enables the assistant to do"

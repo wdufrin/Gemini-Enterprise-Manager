@@ -14,15 +14,21 @@
  * limitations under the License.
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Agent, Config } from '../../types';
 import * as api from '../../services/apiService';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import {
+  MAX_SKILL_DESCRIPTION_LENGTH,
+  buildSkillMarkdownDocument,
   classifySkillAgent,
   normalizeAppSkillForExport,
+  parseSkillMarkdown,
+  sanitizeSkillDescription,
+  sanitizeSkillDisplayName,
+  validateSkillDisplayName,
 } from '../../utils/skillExportUtils';
 import ExportSkillsModal from './ExportSkillsModal';
 
@@ -32,6 +38,7 @@ interface SkillDetailModalProps {
   onClose: () => void;
   config: Config;
   onSkillUpdated: () => void;
+  initialEditMode?: boolean;
 }
 
 export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
@@ -40,13 +47,65 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   onClose,
   config,
   onSkillUpdated,
+  initialEditMode = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mdFileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<'instructions' | 'config' | 'raw'>('instructions');
   const [copied, setCopied] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+
+  // SKILL.md Editing State
+  const [isEditingInstructions, setIsEditingInstructions] = useState(Boolean(initialEditMode));
+  const [editorMode, setEditorMode] = useState<'markdown' | 'full_skill_md'>('markdown');
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editInstruction, setEditInstruction] = useState('');
+  const [fullSkillMdText, setFullSkillMdText] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && skill) {
+      const skillId = skill.name.split('/').pop() || 'skill';
+      const rawInst = skill.skillAgentDefinition?.instruction || '';
+      let parsedBody = rawInst;
+      let parsedDesc = skill.description || '';
+      try {
+        const parsed = parseSkillMarkdown(rawInst);
+        if (parsed.hasFrontmatter) {
+          parsedBody = parsed.body;
+          if (!parsedDesc && parsed.description) {
+            parsedDesc = parsed.description;
+          }
+        }
+      } catch {
+        // Keep raw instruction if frontmatter is incomplete in existing skill
+        parsedBody = rawInst;
+      }
+
+      setEditDisplayName(skill.displayName || skillId);
+      setEditDescription(parsedDesc);
+      setEditInstruction(parsedBody);
+      try {
+        setFullSkillMdText(
+          buildSkillMarkdownDocument({
+            name: skillId,
+            description: parsedDesc,
+            body: parsedBody,
+          })
+        );
+      } catch {
+        setFullSkillMdText(rawInst);
+      }
+      setEditError(null);
+      setIsEditingInstructions(Boolean(initialEditMode));
+      if (initialEditMode) {
+        setActiveTab('instructions');
+      }
+    }
+  }, [isOpen, skill, initialEditMode]);
 
   useModalA11y({
     isOpen,
@@ -57,11 +116,174 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
 
   if (!isOpen || !skill) return null;
 
+  const skillId = skill.name.split('/').pop() || 'skill';
   const skillDef = skill.skillAgentDefinition || {};
   const classification = classifySkillAgent(skill);
   const isOrgWide = classification.sharingScope === 'ORG_WIDE';
   const owner = classification.ownerPrincipal || 'System / Default';
   const normalizedState = (skill.state || 'PRIVATE').toUpperCase();
+  const canEditSkillMd =
+    classification.origin !== 'GOOGLE_1P' && !classification.isInstructionRedactedForAdmin;
+
+  const handleSwitchEditorMode = (nextMode: 'markdown' | 'full_skill_md') => {
+    setEditError(null);
+    if (nextMode === 'full_skill_md' && editorMode === 'markdown') {
+      try {
+        const doc = buildSkillMarkdownDocument({
+          name: skillId,
+          description: editDescription,
+          body: editInstruction,
+        });
+        setFullSkillMdText(doc);
+      } catch (err) {
+        setEditError(toErrorMessage(err));
+        return;
+      }
+    } else if (nextMode === 'markdown' && editorMode === 'full_skill_md') {
+      try {
+        const parsed = parseSkillMarkdown(fullSkillMdText);
+        if (parsed.description !== undefined) {
+          setEditDescription(sanitizeSkillDescription(parsed.description));
+        }
+        if (parsed.displayName) {
+          setEditDisplayName(parsed.displayName);
+        }
+        setEditInstruction(parsed.body);
+      } catch (err) {
+        setEditError(toErrorMessage(err));
+        return;
+      }
+    }
+    setEditorMode(nextMode);
+  };
+
+  const handleImportMarkdownFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setEditError(null);
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const content = String(ev.target?.result || '');
+      try {
+        const parsed = parseSkillMarkdown(content);
+        const nextDesc = sanitizeSkillDescription(
+          parsed.description !== undefined ? parsed.description : editDescription
+        );
+        const nextBody = parsed.hasFrontmatter ? parsed.body : content;
+        if (parsed.displayName) {
+          setEditDisplayName(sanitizeSkillDisplayName(parsed.displayName));
+        }
+        setEditDescription(nextDesc);
+        setEditInstruction(nextBody);
+        setFullSkillMdText(
+          buildSkillMarkdownDocument({
+            name: parsed.name || skillId,
+            description: nextDesc,
+            body: nextBody,
+          })
+        );
+        toast.success(`Imported ${file.name} into SKILL.md editor.`);
+      } catch (err) {
+        setEditError(toErrorMessage(err));
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleInsertMarkdownSnippet = (snippet: string) => {
+    if (editorMode === 'full_skill_md') {
+      setFullSkillMdText((prev) => `${prev.trimEnd()}\n\n${snippet}\n`);
+    } else {
+      setEditInstruction((prev) => `${prev.trimEnd()}\n\n${snippet}\n`);
+    }
+  };
+
+  const handleSaveSkillMarkdown = async () => {
+    setEditError(null);
+    let finalDescription = editDescription.trim();
+    let finalInstruction = editInstruction;
+    let candidateDisplayName = editDisplayName.trim() || skill.displayName || skillId;
+
+    if (editorMode === 'full_skill_md') {
+      try {
+        const parsed = parseSkillMarkdown(fullSkillMdText);
+        if (parsed.description !== undefined) {
+          finalDescription = parsed.description.trim();
+        }
+        if (parsed.displayName) {
+          candidateDisplayName = parsed.displayName.trim();
+        }
+        finalInstruction = parsed.body;
+      } catch (err) {
+        setEditError(toErrorMessage(err));
+        return;
+      }
+    } else if (finalInstruction.trim().startsWith('---')) {
+      try {
+        const parsed = parseSkillMarkdown(finalInstruction);
+        if (parsed.hasFrontmatter) {
+          if (parsed.description && !finalDescription) {
+            finalDescription = parsed.description.trim();
+          }
+          finalInstruction = parsed.body;
+        }
+      } catch (err) {
+        setEditError(toErrorMessage(err));
+        return;
+      }
+    }
+
+    if (
+      Array.from(finalDescription).length > MAX_SKILL_DESCRIPTION_LENGTH &&
+      !finalInstruction.includes(finalDescription.slice(0, 120))
+    ) {
+      finalInstruction = `${finalInstruction.trim()}\n\n## Extended Trigger & Scope Details\n${finalDescription}`;
+    }
+    finalDescription = sanitizeSkillDescription(finalDescription);
+
+    const safeDisplayName = sanitizeSkillDisplayName(candidateDisplayName);
+    const nameErr = validateSkillDisplayName(safeDisplayName);
+    if (nameErr) {
+      setEditError(nameErr);
+      return;
+    }
+
+    if (!finalInstruction.trim()) {
+      setEditError('Skill Markdown instructions (SKILL.md) cannot be empty.');
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      await api.updateAgent(
+        skill,
+        {
+          displayName: safeDisplayName,
+          description: finalDescription,
+          skillAgentDefinition: {
+            ...skillDef,
+            instruction: finalInstruction,
+          },
+        },
+        config
+      );
+      setEditDisplayName(safeDisplayName);
+      setEditDescription(finalDescription);
+      setEditInstruction(finalInstruction);
+      setIsEditingInstructions(false);
+      toast.success(`Updated SKILL.md instructions for "${safeDisplayName}".`);
+      onSkillUpdated();
+    } catch (err) {
+      console.error('Failed to update skill instructions:', err);
+      const msg = toErrorMessage(err);
+      setEditError(msg);
+      toast.error('Failed to update SKILL.md instructions: ' + msg);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const handleCopyJson = () => {
     navigator.clipboard.writeText(JSON.stringify(skill, null, 2));
@@ -211,6 +433,25 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {canEditSkillMd && (
+              <button
+                type="button"
+                data-testid="toggle-edit-skill-md-btn"
+                onClick={() => {
+                  setActiveTab('instructions');
+                  setIsEditingInstructions((prev) => !prev);
+                  setEditError(null);
+                }}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 border whitespace-nowrap ${
+                  isEditingInstructions
+                    ? 'bg-blue-600 text-white border-blue-500'
+                    : 'bg-blue-950/60 hover:bg-blue-900/70 text-blue-200 border-blue-700/70'
+                }`}
+                title="Edit SKILL.md Markdown instructions and trigger description"
+              >
+                <span>✏️ {isEditingInstructions ? 'Editing SKILL.md' : 'Edit SKILL.md'}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setIsExportOpen(true)}
@@ -273,14 +514,37 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
         <div className="p-5 overflow-y-auto space-y-4 flex-1">
           {activeTab === 'instructions' && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                  Skill Execution Guidelines & Prompt
+                  Skill Execution Guidelines &amp; Markdown (`SKILL.md`)
                 </span>
-                <span className="text-[11px] text-gray-500 font-mono">
-                  {skillDef.instruction ? `${skillDef.instruction.length} characters` : 'No inline prompt'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-gray-500 font-mono">
+                    {isEditingInstructions
+                      ? `${
+                          editorMode === 'full_skill_md'
+                            ? fullSkillMdText.length
+                            : editInstruction.length
+                        } characters`
+                      : skillDef.instruction
+                      ? `${skillDef.instruction.length} characters`
+                      : 'No inline prompt'}
+                  </span>
+                  {canEditSkillMd && !isEditingInstructions && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingInstructions(true);
+                        setEditError(null);
+                      }}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors"
+                    >
+                      ✏️ Edit SKILL.md
+                    </button>
+                  )}
+                </div>
               </div>
+
               {classification.isInstructionRedactedForAdmin ? (
                 <div
                   data-testid="private-skill-redacted-notice"
@@ -295,6 +559,200 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
                     user-created skill instructions (<code className="font-mono">SKILL.md</code>) are only exposed to
                     administrators after the owner shares the skill with the organization or submits it for review.
                   </p>
+                </div>
+              ) : isEditingInstructions ? (
+                <div
+                  data-testid="skill-md-editor-panel"
+                  className="p-4 bg-gray-900/90 border border-blue-700/70 rounded-xl space-y-3"
+                >
+                  {/* Editor Mode Switcher & .md File Upload */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-gray-800">
+                    <div className="flex items-center gap-1 bg-gray-950 p-1 rounded-lg border border-gray-700">
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchEditorMode('markdown')}
+                        className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+                          editorMode === 'markdown'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-400 hover:text-gray-200'
+                        }`}
+                      >
+                        Markdown Instructions + Metadata
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchEditorMode('full_skill_md')}
+                        className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+                          editorMode === 'full_skill_md'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-400 hover:text-gray-200'
+                        }`}
+                      >
+                        Full `SKILL.md` (with YAML Frontmatter)
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={mdFileInputRef}
+                        type="file"
+                        accept=".md,.markdown,.txt"
+                        onChange={handleImportMarkdownFile}
+                        className="hidden"
+                        data-testid="skill-md-file-input"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => mdFileInputRef.current?.click()}
+                        className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-semibold border border-gray-600 transition-colors"
+                        title="Upload a local SKILL.md or .md file to populate instructions"
+                      >
+                        📂 Import `.md` File
+                      </button>
+                    </div>
+                  </div>
+
+                  {editorMode === 'markdown' ? (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label
+                            htmlFor="edit-skill-display-name"
+                            className="block text-xs font-semibold text-gray-300 mb-1"
+                          >
+                            Skill Display Name
+                          </label>
+                          <input
+                            id="edit-skill-display-name"
+                            type="text"
+                            maxLength={64}
+                            value={editDisplayName}
+                            onChange={(e) => setEditDisplayName(e.target.value)}
+                            className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="edit-skill-description"
+                            className="block text-xs font-semibold text-gray-300 mb-1"
+                          >
+                            Semantic Trigger Description (Planner Routing)
+                          </label>
+                          <input
+                            id="edit-skill-description"
+                            type="text"
+                            value={editDescription}
+                            onChange={(e) => setEditDescription(e.target.value)}
+                            placeholder="When should the Assistant invoke this skill?"
+                            className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                          <label
+                            htmlFor="edit-skill-markdown-body"
+                            className="text-xs font-semibold text-gray-300"
+                          >
+                            Markdown Instructions (`SKILL.md` Body)
+                          </label>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleInsertMarkdownSnippet('## Section Heading')}
+                              className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-[11px] font-mono border border-gray-700"
+                            >
+                              ## H2
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleInsertMarkdownSnippet(
+                                  '- **Rule 1**: Execute a single targeted query.\n- **Rule 2**: Summarize findings with citations.'
+                                )
+                              }
+                              className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-[11px] font-mono border border-gray-700"
+                            >
+                              + Bullet Rules
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleInsertMarkdownSnippet('```json\n{\n  "filter": "status = \'ACTIVE\'"\n}\n```')
+                              }
+                              className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-[11px] font-mono border border-gray-700"
+                            >
+                              + Code Block
+                            </button>
+                          </div>
+                        </div>
+                        <textarea
+                          id="edit-skill-markdown-body"
+                          data-testid="edit-skill-markdown-textarea"
+                          rows={12}
+                          value={editInstruction}
+                          onChange={(e) => setEditInstruction(e.target.value)}
+                          placeholder="# Role & Capabilities&#10;Write Markdown instructions for this global skill..."
+                          className="w-full bg-gray-950 border border-gray-700 rounded-lg p-3 text-xs font-mono text-gray-100 leading-relaxed focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label
+                          htmlFor="edit-full-skill-md"
+                          className="text-xs font-semibold text-gray-300"
+                        >
+                          Full `SKILL.md` Document (YAML Frontmatter + Markdown Body)
+                        </label>
+                        <span className="text-[11px] text-gray-400">
+                          Editing <code className="font-mono text-blue-300">description:</code> in frontmatter automatically updates the Skill trigger description
+                        </span>
+                      </div>
+                      <textarea
+                        id="edit-full-skill-md"
+                        data-testid="edit-full-skill-md-textarea"
+                        rows={15}
+                        value={fullSkillMdText}
+                        onChange={(e) => setFullSkillMdText(e.target.value)}
+                        className="w-full bg-gray-950 border border-gray-700 rounded-lg p-3 text-xs font-mono text-gray-100 leading-relaxed focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  )}
+
+                  {editError && (
+                    <div
+                      role="alert"
+                      className="p-2.5 bg-red-950/60 border border-red-700 rounded-lg text-xs text-red-200"
+                    >
+                      {editError}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-800">
+                    <button
+                      type="button"
+                      disabled={isUpdating}
+                      onClick={() => {
+                        setIsEditingInstructions(false);
+                        setEditError(null);
+                      }}
+                      className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-semibold transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="save-skill-md-btn"
+                      disabled={isUpdating}
+                      onClick={() => void handleSaveSkillMarkdown()}
+                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 text-white rounded-lg text-xs font-bold shadow transition-colors"
+                    >
+                      {isUpdating ? 'Saving SKILL.md...' : '💾 Save SKILL.md Instructions'}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="p-4 bg-gray-900 border border-gray-700 rounded-lg text-xs font-mono text-gray-200 whitespace-pre-wrap leading-relaxed max-h-[350px] overflow-y-auto">

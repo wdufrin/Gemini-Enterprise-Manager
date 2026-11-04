@@ -144,8 +144,86 @@ describe('SkillsViewer Component', () => {
     const inspectButtons = screen.getAllByTitle('Inspect Skill & Instructions');
     fireEvent.click(inspectButtons[0]);
 
-    expect(screen.getByText(/Skill Execution Guidelines & Prompt/i)).toBeInTheDocument();
+    expect(screen.getByText(/Skill Execution Guidelines & Markdown/i)).toBeInTheDocument();
     expect(screen.getByText(/Apply standard discount rates/i)).toBeInTheDocument();
+  });
+
+  it('allows editing global SKILL.md Markdown instructions (including full YAML frontmatter mode) and rejects empty or malformed frontmatter (negative tests)', async () => {
+    vi.mocked(api.updateAgent).mockResolvedValue(mockAgents[0]);
+    const onRefreshSkills = vi.fn();
+
+    renderWithToast(
+      <SkillsViewer
+        agents={mockAgents}
+        config={mockConfig}
+        userProfile={mockUserProfile}
+        onRefreshSkills={onRefreshSkills}
+      />
+    );
+
+    // Click the Edit SKILL.md button directly on the first row
+    fireEvent.click(
+      screen.getByLabelText('Edit SKILL.md for Corporate Financial Forecaster')
+    );
+
+    expect(screen.getByTestId('skill-md-editor-panel')).toBeInTheDocument();
+    const mdTextarea = screen.getByTestId('edit-skill-markdown-textarea') as HTMLTextAreaElement;
+    expect(mdTextarea.value).toContain('# GAAP Financial Guidelines');
+
+    // Negative check 1: Empty instructions should be rejected without calling api.updateAgent
+    fireEvent.change(mdTextarea, { target: { value: '   ' } });
+    fireEvent.click(screen.getByTestId('save-skill-md-btn'));
+    expect(
+      screen.getByText(/Skill Markdown instructions \(SKILL\.md\) cannot be empty/i)
+    ).toBeInTheDocument();
+    expect(api.updateAgent).not.toHaveBeenCalled();
+
+    // Switch to Full SKILL.md (with YAML Frontmatter) mode and test malformed frontmatter (Negative check 2)
+    fireEvent.change(mdTextarea, { target: { value: '# Valid Body' } });
+    fireEvent.click(screen.getByRole('button', { name: /Full `SKILL\.md`/i }));
+
+    const fullMdTextarea = screen.getByTestId('edit-full-skill-md-textarea') as HTMLTextAreaElement;
+    fireEvent.change(fullMdTextarea, {
+      target: { value: '---\nname: org-skill-1\ndescription: unclosed frontmatter\n# Body' },
+    });
+    fireEvent.click(screen.getByTestId('save-skill-md-btn'));
+    expect(
+      screen.getByText(/Malformed SKILL\.md YAML frontmatter/i)
+    ).toBeInTheDocument();
+    expect(api.updateAgent).not.toHaveBeenCalled();
+
+    // Positive check: Valid Full SKILL.md updates both description and instruction via api.updateAgent
+    fireEvent.change(fullMdTextarea, {
+      target: {
+        value: [
+          '---',
+          'name: org-skill-1',
+          'description: Updated GAAP revenue & margin forecasting trigger.',
+          '---',
+          '',
+          '# Updated GAAP Financial Guidelines',
+          '1. Query the single authoritative finance table.',
+          '2. Apply ASC 606 recognition rules.',
+        ].join('\n'),
+      },
+    });
+    fireEvent.click(screen.getByTestId('save-skill-md-btn'));
+
+    await waitFor(() => {
+      expect(api.updateAgent).toHaveBeenCalledWith(
+        mockAgents[0],
+        expect.objectContaining({
+          displayName: 'Corporate Financial Forecaster',
+          description: 'Updated GAAP revenue & margin forecasting trigger.',
+          skillAgentDefinition: expect.objectContaining({
+            instruction:
+              '# Updated GAAP Financial Guidelines\n1. Query the single authoritative finance table.\n2. Apply ASC 606 recognition rules.',
+          }),
+        }),
+        mockConfig
+      );
+      expect(onRefreshSkills).toHaveBeenCalled();
+    });
   });
 
   it('displays engine feature warning banner when skills or skill-sharing is FEATURE_STATE_OFF and allows one-click enablement', async () => {
@@ -239,5 +317,50 @@ describe('SkillsViewer Component', () => {
       );
       expect(onRefreshSkills).toHaveBeenCalled();
     });
+  });
+
+  it('supports bulk selection (individual and Select All) and bulk deletion of skills, and surfaces partial API failures without swallowing errors', async () => {
+    vi.mocked(api.deleteSkillAgent)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('403 PERMISSION_DENIED: cannot delete private skill'));
+    const onRefreshSkills = vi.fn();
+
+    renderWithToast(
+      <SkillsViewer
+        agents={mockAgents}
+        config={mockConfig}
+        userProfile={mockUserProfile}
+        onRefreshSkills={onRefreshSkills}
+      />
+    );
+
+    // Initially bulk action bar is hidden
+    expect(screen.queryByTestId('skills-bulk-action-bar')).not.toBeInTheDocument();
+
+    // Click "Select all visible skills" header checkbox
+    const selectAllCheckbox = screen.getByLabelText('Select all visible skills');
+    fireEvent.click(selectAllCheckbox);
+
+    // Bulk action bar appears showing "2 selected"
+    expect(screen.getByTestId('skills-bulk-action-bar')).toBeInTheDocument();
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+
+    // Open bulk delete confirmation modal
+    fireEvent.click(screen.getByTestId('bulk-delete-skills-button'));
+    expect(screen.getByText('Delete 2 Selected Skills')).toBeInTheDocument();
+
+    // Confirm bulk delete
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 2 Skills' }));
+
+    await waitFor(() => {
+      expect(api.deleteSkillAgent).toHaveBeenCalledTimes(2);
+      expect(api.deleteSkillAgent).toHaveBeenCalledWith(mockAgents[0].name, mockConfig);
+      expect(api.deleteSkillAgent).toHaveBeenCalledWith(mockAgents[1].name, mockConfig);
+      expect(onRefreshSkills).toHaveBeenCalledTimes(1);
+    });
+
+    // Negative assertion: the 1 skill that failed with 403 remains selected so the user knows which item failed, and the error toast is rendered
+    expect(screen.getByText('1 selected')).toBeInTheDocument();
+    expect(screen.getByText(/403 PERMISSION_DENIED/i)).toBeInTheDocument();
   });
 });

@@ -39,7 +39,10 @@ import {
 } from "../core";
 import { getEngine, updateEngine } from "./engines";
 import { getAgentIamPolicy, setAgentIamPolicy } from "../iam";
-import { sanitizeSkillDisplayName } from "../../../utils/skillExportUtils";
+import {
+  sanitizeSkillDescription,
+  sanitizeSkillDisplayName,
+} from "../../../utils/skillExportUtils";
 
 export const getAgent = async (name: string, config: Config) => {
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
@@ -471,6 +474,25 @@ export const updateAgent = async (
     }
   }
 
+  if (typeof sanitizedPayload.description === "string") {
+    const isSkillUpdate =
+      Boolean(sanitizedPayload.skillAgentDefinition) ||
+      Boolean(agent.skillAgentDefinition) ||
+      (agent.agentType || "").toUpperCase() === "SKILL";
+    if (isSkillUpdate || Array.from(sanitizedPayload.description).length > 1024) {
+      sanitizedPayload.description = sanitizeSkillDescription(sanitizedPayload.description);
+    }
+  }
+
+  // `state` is in `kPublicAgentImmutablePaths` in Discovery Engine (`agent_validator.cc`)
+  // and causes `Field "updateMask" contains an immutable path "state"` if included in PATCH.
+  // State transitions on existing agents must use `:enableAgent`, `:disableAgent`, or `:suspendAgent`.
+  const requestedState =
+    typeof sanitizedPayload.state === "string"
+      ? sanitizedPayload.state.trim().toUpperCase()
+      : undefined;
+  delete sanitizedPayload.state;
+
   const updateMask: string[] = [];
   if (sanitizedPayload.displayName) updateMask.push("display_name");
   if (sanitizedPayload.description !== undefined) updateMask.push("description");
@@ -491,7 +513,18 @@ export const updateAgent = async (
   if (sanitizedPayload.sharingConfig) updateMask.push("sharing_config");
   if (sanitizedPayload.authorizationConfig) updateMask.push("authorization_config");
   if (sanitizedPayload.observabilityConfig) updateMask.push("observabilityConfig");
-  if (sanitizedPayload.state) updateMask.push("state");
+
+  if (updateMask.length === 0 && requestedState) {
+    if (requestedState === "ENABLED") {
+      return enableAgent(agent.name, config);
+    }
+    if (requestedState === "DISABLED") {
+      return disableAgent(agent.name, config);
+    }
+    if (requestedState === "SUSPENDED") {
+      return suspendAgent(agent.name, config);
+    }
+  }
 
   if (
     sanitizedPayload.lowCodeAgentDefinition &&
@@ -726,6 +759,26 @@ export const createSkillAgent = async (
   const sanitizedPayload = { ...payload };
   if (typeof sanitizedPayload.displayName === "string") {
     sanitizedPayload.displayName = sanitizeSkillDisplayName(sanitizedPayload.displayName);
+  }
+  if (typeof sanitizedPayload.description === "string") {
+    const rawDesc = sanitizedPayload.description;
+    if (
+      Array.from(rawDesc).length > 1024 &&
+      sanitizedPayload.skillAgentDefinition &&
+      typeof sanitizedPayload.skillAgentDefinition === "object"
+    ) {
+      const skillDef = {
+        ...(sanitizedPayload.skillAgentDefinition as Record<string, unknown>),
+      };
+      const existingInst = typeof skillDef.instruction === "string" ? skillDef.instruction.trim() : "";
+      if (!existingInst) {
+        skillDef.instruction = rawDesc.trim();
+      } else if (!existingInst.includes(rawDesc.trim().slice(0, 120))) {
+        skillDef.instruction = `${existingInst}\n\n## Extended Trigger & Scope Details\n${rawDesc.trim()}`;
+      }
+      sanitizedPayload.skillAgentDefinition = skillDef;
+    }
+    sanitizedPayload.description = sanitizeSkillDescription(rawDesc);
   }
   const cleanAgentId = agentId
     ? agentId

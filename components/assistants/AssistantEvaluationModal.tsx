@@ -24,13 +24,28 @@ import {
   EvaluationSeverity,
   EvaluationTargetTab,
   RecommendedSkillTemplate,
+  SkillDiagnosticMistake,
+  SkillPerformanceBenchmarkPhase,
+  SkillPerformanceComparisonReport,
   applyByomcpRecommendations,
+  diagnoseSkillPerformanceAndMistakes,
   generateAssistantEvaluationMarkdown,
+  generateDefaultBenchmarkQueriesForSkill,
   runLiveAssistantEvaluation,
+  runSkillBenchmarkPhase,
+  synthesizeByomcpWithGemini,
+  synthesizeSkillWithGemini,
 } from '../../services/assistantEvaluationService';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import { toErrorMessage } from '../../utils/errors';
-import { sanitizeSkillDisplayName } from '../../utils/skillExportUtils';
+import {
+  MAX_SKILL_DESCRIPTION_LENGTH,
+  buildSkillMarkdownDocument,
+  isSkillAgentResource,
+  parseSkillMarkdown,
+  sanitizeSkillDescription,
+  sanitizeSkillDisplayName,
+} from '../../utils/skillExportUtils';
 
 export interface AssistantEvaluationModalProps {
   isOpen: boolean;
@@ -72,6 +87,7 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const evalSeqRef = useRef(0);
+  const sessionSkillTemplatesRef = useRef<Map<string, RecommendedSkillTemplate>>(new Map());
 
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [progressStep, setProgressStep] = useState<string>('');
@@ -89,6 +105,8 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
     Record<string, { serverDescription: string; agentInstructions: string }>
   >({});
   const [savingByomcpId, setSavingByomcpId] = useState<string | null>(null);
+  const [synthesizingByomcpId, setSynthesizingByomcpId] = useState<string | null>(null);
+  const [isBatchSavingByomcp, setIsBatchSavingByomcp] = useState(false);
   const [byomcpStatusMsg, setByomcpStatusMsg] = useState<
     Record<string, { type: 'ok' | 'err'; text: string }>
   >({});
@@ -107,12 +125,49 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
     >
   >({});
   const [creatingSkillId, setCreatingSkillId] = useState<string | null>(null);
+  const [synthesizingSkillId, setSynthesizingSkillId] = useState<string | null>(null);
   const [createdSkillIds, setCreatedSkillIds] = useState<Set<string>>(new Set());
+  const [deployedSkillAgentNames, setDeployedSkillAgentNames] = useState<Record<string, string>>(
+    {},
+  );
   const [skillStatusMsg, setSkillStatusMsg] = useState<
     Record<string, { type: 'ok' | 'err'; text: string }>
   >({});
 
-  const isBusy = isEvaluating || Boolean(savingByomcpId) || Boolean(creatingSkillId);
+  // Skill Performance Benchmark (Before vs. After) state keyed by template id
+  const [expandedBenchmarkSkills, setExpandedBenchmarkSkills] = useState<Set<string>>(new Set());
+  const [benchmarkQueriesBySkill, setBenchmarkQueriesBySkill] = useState<Record<string, string[]>>(
+    {},
+  );
+  const [runningBenchmarkSkillId, setRunningBenchmarkSkillId] = useState<string | null>(null);
+  const [benchmarkProgressText, setBenchmarkProgressText] = useState<string>('');
+  const [skillBenchmarkBaseline, setSkillBenchmarkBaseline] = useState<
+    Record<string, SkillPerformanceBenchmarkPhase>
+  >({});
+  const [skillBenchmarkPost, setSkillBenchmarkPost] = useState<
+    Record<string, SkillPerformanceBenchmarkPhase>
+  >({});
+  const [skillBenchmarkReports, setSkillBenchmarkReports] = useState<
+    Record<string, SkillPerformanceComparisonReport>
+  >({});
+  const [expandedTraceKey, setExpandedTraceKey] = useState<string | null>(null);
+
+  // 1-Click Private/Disabled Skill Promotion state
+  const [isPromotingPrivateSkills, setIsPromotingPrivateSkills] = useState(false);
+  const [promoteSkillsMsg, setPromoteSkillsMsg] = useState<{
+    type: 'ok' | 'err';
+    text: string;
+  } | null>(null);
+
+  const isBusy =
+    isEvaluating ||
+    Boolean(savingByomcpId) ||
+    Boolean(synthesizingByomcpId) ||
+    isBatchSavingByomcp ||
+    Boolean(creatingSkillId) ||
+    Boolean(synthesizingSkillId) ||
+    Boolean(runningBenchmarkSkillId) ||
+    isPromotingPrivateSkills;
 
   useModalA11y({
     isOpen,
@@ -159,6 +214,11 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
         if (seq !== evalSeqRef.current) return;
         setReport(result);
 
+        // Cache recommended skill templates in sessionSkillTemplatesRef so cards don't vanish right after deployment
+        result.recommendedSkills.forEach((sk) => {
+          sessionSkillTemplatesRef.current.set(sk.id, sk);
+        });
+
         // Initialize BYOMCP editable drafts:
         // Use recommended template when current description (< 30 chars) or instructions (< 50 chars) are missing/weak,
         // and preserve any unsaved edits the user already made in the modal.
@@ -181,7 +241,7 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
           return next;
         });
 
-        // Initialize Skill template drafts while preserving existing user edits
+        // Initialize Skill template drafts and default benchmark queries while preserving existing user edits
         setSkillEdits((prev) => {
           const next = { ...prev };
           result.recommendedSkills.forEach((sk) => {
@@ -192,6 +252,16 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                 description: sk.description,
                 instruction: sk.instruction,
               };
+            }
+          });
+          return next;
+        });
+
+        setBenchmarkQueriesBySkill((prev) => {
+          const next = { ...prev };
+          result.recommendedSkills.forEach((sk) => {
+            if (!next[sk.id]) {
+              next[sk.id] = generateDefaultBenchmarkQueriesForSkill(sk);
             }
           });
           return next;
@@ -313,7 +383,235 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
     }
   };
 
-  const handleDeployRecommendedSkill = async (template: RecommendedSkillTemplate) => {
+  const handleApplyAllByomcpFixes = async () => {
+    if (actionableByomcpEvaluations.length === 0) return;
+    setIsBatchSavingByomcp(true);
+    try {
+      for (const mcpEval of actionableByomcpEvaluations) {
+        const draft = byomcpEdits[mcpEval.collectionId] || {
+          serverDescription: mcpEval.recommendedServerDescription,
+          agentInstructions: mcpEval.recommendedAgentInstructions,
+        };
+        try {
+          await applyByomcpRecommendations(
+            mcpEval,
+            draft.serverDescription,
+            draft.agentInstructions,
+            config,
+            false,
+          );
+          setByomcpStatusMsg((prev) => ({
+            ...prev,
+            [mcpEval.collectionId]: {
+              type: 'ok',
+              text: 'Applied recommended description & instructions!',
+            },
+          }));
+        } catch (err: unknown) {
+          setByomcpStatusMsg((prev) => ({
+            ...prev,
+            [mcpEval.collectionId]: {
+              type: 'err',
+              text: toErrorMessage(err, 'Failed to update connector.'),
+            },
+          }));
+        }
+      }
+      await executeEvaluation();
+    } finally {
+      setIsBatchSavingByomcp(false);
+    }
+  };
+
+  const handleTailorByomcpWithGemini = async (mcpEval: ByomcpConnectorEvaluation) => {
+    setSynthesizingByomcpId(mcpEval.collectionId);
+    setByomcpStatusMsg((prev) => {
+      const next = { ...prev };
+      delete next[mcpEval.collectionId];
+      return next;
+    });
+    try {
+      const synthesized = await synthesizeByomcpWithGemini(
+        mcpEval,
+        engine.dataStoreIds || [],
+        config,
+      );
+      setByomcpEdits((prev) => ({
+        ...prev,
+        [mcpEval.collectionId]: {
+          serverDescription: synthesized.serverDescription,
+          agentInstructions: synthesized.agentInstructions,
+        },
+      }));
+      const companionId = mcpEval.recommendedCompanionSkill.id;
+      setSkillEdits((prev) => ({
+        ...prev,
+        [companionId]: {
+          skillId:
+            prev[companionId]?.skillId ||
+            mcpEval.recommendedCompanionSkill.skillIdSuggestion,
+          displayName: synthesized.companionSkill.displayName,
+          description: synthesized.companionSkill.description,
+          instruction: synthesized.companionSkill.instruction,
+        },
+      }));
+      setByomcpStatusMsg((prev) => ({
+        ...prev,
+        [mcpEval.collectionId]: {
+          type: 'ok',
+          text: '✨ Synthesized custom description, tool-chaining instructions & companion skill with Vertex AI Gemini! Review and click "Apply to Connector".',
+        },
+      }));
+    } catch (err: unknown) {
+      setByomcpStatusMsg((prev) => ({
+        ...prev,
+        [mcpEval.collectionId]: {
+          type: 'err',
+          text: toErrorMessage(err, 'Gemini synthesis failed. Using schema-driven template.'),
+        },
+      }));
+    } finally {
+      setSynthesizingByomcpId(null);
+    }
+  };
+
+  const handleTailorSkillWithGemini = async (template: RecommendedSkillTemplate) => {
+    setSynthesizingSkillId(template.id);
+    setSkillStatusMsg((prev) => {
+      const next = { ...prev };
+      delete next[template.id];
+      return next;
+    });
+    try {
+      const assistantSysInst = [
+        assistant?.generationConfig?.systemInstruction?.additionalSystemInstruction || '',
+        assistant?.styleAndFormattingInstructions || '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+      const synthesized = await synthesizeSkillWithGemini(
+        template,
+        report?.byomcpEvaluations || [],
+        engine.dataStoreIds || [],
+        config,
+        {
+          assistantSystemInstruction: assistantSysInst,
+        },
+      );
+      setSkillEdits((prev) => ({
+        ...prev,
+        [template.id]: {
+          skillId: prev[template.id]?.skillId || template.skillIdSuggestion,
+          displayName: synthesized.displayName,
+          description: synthesized.description,
+          instruction: synthesized.instruction,
+        },
+      }));
+      setSkillStatusMsg((prev) => ({
+        ...prev,
+        [template.id]: {
+          type: 'ok',
+          text: '✨ Tailored skill routing matrix & instructions with Vertex AI Gemini!',
+        },
+      }));
+    } catch (err: unknown) {
+      setSkillStatusMsg((prev) => ({
+        ...prev,
+        [template.id]: {
+          type: 'err',
+          text: toErrorMessage(err, 'Gemini synthesis failed.'),
+        },
+      }));
+    } finally {
+      setSynthesizingSkillId(null);
+    }
+  };
+
+  const handlePromoteAllPrivateSkills = async () => {
+    const disabledOrgSkills = agentsRef.current.filter(
+      (a) =>
+        isSkillAgentResource(a) &&
+        a.sharingConfig?.scope === 'ALL_USERS' &&
+        (a.state || '').toUpperCase() === 'DISABLED',
+    );
+    if (disabledOrgSkills.length === 0) return;
+
+    setIsPromotingPrivateSkills(true);
+    setPromoteSkillsMsg(null);
+    try {
+      let promotedCount = 0;
+      const updatedMap = new Map<string, Agent>();
+      for (const sk of disabledOrgSkills) {
+        const promoted = await api.promoteSkillToOrg(sk, config);
+        if (promoted) {
+          updatedMap.set(sk.name, promoted);
+          promotedCount += 1;
+        }
+      }
+      setPromoteSkillsMsg({
+        type: 'ok',
+        text: `Enabled ${promotedCount} organizational skill(s)!`,
+      });
+      await onRefreshAgents?.();
+      const nextAgents = agentsRef.current.map((a) => updatedMap.get(a.name) || a);
+      await executeEvaluation(nextAgents);
+    } catch (err: unknown) {
+      setPromoteSkillsMsg({
+        type: 'err',
+        text: toErrorMessage(err, 'Failed to enable organizational skills.'),
+      });
+    } finally {
+      setIsPromotingPrivateSkills(false);
+    }
+  };
+
+  const displayedRecommendedSkills = (() => {
+    if (!report) return [];
+    const byId = new Map<string, RecommendedSkillTemplate>();
+    report.recommendedSkills.forEach((sk) => byId.set(sk.id, sk));
+    sessionSkillTemplatesRef.current.forEach((sk, id) => {
+      if (
+        !byId.has(id) &&
+        (createdSkillIds.has(id) ||
+          Boolean(skillBenchmarkBaseline[id]) ||
+          Boolean(skillBenchmarkPost[id]))
+      ) {
+        byId.set(id, sk);
+      }
+    });
+    // Also surface existing organizational / global skills with Markdown instructions so users can edit or benchmark them
+    const coveredSkillIds = new Set(
+      Array.from(byId.values()).map((s) => s.skillIdSuggestion.toLowerCase()),
+    );
+    agentsRef.current.forEach((ag) => {
+      if (!isSkillAgentResource(ag)) return;
+      const isGlobal =
+        (ag.state || '').toUpperCase() === 'ENABLED' ||
+        ag.sharingConfig?.scope === 'ALL_USERS';
+      const inst = ag.skillAgentDefinition?.instruction?.trim();
+      if (!isGlobal || !inst) return;
+      const shortId = (ag.name.split('/').pop() || ag.id || 'skill').toLowerCase();
+      if (coveredSkillIds.has(shortId)) return;
+      const templateId = `existing-global-skill-${shortId}`;
+      if (!byId.has(templateId)) {
+        byId.set(templateId, {
+          id: templateId,
+          skillIdSuggestion: shortId,
+          displayName: ag.displayName || shortId,
+          description: ag.description || '',
+          instruction: inst,
+          targetSources: [ag.displayName || shortId],
+          rationale: 'Active Global / Organizational Skill attached to this Assistant (SKILL.md).',
+        });
+      }
+    });
+    return Array.from(byId.values());
+  })();
+
+  const handleDeployRecommendedSkill = async (
+    template: RecommendedSkillTemplate,
+  ): Promise<Agent | null> => {
     const draft = skillEdits[template.id] || {
       skillId: template.skillIdSuggestion,
       displayName: template.displayName,
@@ -329,7 +627,7 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
           text: 'Display Name, Description, and Instructions are required.',
         },
       }));
-      return;
+      return null;
     }
 
     setCreatingSkillId(template.id);
@@ -353,13 +651,33 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
           .slice(0, 63)
           .replace(/^-+|-+$/g, '') || `skill-${Date.now()}`;
 
+      const rawDesc = draft.description.trim();
+      let finalInstruction = draft.instruction.trim();
+      if (
+        Array.from(rawDesc).length > MAX_SKILL_DESCRIPTION_LENGTH &&
+        !finalInstruction.includes(rawDesc.slice(0, 120))
+      ) {
+        finalInstruction = `${finalInstruction}\n\n## Extended Trigger & Scope Details\n${rawDesc}`;
+      }
+      const finalDescription = sanitizeSkillDescription(rawDesc);
+
+      setSkillEdits((prev) => ({
+        ...prev,
+        [template.id]: {
+          ...draft,
+          displayName: finalDisplayName,
+          description: finalDescription,
+          instruction: finalInstruction,
+        },
+      }));
+
       const createdAgent = await api.createSkillAgent(
         {
           displayName: finalDisplayName,
-          description: draft.description.trim(),
+          description: finalDescription,
           state: 'ENABLED',
           skillAgentDefinition: {
-            instruction: draft.instruction.trim(),
+            instruction: finalInstruction,
           },
         },
         config,
@@ -370,6 +688,12 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
       const promoWarn = (createdAgent as (Agent & { promotionWarning?: string }) | undefined)
         ?.promotionWarning;
       setCreatedSkillIds((prev) => new Set(prev).add(template.id));
+      if (createdAgent?.name) {
+        setDeployedSkillAgentNames((prev) => ({
+          ...prev,
+          [template.id]: createdAgent.name,
+        }));
+      }
       setSkillStatusMsg((prev) => ({
         ...prev,
         [template.id]: promoWarn
@@ -387,6 +711,7 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
         ? [...agentsRef.current, createdAgent]
         : agentsRef.current;
       await executeEvaluation(updatedAgents);
+      return createdAgent || null;
     } catch (err: unknown) {
       setSkillStatusMsg((prev) => ({
         ...prev,
@@ -395,9 +720,642 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
           text: toErrorMessage(err, 'Failed to create organizational skill.'),
         },
       }));
+      return null;
     } finally {
       setCreatingSkillId(null);
     }
+  };
+
+  const resolveExistingSkillAgentName = (
+    template: RecommendedSkillTemplate,
+    draftSkillId: string,
+    draftDisplayName: string,
+  ): string | undefined =>
+    deployedSkillAgentNames[template.id] ||
+    agentsRef.current.find(
+      (a) =>
+        isSkillAgentResource(a) &&
+        ((a.name.split('/').pop() || '').toLowerCase() === draftSkillId.trim().toLowerCase() ||
+          (a.displayName || '').trim().toLowerCase() ===
+            sanitizeSkillDisplayName(draftDisplayName).toLowerCase()),
+    )?.name;
+
+  const getAssistantConflictContext = () => {
+    const sysInst = [
+      assistant?.generationConfig?.systemInstruction?.additionalSystemInstruction || '',
+      assistant?.styleAndFormattingInstructions || '',
+    ]
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+    return {
+      assistantSystemInstruction: sysInst,
+    };
+  };
+
+  const handleRunSkillBenchmark = async (
+    template: RecommendedSkillTemplate,
+    phase: 'baseline' | 'post',
+    draftOverride?: {
+      skillId: string;
+      displayName: string;
+      description: string;
+      instruction: string;
+    },
+  ) => {
+    const draft = draftOverride ||
+      skillEdits[template.id] || {
+        skillId: template.skillIdSuggestion,
+        displayName: template.displayName,
+        description: template.description,
+        instruction: template.instruction,
+      };
+    const queries =
+      benchmarkQueriesBySkill[template.id] || generateDefaultBenchmarkQueriesForSkill(template);
+
+    const existingAgentName = resolveExistingSkillAgentName(
+      template,
+      draft.skillId,
+      draft.displayName,
+    );
+
+    setExpandedBenchmarkSkills((prev) => new Set(prev).add(template.id));
+    setRunningBenchmarkSkillId(template.id);
+    setBenchmarkProgressText(
+      phase === 'baseline'
+        ? existingAgentName
+          ? 'Temporarily disabling skill to measure clean Baseline (Before Skill)...'
+          : 'Running Baseline (Before Skill) queries against :streamAssist...'
+        : 'Running Post-Skill (After Skill) queries against :streamAssist...',
+    );
+
+    let temporarilyDisabledForBaseline = false;
+    try {
+      if (phase === 'baseline' && existingAgentName) {
+        await api.disableAgent(existingAgentName, config);
+        temporarilyDisabledForBaseline = true;
+      } else if (phase === 'post' && existingAgentName) {
+        setBenchmarkProgressText('Ensuring skill is ENABLED before Post-Skill test...');
+        await api.enableAgent(existingAgentName, config);
+      }
+
+      const phaseResult = await runSkillBenchmarkPhase(
+        queries,
+        config,
+        {
+          skillId: draft.skillId,
+          displayName: draft.displayName,
+          description: draft.description,
+          instruction: draft.instruction,
+          targetSources: template.targetSources,
+        },
+        report?.connectedDataStoreResourceNames || [],
+        (step) => setBenchmarkProgressText(step),
+      );
+
+      if (temporarilyDisabledForBaseline && existingAgentName) {
+        setBenchmarkProgressText('Re-enabling organizational skill after Baseline test...');
+        await api.enableAgent(existingAgentName, config);
+        temporarilyDisabledForBaseline = false;
+      }
+
+      const nextBaseline =
+        phase === 'baseline' ? phaseResult : skillBenchmarkBaseline[template.id];
+      const nextPost = phase === 'post' ? phaseResult : skillBenchmarkPost[template.id];
+
+      if (phase === 'baseline') {
+        setSkillBenchmarkBaseline((prev) => ({ ...prev, [template.id]: phaseResult }));
+      } else {
+        setSkillBenchmarkPost((prev) => ({ ...prev, [template.id]: phaseResult }));
+      }
+
+      const comparison = diagnoseSkillPerformanceAndMistakes(
+        {
+          skillId: draft.skillId,
+          displayName: draft.displayName,
+          description: draft.description,
+          instruction: draft.instruction,
+          targetSources: template.targetSources,
+        },
+        queries,
+        nextBaseline,
+        nextPost,
+        getAssistantConflictContext(),
+      );
+      setSkillBenchmarkReports((prev) => ({ ...prev, [template.id]: comparison }));
+    } catch (err: unknown) {
+      setSkillStatusMsg((prev) => ({
+        ...prev,
+        [template.id]: {
+          type: 'err',
+          text: toErrorMessage(err, 'Failed to run performance benchmark.'),
+        },
+      }));
+    } finally {
+      if (temporarilyDisabledForBaseline && existingAgentName) {
+        try {
+          await api.enableAgent(existingAgentName, config);
+        } catch {
+          // Best-effort restore so the skill is not left disabled if the benchmark fails mid-flight
+        }
+      }
+      setRunningBenchmarkSkillId(null);
+      setBenchmarkProgressText('');
+    }
+  };
+
+  const handleAutoBenchmarkAndDeploySkill = async (template: RecommendedSkillTemplate) => {
+    const draft = skillEdits[template.id] || {
+      skillId: template.skillIdSuggestion,
+      displayName: template.displayName,
+      description: template.description,
+      instruction: template.instruction,
+    };
+    const queries =
+      benchmarkQueriesBySkill[template.id] || generateDefaultBenchmarkQueriesForSkill(template);
+
+    const existingAgentName = resolveExistingSkillAgentName(
+      template,
+      draft.skillId,
+      draft.displayName,
+    );
+
+    setExpandedBenchmarkSkills((prev) => new Set(prev).add(template.id));
+    setRunningBenchmarkSkillId(template.id);
+    setBenchmarkProgressText(
+      existingAgentName
+        ? 'Step 1/4: Disabling skill to measure clean Baseline (Before Skill)...'
+        : 'Step 1/3: Measuring Baseline (Before Skill) latency...',
+    );
+
+    let disabledSkillName: string | undefined;
+    try {
+      if (existingAgentName) {
+        await api.disableAgent(existingAgentName, config);
+        disabledSkillName = existingAgentName;
+      }
+
+      const baselineResult = await runSkillBenchmarkPhase(
+        queries,
+        config,
+        {
+          skillId: draft.skillId,
+          displayName: draft.displayName,
+          description: draft.description,
+          instruction: draft.instruction,
+          targetSources: template.targetSources,
+        },
+        report?.connectedDataStoreResourceNames || [],
+        (step) => setBenchmarkProgressText(`Baseline (Skill Disabled): ${step}`),
+      );
+      setSkillBenchmarkBaseline((prev) => ({ ...prev, [template.id]: baselineResult }));
+
+      if (existingAgentName) {
+        setBenchmarkProgressText('Step 3/4: Re-enabling Organizational Skill (ENABLED)...');
+        await api.enableAgent(existingAgentName, config);
+        disabledSkillName = undefined;
+      } else {
+        setBenchmarkProgressText('Step 2/3: Deploying Organizational Skill (ENABLED)...');
+        const created = await handleDeployRecommendedSkill(template);
+        if (!created) {
+          return;
+        }
+      }
+
+      setBenchmarkProgressText(
+        existingAgentName
+          ? 'Step 4/4: Measuring Post-Skill (After Skill Enabled) latency...'
+          : 'Step 3/3: Measuring Post-Skill (After Skill) latency...',
+      );
+      const postResult = await runSkillBenchmarkPhase(
+        queries,
+        config,
+        {
+          skillId: draft.skillId,
+          displayName: draft.displayName,
+          description: draft.description,
+          instruction: draft.instruction,
+          targetSources: template.targetSources,
+        },
+        report?.connectedDataStoreResourceNames || [],
+        (step) => setBenchmarkProgressText(`Post-Skill (Skill Enabled): ${step}`),
+      );
+      setSkillBenchmarkPost((prev) => ({ ...prev, [template.id]: postResult }));
+
+      const comparison = diagnoseSkillPerformanceAndMistakes(
+        {
+          skillId: draft.skillId,
+          displayName: draft.displayName,
+          description: draft.description,
+          instruction: draft.instruction,
+          targetSources: template.targetSources,
+        },
+        queries,
+        baselineResult,
+        postResult,
+        getAssistantConflictContext(),
+      );
+      setSkillBenchmarkReports((prev) => ({ ...prev, [template.id]: comparison }));
+    } catch (err: unknown) {
+      setSkillStatusMsg((prev) => ({
+        ...prev,
+        [template.id]: {
+          type: 'err',
+          text: toErrorMessage(err, 'Failed to complete automated Before/After benchmark.'),
+        },
+      }));
+    } finally {
+      if (disabledSkillName) {
+        try {
+          await api.enableAgent(disabledSkillName, config);
+        } catch {
+          // Best-effort restore so the skill is never left disabled after a failed benchmark
+        }
+      }
+      setRunningBenchmarkSkillId(null);
+      setBenchmarkProgressText('');
+    }
+  };
+
+  const handleUpdateAndRetestSkill = async (template: RecommendedSkillTemplate) => {
+    const draft = skillEdits[template.id] || {
+      skillId: template.skillIdSuggestion,
+      displayName: template.displayName,
+      description: template.description,
+      instruction: template.instruction,
+    };
+
+    const existingAgentName = resolveExistingSkillAgentName(
+      template,
+      draft.skillId,
+      draft.displayName,
+    );
+
+    if (!existingAgentName) {
+      await handleAutoBenchmarkAndDeploySkill(template);
+      return;
+    }
+
+    let finalDescription = draft.description.trim();
+    let finalInstruction = draft.instruction.trim();
+    if (finalInstruction.startsWith('---')) {
+      try {
+        const parsed = parseSkillMarkdown(finalInstruction);
+        if (parsed.hasFrontmatter) {
+          if (parsed.description) finalDescription = parsed.description.trim();
+          finalInstruction = parsed.body.trim();
+        }
+      } catch (err) {
+        setSkillStatusMsg((prev) => ({
+          ...prev,
+          [template.id]: {
+            type: 'err',
+            text: toErrorMessage(err, 'Invalid YAML frontmatter in SKILL.md.'),
+          },
+        }));
+        return;
+      }
+    }
+    finalDescription = sanitizeSkillDescription(finalDescription);
+    const finalDisplayName =
+      sanitizeSkillDisplayName(draft.displayName) || 'Enterprise Custom Skill';
+    const updatedDraft = {
+      ...draft,
+      displayName: finalDisplayName,
+      description: finalDescription,
+      instruction: finalInstruction,
+    };
+
+    const queries =
+      benchmarkQueriesBySkill[template.id] || generateDefaultBenchmarkQueriesForSkill(template);
+
+    setCreatingSkillId(template.id);
+    setExpandedBenchmarkSkills((prev) => new Set(prev).add(template.id));
+    setRunningBenchmarkSkillId(template.id);
+    let skillCurrentlyDisabled = false;
+
+    try {
+      setBenchmarkProgressText('Step 1/4: Updating Skill instructions & description...');
+      await api.updateAgent(
+        { name: existingAgentName, displayName: finalDisplayName },
+        {
+          displayName: finalDisplayName,
+          description: finalDescription,
+          sharingConfig: { scope: 'ALL_USERS' },
+          skillAgentDefinition: {
+            instruction: finalInstruction,
+          },
+        },
+        config,
+      );
+      setSkillEdits((prev) => ({
+        ...prev,
+        [template.id]: updatedDraft,
+      }));
+      setCreatingSkillId(null);
+
+      setBenchmarkProgressText(
+        'Step 2/4: Disabling Skill to run clean Baseline (Before Skill) queries...',
+      );
+      await api.disableAgent(existingAgentName, config);
+      skillCurrentlyDisabled = true;
+
+      const baselineResult = await runSkillBenchmarkPhase(
+        queries,
+        config,
+        {
+          skillId: updatedDraft.skillId,
+          displayName: updatedDraft.displayName,
+          description: updatedDraft.description,
+          instruction: updatedDraft.instruction,
+          targetSources: template.targetSources,
+        },
+        report?.connectedDataStoreResourceNames || [],
+        (step) => setBenchmarkProgressText(`Step 2/4 Baseline (Skill Disabled): ${step}`),
+      );
+      setSkillBenchmarkBaseline((prev) => ({ ...prev, [template.id]: baselineResult }));
+
+      setBenchmarkProgressText(
+        'Step 3/4: Re-enabling Skill to run Post-Skill (After Skill) queries...',
+      );
+      await api.enableAgent(existingAgentName, config);
+      skillCurrentlyDisabled = false;
+
+      const postResult = await runSkillBenchmarkPhase(
+        queries,
+        config,
+        {
+          skillId: updatedDraft.skillId,
+          displayName: updatedDraft.displayName,
+          description: updatedDraft.description,
+          instruction: updatedDraft.instruction,
+          targetSources: template.targetSources,
+        },
+        report?.connectedDataStoreResourceNames || [],
+        (step) => setBenchmarkProgressText(`Step 4/4 Post-Skill (Skill Enabled): ${step}`),
+      );
+      setSkillBenchmarkPost((prev) => ({ ...prev, [template.id]: postResult }));
+
+      const comparison = diagnoseSkillPerformanceAndMistakes(
+        {
+          skillId: updatedDraft.skillId,
+          displayName: updatedDraft.displayName,
+          description: updatedDraft.description,
+          instruction: updatedDraft.instruction,
+          targetSources: template.targetSources,
+        },
+        queries,
+        baselineResult,
+        postResult,
+        getAssistantConflictContext(),
+      );
+      setSkillBenchmarkReports((prev) => ({ ...prev, [template.id]: comparison }));
+
+      setSkillStatusMsg((prev) => ({
+        ...prev,
+        [template.id]: {
+          type: 'ok',
+          text: `Updated skill "${finalDisplayName}" and completed full A/B re-test (Disabled → Baseline → Enabled → Post-Skill)!`,
+        },
+      }));
+      await onRefreshAgents?.();
+    } catch (err: unknown) {
+      setSkillStatusMsg((prev) => ({
+        ...prev,
+        [template.id]: {
+          type: 'err',
+          text: toErrorMessage(err, 'Failed to update and re-test deployed skill.'),
+        },
+      }));
+    } finally {
+      if (skillCurrentlyDisabled) {
+        try {
+          await api.enableAgent(existingAgentName, config);
+        } catch {
+          // Best-effort restore so the skill is not left disabled if a network error occurs
+        }
+      }
+      setCreatingSkillId(null);
+      setRunningBenchmarkSkillId(null);
+      setBenchmarkProgressText('');
+    }
+  };
+
+  const handleSaveGlobalSkillInstructionsOnly = async (template: RecommendedSkillTemplate) => {
+    const draft = skillEdits[template.id] || {
+      skillId: template.skillIdSuggestion,
+      displayName: template.displayName,
+      description: template.description,
+      instruction: template.instruction,
+    };
+
+    const existingAgentName =
+      deployedSkillAgentNames[template.id] ||
+      agentsRef.current.find(
+        (a) =>
+          isSkillAgentResource(a) &&
+          ((a.name.split('/').pop() || '').toLowerCase() === draft.skillId.trim().toLowerCase() ||
+            (a.displayName || '').trim().toLowerCase() ===
+              sanitizeSkillDisplayName(draft.displayName).toLowerCase()),
+      )?.name;
+
+    if (!existingAgentName) {
+      await handleDeployRecommendedSkill(template);
+      return;
+    }
+
+    let finalDescription = draft.description.trim();
+    let finalInstruction = draft.instruction.trim();
+    if (finalInstruction.startsWith('---')) {
+      try {
+        const parsed = parseSkillMarkdown(finalInstruction);
+        if (parsed.hasFrontmatter) {
+          if (parsed.description) finalDescription = parsed.description.trim();
+          finalInstruction = parsed.body.trim();
+        }
+      } catch (err) {
+        setSkillStatusMsg((prev) => ({
+          ...prev,
+          [template.id]: {
+            type: 'err',
+            text: toErrorMessage(err, 'Invalid YAML frontmatter in SKILL.md.'),
+          },
+        }));
+        return;
+      }
+    }
+    finalDescription = sanitizeSkillDescription(finalDescription);
+
+    setCreatingSkillId(template.id);
+    try {
+      const finalDisplayName =
+        sanitizeSkillDisplayName(draft.displayName) || 'Enterprise Custom Skill';
+      await api.updateAgent(
+        { name: existingAgentName, displayName: finalDisplayName },
+        {
+          displayName: finalDisplayName,
+          description: finalDescription,
+          sharingConfig: { scope: 'ALL_USERS' },
+          skillAgentDefinition: {
+            instruction: finalInstruction,
+          },
+        },
+        config,
+      );
+      setSkillEdits((prev) => ({
+        ...prev,
+        [template.id]: {
+          ...draft,
+          displayName: finalDisplayName,
+          description: finalDescription,
+          instruction: finalInstruction,
+        },
+      }));
+      setSkillStatusMsg((prev) => ({
+        ...prev,
+        [template.id]: {
+          type: 'ok',
+          text: `Saved updated SKILL.md Markdown instructions for "${finalDisplayName}"!`,
+        },
+      }));
+      await onRefreshAgents?.();
+    } catch (err: unknown) {
+      setSkillStatusMsg((prev) => ({
+        ...prev,
+        [template.id]: {
+          type: 'err',
+          text: toErrorMessage(err, 'Failed to save SKILL.md instructions.'),
+        },
+      }));
+    } finally {
+      setCreatingSkillId(null);
+    }
+  };
+
+  const handleImportSkillMarkdownIntoDraft = (
+    template: RecommendedSkillTemplate,
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const currentDraft = skillEdits[template.id] || {
+      skillId: template.skillIdSuggestion,
+      displayName: template.displayName,
+      description: template.description,
+      instruction: template.instruction,
+    };
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const rawText = String(ev.target?.result || '');
+      try {
+        const parsed = parseSkillMarkdown(rawText);
+        setSkillEdits((prev) => ({
+          ...prev,
+          [template.id]: {
+            ...currentDraft,
+            displayName: parsed.displayName
+              ? sanitizeSkillDisplayName(parsed.displayName)
+              : currentDraft.displayName,
+            description: sanitizeSkillDescription(
+              parsed.description !== undefined ? parsed.description : currentDraft.description,
+            ),
+            instruction: parsed.hasFrontmatter ? parsed.body : rawText,
+          },
+        }));
+        setSkillStatusMsg((prev) => ({
+          ...prev,
+          [template.id]: {
+            type: 'ok',
+            text: `Loaded "${file.name}" into SKILL.md Markdown editor. Click Save / Create to apply.`,
+          },
+        }));
+      } catch (err: unknown) {
+        setSkillStatusMsg((prev) => ({
+          ...prev,
+          [template.id]: {
+            type: 'err',
+            text: toErrorMessage(err, 'Failed to parse imported SKILL.md file.'),
+          },
+        }));
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleDownloadSkillMarkdownFromDraft = (template: RecommendedSkillTemplate) => {
+    const currentDraft = skillEdits[template.id] || {
+      skillId: template.skillIdSuggestion,
+      displayName: template.displayName,
+      description: template.description,
+      instruction: template.instruction,
+    };
+    const mdContent = buildSkillMarkdownDocument({
+      name: currentDraft.skillId,
+      description: currentDraft.description,
+      body: currentDraft.instruction,
+    });
+    const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentDraft.skillId || 'SKILL'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleApplySkillMistakeFix = (
+    template: RecommendedSkillTemplate,
+    mistake: SkillDiagnosticMistake,
+  ) => {
+    const currentDraft = skillEdits[template.id] || {
+      skillId: template.skillIdSuggestion,
+      displayName: template.displayName,
+      description: template.description,
+      instruction: template.instruction,
+    };
+
+    const nextDescription = mistake.recommendedDescriptionPatch
+      ? mistake.recommendedDescriptionPatch
+      : currentDraft.description;
+    const nextInstruction =
+      mistake.recommendedInstructionAppend &&
+      !currentDraft.instruction.includes(mistake.recommendedInstructionAppend.trim())
+        ? `${currentDraft.instruction.trim()}${mistake.recommendedInstructionAppend}`
+        : currentDraft.instruction;
+
+    setSkillEdits((prev) => ({
+      ...prev,
+      [template.id]: {
+        ...currentDraft,
+        description: nextDescription,
+        instruction: nextInstruction,
+      },
+    }));
+
+    const queries =
+      benchmarkQueriesBySkill[template.id] || generateDefaultBenchmarkQueriesForSkill(template);
+    const updatedComparison = diagnoseSkillPerformanceAndMistakes(
+      {
+        skillId: currentDraft.skillId,
+        displayName: currentDraft.displayName,
+        description: nextDescription,
+        instruction: nextInstruction,
+        targetSources: template.targetSources,
+      },
+      queries,
+      skillBenchmarkBaseline[template.id],
+      skillBenchmarkPost[template.id],
+    );
+    setSkillBenchmarkReports((prev) => ({ ...prev, [template.id]: updatedComparison }));
+    setSkillStatusMsg((prev) => ({
+      ...prev,
+      [template.id]: {
+        type: 'ok',
+        text: `Applied suggested fix for "${mistake.title}". Click "Update Skill & Re-Test After" (or Create Skill) to verify latency!`,
+      },
+    }));
   };
 
   const handleExportMarkdown = () => {
@@ -648,7 +1606,7 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                     {report.metrics.enabledSkillsCount} Enabled
                     {report.metrics.privateOrDisabledSkillsCount > 0 && (
                       <span className="ml-2 text-xs font-medium text-amber-400">
-                        ({report.metrics.privateOrDisabledSkillsCount} Private/Disabled)
+                        ({report.metrics.privateOrDisabledSkillsCount} Disabled Org)
                       </span>
                     )}
                   </div>
@@ -857,7 +1815,19 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                             <h3 className="text-sm font-bold text-white">{finding.title}</h3>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {finding.id === 'skills-private-or-disabled-trap' && (
+                              <button
+                                type="button"
+                                onClick={() => void handlePromoteAllPrivateSkills()}
+                                disabled={isPromotingPrivateSkills}
+                                className="px-2.5 py-1 bg-amber-900/70 hover:bg-amber-800/90 disabled:bg-gray-700 text-amber-100 text-xs font-semibold rounded border border-amber-700/80 transition-colors"
+                              >
+                                {isPromotingPrivateSkills
+                                  ? 'Promoting Skills...'
+                                  : 'Promote & Enable All (1-Click)'}
+                              </button>
+                            )}
                             {finding.byomcpCollectionId && (
                               <button
                                 type="button"
@@ -892,6 +1862,18 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                         </div>
 
                         <p className="text-xs text-gray-300 leading-relaxed">{finding.summary}</p>
+
+                        {finding.id === 'skills-private-or-disabled-trap' && promoteSkillsMsg && (
+                          <div
+                            className={`p-2.5 rounded-lg text-xs border ${
+                              promoteSkillsMsg.type === 'ok'
+                                ? 'bg-emerald-950/50 text-emerald-300 border-emerald-800'
+                                : 'bg-red-950/50 text-red-300 border-red-800'
+                            }`}
+                          >
+                            {promoteSkillsMsg.text}
+                          </div>
+                        )}
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-gray-900/70 p-3 rounded-lg border border-gray-800">
                           <div>
@@ -938,23 +1920,39 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                       </div>
                       <p>
                         Analyzes each BYOMCP connector&apos;s discovered tools, JSON-Schema input
-                        parameters, and endpoint metadata to infer its operational domain and
-                        generate tailored <code className="text-purple-300">mcp_server_description</code>{' '}
-                        and <code className="text-purple-300">mcp_agent_instructions</code>. You can
-                        edit and apply them directly to the connector in 1 click.
+                        parameters (required flags, types, enums), and endpoint metadata to infer its
+                        operational domain and generate tailored{' '}
+                        <code className="text-purple-300">mcp_server_description</code> and{' '}
+                        <code className="text-purple-300">mcp_agent_instructions</code>. Use{' '}
+                        <strong className="text-amber-300">✨ Tailor with Gemini</strong> to synthesize
+                        bespoke guidance from the full tool JSON schemas via Vertex AI.
                       </p>
                     </div>
-                    {configuredByomcpCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowConfiguredByomcp((prev) => !prev)}
-                        className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium rounded-lg border border-gray-700 transition-colors shrink-0"
-                      >
-                        {showConfiguredByomcp
-                          ? `Hide ${configuredByomcpCount} already-configured MCP server(s)`
-                          : `Show ${configuredByomcpCount} already-configured MCP server(s)`}
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2 flex-wrap shrink-0">
+                      {actionableByomcpEvaluations.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => void handleApplyAllByomcpFixes()}
+                          disabled={isBatchSavingByomcp || Boolean(savingByomcpId)}
+                          className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
+                        >
+                          {isBatchSavingByomcp
+                            ? 'Applying Batch Fixes...'
+                            : `Apply All Fixes (${actionableByomcpEvaluations.length})`}
+                        </button>
+                      )}
+                      {configuredByomcpCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowConfiguredByomcp((prev) => !prev)}
+                          className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium rounded-lg border border-gray-700 transition-colors"
+                        >
+                          {showConfiguredByomcp
+                            ? `Hide ${configuredByomcpCount} already-configured MCP server(s)`
+                            : `Show ${configuredByomcpCount} already-configured MCP server(s)`}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {report.byomcpEvaluations.length === 0 ? (
@@ -984,6 +1982,7 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                       };
                       const statusFeedback = byomcpStatusMsg[mcp.collectionId];
                       const isSavingThis = savingByomcpId === mcp.collectionId;
+                      const isSynthesizingThis = synthesizingByomcpId === mcp.collectionId;
 
                       return (
                         <div
@@ -1022,6 +2021,17 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                             </div>
 
                             <div className="flex items-center gap-2 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => void handleTailorByomcpWithGemini(mcp)}
+                                disabled={Boolean(synthesizingByomcpId) || Boolean(savingByomcpId)}
+                                title="Synthesize custom server description, agent instructions, and companion skill using Vertex AI Gemini over the full MCP tool JSON schemas"
+                                className="px-3 py-1.5 bg-amber-900/60 hover:bg-amber-800/80 disabled:bg-gray-700 text-amber-200 text-xs font-semibold rounded-lg border border-amber-700/70 transition-colors"
+                              >
+                                {isSynthesizingThis
+                                  ? '✨ Synthesizing...'
+                                  : '✨ Tailor with Gemini'}
+                              </button>
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1078,27 +2088,41 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                           {mcp.tools.length > 0 && (
                             <div>
                               <span className="text-xs font-semibold text-gray-400 block mb-1.5">
-                                Discovered MCP Tools &amp; Input Parameters Used for Generation:
+                                Discovered MCP Tools &amp; JSON-Schema Input Parameters (* = required):
                               </span>
                               <div className="flex flex-wrap gap-1.5">
-                                {mcp.tools.map((t) => (
-                                  <span
-                                    key={t.name}
-                                    className={`px-2 py-1 rounded text-[11px] font-mono border ${
-                                      t.enabled
-                                        ? 'bg-gray-900 text-purple-200 border-gray-700'
-                                        : 'bg-gray-900/40 text-gray-500 border-gray-800 line-through'
-                                    }`}
-                                    title={t.description || 'No tool description'}
-                                  >
-                                    {t.name}
-                                    {t.parameterNames.length > 0 && (
-                                      <span className="text-gray-400">
-                                        ({t.parameterNames.slice(0, 4).join(', ')})
-                                      </span>
-                                    )}
-                                  </span>
-                                ))}
+                                {mcp.tools.map((t) => {
+                                  const paramSignatures =
+                                    t.parameterDetails && t.parameterDetails.length > 0
+                                      ? t.parameterDetails.slice(0, 4).map((p) => {
+                                          const reqMark = p.required ? '*' : '';
+                                          const enumHint =
+                                            p.enumValues && p.enumValues.length > 0
+                                              ? `[${p.enumValues.slice(0, 2).join('|')}]`
+                                              : p.type;
+                                          return `${p.name}${reqMark}:${enumHint}`;
+                                        })
+                                      : t.parameterNames.slice(0, 4);
+
+                                  return (
+                                    <span
+                                      key={t.name}
+                                      className={`px-2 py-1 rounded text-[11px] font-mono border ${
+                                        t.enabled
+                                          ? 'bg-gray-900 text-purple-200 border-gray-700'
+                                          : 'bg-gray-900/40 text-gray-500 border-gray-800 line-through'
+                                      }`}
+                                      title={t.description || 'No tool description'}
+                                    >
+                                      {t.name}
+                                      {paramSignatures.length > 0 && (
+                                        <span className="text-gray-400">
+                                          ({paramSignatures.join(', ')})
+                                        </span>
+                                      )}
+                                    </span>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}
@@ -1187,16 +2211,21 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                     <p>
                       Deploy organizational Skills (<code className="text-emerald-300">ENABLED</code>{' '}
                       state) tailored to your connected DataStores and BYOMCP servers so the
-                      Assistant routes queries to the right source without high-latency fan-out.
+                      Assistant routes queries to the right source without high-latency fan-out. Use{' '}
+                      <strong className="text-amber-300">✨ Tailor with Gemini</strong> to generate
+                      domain-specific trigger descriptions and routing instructions, and click{' '}
+                      <strong className="text-cyan-300">⚡ Test Performance</strong> to benchmark
+                      assistant latency before and after creating the skill (and automatically
+                      diagnose any skill mistakes).
                     </p>
                   </div>
 
-                  {report.recommendedSkills.length === 0 ? (
+                  {displayedRecommendedSkills.length === 0 ? (
                     <div className="p-8 text-center text-sm text-gray-400 bg-gray-800/40 rounded-xl border border-gray-800">
                       No additional Skill templates needed right now.
                     </div>
                   ) : (
-                    report.recommendedSkills.map((sk) => {
+                    displayedRecommendedSkills.map((sk) => {
                       const draft = skillEdits[sk.id] || {
                         skillId: sk.skillIdSuggestion,
                         displayName: sk.displayName,
@@ -1204,8 +2233,18 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                         instruction: sk.instruction,
                       };
                       const isCreatingThis = creatingSkillId === sk.id;
-                      const isAlreadyCreated = createdSkillIds.has(sk.id);
+                      const isSynthesizingSkillThis = synthesizingSkillId === sk.id;
+                      const isRunningBenchThis = runningBenchmarkSkillId === sk.id;
+                      const isAlreadyCreated =
+                        createdSkillIds.has(sk.id) || sk.id.startsWith('existing-global-skill-');
                       const statusFeedback = skillStatusMsg[sk.id];
+                      const isBenchOpen = expandedBenchmarkSkills.has(sk.id);
+                      const queries =
+                        benchmarkQueriesBySkill[sk.id] ||
+                        generateDefaultBenchmarkQueriesForSkill(sk);
+                      const baselinePhase = skillBenchmarkBaseline[sk.id];
+                      const postPhase = skillBenchmarkPost[sk.id];
+                      const comparisonReport = skillBenchmarkReports[sk.id];
 
                       return (
                         <div
@@ -1214,24 +2253,498 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                         >
                           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-700 pb-3">
                             <div>
-                              <h3 className="text-base font-bold text-white">
-                                {draft.displayName}
-                              </h3>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="text-base font-bold text-white">
+                                  {draft.displayName}
+                                </h3>
+                                {isAlreadyCreated && (
+                                  <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-700">
+                                    Deployed (ENABLED)
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-xs text-gray-400 mt-0.5">{sk.rationale}</p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => void handleDeployRecommendedSkill(sk)}
-                              disabled={Boolean(creatingSkillId) || isAlreadyCreated}
-                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
-                            >
-                              {isCreatingThis
-                                ? 'Deploying Skill...'
-                                : isAlreadyCreated
-                                ? 'Skill Deployed'
-                                : 'Create Organizational Skill (1-Click)'}
-                            </button>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <button
+                                type="button"
+                                data-testid={`test-skill-performance-btn-${sk.id}`}
+                                onClick={() =>
+                                  setExpandedBenchmarkSkills((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(sk.id)) next.delete(sk.id);
+                                    else next.add(sk.id);
+                                    return next;
+                                  })
+                                }
+                                className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-colors ${
+                                  isBenchOpen
+                                    ? 'bg-cyan-700 text-white border-cyan-500'
+                                    : 'bg-cyan-950/70 hover:bg-cyan-900/80 text-cyan-200 border-cyan-700/80'
+                                }`}
+                                title="Send test queries to the Assistant before and after creating this Skill to measure latency improvement and diagnose Skill routing mistakes"
+                              >
+                                ⚡ Test Performance
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleTailorSkillWithGemini(sk)}
+                                disabled={
+                                  Boolean(synthesizingSkillId) ||
+                                  Boolean(creatingSkillId) ||
+                                  Boolean(runningBenchmarkSkillId)
+                                }
+                                title="Synthesize custom trigger description and Markdown instructions using Vertex AI Gemini over your connected DataStores and MCP tools"
+                                className="px-3 py-2 bg-amber-900/60 hover:bg-amber-800/80 disabled:bg-gray-700 text-amber-200 text-xs font-semibold rounded-lg border border-amber-700/70 transition-colors"
+                              >
+                                {isSynthesizingSkillThis
+                                  ? '✨ Synthesizing...'
+                                  : '✨ Tailor with Gemini'}
+                              </button>
+                              {isAlreadyCreated ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleUpdateAndRetestSkill(sk)}
+                                  disabled={
+                                    Boolean(creatingSkillId) || Boolean(runningBenchmarkSkillId)
+                                  }
+                                  title="Updates the skill, disables it to run clean Baseline (Before) queries, re-enables it, and runs Post-Skill (After) queries"
+                                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
+                                >
+                                  {isCreatingThis
+                                    ? 'Updating Skill...'
+                                    : '🔄 Update Skill & Full A/B Re-Test'}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeployRecommendedSkill(sk)}
+                                  disabled={
+                                    Boolean(creatingSkillId) || Boolean(runningBenchmarkSkillId)
+                                  }
+                                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
+                                >
+                                  {isCreatingThis
+                                    ? 'Deploying Skill...'
+                                    : 'Create Organizational Skill (1-Click)'}
+                                </button>
+                              )}
+                            </div>
                           </div>
+
+                          {/* ⚡ PERFORMANCE & ROUTING BENCHMARK (BEFORE VS. AFTER) PANEL */}
+                          {isBenchOpen && (
+                            <div
+                              data-testid={`skill-benchmark-panel-${sk.id}`}
+                              className="p-4 rounded-xl bg-gray-900/90 border border-cyan-800/70 space-y-4"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-800 pb-3">
+                                <div>
+                                  <div className="text-xs font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-2">
+                                    <span>⚡ Before vs. After Latency &amp; Skill Routing Benchmark</span>
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-gray-800 text-gray-300 border border-gray-700">
+                                      POST :streamAssist
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-gray-400 mt-0.5">
+                                    Disables the Skill to run clean Baseline (Before) queries, then
+                                    enables the Skill and runs Post-Skill (After) queries to evaluate
+                                    latency reduction, grounding citations, and instruction conflicts.
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleRunSkillBenchmark(sk, 'baseline')}
+                                    disabled={
+                                      Boolean(runningBenchmarkSkillId) || Boolean(creatingSkillId)
+                                    }
+                                    className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-800/50 text-gray-200 text-xs font-semibold rounded-lg border border-gray-600 transition-colors"
+                                  >
+                                    {isRunningBenchThis && !postPhase
+                                      ? 'Running...'
+                                      : '1. Test Baseline (Skill Disabled)'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleRunSkillBenchmark(sk, 'post')}
+                                    disabled={
+                                      Boolean(runningBenchmarkSkillId) || Boolean(creatingSkillId)
+                                    }
+                                    className="px-3 py-1.5 bg-cyan-700 hover:bg-cyan-600 disabled:bg-gray-800/50 text-white text-xs font-semibold rounded-lg border border-cyan-500 transition-colors"
+                                  >
+                                    2. Test Post-Skill (Skill Enabled)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void (isAlreadyCreated
+                                        ? handleUpdateAndRetestSkill(sk)
+                                        : handleAutoBenchmarkAndDeploySkill(sk))
+                                    }
+                                    disabled={
+                                      Boolean(runningBenchmarkSkillId) || Boolean(creatingSkillId)
+                                    }
+                                    title="Automatically disables/measures Baseline queries, deploys or enables this Organizational Skill, and runs Post-Skill queries to compare Before vs. After performance"
+                                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800/50 text-white text-xs font-semibold rounded-lg border border-emerald-500 transition-colors"
+                                  >
+                                    {isAlreadyCreated
+                                      ? '🔄 Full A/B Re-Test (Disable → Before → Enable → After)'
+                                      : '⚡ Auto-Benchmark (Before → Deploy → After)'}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Editable Benchmark Queries */}
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-semibold text-gray-300">
+                                    Benchmark Test Queries ({queries.length}):
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setBenchmarkQueriesBySkill((prev) => ({
+                                        ...prev,
+                                        [sk.id]: [
+                                          ...queries,
+                                          `Search ${
+                                            sk.targetSources[0] || draft.displayName
+                                          } for recent updates and key guidelines.`,
+                                        ],
+                                      }))
+                                    }
+                                    disabled={queries.length >= 5}
+                                    className="text-xs text-cyan-400 hover:text-cyan-300 disabled:opacity-40 font-semibold"
+                                  >
+                                    + Add Test Query
+                                  </button>
+                                </div>
+                                {queries.map((qText, qIdx) => (
+                                  <div key={qIdx} className="flex items-center gap-2">
+                                    <span className="text-xs font-mono text-gray-400 w-6">
+                                      Q{qIdx + 1}.
+                                    </span>
+                                    <input
+                                      type="text"
+                                      aria-label={`Benchmark Query ${qIdx + 1}`}
+                                      value={qText}
+                                      onChange={(e) => {
+                                        const nextQ = [...queries];
+                                        nextQ[qIdx] = e.target.value;
+                                        setBenchmarkQueriesBySkill((prev) => ({
+                                          ...prev,
+                                          [sk.id]: nextQ,
+                                        }));
+                                      }}
+                                      className="flex-1 bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white focus:border-cyan-500 focus:outline-none"
+                                    />
+                                    {queries.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const nextQ = queries.filter((_, idx) => idx !== qIdx);
+                                          setBenchmarkQueriesBySkill((prev) => ({
+                                            ...prev,
+                                            [sk.id]: nextQ,
+                                          }));
+                                        }}
+                                        className="px-2 py-1 text-xs text-gray-400 hover:text-red-400"
+                                        title="Remove query"
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Progress Spinner when running */}
+                              {isRunningBenchThis && (
+                                <div className="p-3 rounded-lg bg-cyan-950/40 border border-cyan-800/70 flex items-center gap-3 text-xs text-cyan-200">
+                                  <div className="h-4 w-4 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin shrink-0" />
+                                  <span>{benchmarkProgressText || 'Running benchmark...'}</span>
+                                </div>
+                              )}
+
+                              {/* Before vs. After Summary Cards */}
+                              {(baselinePhase || postPhase) && (
+                                <div className="space-y-3 pt-1">
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    <div className="p-3 rounded-lg bg-gray-950/80 border border-gray-800">
+                                      <div className="text-[11px] font-semibold uppercase text-gray-400">
+                                        Baseline (Before Skill)
+                                      </div>
+                                      {baselinePhase ? (
+                                        <>
+                                          <div className="text-lg font-bold text-white mt-1">
+                                            {baselinePhase.avgLatencyMs.toLocaleString()} ms{' '}
+                                            <span className="text-xs font-normal text-gray-400">
+                                              avg
+                                            </span>
+                                          </div>
+                                          <div className="text-[11px] text-gray-400 mt-0.5">
+                                            TTFB: {baselinePhase.avgTtfbMs.toLocaleString()} ms &bull;{' '}
+                                            {baselinePhase.runs.length} query(s)
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <div className="text-xs text-gray-500 mt-2">
+                                          Not run yet
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="p-3 rounded-lg bg-gray-950/80 border border-gray-800">
+                                      <div className="text-[11px] font-semibold uppercase text-gray-400">
+                                        Post-Skill (After Skill)
+                                      </div>
+                                      {postPhase ? (
+                                        <>
+                                          <div className="text-lg font-bold text-white mt-1">
+                                            {postPhase.avgLatencyMs.toLocaleString()} ms{' '}
+                                            <span className="text-xs font-normal text-gray-400">
+                                              avg
+                                            </span>
+                                          </div>
+                                          <div className="text-[11px] text-gray-400 mt-0.5">
+                                            TTFB: {postPhase.avgTtfbMs.toLocaleString()} ms &bull;{' '}
+                                            Routing Rate: {postPhase.skillTriggerRate}%
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <div className="text-xs text-gray-500 mt-2">
+                                          Deploy skill &amp; click &ldquo;2. Test Post-Skill&rdquo;
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div
+                                      className={`p-3 rounded-lg border ${
+                                        comparisonReport?.latencyDeltaMs !== undefined
+                                          ? comparisonReport.latencyDeltaMs < 0
+                                            ? 'bg-emerald-950/50 border-emerald-700/80 text-emerald-200'
+                                            : 'bg-amber-950/50 border-amber-700/80 text-amber-200'
+                                          : 'bg-gray-950/80 border-gray-800 text-gray-300'
+                                      }`}
+                                    >
+                                      <div className="text-[11px] font-semibold uppercase opacity-80">
+                                        Latency Delta &amp; Verdict
+                                      </div>
+                                      {comparisonReport?.latencyDeltaMs !== undefined ? (
+                                        <>
+                                          <div className="text-lg font-extrabold mt-1">
+                                            {comparisonReport.latencyDeltaMs <= 0 ? '' : '+'}
+                                            {comparisonReport.latencyDeltaMs.toLocaleString()} ms (
+                                            {comparisonReport.latencyDeltaPercent! <= 0 ? '' : '+'}
+                                            {comparisonReport.latencyDeltaPercent}%)
+                                          </div>
+                                          <div className="text-[11px] mt-0.5 opacity-90">
+                                            {comparisonReport.latencyDeltaMs < 0
+                                              ? '✓ Faster after Skill creation'
+                                              : '⚠️ No speedup — inspect diagnostics below'}
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <div className="text-xs mt-1.5 opacity-90">
+                                          {comparisonReport?.verdictSummary ||
+                                            'Run both Baseline and Post-Skill to compare delta.'}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {comparisonReport?.verdictSummary && (
+                                    <div
+                                      className={`p-2.5 rounded-lg text-xs border ${
+                                        comparisonReport.improved
+                                          ? 'bg-emerald-950/40 border-emerald-800/70 text-emerald-200'
+                                          : 'bg-amber-950/40 border-amber-800/70 text-amber-200'
+                                      }`}
+                                    >
+                                      <strong>Benchmark Summary:</strong>{' '}
+                                      {comparisonReport.verdictSummary}
+                                    </div>
+                                  )}
+
+                                  {/* Per-Query Latency & Planner Trace Table */}
+                                  <div className="border border-gray-800 rounded-lg overflow-hidden">
+                                    <table className="min-w-full divide-y divide-gray-800 text-xs">
+                                      <thead className="bg-gray-950 text-gray-400">
+                                        <tr>
+                                          <th className="px-3 py-2 text-left font-semibold">
+                                            Test Query
+                                          </th>
+                                          <th className="px-3 py-2 text-right font-semibold">
+                                            Before (ms)
+                                          </th>
+                                          <th className="px-3 py-2 text-right font-semibold">
+                                            After (ms)
+                                          </th>
+                                          <th className="px-3 py-2 text-center font-semibold">
+                                            Routing / Grounding
+                                          </th>
+                                          <th className="px-3 py-2 text-right font-semibold">
+                                            Trace
+                                          </th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-gray-800 bg-gray-900/60">
+                                        {queries.map((qText, qIdx) => {
+                                          const baseRun = baselinePhase?.runs[qIdx];
+                                          const postRun = postPhase?.runs[qIdx];
+                                          const activeRun = postRun || baseRun;
+                                          const traceId = `${sk.id}-${qIdx}`;
+                                          const isTraceExpanded = expandedTraceKey === traceId;
+
+                                          return (
+                                            <React.Fragment key={qIdx}>
+                                              <tr>
+                                                <td className="px-3 py-2 text-gray-200 max-w-md truncate">
+                                                  {qText}
+                                                </td>
+                                                <td className="px-3 py-2 text-right font-mono text-gray-300">
+                                                  {baseRun
+                                                    ? `${baseRun.totalLatencyMs.toLocaleString()} ms`
+                                                    : '—'}
+                                                </td>
+                                                <td className="px-3 py-2 text-right font-mono text-cyan-300">
+                                                  {postRun
+                                                    ? `${postRun.totalLatencyMs.toLocaleString()} ms`
+                                                    : '—'}
+                                                </td>
+                                                <td className="px-3 py-2 text-center">
+                                                  {activeRun ? (
+                                                    activeRun.errorMessage ? (
+                                                      <span className="px-2 py-0.5 rounded bg-red-950 text-red-300 border border-red-800 text-[10px]">
+                                                        API Error
+                                                      </span>
+                                                    ) : activeRun.skillTriggered ? (
+                                                      <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px]">
+                                                        ✓ Routed ({activeRun.citationsCount} cite)
+                                                      </span>
+                                                    ) : (
+                                                      <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 text-[10px]">
+                                                        ⚠️ Unguided ({activeRun.citationsCount} cite)
+                                                      </span>
+                                                    )
+                                                  ) : (
+                                                    '—'
+                                                  )}
+                                                </td>
+                                                <td className="px-3 py-2 text-right">
+                                                  {activeRun && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() =>
+                                                        setExpandedTraceKey(
+                                                          isTraceExpanded ? null : traceId,
+                                                        )
+                                                      }
+                                                      className="text-cyan-400 hover:text-cyan-300 font-semibold text-[11px]"
+                                                    >
+                                                      {isTraceExpanded ? 'Hide Trace' : 'Inspect'}
+                                                    </button>
+                                                  )}
+                                                </td>
+                                              </tr>
+                                              {isTraceExpanded && activeRun && (
+                                                <tr className="bg-gray-950/90">
+                                                  <td colSpan={5} className="p-3 space-y-2 text-xs">
+                                                    {activeRun.errorMessage && (
+                                                      <div className="text-red-300 font-mono">
+                                                        Error: {activeRun.errorMessage}
+                                                      </div>
+                                                    )}
+                                                    <div>
+                                                      <span className="font-semibold text-gray-400">
+                                                        Planner Thought Steps (
+                                                        {activeRun.thoughtSteps.length}):
+                                                      </span>
+                                                      {activeRun.thoughtSteps.length > 0 ? (
+                                                        <pre className="mt-1 p-2 rounded bg-gray-900 border border-gray-800 text-[11px] text-gray-300 font-mono whitespace-pre-wrap max-h-36 overflow-y-auto">
+                                                          {activeRun.thoughtSteps.join('\n---\n')}
+                                                        </pre>
+                                                      ) : (
+                                                        <span className="ml-2 text-gray-500">
+                                                          No thought chunks returned
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                    <div>
+                                                      <span className="font-semibold text-gray-400">
+                                                        Answer Preview:
+                                                      </span>{' '}
+                                                      <span className="text-gray-300">
+                                                        {activeRun.answerPreview ||
+                                                          '(Empty response)'}
+                                                      </span>
+                                                    </div>
+                                                  </td>
+                                                </tr>
+                                              )}
+                                            </React.Fragment>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+
+                                  {/* Automated Skill Mistake Diagnostics & 1-Click Fixes */}
+                                  {comparisonReport && comparisonReport.mistakes.length > 0 && (
+                                    <div className="space-y-2.5 pt-1">
+                                      <div className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                                        🔍 Identified Skill Mistakes &amp; Optimization Fixes (
+                                        {comparisonReport.mistakes.length})
+                                      </div>
+                                      {comparisonReport.mistakes.map((mistake, mIdx) => (
+                                        <div
+                                          key={`${mistake.code}-${mIdx}`}
+                                          className="p-3.5 rounded-lg bg-gray-950/90 border border-amber-800/70 space-y-2"
+                                        >
+                                          <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                              <span
+                                                className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                                  mistake.severity === 'CRITICAL'
+                                                    ? 'bg-red-950 text-red-300 border-red-700'
+                                                    : 'bg-amber-950 text-amber-300 border-amber-700'
+                                                }`}
+                                              >
+                                                {mistake.severity}
+                                              </span>
+                                              <span className="text-xs font-bold text-white">
+                                                {mistake.title}
+                                              </span>
+                                            </div>
+                                            {(mistake.recommendedDescriptionPatch ||
+                                              mistake.recommendedInstructionAppend) && (
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  handleApplySkillMistakeFix(sk, mistake)
+                                                }
+                                                className="px-2.5 py-1 bg-amber-700 hover:bg-amber-600 text-white text-[11px] font-semibold rounded border border-amber-500 transition-colors"
+                                              >
+                                                🔧 Apply Suggested Fix to Skill Draft
+                                              </button>
+                                            )}
+                                          </div>
+                                          <p className="text-xs text-gray-300">
+                                            {mistake.explanation}
+                                          </p>
+                                          <p className="text-xs text-emerald-300">
+                                            <strong>Recommended Fix:</strong> {mistake.suggestedFix}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
@@ -1281,15 +2794,32 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                           </div>
 
                           <div>
-                            <label
-                              htmlFor={`skill-desc-${sk.id}`}
-                              className="block text-xs font-semibold text-gray-300 mb-1"
-                            >
-                              Trigger Description (Used by Planner for Routing)
-                            </label>
+                            <div className="flex items-center justify-between mb-1">
+                              <label
+                                htmlFor={`skill-desc-${sk.id}`}
+                                className="block text-xs font-semibold text-gray-300"
+                              >
+                                Trigger Description (Used by Planner for Routing){' '}
+                                <span className="text-[10px] font-normal text-gray-400">
+                                  (max {MAX_SKILL_DESCRIPTION_LENGTH} chars)
+                                </span>
+                              </label>
+                              <span
+                                className={`text-[10px] font-mono ${
+                                  Array.from(draft.description).length >
+                                  MAX_SKILL_DESCRIPTION_LENGTH
+                                    ? 'text-amber-300 font-bold'
+                                    : 'text-gray-400'
+                                }`}
+                              >
+                                {Array.from(draft.description).length} /{' '}
+                                {MAX_SKILL_DESCRIPTION_LENGTH}
+                              </span>
+                            </div>
                             <input
                               id={`skill-desc-${sk.id}`}
                               type="text"
+                              maxLength={MAX_SKILL_DESCRIPTION_LENGTH}
                               value={draft.description}
                               onChange={(e) =>
                                 setSkillEdits((prev) => ({
@@ -1302,12 +2832,51 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
                           </div>
 
                           <div>
-                            <label
-                              htmlFor={`skill-inst-${sk.id}`}
-                              className="block text-xs font-semibold text-gray-300 mb-1"
-                            >
-                              Skill Markdown Instructions
-                            </label>
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                              <label
+                                htmlFor={`skill-inst-${sk.id}`}
+                                className="block text-xs font-semibold text-gray-300"
+                              >
+                                Skill Markdown Instructions (<code className="font-mono text-emerald-300">SKILL.md</code>)
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <label
+                                  htmlFor={`skill-md-upload-${sk.id}`}
+                                  className="px-2.5 py-1 bg-gray-900 hover:bg-gray-700 text-gray-200 rounded text-[11px] font-semibold border border-gray-700 cursor-pointer transition-colors"
+                                  title="Upload a local SKILL.md or .md file to replace instructions (parses YAML frontmatter automatically)"
+                                >
+                                  📂 Import `.md`
+                                </label>
+                                <input
+                                  id={`skill-md-upload-${sk.id}`}
+                                  type="file"
+                                  accept=".md,.markdown,.txt"
+                                  onChange={(e) => handleImportSkillMarkdownIntoDraft(sk, e)}
+                                  className="hidden"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadSkillMarkdownFromDraft(sk)}
+                                  className="px-2.5 py-1 bg-gray-900 hover:bg-gray-700 text-gray-200 rounded text-[11px] font-semibold border border-gray-700 transition-colors"
+                                  title="Download this skill as a portable SKILL.md file with YAML frontmatter"
+                                >
+                                  ⬇️ Export `SKILL.md`
+                                </button>
+                                {isAlreadyCreated && (
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      Boolean(creatingSkillId) || Boolean(runningBenchmarkSkillId)
+                                    }
+                                    onClick={() => void handleSaveGlobalSkillInstructionsOnly(sk)}
+                                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 text-white rounded text-[11px] font-bold transition-colors"
+                                    title="Save updated SKILL.md Markdown instructions to this global skill"
+                                  >
+                                    {isCreatingThis ? 'Saving...' : '💾 Save SKILL.md'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                             <textarea
                               id={`skill-inst-${sk.id}`}
                               rows={8}

@@ -423,3 +423,161 @@ export function validateSkillDisplayName(name: string): string | null {
   return null;
 }
 
+export const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
+
+/**
+ * Sanitizes and truncates a Skill `description` (`agent.description`) so it satisfies
+ * Discovery Engine's strict limit of at most 1024 Unicode characters (`Array.from(str).length <= 1024`).
+ * Collapses newlines/redundant whitespace and truncates cleanly at a sentence or word boundary when exceeding `maxChars`.
+ */
+export function sanitizeSkillDescription(
+  rawDescription: string,
+  maxChars: number = MAX_SKILL_DESCRIPTION_LENGTH
+): string {
+  const cleaned = String(rawDescription || '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return '';
+
+  const codePoints = Array.from(cleaned);
+  if (codePoints.length <= maxChars) {
+    return cleaned;
+  }
+
+  const limit = Math.max(10, maxChars);
+  const sliced = codePoints.slice(0, limit).join('');
+
+  // Prefer truncating at a sentence boundary if one exists in the second half of the allowed length
+  const lastPeriodIdx = sliced.lastIndexOf('. ');
+  if (lastPeriodIdx >= Math.floor(sliced.length * 0.55)) {
+    return sliced.slice(0, lastPeriodIdx + 1).trim();
+  }
+
+  // Otherwise truncate at the last word boundary and append ellipsis within the character limit
+  const maxBeforeEllipsis = Math.max(1, limit - 3);
+  const preEllipsis = codePoints.slice(0, maxBeforeEllipsis).join('');
+  const lastSpaceIdx = preEllipsis.lastIndexOf(' ');
+  if (lastSpaceIdx >= Math.floor(preEllipsis.length * 0.6)) {
+    return `${preEllipsis.slice(0, lastSpaceIdx).replace(/[,;:\s]+$/, '')}...`;
+  }
+
+  return `${preEllipsis.trim()}...`;
+}
+
+/**
+ * Validates a Skill `description` against Discovery Engine's 1024 Unicode character limit.
+ * Returns `null` if valid, or a descriptive error message if invalid.
+ */
+export function validateSkillDescription(description: string): string | null {
+  const trimmed = String(description || '').trim();
+  const unicodeLen = Array.from(trimmed).length;
+  if (unicodeLen > MAX_SKILL_DESCRIPTION_LENGTH) {
+    return `Skill description must be at most ${MAX_SKILL_DESCRIPTION_LENGTH} Unicode characters (currently ${unicodeLen}). Move detailed routing rules into the SKILL.md Markdown Instructions body.`;
+  }
+  return null;
+}
+
+export interface ParsedSkillMarkdown {
+  hasFrontmatter: boolean;
+  frontmatter: Record<string, string>;
+  name?: string;
+  displayName?: string;
+  description?: string;
+  body: string;
+}
+
+const FRONTMATTER_BLOCK_REGEX = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/;
+
+/**
+ * Parses a `SKILL.md` Markdown string using Regex Pattern Matching to extract optional
+ * top-level YAML frontmatter (`--- ... ---`) and the Markdown instruction body.
+ * Known limits: Supports single-line `key: value` frontmatter pairs; does not parse deeply nested multi-line YAML maps.
+ */
+export function parseSkillMarkdown(rawMarkdown: string): ParsedSkillMarkdown {
+  if (typeof rawMarkdown !== 'string') {
+    throw new Error('Expected a string when parsing SKILL.md Markdown content.');
+  }
+
+  const trimmedStart = rawMarkdown.replace(/^\uFEFF/, '');
+  if (trimmedStart.startsWith('---')) {
+    const match = FRONTMATTER_BLOCK_REGEX.exec(trimmedStart);
+    if (!match) {
+      throw new Error(
+        'Malformed SKILL.md YAML frontmatter: opening "---" delimiter is missing a closing "---" delimiter.'
+      );
+    }
+
+    const rawYaml = match[1];
+    const body = (match[2] || '').replace(/^\r?\n/, '');
+    const frontmatter: Record<string, string> = {};
+
+    const lines = rawYaml.split(/\r?\n/);
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine || trimmedLine.startsWith('#')) continue;
+      const colonIdx = trimmedLine.indexOf(':');
+      if (colonIdx <= 0) continue;
+      const key = trimmedLine.slice(0, colonIdx).trim();
+      let val = trimmedLine.slice(colonIdx + 1).trim();
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.slice(1, -1);
+      }
+      frontmatter[key] = val;
+    }
+
+    return {
+      hasFrontmatter: true,
+      frontmatter,
+      name: frontmatter.name || undefined,
+      displayName: frontmatter.display_name || frontmatter.displayName || undefined,
+      description: frontmatter.description || undefined,
+      body,
+    };
+  }
+
+  return {
+    hasFrontmatter: false,
+    frontmatter: {},
+    body: trimmedStart,
+  };
+}
+
+/**
+ * Builds a complete `SKILL.md` document with YAML frontmatter (`name`, `description`)
+ * and Markdown instruction body. If `body` already contains YAML frontmatter, updates `name`
+ * and `description` in place and preserves the Markdown body.
+ */
+export function buildSkillMarkdownDocument(params: {
+  name: string;
+  description?: string;
+  body: string;
+}): string {
+  const safeName =
+    String(params.name || 'skill')
+      .trim()
+      .replace(/[^a-zA-Z0-9-_]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase() || 'skill';
+
+  const parsed = parseSkillMarkdown(String(params.body || ''));
+  const cleanDescription = sanitizeSkillDescription(
+    String(params.description !== undefined ? params.description : parsed.description || '')
+  );
+
+  const markdownBody = parsed.body.trim();
+
+  return [
+    '---',
+    `name: ${safeName}`,
+    `description: ${cleanDescription}`,
+    '---',
+    '',
+    markdownBody,
+  ].join('\n');
+}

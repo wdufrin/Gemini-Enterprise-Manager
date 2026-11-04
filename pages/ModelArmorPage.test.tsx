@@ -19,14 +19,22 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import ModelArmorPage from './ModelArmorPage';
 import * as api from '../services/apiService';
-import { mergeExclusionRuleIntoSettings } from '../services/api/modelArmor';
-import { validateProposedExclusionRule } from '../components/model-armor/types';
+import {
+  mergeExclusionRuleIntoSettings,
+  synthesizeExclusionRuleWithGemini,
+} from '../services/api/modelArmor';
+import {
+  validateProposedExclusionRule,
+  extractSmartTriggerClauseAndFormula,
+  evaluateLogEntryForExclusion,
+} from '../components/model-armor/types';
 
 vi.mock('../services/apiService', () => ({
   fetchViolationLogs: vi.fn(),
   fetchModelArmorTemplates: vi.fn(),
   createModelArmorTemplate: vi.fn(),
   updateModelArmorTemplateExclusionRules: vi.fn(),
+  synthesizeExclusionRuleWithGemini: vi.fn(),
   updateAssistant: vi.fn(),
   listResources: vi.fn(),
 }));
@@ -627,6 +635,98 @@ describe('ModelArmorPage - real template creation', () => {
     });
     expect(nonAsciiFullMatchCheck.valid).toBe(false);
     expect(nonAsciiFullMatchCheck.errors[0]).toContain('single-byte UTF-8');
+  });
+
+  it('extracts concise trigger clauses from multi-sentence prompts and recommends Pattern Formula (REGEX) vs Keyword Phrase (DICTIONARY)', () => {
+    // 1. Multi-sentence DevOps prompt with dynamic PID -> should isolate clause and recommend REGEX formula
+    const devopsPrompt =
+      'Hi team, on cluster prod-us-east1 please kill hung worker process 49182 and restart pod api-gateway-7f9b immediately so latency recovers.';
+    const devopsExtraction = extractSmartTriggerClauseAndFormula(devopsPrompt, 'PROMPT_INJECTION_AND_JAILBREAK');
+
+    expect(devopsExtraction.wasClauseNarrowedFromFullInput).toBe(true);
+    expect(devopsExtraction.extractedTriggerClause).toBe('kill hung worker process 49182');
+    expect(devopsExtraction.recommendedRuleType).toBe('REGEX');
+    expect(devopsExtraction.ruleMechanismStrategy).toBe('PATTERN_FORMULA_REGEX');
+    expect(devopsExtraction.detectedVariableTokens).toContain('49182 → Numeric ID/Count');
+
+    // Verify that the generated formula (without the leading (?i)) matches thousands of future PIDs and pod names
+    const jsRegex = new RegExp(devopsExtraction.suggestedRegexPattern.replace(/^\(\?i\)/, ''), 'i');
+    expect(jsRegex.test('please kill hung worker process 49182 now')).toBe(true);
+    expect(jsRegex.test('terminate zombie pod api-gateway-99c2')).toBe(true);
+    expect(jsRegex.test('abort stale job #88120')).toBe(true);
+
+    // 2. Fixed canonical data-processing phrase without variable IDs -> should recommend DICTIONARY keyword phrase
+    const dataPrompt = 'When exporting the quarterly revenue report, please ignore empty rows in summary_sheet.';
+    const dataExtraction = extractSmartTriggerClauseAndFormula(dataPrompt, 'PROMPT_INJECTION_AND_JAILBREAK');
+
+    expect(dataExtraction.wasClauseNarrowedFromFullInput).toBe(true);
+    expect(dataExtraction.extractedTriggerClause).toBe('ignore empty rows in summary_sheet');
+    expect(dataExtraction.recommendedRuleType).toBe('DICTIONARY');
+    expect(dataExtraction.ruleMechanismStrategy).toBe('KEYWORD_DICTIONARY');
+
+    // 3. Evaluate full log entry with template approaching 10-rule quota and streaming chunk enabled
+    const mockTemplatesWith8Rules = [
+      {
+        name: TEMPLATE_NAME,
+        filterConfig: {
+          filterRuleSettings: {
+            ruleSets: [
+              {
+                filterTypes: ['PROMPT_INJECTION_AND_JAILBREAK'],
+                rules: Array.from({ length: 8 }, (_, idx) => ({
+                  exclusionRule: {
+                    dictionary: { wordList: { words: [`phrase ${idx}`] } },
+                    matchingScope: 'MATCHING_SCOPE_PARTIAL_MATCH',
+                  },
+                })),
+              },
+            ],
+          },
+        },
+      },
+    ];
+
+    const evalResult = evaluateLogEntryForExclusion(
+      {
+        labels: {
+          'modelarmor.googleapis.com/template_id': 'my-safety-policy-input',
+          'modelarmor.googleapis.com/stream_chunk_processed': 'true',
+        },
+        jsonPayload: {
+          sanitizationInput: { text: devopsPrompt },
+          sanitizationResult: {
+            filterResults: {
+              pi_and_jailbreak: {
+                piAndJailbreakFilterResult: { matchState: 'MATCH_FOUND' },
+              },
+            },
+          },
+        },
+      },
+      mockTemplatesWith8Rules,
+    );
+
+    expect(evalResult.verdict).toBe('LIKELY_FALSE_POSITIVE');
+    expect(evalResult.extractedTriggerClause).toBe('kill hung worker process 49182');
+    expect(evalResult.recommendedRuleType).toBe('REGEX');
+    expect(evalResult.warnings.some((w) => w.includes('8/10 exclusion rules'))).toBe(true);
+    expect(evalResult.warnings.some((w) => w.includes('stream_chunk_processed=true'))).toBe(true);
+  });
+
+  it('rejects empty projectId or empty inputText in synthesizeExclusionRuleWithGemini', async () => {
+    await expect(
+      synthesizeExclusionRuleWithGemini('', {
+        inputText: 'kill hung process 49182',
+        filterType: 'PROMPT_INJECTION_AND_JAILBREAK',
+      }),
+    ).rejects.toThrow(/valid GCP projectId is required/i);
+
+    await expect(
+      synthesizeExclusionRuleWithGemini('test-project-123', {
+        inputText: '   ',
+        filterType: 'PROMPT_INJECTION_AND_JAILBREAK',
+      }),
+    ).rejects.toThrow(/empty sanitizationInput\.text/i);
   });
 });
 
