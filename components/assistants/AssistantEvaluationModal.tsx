@@ -431,10 +431,20 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
       return next;
     });
     try {
+      const assistantSysInst = [
+        assistant?.generationConfig?.systemInstruction?.additionalSystemInstruction || '',
+        assistant?.styleAndFormattingInstructions || '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+        .trim();
       const synthesized = await synthesizeByomcpWithGemini(
         mcpEval,
         engine.dataStoreIds || [],
         config,
+        {
+          assistantSystemInstruction: assistantSysInst,
+        },
       );
       setByomcpEdits((prev) => ({
         ...prev,

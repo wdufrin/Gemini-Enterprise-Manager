@@ -24,7 +24,10 @@ import { AuthSettingsSection } from './byomcp/AuthSettingsSection';
 import { AdvancedParamsSection } from './byomcp/AdvancedParamsSection';
 import { RawJsonEditorSection } from './byomcp/RawJsonEditorSection';
 import { BYOMCPFooterActions } from './byomcp/BYOMCPFooterActions';
-import { generateByomcpGuidance } from '../../services/assistantEvaluationService';
+import {
+  extractSchemaParams,
+  generateByomcpGuidance,
+} from '../../services/assistantEvaluationService';
 
 type VisualSectionFilter = 'all' | 'tools' | 'guidelines' | 'auth';
 
@@ -118,21 +121,17 @@ const BYOMCPConfigTab: React.FC<BYOMCPConfigTabProps> = ({
 
   const handleAutoGenerateGuidelines = () => {
     const mappedTools = dynamicTools.map((t) => {
-      const schemaProps =
-        t.inputSchema && typeof t.inputSchema.properties === 'object' && t.inputSchema.properties !== null
-          ? Object.keys(t.inputSchema.properties as Record<string, unknown>)
-          : [];
-      const reqProps =
-        t.inputSchema && Array.isArray(t.inputSchema.required)
-          ? (t.inputSchema.required as string[])
-          : [];
+      const { parameterNames, requiredParams, parameterDetails } = extractSchemaParams(
+        t.inputSchema as Record<string, unknown> | undefined,
+      );
       return {
         name: t.name,
         displayName: t.displayName || t.name,
         description: t.description || '',
         enabled: t.enabled !== false,
-        parameterNames: schemaProps,
-        requiredParams: reqProps,
+        parameterNames,
+        requiredParams,
+        parameterDetails,
       };
     });
     const collectionId = connector.name?.split('/')[5] || connector.name?.split('/').pop() || 'custom_mcp';

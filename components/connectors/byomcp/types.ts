@@ -59,11 +59,11 @@ export const INSTRUCTION_PRESETS: InstructionPreset[] = [
   },
   {
     name: 'Database / SQL Query Server',
-    description: 'Schema verification, markdown tables, result limits, and trend insights',
+    description: 'Schema verification, structured tabular output, result limits, and trend insights',
     instructions: `FORMATTING INSTRUCTIONS FOR DATABASE QUERY RESULTS:
 1. Inspect the database schema and verify table/column names before executing queries.
 2. Limit query results to 50 rows unless explicitly requested by the user.
-3. Present tabular data in clean markdown tables with aligned columns.
+3. Present multi-row query results in a clear, aligned tabular or structured list format (always respecting the Assistant's global formatting instructions if plain text or JSON is requested).
 4. Provide a brief analytical commentary highlighting key numbers, trends, or outliers.
 5. Never execute destructive DDL/DML statements (DROP, DELETE, TRUNCATE) without confirmation.`,
     serverDescription: 'MCP database server for inspecting schemas and executing analytical queries.',
