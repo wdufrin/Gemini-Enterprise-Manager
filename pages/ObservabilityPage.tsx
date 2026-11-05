@@ -34,11 +34,13 @@ interface Props {
 
 interface ObservabilityDashboardMetrics {
     volumeData: { time: string; requests: number; errors: number }[];
-    agentData: { name: string; id?: string; count: number }[];
+    agentData: { name: string; id?: string; count: number; avgLatency?: number; p50?: number; p95?: number }[];
     totalRequests: number;
     totalSessions: number;
     uniqueUsers: number;
     uniqueAgents?: number;
+    p50LatencyMs?: number;
+    p95LatencyMs?: number;
     queries: Record<string, string>;
 }
 
@@ -203,6 +205,25 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         return false;
                     });
 
+                const matchingGenAiTraceTables = tables
+                    .map((t: BigQueryTable) => t.tableReference?.tableId || '')
+                    .filter((id: string) => {
+                        if (id.startsWith('v_')) return false;
+                        const tracePrefixes = [
+                            'discoveryengine_googleapis_com_gen_ai_user_message',
+                            'discoveryengine_googleapis_com_gen_ai_choice',
+                            'discoveryengine_googleapis_com_gen_ai_client_inference_operation_details'
+                        ];
+                        for (const prefix of tracePrefixes) {
+                            if (id === prefix) return true;
+                            if (id.startsWith(`${prefix}_`)) {
+                                const datePart = id.split('_').pop()!;
+                                return /^\d{8}$/.test(datePart) ? datePart >= suffixStart : true;
+                            }
+                        }
+                        return false;
+                    });
+
                 const dashboardData: ObservabilityDashboardMetrics = {
                     volumeData: [],
                     agentData: [],
@@ -238,6 +259,20 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         ) IN ('WriteUserEvent', 'StreamAssist', 'Assist', 'Search')
                     `);
 
+                    const extraTraceSelects = matchingGenAiTraceTables.map((t: string) => `
+                      SELECT
+                        trace,
+                        timestamp as event_time
+                      FROM \`${effectiveProjectId}.${datasetId}.${t}\`
+                      WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                        AND trace IS NOT NULL AND trace != ''
+                    `);
+
+                    const traceSpansUnion = [
+                        `SELECT trace, event_time FROM base_activity WHERE trace IS NOT NULL AND trace != ''`,
+                        ...extraTraceSelects
+                    ].join('\nUNION ALL\n');
+
                     const baseActivityCTE = `
                       raw_activity AS (
                         ${tableSelects.join('\nUNION ALL\n')}
@@ -249,6 +284,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                             JSON_VALUE(jp, '$.userIamPrincipal')
                           ) as user_email,
                           event_time,
+                          trace,
                           COALESCE(
                             JSON_VALUE(jp, '$.request.userevent.agentspaceinfo.agentinfo.name'),
                             JSON_VALUE(jp, '$.response.agentinfo.displayname'),
@@ -271,6 +307,17 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                             JSON_VALUE(jp, '$.logmetadata.methodname')
                           ) as method_name
                         FROM raw_activity
+                      ),
+                      trace_spans AS (
+                        ${traceSpansUnion}
+                      ),
+                      trace_latencies AS (
+                        SELECT
+                          trace,
+                          TIMESTAMP_DIFF(MAX(event_time), MIN(event_time), MILLISECOND) as latency_ms
+                        FROM trace_spans
+                        GROUP BY trace
+                        HAVING latency_ms > 0 AND latency_ms < 600000
                       )
                     `;
 
@@ -280,7 +327,9 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         SELECT 
                           COUNTIF(method_name IN ('StreamAssist', 'Assist', 'Search')) as total_queries,
                           COUNT(DISTINCT IF(method_name IN ('StreamAssist', 'Assist', 'Search'), session_id, NULL)) as total_sessions,
-                          COUNT(DISTINCT IF(method_name IN ('StreamAssist', 'Assist', 'Search') AND user_email IS NOT NULL, user_email, NULL)) as unique_users
+                          COUNT(DISTINCT IF(method_name IN ('StreamAssist', 'Assist', 'Search') AND user_email IS NOT NULL, user_email, NULL)) as unique_users,
+                          (SELECT CAST(ROUND(APPROX_QUANTILES(latency_ms, 100)[OFFSET(50)]) AS INT64) FROM trace_latencies) as p50_latency_ms,
+                          (SELECT CAST(ROUND(APPROX_QUANTILES(latency_ms, 100)[OFFSET(95)]) AS INT64) FROM trace_latencies) as p95_latency_ms
                         FROM base_activity
                       ),
                       volume_metrics AS (
@@ -297,7 +346,8 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                           event_time,
                           agent_name,
                           agent_id,
-                          CAST(NULL AS STRING) as session_id
+                          CAST(NULL AS STRING) as session_id,
+                          CAST(NULL AS STRING) as trace
                         FROM base_activity
                         WHERE method_name = 'WriteUserEvent' AND agent_name IS NOT NULL
 
@@ -308,13 +358,15 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                           event_time,
                           agent_name,
                           agent_id,
-                          session_id
+                          session_id,
+                          trace
                         FROM base_activity
                         WHERE method_name IN ('StreamAssist', 'Assist', 'Search') AND session_id IS NOT NULL
                       ),
                       filled AS (
                         SELECT 
                           session_id,
+                          trace,
                           COALESCE(
                             agent_name,
                             LAST_VALUE(agent_name IGNORE NULLS) OVER (
@@ -336,24 +388,29 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                       mapped_agents AS (
                         SELECT 
                           COALESCE(resolved_agent_name, 'Global Assistant / Default') as agent_name,
-                          COALESCE(resolved_agent_id, 'default') as agent_id
+                          COALESCE(resolved_agent_id, 'default') as agent_id,
+                          trace
                         FROM filled
                         WHERE session_id IS NOT NULL
                       ),
                       agent_metrics AS (
                         SELECT 
-                          agent_name,
-                          agent_id,
-                          COUNT(*) as count
-                        FROM mapped_agents
-                        GROUP BY agent_name, agent_id
+                          m.agent_name,
+                          m.agent_id,
+                          COUNT(*) as count,
+                          CAST(ROUND(AVG(tl.latency_ms)) AS INT64) as avg_latency_ms,
+                          CAST(ROUND(APPROX_QUANTILES(tl.latency_ms, 100)[OFFSET(50)]) AS INT64) as p50_latency_ms,
+                          CAST(ROUND(APPROX_QUANTILES(tl.latency_ms, 100)[OFFSET(95)]) AS INT64) as p95_latency_ms
+                        FROM mapped_agents m
+                        LEFT JOIN trace_latencies tl ON m.trace = tl.trace
+                        GROUP BY m.agent_name, m.agent_id
                         ORDER BY count DESC
                       )
-                      SELECT 'summary' as metric_type, CAST(total_queries AS STRING) as label, CAST(total_sessions AS STRING) as val1, CAST(unique_users AS STRING) as val2 FROM summary_metrics
+                      SELECT 'summary' as metric_type, CAST(total_queries AS STRING) as label, CAST(total_sessions AS STRING) as val1, CAST(unique_users AS STRING) as val2, CAST(p50_latency_ms AS STRING) as val3, CAST(p95_latency_ms AS STRING) as val4, CAST(NULL AS STRING) as val5 FROM summary_metrics
                       UNION ALL
-                      SELECT 'volume' as metric_type, event_time as label, CAST(requests AS STRING) as val1, NULL as val2 FROM volume_metrics
+                      SELECT 'volume' as metric_type, event_time as label, CAST(requests AS STRING) as val1, NULL as val2, CAST(NULL AS STRING) as val3, CAST(NULL AS STRING) as val4, CAST(NULL AS STRING) as val5 FROM volume_metrics
                       UNION ALL
-                      SELECT 'agent' as metric_type, agent_name as label, CAST(count AS STRING) as val1, agent_id as val2 FROM agent_metrics
+                      SELECT 'agent' as metric_type, agent_name as label, CAST(count AS STRING) as val1, agent_id as val2, CAST(avg_latency_ms AS STRING) as val3, CAST(p50_latency_ms AS STRING) as val4, CAST(p95_latency_ms AS STRING) as val5 FROM agent_metrics
                     `;
 
                     dashboardData.queries.summaryQuery = `
@@ -361,7 +418,9 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         SELECT
                           COUNTIF(method_name IN ('StreamAssist', 'Assist', 'Search')) as total_queries,
                           COUNT(DISTINCT IF(method_name IN ('StreamAssist', 'Assist', 'Search'), session_id, NULL)) as total_sessions,
-                          COUNT(DISTINCT IF(method_name IN ('StreamAssist', 'Assist', 'Search') AND user_email IS NOT NULL, user_email, NULL)) as unique_users
+                          COUNT(DISTINCT IF(method_name IN ('StreamAssist', 'Assist', 'Search') AND user_email IS NOT NULL, user_email, NULL)) as unique_users,
+                          (SELECT CAST(ROUND(APPROX_QUANTILES(latency_ms, 100)[OFFSET(50)]) AS INT64) FROM trace_latencies) as p50_latency_ms,
+                          (SELECT CAST(ROUND(APPROX_QUANTILES(latency_ms, 100)[OFFSET(95)]) AS INT64) FROM trace_latencies) as p95_latency_ms
                         FROM base_activity
                     `;
 
@@ -384,7 +443,8 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                             event_time,
                             agent_name,
                             agent_id,
-                            CAST(NULL AS STRING) as session_id
+                            CAST(NULL AS STRING) as session_id,
+                            CAST(NULL AS STRING) as trace
                           FROM base_activity
                           WHERE method_name = 'WriteUserEvent' AND agent_name IS NOT NULL
 
@@ -395,13 +455,15 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                             event_time,
                             agent_name,
                             agent_id,
-                            session_id
+                            session_id,
+                            trace
                           FROM base_activity
                           WHERE method_name IN ('StreamAssist', 'Assist', 'Search') AND session_id IS NOT NULL
                         ),
                         filled AS (
                           SELECT 
                             session_id,
+                            trace,
                             COALESCE(
                               agent_name,
                               LAST_VALUE(agent_name IGNORE NULLS) OVER (
@@ -423,16 +485,21 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         mapped_agents AS (
                           SELECT 
                             COALESCE(resolved_agent_name, 'Global Assistant / Default') as agent_name,
-                            COALESCE(resolved_agent_id, 'default') as agent_id
+                            COALESCE(resolved_agent_id, 'default') as agent_id,
+                            trace
                           FROM filled
                           WHERE session_id IS NOT NULL
                         )
                         SELECT 
-                          agent_name,
-                          agent_id,
-                          COUNT(*) as count
-                        FROM mapped_agents
-                        GROUP BY agent_name, agent_id
+                          m.agent_name,
+                          m.agent_id,
+                          COUNT(*) as count,
+                          CAST(ROUND(AVG(tl.latency_ms)) AS INT64) as avg_latency_ms,
+                          CAST(ROUND(APPROX_QUANTILES(tl.latency_ms, 100)[OFFSET(50)]) AS INT64) as p50_latency_ms,
+                          CAST(ROUND(APPROX_QUANTILES(tl.latency_ms, 100)[OFFSET(95)]) AS INT64) as p95_latency_ms
+                        FROM mapped_agents m
+                        LEFT JOIN trace_latencies tl ON m.trace = tl.trace
+                        GROUP BY m.agent_name, m.agent_id
                         ORDER BY count DESC
                     `;
 
@@ -484,11 +551,20 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         const label = String(row.f?.[1]?.v ?? '');
                         const val1 = String(row.f?.[2]?.v ?? '');
                         const val2 = String(row.f?.[3]?.v ?? '');
+                        const val3 = row.f?.[4]?.v;
+                        const val4 = row.f?.[5]?.v;
+                        const val5 = row.f?.[6]?.v;
 
                         if (type === 'summary') {
                             dashboardData.totalRequests = parseInt(label, 10);
                             dashboardData.totalSessions = parseInt(val1, 10);
                             dashboardData.uniqueUsers = parseInt(val2, 10);
+                            if (val3 != null && val3 !== '' && !Number.isNaN(Number(val3))) {
+                                dashboardData.p50LatencyMs = parseInt(String(val3), 10);
+                            }
+                            if (val4 != null && val4 !== '' && !Number.isNaN(Number(val4))) {
+                                dashboardData.p95LatencyMs = parseInt(String(val4), 10);
+                            }
                         } else if (type === 'volume') {
                             dashboardData.volumeData.push({
                                 time: label,
@@ -496,10 +572,16 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                                 errors: 0
                             });
                         } else if (type === 'agent') {
+                            const avgLat = val3 != null && val3 !== '' && !Number.isNaN(Number(val3)) ? parseInt(String(val3), 10) : undefined;
+                            const p50Lat = val4 != null && val4 !== '' && !Number.isNaN(Number(val4)) ? parseInt(String(val4), 10) : undefined;
+                            const p95Lat = val5 != null && val5 !== '' && !Number.isNaN(Number(val5)) ? parseInt(String(val5), 10) : undefined;
                             dashboardData.agentData.push({
                                 name: label,
                                 id: val2,
-                                count: parseInt(val1, 10)
+                                count: parseInt(val1, 10),
+                                ...(avgLat !== undefined ? { avgLatency: avgLat } : {}),
+                                ...(p50Lat !== undefined ? { p50: p50Lat } : {}),
+                                ...(p95Lat !== undefined ? { p95: p95Lat } : {})
                             });
                         }
                     });

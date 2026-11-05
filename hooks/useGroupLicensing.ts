@@ -19,7 +19,8 @@ import * as api from '../services/apiService';
 import { Config, GroupLicensingEditConfig } from '../types';
 import { toErrorMessage } from '../utils/errors';
 import { useToast } from '../context/ToastContext';
-import { CloudRunServiceItem } from '../components/license/types';
+import { CloudRunServiceItem, GroupLicensingRunReport } from '../components/license/types';
+import { sanitizeCloudRunLabelValue } from '../components/license/GroupLicenseDeploymentModal';
 
 export const SUPPORTED_GROUP_RUN_REGIONS = [
   'us-central1',
@@ -46,6 +47,9 @@ export function useGroupLicensing(
   const [lastRunTimes, setLastRunTimes] = useState<Record<string, string>>({});
   const [serviceGroups, setServiceGroups] = useState<Record<string, string[]>>({});
   const [isGroupDeploymentModalOpen, setIsGroupDeploymentModalOpen] = useState(false);
+  const [runningServices, setRunningServices] = useState<Record<string, boolean>>({});
+  const [serviceReports, setServiceReports] = useState<Record<string, GroupLicensingRunReport>>({});
+  const [activeReport, setActiveReport] = useState<GroupLicensingRunReport | null>(null);
 
   const fetchGroupServices = useCallback(async () => {
     if (!projectNumber) return;
@@ -129,20 +133,27 @@ export function useGroupLicensing(
           if (gcsUri) {
             const parsed = await getParsedGcsConfig(gcsUri);
             const projectsMap = parsed?.projects || {};
-            const entries =
-              (envProject && projectsMap[envProject]) ||
-              projectsMap[projectNumber] ||
-              Object.values(projectsMap)[0] ||
-              [];
-            const matchingEntries = entries.filter((e) => {
-              const locMatches = !e.location || e.location === envLocation;
-              const tierMatches =
-                !envTier ||
-                !e.subscription_tier ||
-                e.subscription_tier.toLowerCase() === envTier.toLowerCase();
-              return locMatches && tierMatches;
-            });
-            const effectiveEntries = matchingEntries.length > 0 ? matchingEntries : entries;
+            const filterByLoc = (list?: Array<{ subscription_tier?: string; groups?: string[]; location?: string }>) =>
+              (list || []).filter((e) => !e.location || e.location === envLocation);
+
+            let locEntries = envProject && projectsMap[envProject] ? filterByLoc(projectsMap[envProject]) : [];
+            if (locEntries.length === 0 && projectsMap[projectNumber]) {
+              locEntries = filterByLoc(projectsMap[projectNumber]);
+            }
+            if (locEntries.length === 0) {
+              const firstProjectEntries = Object.values(projectsMap)[0];
+              locEntries = filterByLoc(firstProjectEntries);
+            }
+
+            const tierMatched = envTier
+              ? locEntries.filter(
+                  (e) =>
+                    !e.subscription_tier ||
+                    e.subscription_tier.toLowerCase() === envTier.toLowerCase() ||
+                    sanitizeCloudRunLabelValue(e.subscription_tier) === sanitizeCloudRunLabelValue(envTier)
+                )
+              : locEntries;
+            const effectiveEntries = tierMatched.length > 0 ? tierMatched : locEntries;
             const resolvedGroups = Array.from(
               new Set(effectiveEntries.flatMap((e) => e.groups || []).filter(Boolean))
             );
@@ -252,6 +263,79 @@ export function useGroupLicensing(
     }
   };
 
+  const extractServiceMeta = (service: CloudRunServiceItem) => {
+    const parts = (service.name || '').split('/');
+    const serviceProject = parts[1] || projectNumber;
+    const runRegion = parts[3] || 'us-central1';
+    const serviceId = parts[parts.length - 1];
+    const jobId = `trigger-${serviceId}`;
+    const env = service.template?.containers?.[0]?.env || [];
+    const labels = service.labels || {};
+    const defaultTier = env.find((e) => e.name === 'SUBSCRIPTION_TIER')?.value || labels['ge-sku'] || '';
+    const defaultLocation = env.find((e) => e.name === 'LOCATION')?.value || labels['ge-region'] || appLocation || 'global';
+    const defaultJobType =
+      env.find((e) => e.name === 'JOB_TYPE')?.value ||
+      labels['job-type'] ||
+      (serviceId.includes('cleanup') ? 'cleanup' : 'adder');
+
+    return {
+      serviceProject,
+      runRegion,
+      serviceId,
+      jobId,
+      defaultTier,
+      defaultLocation,
+      defaultJobType,
+    };
+  };
+
+  const handleViewServiceReport = async (service: CloudRunServiceItem) => {
+    if (!service?.name) {
+      toast.warning('Service resource name is required to load its report.');
+      return;
+    }
+
+    const {
+      serviceProject,
+      runRegion,
+      serviceId,
+      jobId,
+      defaultTier,
+      defaultLocation,
+      defaultJobType,
+    } = extractServiceMeta(service);
+
+    setRunningServices((prev) => ({ ...prev, [serviceId]: true }));
+    try {
+      const report = await api.fetchGroupLicensingRunReport({
+        projectId: serviceProject,
+        quotaProjectId: projectNumber,
+        region: runRegion,
+        serviceId,
+        serviceName: service.name,
+        jobId,
+        defaultJobType,
+        defaultLocation,
+        defaultTier,
+        waitForCompletion: false,
+      });
+
+      if (report) {
+        setServiceReports((prev) => ({ ...prev, [serviceId]: report }));
+        setActiveReport(report);
+        if (report.timestamp) {
+          setLastRunTimes((prev) => ({ ...prev, [serviceId]: report.timestamp }));
+        }
+      } else {
+        toast.info(`No execution logs found yet for "${serviceId}".`);
+      }
+    } catch (err: unknown) {
+      toast.error(`Failed to load execution report: ${toErrorMessage(err)}`);
+    } finally {
+      setRunningServices((prev) => ({ ...prev, [serviceId]: false }));
+    }
+  };
+
   const handleRunService = async (serviceOrUrl?: CloudRunServiceItem | string) => {
     const service = typeof serviceOrUrl === 'object' && serviceOrUrl !== null ? serviceOrUrl : undefined;
     const serviceUrl =
@@ -269,14 +353,20 @@ export function useGroupLicensing(
       return;
     }
 
-    try {
-      const parts = service.name.split('/');
-      const serviceProject = parts[1] || projectNumber;
-      const runRegion = parts[3] || 'us-central1';
-      const serviceId = parts[parts.length - 1];
-      const jobId = `trigger-${serviceId}`;
-      const saEmail = service.template?.serviceAccount;
+    const {
+      serviceProject,
+      runRegion,
+      serviceId,
+      jobId,
+      defaultTier,
+      defaultLocation,
+      defaultJobType,
+    } = extractServiceMeta(service);
+    const saEmail = service.template?.serviceAccount;
+    const triggerStartTime = new Date(Date.now() - 5000).toISOString();
 
+    setRunningServices((prev) => ({ ...prev, [serviceId]: true }));
+    try {
       if (saEmail) {
         try {
           await api.ensureCloudRunInvokerRole(service.name, saEmail, projectNumber);
@@ -295,11 +385,99 @@ export function useGroupLicensing(
       });
 
       toast.success(`Triggered job "${jobId}".`);
-      setLastRunTimes((prev) => ({ ...prev, [serviceId]: new Date().toISOString() }));
+      const nowIso = new Date().toISOString();
+      setLastRunTimes((prev) => ({ ...prev, [serviceId]: nowIso }));
+
+      if (typeof api.fetchGroupLicensingRunReport === 'function') {
+        try {
+          const report = await api.fetchGroupLicensingRunReport({
+            projectId: serviceProject,
+            quotaProjectId: projectNumber,
+            region: runRegion,
+            serviceId,
+            serviceName: service.name,
+            jobId,
+            sinceTimestamp: triggerStartTime,
+            defaultJobType,
+            defaultLocation,
+            defaultTier,
+            waitForCompletion: true,
+            onProgress: (partialReport) => {
+              setServiceReports((prev) => ({ ...prev, [serviceId]: partialReport }));
+              setActiveReport(partialReport);
+            },
+          });
+          if (report) {
+            setServiceReports((prev) => ({ ...prev, [serviceId]: report }));
+            setActiveReport(report);
+            if (report.timestamp) {
+              setLastRunTimes((prev) => ({ ...prev, [serviceId]: report.timestamp }));
+            }
+            if (report.status === 'aborted') {
+              toast.warning(`Job "${jobId}" was aborted by safety guard: ${report.message}`);
+            } else if (report.status === 'error') {
+              toast.error(`Job "${jobId}" reported errors: ${report.message}`);
+            }
+          }
+        } catch (reportErr: unknown) {
+          console.warn('Could not fetch post-run execution report:', reportErr);
+        }
+      }
     } catch (err: unknown) {
       toast.error(`Error triggering service: ${toErrorMessage(err)}`);
+    } finally {
+      setRunningServices((prev) => ({ ...prev, [serviceId]: false }));
     }
   };
+
+  // Auto-refresh activeReport in the background if a cold-start run is still in 'running' state after the initial poll window
+  useEffect(() => {
+    if (
+      !activeReport ||
+      activeReport.status !== 'running' ||
+      Boolean(runningServices[activeReport.serviceId]) ||
+      typeof api.fetchGroupLicensingRunReport !== 'function'
+    ) {
+      return;
+    }
+
+    const parts = (activeReport.serviceName || '').split('/');
+    const serviceProject = parts[1] || projectNumber;
+    const runRegion = parts[3] || 'us-central1';
+    const serviceId = activeReport.serviceId;
+    let cancelled = false;
+
+    const timer = setTimeout(async () => {
+      try {
+        const refreshed = await api.fetchGroupLicensingRunReport({
+          projectId: serviceProject,
+          quotaProjectId: projectNumber,
+          region: runRegion,
+          serviceId,
+          serviceName: activeReport.serviceName,
+          jobId: `trigger-${serviceId}`,
+          defaultJobType: activeReport.jobType,
+          defaultLocation: activeReport.location,
+          defaultTier: activeReport.subscriptionTier,
+          waitForCompletion: false,
+        });
+        if (!cancelled && refreshed) {
+          setServiceReports((prev) => ({ ...prev, [serviceId]: refreshed }));
+          setActiveReport(refreshed);
+          if (refreshed.timestamp) {
+            setLastRunTimes((prev) => ({ ...prev, [serviceId]: refreshed.timestamp }));
+          }
+        }
+      } catch (pollErr: unknown) {
+        console.debug('Background report refresh failed:', pollErr);
+      }
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [activeReport, runningServices, projectNumber]);
 
   const confirmDeleteService = async () => {
     if (!serviceToDelete) return;
@@ -347,9 +525,14 @@ export function useGroupLicensing(
     serviceGroups,
     isGroupDeploymentModalOpen,
     setIsGroupDeploymentModalOpen,
+    runningServices,
+    serviceReports,
+    activeReport,
+    setActiveReport,
     fetchGroupServices,
     handleEditService,
     handleRunService,
+    handleViewServiceReport,
     confirmDeleteService,
   };
 }

@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import Spinner from '../Spinner';
-import { CloudRunServiceItem, LicenseConfig } from './types';
+import { CloudRunServiceItem, GroupLicensingRunReport, LicenseConfig } from './types';
 
 interface GroupAssignmentsTabProps {
   isServicesLoading: boolean;
@@ -24,12 +24,44 @@ interface GroupAssignmentsTabProps {
   groupServices: CloudRunServiceItem[];
   lastRunTimes: Record<string, string>;
   serviceGroups?: Record<string, string[]>;
+  runningServices?: Record<string, boolean>;
+  serviceReports?: Record<string, GroupLicensingRunReport>;
+  activeReport?: GroupLicensingRunReport | null;
   apiLicenseConfigs: LicenseConfig[];
   onNewAssignment: () => void;
   onRunService: (serviceOrUrl?: CloudRunServiceItem | string) => void;
+  onViewReport?: (service: CloudRunServiceItem) => void;
+  onCloseReport?: () => void;
   onEditService: (service: CloudRunServiceItem) => void;
   onDeleteService: (serviceName: string) => void;
 }
+
+const getStatusBadgeClasses = (status: GroupLicensingRunReport['status']) => {
+  switch (status) {
+    case 'success':
+      return 'bg-emerald-900/40 text-emerald-300 border-emerald-700';
+    case 'aborted':
+      return 'bg-amber-900/40 text-amber-300 border-amber-700';
+    case 'error':
+      return 'bg-red-900/40 text-red-300 border-red-700';
+    default:
+      return 'bg-blue-900/40 text-blue-300 border-blue-700';
+  }
+};
+
+const getStatusLabel = (report: GroupLicensingRunReport) => {
+  const codeSuffix = report.httpStatus ? ` (HTTP ${report.httpStatus})` : '';
+  switch (report.status) {
+    case 'success':
+      return `SUCCESS${codeSuffix}`;
+    case 'aborted':
+      return `SAFETY ABORTED${codeSuffix}`;
+    case 'error':
+      return `ERROR${codeSuffix}`;
+    default:
+      return 'RUNNING';
+  }
+};
 
 export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
   isServicesLoading,
@@ -37,12 +69,31 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
   groupServices,
   lastRunTimes,
   serviceGroups = {},
+  runningServices = {},
+  serviceReports = {},
+  activeReport = null,
   apiLicenseConfigs,
   onNewAssignment,
   onRunService,
+  onViewReport,
+  onCloseReport,
   onEditService,
   onDeleteService,
 }) => {
+  const [showRawLogs, setShowRawLogs] = useState(false);
+
+  const summary = activeReport?.summary;
+  const isCleanup = activeReport?.jobType === 'cleanup' || summary?.job === 'cleanup';
+  const groupMemberEntries = summary?.groupMemberCounts
+    ? Object.entries(summary.groupMemberCounts)
+    : [];
+  const affectedUsers = isCleanup
+    ? summary?.revokedUsersSample || []
+    : summary?.assignedUsersSample || [];
+  const skippedUsers = summary?.skippedUnmanagedSample || [];
+  const shortfalls = summary?.seatShortfalls || [];
+  const warnings = summary?.warnings || [];
+
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 p-6 rounded-lg shadow-md border border-gray-700">
@@ -118,6 +169,8 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
                   const groupsList = serviceGroups[id];
                   const groupsDisplay = groupsList && groupsList.length > 0 ? groupsList.join(', ') : 'N/A';
                   const lastRun = lastRunTimes[id] ? new Date(lastRunTimes[id]).toLocaleString() : 'N/A';
+                  const isRunning = Boolean(runningServices[id]);
+                  const cachedReport = serviceReports[id];
 
                   const matchConfig = apiLicenseConfigs.find((c) => {
                     const cfgId = c.name.split('/').pop() || '';
@@ -146,10 +199,21 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button
                           onClick={() => onRunService(service)}
-                          className="text-green-400 hover:text-green-300 mr-4"
+                          disabled={isRunning}
+                          className="text-green-400 hover:text-green-300 disabled:opacity-50 mr-4"
                         >
-                          Run
+                          {isRunning ? 'Running...' : 'Run'}
                         </button>
+                        {onViewReport && (
+                          <button
+                            onClick={() => onViewReport(service)}
+                            disabled={isRunning}
+                            title={cachedReport ? `Last status: ${cachedReport.status}` : 'Fetch latest execution report'}
+                            className="text-purple-400 hover:text-purple-300 disabled:opacity-50 mr-4"
+                          >
+                            Report
+                          </button>
+                        )}
                         <button
                           onClick={() => onEditService(service)}
                           className="text-blue-400 hover:text-blue-300 mr-4"
@@ -175,6 +239,281 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
           </div>
         )}
       </div>
+
+      {activeReport && (
+        <div
+          data-testid="group-licensing-run-report"
+          className="bg-gray-800 p-6 rounded-lg shadow-md border border-gray-700 space-y-5"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-700 pb-4">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-3">
+                <h4 className="text-base font-semibold text-white">
+                  Execution Report: <span className="font-mono text-blue-300">{activeReport.serviceId}</span>
+                </h4>
+                <span
+                  className={`px-2.5 py-0.5 text-xs font-semibold rounded border ${getStatusBadgeClasses(
+                    activeReport.status
+                  )}`}
+                >
+                  {getStatusLabel(activeReport)}
+                </span>
+                <span className="px-2 py-0.5 text-xs font-medium rounded bg-gray-700 text-gray-300 uppercase">
+                  {isCleanup ? 'Cleanup (Revoker)' : 'Adder (Joiner)'}
+                </span>
+                {summary?.dryRun && (
+                  <span className="px-2 py-0.5 text-xs font-semibold rounded bg-indigo-900/50 text-indigo-300 border border-indigo-700">
+                    DRY RUN
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-400">
+                Executed: {activeReport.timestamp ? new Date(activeReport.timestamp).toLocaleString() : 'N/A'}
+                {activeReport.durationSeconds !== undefined ? ` • Duration: ${activeReport.durationSeconds}s` : ''}
+                {activeReport.location ? ` • Location: ${activeReport.location}` : ''}
+                {activeReport.subscriptionTier ? ` • Tier: ${activeReport.subscriptionTier}` : ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {onViewReport && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const matchedService = groupServices.find(
+                      (s) => s.name === activeReport.serviceName || s.name.endsWith(`/${activeReport.serviceId}`)
+                    );
+                    if (matchedService) {
+                      onViewReport(matchedService);
+                    }
+                  }}
+                  className="text-xs text-purple-300 hover:text-white px-2.5 py-1 rounded border border-purple-700/60 hover:border-purple-500"
+                >
+                  Refresh Report
+                </button>
+              )}
+              {onCloseReport && (
+                <button
+                  type="button"
+                  onClick={onCloseReport}
+                  className="text-xs text-gray-400 hover:text-white px-2.5 py-1 rounded border border-gray-600 hover:border-gray-500"
+                >
+                  Close Report
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Summary Message Banner */}
+          <div
+            className={`p-3 rounded-md border text-sm ${
+              activeReport.status === 'aborted'
+                ? 'bg-amber-900/20 border-amber-700/60 text-amber-200'
+                : activeReport.status === 'error'
+                  ? 'bg-red-900/20 border-red-700/60 text-red-200'
+                  : 'bg-gray-900/60 border-gray-700 text-gray-200'
+            }`}
+          >
+            <div className="font-medium">{activeReport.message}</div>
+            {warnings.length > 0 && (
+              <ul className="mt-2 list-disc list-inside text-xs text-amber-300 space-y-1">
+                {warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Key Metrics Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="bg-gray-900/70 border border-gray-700 rounded-md p-3">
+              <div className="text-xs text-gray-400">Groups Scanned</div>
+              <div className="text-lg font-semibold text-white mt-0.5">
+                {summary?.groups !== undefined ? summary.groups : '—'}
+              </div>
+            </div>
+            <div className="bg-gray-900/70 border border-gray-700 rounded-md p-3">
+              <div className="text-xs text-gray-400">Entitled Users</div>
+              <div className="text-lg font-semibold text-white mt-0.5">
+                {summary?.entitledUsers !== undefined ? summary.entitledUsers : '—'}
+              </div>
+            </div>
+            {isCleanup ? (
+              <>
+                <div className="bg-gray-900/70 border border-gray-700 rounded-md p-3">
+                  <div className="text-xs text-gray-400">Licenses Revoked</div>
+                  <div className="text-lg font-semibold text-amber-300 mt-0.5">
+                    {summary?.plannedRevocations !== undefined ? summary.plannedRevocations : '—'}
+                  </div>
+                </div>
+                <div className="bg-gray-900/70 border border-gray-700 rounded-md p-3">
+                  <div className="text-xs text-gray-400">Managed Licenses</div>
+                  <div className="text-lg font-semibold text-white mt-0.5">
+                    {summary?.managedLicenses !== undefined ? summary.managedLicenses : '—'}
+                  </div>
+                </div>
+                <div className="bg-gray-900/70 border border-gray-700 rounded-md p-3">
+                  <div className="text-xs text-gray-400">Safety Limit</div>
+                  <div className="text-lg font-semibold text-gray-300 mt-0.5">
+                    {summary?.revocationLimit !== undefined ? summary.revocationLimit : '—'}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="bg-gray-900/70 border border-gray-700 rounded-md p-3">
+                  <div className="text-xs text-gray-400">Newly Assigned</div>
+                  <div className="text-lg font-semibold text-emerald-300 mt-0.5">
+                    {summary?.plannedAssignments !== undefined ? summary.plannedAssignments : '—'}
+                  </div>
+                </div>
+                <div className="bg-gray-900/70 border border-gray-700 rounded-md p-3">
+                  <div className="text-xs text-gray-400">Already Up to Date</div>
+                  <div className="text-lg font-semibold text-blue-300 mt-0.5">
+                    {summary?.alreadyCorrect !== undefined ? summary.alreadyCorrect : '—'}
+                  </div>
+                </div>
+                <div className="bg-gray-900/70 border border-gray-700 rounded-md p-3">
+                  <div className="text-xs text-gray-400">Skipped (Unmanaged Tier)</div>
+                  <div className="text-lg font-semibold text-gray-300 mt-0.5">
+                    {summary?.skippedUnmanaged !== undefined ? summary.skippedUnmanaged : '0'}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Batch Write & End-State Verification Summary */}
+          {(summary?.write || summary?.verification) && (
+            <div className="bg-gray-900/50 border border-gray-700 rounded-md p-3 text-xs text-gray-300 flex flex-wrap gap-6">
+              {summary.write && (
+                <div>
+                  <span className="text-gray-400 font-medium">LRO Batch Writes: </span>
+                  <span>
+                    {summary.write.succeeded}/{summary.write.submitted} confirmed across {summary.write.chunks} chunk(s)
+                    {summary.write.failed > 0 ? ` (${summary.write.failed} failed)` : ''}
+                  </span>
+                </div>
+              )}
+              {summary.verification && (
+                <div>
+                  <span className="text-gray-400 font-medium">End-State Verification: </span>
+                  {(summary.verification.missingAssignments || 0) === 0 &&
+                  (summary.verification.lingeringRevocations || 0) === 0 ? (
+                    <span className="text-emerald-400">All changes verified in User Store</span>
+                  ) : (
+                    <span className="text-amber-300">
+                      {summary.verification.missingAssignments || summary.verification.lingeringRevocations} change(s)
+                      pending visibility
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Group Member Breakdown */}
+          {groupMemberEntries.length > 0 && (
+            <div>
+              <h5 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                Resolved Group Membership
+              </h5>
+              <div className="flex flex-wrap gap-2">
+                {groupMemberEntries.map(([groupEmail, count]) => (
+                  <span
+                    key={groupEmail}
+                    className="px-2.5 py-1 rounded bg-gray-900 border border-gray-700 text-xs text-gray-200 font-mono"
+                  >
+                    {groupEmail}: <strong className="text-blue-300">{count}</strong> member(s)
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Seat Shortfalls */}
+          {shortfalls.length > 0 && (
+            <div className="bg-red-900/20 border border-red-700/60 rounded-md p-3 space-y-1">
+              <h5 className="text-xs font-semibold text-red-300 uppercase tracking-wider">Seat Shortfalls</h5>
+              {shortfalls.map((s, i) => (
+                <p key={i} className="text-xs text-red-200">
+                  Subscription <span className="font-mono">{s.licenseConfig}</span> ({s.reason}): needed {s.needed},
+                  available {s.available} — {s.skipped} user(s) left unlicensed
+                  {s.sample?.length ? ` (e.g. ${s.sample.join(', ')})` : ''}.
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Affected Users Sample */}
+          {affectedUsers.length > 0 && (
+            <div>
+              <h5 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                {isCleanup
+                  ? `Revoked User Principals (${affectedUsers.length}${
+                      (summary?.plannedRevocations || 0) > affectedUsers.length
+                        ? ` of ${summary?.plannedRevocations}`
+                        : ''
+                    })`
+                  : `Newly Assigned User Principals (${affectedUsers.length}${
+                      (summary?.plannedAssignments || 0) > affectedUsers.length
+                        ? ` of ${summary?.plannedAssignments}`
+                        : ''
+                    })`}
+              </h5>
+              <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto bg-gray-900/70 p-2.5 rounded border border-gray-700">
+                {affectedUsers.map((email) => (
+                  <span
+                    key={email}
+                    className="px-2 py-0.5 text-xs font-mono rounded bg-gray-800 text-gray-200 border border-gray-700"
+                  >
+                    {email}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Skipped Unmanaged Users Sample */}
+          {skippedUsers.length > 0 && (
+            <div>
+              <h5 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                Skipped Users on Unmanaged Tiers ({skippedUsers.length})
+              </h5>
+              <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto bg-gray-900/70 p-2.5 rounded border border-gray-700">
+                {skippedUsers.map((email) => (
+                  <span
+                    key={email}
+                    className="px-2 py-0.5 text-xs font-mono rounded bg-gray-800 text-gray-400 border border-gray-700"
+                  >
+                    {email}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Raw Execution Logs */}
+          {activeReport.rawLogs.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowRawLogs((prev) => !prev)}
+                className="text-xs text-blue-400 hover:text-blue-300 font-medium"
+              >
+                {showRawLogs
+                  ? `Hide Execution Logs (${activeReport.rawLogs.length} lines)`
+                  : `Show Execution Logs (${activeReport.rawLogs.length} lines)`}
+              </button>
+              {showRawLogs && (
+                <pre className="mt-2 p-3 bg-gray-950 border border-gray-700 rounded text-xs text-gray-300 font-mono overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap">
+                  {activeReport.rawLogs.join('\n')}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
+

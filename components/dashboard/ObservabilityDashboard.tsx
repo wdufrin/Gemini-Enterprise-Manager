@@ -22,6 +22,8 @@ export interface AgentDataItem {
     count: number;
     id?: string;
     avgLatency?: number;
+    p50?: number;
+    p95?: number;
 }
 
 interface Props {
@@ -34,6 +36,8 @@ interface Props {
         uniqueAgents?: number;
         totalRequests?: number;
         totalSessions?: number;
+        p50LatencyMs?: number;
+        p95LatencyMs?: number;
         errorRate?: number;
         queries?: {
             volumeQuery?: string;
@@ -138,6 +142,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
     onPreviewModeChange,
 }) => {
     const [forceMockPreview, setForceMockPreview] = useState(false);
+    const [agentChartMode, setAgentChartMode] = useState<'volume' | 'latency'>('volume');
 
     const togglePreviewMode = (nextValue: boolean) => {
         setForceMockPreview(nextValue);
@@ -164,10 +169,10 @@ const ObservabilityDashboard: React.FC<Props> = ({
     ], []);
 
     const defaultSampleAgents = useMemo(() => [
-        { name: 'core_assistant', id: 'core_assistant', count: 351 },
-        { name: 'support_agent', id: 'support_agent', count: 124 },
-        { name: 'search_agent', id: 'search_agent', count: 85 },
-        { name: 'routing_agent', id: 'routing_agent', count: 42 },
+        { name: 'core_assistant', id: 'core_assistant', count: 351, p50: 850, p95: 2450 },
+        { name: 'support_agent', id: 'support_agent', count: 124, p50: 620, p95: 1800 },
+        { name: 'search_agent', id: 'search_agent', count: 85, p50: 1200, p95: 3500 },
+        { name: 'routing_agent', id: 'routing_agent', count: 42, p50: 320, p95: 900 },
     ], []);
 
     const hasLiveResponse = Boolean(customData) && !forceMockPreview;
@@ -237,10 +242,18 @@ const ObservabilityDashboard: React.FC<Props> = ({
             const truncatedName = a.name.length > 20 ? a.name.substring(0, 20) + '...' : a.name;
             return {
                 name: `${truncatedName}|${a.id || a.name}`,
-                count: a.count
+                count: a.count,
+                p50: a.p50 ?? a.avgLatency ?? 0,
+                p95: a.p95 ?? a.avgLatency ?? 0
             };
         });
     }, [agentData, hasLiveResponse]);
+
+    const hasLiveLatency = useMemo(() => {
+        if (!hasLiveResponse) return false;
+        if ((customData?.p50LatencyMs || 0) > 0 || (customData?.p95LatencyMs || 0) > 0) return true;
+        return agentData.some((a) => (a.p50 || 0) > 0 || (a.p95 || 0) > 0 || (a.avgLatency || 0) > 0);
+    }, [hasLiveResponse, customData?.p50LatencyMs, customData?.p95LatencyMs, agentData]);
 
     return (
         <div className="space-y-6">
@@ -495,6 +508,11 @@ const ObservabilityDashboard: React.FC<Props> = ({
                             usedAgentsCount
                         )}
                     </div>
+                    {!isLoading && hasLiveResponse && (customData?.p50LatencyMs || customData?.p95LatencyMs) ? (
+                        <div className="text-[11px] text-amber-400 font-mono mt-1" data-testid="kpi-trace-latency">
+                            Trace P50: {customData.p50LatencyMs ?? '—'}ms · P95: {customData.p95LatencyMs ?? '—'}ms
+                        </div>
+                    ) : null}
                 </div>
             </div>
 
@@ -592,21 +610,31 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                 <thead>
                                     <tr className="border-b border-gray-800 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
                                         <th className="pb-2 pl-2">Agent Name / ID</th>
+                                        <th className="pb-2 text-right">Latency (P50 / P95)</th>
                                         <th className="pb-2 text-right pr-2">Queries</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-800 text-sm text-gray-300">
-                                    {agentData.map((agent: any, idx: number) => (
-                                        <tr key={idx} className="hover:bg-gray-800/40 transition-colors">
-                                            <td className="py-2.5 pl-2 max-w-[240px] truncate" title={`${agent.name} (${agent.id || agent.name})`}>
-                                                <div className="font-medium text-white truncate">{agent.name}</div>
-                                                <div className="text-xs text-gray-500 truncate font-mono mt-0.5">{agent.id || agent.name}</div>
-                                            </td>
-                                            <td className="py-2.5 text-right pr-2 font-mono text-green-400 font-semibold">
-                                                {agent.count.toLocaleString()}
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {agentData.map((agent: AgentDataItem, idx: number) => {
+                                        const p50 = agent.p50 ?? agent.avgLatency;
+                                        const p95 = agent.p95 ?? agent.avgLatency;
+                                        return (
+                                            <tr key={idx} className="hover:bg-gray-800/40 transition-colors">
+                                                <td className="py-2.5 pl-2 max-w-[200px] truncate" title={`${agent.name} (${agent.id || agent.name})`}>
+                                                    <div className="font-medium text-white truncate">{agent.name}</div>
+                                                    <div className="text-xs text-gray-500 truncate font-mono mt-0.5">{agent.id || agent.name}</div>
+                                                </td>
+                                                <td className="py-2.5 text-right font-mono text-xs text-amber-400">
+                                                    {p50 || p95
+                                                        ? `${p50 ? `${p50.toLocaleString()}ms` : '—'} / ${p95 ? `${p95.toLocaleString()}ms` : '—'}`
+                                                        : '—'}
+                                                </td>
+                                                <td className="py-2.5 text-right pr-2 font-mono text-green-400 font-semibold">
+                                                    {agent.count.toLocaleString()}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         )}
@@ -616,6 +644,30 @@ const ObservabilityDashboard: React.FC<Props> = ({
                 {/* Agent Breakdown Chart */}
                 <div className={`bg-gray-900 border rounded-lg p-4 lg:col-span-2 relative ${!forceMockPreview ? 'border-gray-700' : 'border-yellow-700/50'}`}>
                     <div className="absolute top-2 right-2 flex items-center gap-2">
+                        {hasLiveLatency && !forceMockPreview && (
+                            <div className="inline-flex rounded-lg bg-gray-800 border border-gray-700 p-0.5 text-[11px]">
+                                <button
+                                    type="button"
+                                    data-testid="agent-chart-mode-volume"
+                                    onClick={() => setAgentChartMode('volume')}
+                                    className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                                        agentChartMode === 'volume' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                                    }`}
+                                >
+                                    Message Volume
+                                </button>
+                                <button
+                                    type="button"
+                                    data-testid="agent-chart-mode-latency"
+                                    onClick={() => setAgentChartMode('latency')}
+                                    className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                                        agentChartMode === 'latency' ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                                    }`}
+                                >
+                                    Trace Latency (ms)
+                                </button>
+                            </div>
+                        )}
                         {forceMockPreview && !isLoading && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Simulated Preview</span>
                         )}
@@ -623,7 +675,11 @@ const ObservabilityDashboard: React.FC<Props> = ({
                     </div>
                     <div className="flex items-center gap-1.5 mb-4 px-2">
                         <h4 className="text-sm font-medium text-gray-300">
-                            {forceMockPreview ? 'Agent Latency Sample (ms)' : 'Top Agents by Message Volume'}
+                            {forceMockPreview
+                                ? 'Agent Latency Sample (ms)'
+                                : agentChartMode === 'latency' && hasLiveLatency
+                                    ? 'Agent Trace Latency (P50 / P95 ms)'
+                                    : 'Top Agents by Message Volume'}
                         </h4>
                         <MetricInfoTooltip
                             title={CHARTS_METADATA.top_agents_chart.title}
@@ -645,16 +701,30 @@ const ObservabilityDashboard: React.FC<Props> = ({
                         ) : (
                             <ResponsiveContainer width="100%" height={256} minWidth={0}>
                                 {topAgentChartData && !forceMockPreview ? (
-                                    <BarChart data={topAgentChartData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                                        <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} tick={<CustomXAxisTick />} interval={0} height={60} />
-                                        <YAxis stroke="#9CA3AF" fontSize={12} />
-                                        <Tooltip 
-                                            contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
-                                        />
-                                        <Legend />
-                                        <Bar dataKey="count" name="Messages" fill="#10B981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-                                    </BarChart>
+                                    agentChartMode === 'latency' && hasLiveLatency ? (
+                                        <BarChart data={topAgentChartData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                                            <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} tick={<CustomXAxisTick />} interval={0} height={60} />
+                                            <YAxis stroke="#9CA3AF" fontSize={12} />
+                                            <Tooltip 
+                                                contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
+                                            />
+                                            <Legend />
+                                            <Bar dataKey="p50" name="Median Latency (P50 ms)" fill="#06B6D4" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                                            <Bar dataKey="p95" name="Tail Latency (P95 ms)" fill="#F59E0B" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                                        </BarChart>
+                                    ) : (
+                                        <BarChart data={topAgentChartData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                                            <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} tick={<CustomXAxisTick />} interval={0} height={60} />
+                                            <YAxis stroke="#9CA3AF" fontSize={12} />
+                                            <Tooltip 
+                                                contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
+                                            />
+                                            <Legend />
+                                            <Bar dataKey="count" name="Messages" fill="#10B981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                                        </BarChart>
+                                    )
                                 ) : (
                                     <BarChart data={defaultLatencyData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />

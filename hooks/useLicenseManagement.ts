@@ -697,8 +697,13 @@ export function useLicenseManagement(projectNumber: string) {
     setSelectedServiceForEdit: groupLicensing.setSelectedServiceForEdit,
     lastRunTimes: groupLicensing.lastRunTimes,
     serviceGroups: groupLicensing.serviceGroups,
+    runningServices: groupLicensing.runningServices,
+    serviceReports: groupLicensing.serviceReports,
+    activeReport: groupLicensing.activeReport,
+    setActiveReport: groupLicensing.setActiveReport,
     handleEditService: groupLicensing.handleEditService,
     handleRunService: groupLicensing.handleRunService,
+    handleViewServiceReport: groupLicensing.handleViewServiceReport,
     confirmDeleteService: groupLicensing.confirmDeleteService,
     fetchGroupServices: groupLicensing.fetchGroupServices,
     // Modals

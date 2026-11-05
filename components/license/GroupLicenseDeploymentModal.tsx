@@ -20,6 +20,7 @@ interface GroupLicenseDeploymentModalProps {
   apiLicenseConfigs: LicenseConfig[];
   editConfig?: GroupLicensingEditConfig | null;
   onBuildTriggered?: (buildId: string, projectId?: string) => void;
+  onConfigSaved?: () => void;
 }
 
 const generateMainPy = () => {
@@ -86,16 +87,32 @@ export const generateDeploySh = (
     content += "echo \"Using Service Account Email: $SA_EMAIL\"\n\n";
     
     content += "echo \"Granting IAM permissions...\"\n";
-    content += "# Grant Discovery Engine Editor permission (required to list/update user licenses).\n";
+    content += "# Grant Discovery Engine Editor permission (lists/updates user licenses, reads license configs and\n";
+    content += "# seat usage, and polls batch-update operations).\n";
     content += "# Security Tip: In production, create and assign a custom IAM role containing only\n";
-    content += "# 'discoveryengine.userLicenses.list' and 'discoveryengine.userLicenses.update' instead.\n";
+    content += "# 'discoveryengine.userStores.listUserLicenses', 'discoveryengine.userStores.batchUpdateUserLicenses',\n";
+    content += "# 'discoveryengine.licenseConfigs.get' and 'discoveryengine.operations.get' instead.\n";
     content += "gcloud projects add-iam-policy-binding $PROJECT_ID --member=\"serviceAccount:$SA_EMAIL\" --role=\"roles/discoveryengine.editor\" --condition=None\n";
     content += "gcloud projects add-iam-policy-binding $PROJECT_ID --member=\"serviceAccount:$SA_EMAIL\" --role=\"roles/logging.logWriter\" --condition=None\n";
     if (bucketName) {
         content += "gcloud storage buckets add-iam-policy-binding gs://" + bucketName + " --member=\"serviceAccount:$SA_EMAIL\" --role=\"roles/storage.objectViewer\"\n";
     }
     content += "gcloud projects add-iam-policy-binding $PROJECT_ID --member=\"serviceAccount:$SA_EMAIL\" --role=\"roles/serviceusage.serviceUsageConsumer\" --condition=None\n\n";
-    
+
+    // One instance handling one request at a time, so two runs can never overlap; 30-minute request timeout.
+    const runServiceFlags =
+        "    --timeout=1800 \\\n" +
+        "    --max-instances=1 \\\n" +
+        "    --concurrency=1 \\\n";
+    // Cleanup safety thresholds read by main.py; change them on the cleanup service to allow larger revocations.
+    const cleanupSafetyEnvVars = ",MAX_REVOCATION_PERCENT=5,MIN_REVOCATION_ALLOWANCE=50";
+    // 1800s is the Cloud Scheduler maximum for HTTP targets and matches the Cloud Run timeout. Runs are
+    // idempotent, so a failed attempt is retried twice, at least 10 minutes apart.
+    const schedulerRetryFlags =
+        "        --attempt-deadline=1800s \\\n" +
+        "        --max-retry-attempts=2 \\\n" +
+        "        --min-backoff=600s \\\n";
+
     content += "echo \"Deploying Cloud Run Service (Adder): $SERVICE_NAME_ADDER...\"\n";
     content += "gcloud run deploy $SERVICE_NAME_ADDER \\\n";
     content += "    --source . \\\n";
@@ -103,7 +120,7 @@ export const generateDeploySh = (
     content += "    --region $REGION \\\n";
     content += "    --no-allow-unauthenticated \\\n";
     content += "    --service-account $SA_EMAIL \\\n";
-    content += "    --timeout=540 \\\n";
+    content += runServiceFlags;
     content += "    --labels=\"ge-region=" + trimmedLocation + ",ge-sku=" + safeSkuLabel + ",job-type=adder\" \\\n";
     content += "    --set-env-vars=\"GOOGLE_CLOUD_PROJECT=$PROJECT_ID,LOCATION=$LOCATION,USER_STORE_ID=$USER_STORE_ID,CONFIG_GCS_URI=" + trimmedConfigGcsUri + ",SUBSCRIPTION_TIER=" + trimmedTier + ",JOB_TYPE=adder,PROJECT_NUMBER=" + trimmedProjectNumber + "\"\n\n";
     
@@ -115,9 +132,9 @@ export const generateDeploySh = (
     content += "    --region $REGION \\\n";
     content += "    --no-allow-unauthenticated \\\n";
     content += "    --service-account $SA_EMAIL \\\n";
-    content += "    --timeout=540 \\\n";
+    content += runServiceFlags;
     content += "    --labels=\"ge-region=" + trimmedLocation + ",ge-sku=" + safeSkuLabel + ",job-type=cleanup\" \\\n";
-    content += "    --set-env-vars=\"GOOGLE_CLOUD_PROJECT=$PROJECT_ID,LOCATION=$LOCATION,USER_STORE_ID=$USER_STORE_ID,CONFIG_GCS_URI=" + trimmedConfigGcsUri + ",SUBSCRIPTION_TIER=" + trimmedTier + ",JOB_TYPE=cleanup,PROJECT_NUMBER=" + trimmedProjectNumber + "\"\n\n";
+    content += "    --set-env-vars=\"GOOGLE_CLOUD_PROJECT=$PROJECT_ID,LOCATION=$LOCATION,USER_STORE_ID=$USER_STORE_ID,CONFIG_GCS_URI=" + trimmedConfigGcsUri + ",SUBSCRIPTION_TIER=" + trimmedTier + ",JOB_TYPE=cleanup,PROJECT_NUMBER=" + trimmedProjectNumber + cleanupSafetyEnvVars + "\"\n\n";
     
     content += "echo \"Granting Invoker permission to Service Account on Cloud Run services...\"\n";
     content += "gcloud run services add-iam-policy-binding $SERVICE_NAME_ADDER \\\n";
@@ -142,7 +159,7 @@ export const generateDeploySh = (
     content += "        --schedule=\"0 4 * * *\" \\\n";
     content += "        --uri=\"$SERVICE_URL_ADDER\" \\\n";
     content += "        --http-method=POST \\\n";
-    content += "        --attempt-deadline=540s \\\n";
+    content += schedulerRetryFlags;
     content += "        --oidc-service-account-email=$SA_EMAIL\n";
     content += "else\n";
     content += "    gcloud scheduler jobs create http $JOB_NAME_ADDER \\\n";
@@ -151,7 +168,7 @@ export const generateDeploySh = (
     content += "        --schedule=\"0 4 * * *\" \\\n";
     content += "        --uri=\"$SERVICE_URL_ADDER\" \\\n";
     content += "        --http-method=POST \\\n";
-    content += "        --attempt-deadline=540s \\\n";
+    content += schedulerRetryFlags;
     content += "        --oidc-service-account-email=$SA_EMAIL\n";
     content += "fi\n\n";
     
@@ -163,7 +180,7 @@ export const generateDeploySh = (
     content += "        --schedule=\"0 */6 * * *\" \\\n";
     content += "        --uri=\"$SERVICE_URL_CLEANUP\" \\\n";
     content += "        --http-method=POST \\\n";
-    content += "        --attempt-deadline=540s \\\n";
+    content += schedulerRetryFlags;
     content += "        --oidc-service-account-email=$SA_EMAIL\n";
     content += "else\n";
     content += "    gcloud scheduler jobs create http $JOB_NAME_CLEANUP \\\n";
@@ -172,7 +189,7 @@ export const generateDeploySh = (
     content += "        --schedule=\"0 */6 * * *\" \\\n";
     content += "        --uri=\"$SERVICE_URL_CLEANUP\" \\\n";
     content += "        --http-method=POST \\\n";
-    content += "        --attempt-deadline=540s \\\n";
+    content += schedulerRetryFlags;
     content += "        --oidc-service-account-email=$SA_EMAIL\n";
     content += "fi\n\n";
     
@@ -180,7 +197,7 @@ export const generateDeploySh = (
     return content;
 };
 
-const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = ({ isOpen, onClose, projectNumber, currentConfig, apiLicenseConfigs, editConfig, onBuildTriggered }) => {
+const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = ({ isOpen, onClose, projectNumber, currentConfig, apiLicenseConfigs, editConfig, onBuildTriggered, onConfigSaved }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [config, setConfig] = useState({
         projectId: projectNumber,
@@ -204,7 +221,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
     );
     const [modalLicenseConfigs, setModalLicenseConfigs] = useState<LicenseConfig[]>(apiLicenseConfigs);
     const [isLoadingLicenses, setIsLoadingLicenses] = useState(false);
-    const [activeTab, setActiveTab] = useState<'deploy' | 'main' | 'requirements' | 'permissions'>('deploy');
+    const [activeTab, setActiveTab] = useState<'deploy' | 'entitlements' | 'main' | 'requirements' | 'permissions'>('deploy');
     const [copySuccess, setCopySuccess] = useState('');
     const [isResolvingId, setIsResolvingId] = useState(false);
 
@@ -212,13 +229,14 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
     const [selectedBucket, setSelectedBucket] = useState<string>('');
     const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
     const [isDeploying, setIsDeploying] = useState(false);
+    const [isSavingConfig, setIsSavingConfig] = useState(false);
     const [deployError, setDeployError] = useState<string | null>(null);
 
     useModalA11y({
         isOpen,
         onClose,
         containerRef,
-        preventClose: isDeploying,
+        preventClose: isDeploying || isSavingConfig,
     });
     
     useEffect(() => {
@@ -416,51 +434,56 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
     const resolvedBillingAccountId = editConfig?.billing_account_id || "YOUR_BILLING_ACCOUNT_ID";
     const effectiveProjectNumber = (resolvedProjectNumber || projectNumber).trim();
 
-    const buildEntitlementsConfig = (baseProjects: Record<string, Array<{ subscription_tier?: string; groups?: string[]; location?: string }>>) => {
+    const buildEntitlementsConfig = (
+        baseProjects: Record<string, Array<{ subscription_tier?: string; groups?: string[]; location?: string }>>,
+        billingAccountId: string = resolvedBillingAccountId
+    ) => {
         const targetProjectKey = config.projectId.trim();
-        const existingProjectEntries = (baseProjects[targetProjectKey] || []).filter(
-            (entry) => !(
-                (entry.subscription_tier === selectedTier ||
-                    sanitizeCloudRunLabelValue(entry.subscription_tier || '') === sanitizeCloudRunLabelValue(selectedTier)) &&
-                (entry.location || 'global') === appLocation
-            )
-        );
+        const combinedExisting = [
+            ...(baseProjects[targetProjectKey] || []),
+            ...(effectiveProjectNumber && effectiveProjectNumber !== targetProjectKey
+                ? (baseProjects[effectiveProjectNumber] || [])
+                : []),
+        ];
+        const seenOtherLocKeys = new Set<string>();
+        const otherLocationEntries = combinedExisting.filter((entry) => {
+            const entryLoc = entry.location || 'global';
+            if (entryLoc === appLocation) {
+                return false;
+            }
+            const dedupeKey = `${entryLoc}::${(entry.subscription_tier || '').trim()}`;
+            if (seenOtherLocKeys.has(dedupeKey)) {
+                return false;
+            }
+            seenOtherLocKeys.add(dedupeKey);
+            return true;
+        });
+
+        const cleanProjectEntries = [
+            ...otherLocationEntries,
+            {
+                "subscription_tier": selectedTier.trim(),
+                "location": appLocation,
+                "groups": groups
+            }
+        ];
+
         const updatedProjects: Record<string, Array<{ subscription_tier?: string; groups?: string[]; location?: string }>> = {
             ...baseProjects,
-            [targetProjectKey]: [
-                ...existingProjectEntries,
-                {
-                    "subscription_tier": selectedTier.trim(),
-                    "location": appLocation,
-                    "groups": groups
-                }
-            ]
+            [targetProjectKey]: cleanProjectEntries,
         };
-        // Keep numeric projectNumber key in sync if present in baseProjects
+        // Keep numeric projectNumber key in sync with the exact same clean entries if present in baseProjects
         if (effectiveProjectNumber && effectiveProjectNumber !== targetProjectKey && baseProjects[effectiveProjectNumber]) {
-            const existingNumEntries = baseProjects[effectiveProjectNumber].filter(
-                (entry) => !(
-                    (entry.subscription_tier === selectedTier ||
-                        sanitizeCloudRunLabelValue(entry.subscription_tier || '') === sanitizeCloudRunLabelValue(selectedTier)) &&
-                    (entry.location || 'global') === appLocation
-                )
-            );
-            updatedProjects[effectiveProjectNumber] = [
-                ...existingNumEntries,
-                {
-                    "subscription_tier": selectedTier.trim(),
-                    "location": appLocation,
-                    "groups": groups
-                }
-            ];
+            updatedProjects[effectiveProjectNumber] = cleanProjectEntries;
         }
         return {
-            "billing_account_id": resolvedBillingAccountId,
+            "billing_account_id": billingAccountId,
             "projects": updatedProjects
         };
     };
 
     const entitlementsConfig = buildEntitlementsConfig(editConfig?.projects || {});
+    const entitlementsJson = JSON.stringify(entitlementsConfig, null, 2);
     const configGcsUri = "gs://" + selectedBucket.trim() + "/config/entitlements.json";
 
     const mainPy = generateMainPy();
@@ -520,6 +543,33 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
         };
     };
 
+    const loadMergedEntitlementsJson = async (validProjectId: string): Promise<string> => {
+        let baseProjects = editConfig?.projects || {};
+        let billingAccountId = resolvedBillingAccountId;
+        if (!editConfig) {
+            try {
+                const existingRaw = await api.getGcsObjectContent(
+                    selectedBucket.trim(),
+                    "config/entitlements.json",
+                    validProjectId
+                );
+                if (existingRaw) {
+                    const parsed = JSON.parse(existingRaw);
+                    if (parsed && typeof parsed.projects === 'object' && parsed.projects !== null) {
+                        baseProjects = parsed.projects;
+                    }
+                    if (parsed && typeof parsed.billing_account_id === 'string' && parsed.billing_account_id.trim()) {
+                        billingAccountId = parsed.billing_account_id.trim();
+                    }
+                }
+            } catch {
+                // Object does not exist yet in GCS on first deployment; safe to start fresh.
+            }
+        }
+        const mergedEntitlements = buildEntitlementsConfig(baseProjects, billingAccountId);
+        return JSON.stringify(mergedEntitlements, null, 2);
+    };
+
     const handleDownload = async () => {
         let validated;
         try {
@@ -546,7 +596,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
         zip.file('deploy.sh', validatedDeploySh);
         zip.file('requirements.txt', requirementsTxt);
         zip.file('Dockerfile', dockerfile);
-        zip.file('entitlements.json.sample', JSON.stringify(entitlementsConfig, null, 2));
+        zip.file('entitlements.json.sample', entitlementsJson);
 
         const blob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(blob);
@@ -556,6 +606,29 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+    };
+
+    const handleSaveConfigOnly = async () => {
+        if (!selectedBucket) {
+            setDeployError("Please select a bucket for staging.");
+            return;
+        }
+        setIsSavingConfig(true);
+        setDeployError(null);
+
+        try {
+            const validated = validateDeploymentInputs();
+            const mergedConfigJson = await loadMergedEntitlementsJson(validated.validProjectId);
+            const configBlob = new Blob([mergedConfigJson], { type: 'application/json' });
+            const configFile = new File([configBlob], "entitlements.json", { type: "application/json" });
+            await api.uploadFileToGcs(selectedBucket.trim(), "config/entitlements.json", configFile, validated.validProjectId);
+            onConfigSaved?.();
+            onClose();
+        } catch (err: unknown) {
+            setDeployError(toErrorMessage(err, "Failed to update entitlements.json in GCS."));
+        } finally {
+            setIsSavingConfig(false);
+        }
     };
 
     const handleCloudBuildDeploy = async () => {
@@ -568,30 +641,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
 
         try {
             const validated = validateDeploymentInputs();
-
-            // P0-2 Fix: In "+ New Assignment" mode, merge with any existing config/entitlements.json
-            // in GCS so existing group assignments are never silently overwritten.
-            let baseProjects = editConfig?.projects || {};
-            if (!editConfig) {
-                try {
-                    const existingRaw = await api.getGcsObjectContent(
-                        selectedBucket.trim(),
-                        "config/entitlements.json",
-                        validated.validProjectId
-                    );
-                    if (existingRaw) {
-                        const parsed = JSON.parse(existingRaw);
-                        if (parsed && typeof parsed.projects === 'object' && parsed.projects !== null) {
-                            baseProjects = parsed.projects;
-                        }
-                    }
-                } catch {
-                    // Object does not exist yet in GCS on first deployment; safe to start fresh.
-                }
-            }
-
-            const mergedEntitlements = buildEntitlementsConfig(baseProjects);
-            const mergedConfigJson = JSON.stringify(mergedEntitlements, null, 2);
+            const mergedConfigJson = await loadMergedEntitlementsJson(validated.validProjectId);
 
             const validatedDeploySh = generateDeploySh(
                 validated.validProjectId,
@@ -645,7 +695,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             if (onBuildTriggered && buildId) {
                 onBuildTriggered(buildId, validated.validProjectId);
             }
-            
+            onConfigSaved?.();
             onClose();
 
         } catch (err: unknown) {
@@ -654,6 +704,17 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             setIsDeploying(false);
         }
     };
+
+    const isBusy = isDeploying || isSavingConfig;
+
+    const activePreviewContent =
+        activeTab === 'deploy'
+            ? deploySh
+            : activeTab === 'entitlements'
+              ? entitlementsJson
+              : activeTab === 'main'
+                ? mainPy
+                : requirementsTxt;
 
     if (!isOpen) return null;
 
@@ -664,7 +725,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             aria-modal="true"
             aria-labelledby="group-licensing-modal-title"
             onClick={(e) => {
-                if (e.target === e.currentTarget && !isDeploying) onClose();
+                if (e.target === e.currentTarget && !isBusy) onClose();
             }}
         >
             <div
@@ -675,7 +736,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             >
                 <header className="p-4 border-b border-gray-700 flex justify-between items-center">
                     <h2 id="group-licensing-modal-title" className="text-xl font-bold text-white">Setup Group Licensing Job</h2>
-                    <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white" disabled={isDeploying}>&times;</button>
+                    <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white" disabled={isBusy}>&times;</button>
                 </header>
                 
                 <main className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-y-auto">
@@ -684,17 +745,18 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                         <div className="bg-blue-900/30 border border-blue-700 p-3 rounded-md text-sm text-blue-200 space-y-2">
                             <p>This tool generates a deployment package to run the group licensing logic on Google Cloud Run Services.</p>
                             <p><strong>Note:</strong> The deployment script will attempt to create a service account named <code>license-grouper-sa</code>. If your organization requires service accounts to be created via an external process, please create it manually with the following roles: <code>Discovery Engine Editor</code>, <code>Logs Writer</code>, and <code>Storage Object Viewer</code> (on the GCS bucket used).</p>
+                            <p><strong>Safety:</strong> The cleanup job makes no changes if a configured group returns 0 members or if it would revoke more than 50 licenses or 5% of managed licenses, whichever is larger (adjust with <code>MIN_REVOCATION_ALLOWANCE</code> / <code>MAX_REVOCATION_PERCENT</code> on the cleanup service). POST <code>{`{"dryRun": true}`}</code> to either service to preview changes without applying them.</p>
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-gray-400">Project ID (String) {isResolvingId && <span className="animate-pulse">...</span>}</label>
-                            <input type="text" value={config.projectId} onChange={(e) => setConfig({...config, projectId: e.target.value})} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" placeholder="my-project-id" disabled={isDeploying} />
+                            <input type="text" value={config.projectId} onChange={(e) => setConfig({...config, projectId: e.target.value})} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" placeholder="my-project-id" disabled={isBusy} />
                         </div>
                         
                         <div className="grid grid-cols-2 gap-4">
                              <div>
                                 <label className="block text-sm font-medium text-gray-400">Run Region</label>
-                                <select value={config.runRegion} onChange={(e) => setConfig({...config, runRegion: e.target.value})} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" disabled={isDeploying}>
+                                <select value={config.runRegion} onChange={(e) => setConfig({...config, runRegion: e.target.value})} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" disabled={isBusy}>
                                     <option value="us-central1">us-central1</option>
                                     <option value="us-east1">us-east1</option>
                                     <option value="europe-west1">europe-west1</option>
@@ -703,7 +765,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-400">App Location / Region</label>
-                                <select value={appLocation} onChange={(e) => setAppLocation(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" disabled={isDeploying}>
+                                <select value={appLocation} onChange={(e) => setAppLocation(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" disabled={isBusy}>
                                     <option value="global">global</option>
                                     <option value="us">us</option>
                                     <option value="eu">eu</option>
@@ -713,7 +775,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
 
                         <div>
                             <label className="block text-sm font-medium text-gray-400">Subscription Tier / SKU {isLoadingLicenses && <span className="animate-pulse text-xs text-blue-400"> (Loading...)</span>}</label>
-                            <select value={selectedTier} onChange={(e) => setSelectedTier(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" disabled={isDeploying || isLoadingLicenses}>
+                            <select value={selectedTier} onChange={(e) => setSelectedTier(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" disabled={isBusy || isLoadingLicenses}>
                                 {modalLicenseConfigs.length > 0 ? (
                                     modalLicenseConfigs.map(cfg => {
                                         const id = cfg.name.split('/').pop();
@@ -742,7 +804,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
 
                         <div>
                             <label className="block text-sm font-medium text-gray-400">Groups (Comma separated emails)</label>
-                            <input type="text" value={groupsInput} onChange={(e) => setGroupsInput(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" placeholder="group1@example.com, group2@example.com" disabled={isDeploying} />
+                            <input type="text" value={groupsInput} onChange={(e) => setGroupsInput(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" placeholder="group1@example.com, group2@example.com" disabled={isBusy} />
                         </div>
 
                         <div className="pt-4 border-t border-gray-700">
@@ -752,7 +814,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                                     value={selectedBucket} 
                                     onChange={(e) => setSelectedBucket(e.target.value)} 
                                     className="w-full bg-gray-700 border-gray-600 rounded-md p-2 text-sm text-white"
-                                    disabled={isLoadingBuckets || isDeploying}
+                                    disabled={isLoadingBuckets || isBusy}
                                 >
                                     {buckets.length === 0 && <option value="">{isLoadingBuckets ? 'Loading...' : 'No buckets found'}</option>}
                                     {buckets.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
@@ -762,10 +824,10 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
 
                         {deployError && <p className="text-red-400 text-sm" role="alert">{deployError}</p>}
 
-                        <div className="flex gap-4 pt-2">
+                        <div className="flex flex-wrap gap-3 pt-2">
                             <button 
                                 onClick={handleCloudBuildDeploy} 
-                                disabled={isDeploying || !selectedBucket}
+                                disabled={isBusy || !selectedBucket}
                                 className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-500 hover:to-teal-400 text-white font-bold rounded-lg shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {isDeploying ? (
@@ -775,9 +837,17 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                                     </>
                                 ) : 'Deploy Job'}
                             </button>
+                            <button
+                                onClick={handleSaveConfigOnly}
+                                disabled={isBusy || !selectedBucket}
+                                title="Directly updates config/entitlements.json in GCS without rebuilding the Cloud Run container"
+                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg shadow flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isSavingConfig ? 'Saving...' : 'Update Groups in GCS'}
+                            </button>
                             <button 
                                 onClick={handleDownload} 
-                                disabled={isDeploying}
+                                disabled={isBusy}
                                 className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg border border-gray-600 disabled:opacity-50"
                             >
                                 Download .zip
@@ -787,14 +857,15 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
 
                     {/* Right Code */}
                     <div className="flex flex-col h-[500px] bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
-                        <div className="flex bg-gray-800 border-b border-gray-700">
-                            <button onClick={() => setActiveTab('deploy')} className={"px-4 py-2 text-xs font-medium " + (activeTab === 'deploy' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>deploy.sh</button>
-                            <button onClick={() => setActiveTab('main')} className={"px-4 py-2 text-xs font-medium " + (activeTab === 'main' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>main.py</button>
-                            <button onClick={() => setActiveTab('requirements')} className={"px-4 py-2 text-xs font-medium " + (activeTab === 'requirements' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>requirements.txt</button>
-                            <button onClick={() => setActiveTab('permissions')} className={"px-4 py-2 text-xs font-medium " + (activeTab === 'permissions' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>Permissions Guide</button>
+                        <div className="flex bg-gray-800 border-b border-gray-700 overflow-x-auto">
+                            <button onClick={() => setActiveTab('deploy')} className={"px-3 py-2 text-xs font-medium whitespace-nowrap " + (activeTab === 'deploy' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>deploy.sh</button>
+                            <button onClick={() => setActiveTab('entitlements')} className={"px-3 py-2 text-xs font-medium whitespace-nowrap " + (activeTab === 'entitlements' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>entitlements.json</button>
+                            <button onClick={() => setActiveTab('main')} className={"px-3 py-2 text-xs font-medium whitespace-nowrap " + (activeTab === 'main' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>main.py</button>
+                            <button onClick={() => setActiveTab('requirements')} className={"px-3 py-2 text-xs font-medium whitespace-nowrap " + (activeTab === 'requirements' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>requirements.txt</button>
+                            <button onClick={() => setActiveTab('permissions')} className={"px-3 py-2 text-xs font-medium whitespace-nowrap " + (activeTab === 'permissions' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>Permissions Guide</button>
                             <div className="flex-1"></div>
                             <button 
-                                onClick={() => handleCopy(activeTab === 'deploy' ? deploySh : activeTab === 'main' ? mainPy : requirementsTxt)} 
+                                onClick={() => handleCopy(activePreviewContent)} 
                                 className={"px-3 text-xs text-blue-400 hover:text-white " + (activeTab === 'permissions' ? 'invisible' : '')}
                             >
                                 {copySuccess || 'Copy'}
@@ -833,7 +904,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                                 </div>
                             ) : (
                                 <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">
-                                    {activeTab === 'deploy' ? deploySh : activeTab === 'main' ? mainPy : requirementsTxt}
+                                    {activePreviewContent}
                                 </pre>
                             )}
                         </div>

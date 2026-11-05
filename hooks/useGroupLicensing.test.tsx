@@ -207,6 +207,8 @@ describe('useGroupLicensing & Cloud Run group licensing trigger', () => {
       expect.objectContaining({
         name: 'projects/my-proj/locations/us-central1/jobs/trigger-group-licensing-cleanup-global',
         schedule: '0 */6 * * *',
+        attemptDeadline: '1800s',
+        retryConfig: { retryCount: 2, minBackoffDuration: '600s' },
         httpTarget: {
           uri: 'https://group-licensing-cleanup-global-xyz.a.run.app',
           httpMethod: 'POST',
@@ -286,175 +288,63 @@ describe('useGroupLicensing & Cloud Run group licensing trigger', () => {
       '--labels="ge-region=global,ge-sku=subscription_tier_enterprise,job-type=adder"',
     );
     expect(script).toContain('SUBSCRIPTION_TIER=SUBSCRIPTION_TIER_ENTERPRISE');
-    expect(script).toContain('--timeout=540');
-    expect(script).toContain('--attempt-deadline=540s');
+    const count = (needle: string) => script.split(needle).length - 1;
+    // Both Cloud Run services: 30-minute timeout, single instance, one request at a time.
+    expect(count('--timeout=1800 ')).toBe(2);
+    expect(count('--max-instances=1 ')).toBe(2);
+    expect(count('--concurrency=1 ')).toBe(2);
+    expect(script).not.toContain('--timeout=540');
+    // All four Scheduler create/update commands: 1800s deadline and two retries.
+    expect(count('--attempt-deadline=1800s ')).toBe(4);
+    expect(count('--max-retry-attempts=2 ')).toBe(4);
+    expect(count('--min-backoff=600s ')).toBe(4);
+    expect(script).not.toContain('--attempt-deadline=540s');
+    expect(script).toContain(
+      'JOB_TYPE=cleanup,PROJECT_NUMBER=180054373655,MAX_REVOCATION_PERCENT=5,MIN_REVOCATION_ALLOWANCE=50"',
+    );
     expect(script).toContain(
       'gcloud storage buckets add-iam-policy-binding gs://my-staging-bucket --member="serviceAccount:$SA_EMAIL" --role="roles/storage.objectViewer"',
     );
     expect(script).not.toContain('--role="roles/storage.objectViewer" --condition=None');
   });
 
-  it('P0-1, P0-2, P1-2, B-05: executes main.py.template functions (get_highest_tier, list_group_members, run_adder diffing, run_cleanup, retry/backoff, LRO error detection, and concurrency lock)', async () => {
+  it('generates a deploy.sh that bash parses without syntax errors', async () => {
     const { execFileSync } = await import('node:child_process');
-    const pyHarness = `
-import sys, types, json
-
-# Stub flask and google.auth so main.py.template loads without external packages
-flask_mod = types.ModuleType("flask")
-class DummyFlask:
-    def __init__(self, name): pass
-    def route(self, *a, **kw):
-        def dec(f): return f
-        return dec
-flask_mod.Flask = DummyFlask
-flask_mod.request = None
-flask_mod.jsonify = lambda x: x
-sys.modules["flask"] = flask_mod
-
-google_mod = types.ModuleType("google")
-auth_mod = types.ModuleType("google.auth")
-auth_mod.default = lambda scopes=None: (None, "proj")
-transport_mod = types.ModuleType("google.auth.transport")
-requests_mod = types.ModuleType("google.auth.transport.requests")
-requests_mod.AuthorizedSession = object
-sys.modules["google"] = google_mod
-sys.modules["google.auth"] = auth_mod
-sys.modules["google.auth.transport"] = transport_mod
-sys.modules["google.auth.transport.requests"] = requests_mod
-
-with open("components/license/main.py.template", "r") as f:
-    code = f.read()
-
-ns = {"__name__": "test_main"}
-exec(compile(code, "main.py.template", "exec"), ns)
-ns["PROJECT_ID"] = "my-proj"
-ns["PROJECT_NUMBER"] = "180054373655"
-ns["LOCATION"] = "global"
-ns["RETRY_BASE_DELAY_SECONDS"] = 0.0
-
-# 1. P0-1: get_highest_tier supports both PRECEDENCE tiers and custom LicenseConfig resource IDs
-assert ns["get_highest_tier"]({"SUBSCRIPTION_TIER_SEARCH", "SUBSCRIPTION_TIER_ENTERPRISE"}) == "SUBSCRIPTION_TIER_ENTERPRISE"
-assert ns["get_highest_tier"]({"custom-license-cfg-id-123"}) == "custom-license-cfg-id-123"
-assert ns["get_highest_tier"](set()) is None
-
-# 2. P1-2: list_group_members passes includeDerivedMembership=true, filters USER, excludes .gserviceaccount.com, and lowercases
-class MockResp:
-    def __init__(self, status_code, data):
-        self.status_code = status_code
-        self._data = data
-        self.text = json.dumps(data)
-    def json(self):
-        return self._data
-
-class MockSession:
-    def __init__(self):
-        self.get_urls = []
-        self.post_calls = []
-        self.transient_429_remaining = 1
-    def get(self, url, timeout=None):
-        self.get_urls.append(url)
-        if self.transient_429_remaining > 0 and "/members" in url:
-            self.transient_429_remaining -= 1
-            return MockResp(429, {"error": "rate limited"})
-        if "/members" in url:
-            return MockResp(200, {
-                "members": [
-                    {"email": "Alice@Example.com ", "type": "USER"},
-                    {"email": "NewJoiner@Example.com", "type": "USER"},
-                    {"email": "nested-group@example.com", "type": "GROUP"},
-                    {"email": "license-grouper-sa@my-proj.iam.gserviceaccount.com", "type": "USER"},
-                ]
-            })
-        if "/userLicenses" in url:
-            return MockResp(200, {
-                "userLicenses": [
-                    {"userPrincipal": "alice@example.com", "licenseAssignmentState": "ASSIGNED", "licenseConfig": "projects/180054373655/locations/global/licenseConfigs/custom-cfg-1"},
-                    {"userPrincipal": "departed@example.com", "licenseAssignmentState": "ASSIGNED", "licenseConfig": "projects/180054373655/locations/global/licenseConfigs/custom-cfg-1"},
-                    {"userPrincipal": "vip-manual@example.com", "licenseAssignmentState": "ASSIGNED", "licenseConfig": "projects/180054373655/locations/global/licenseConfigs/other-unmanaged-tier"},
-                    {"userPrincipal": "unassigned@example.com", "licenseAssignmentState": "NO_LICENSE"},
-                ]
-            })
-        return MockResp(404, {})
-    def post(self, url, json=None, timeout=None):
-        self.post_calls.append((url, json))
-        return MockResp(200, {})
-
-sess = MockSession()
-members = ns["list_group_members"](sess, "eng team@example.com")
-assert members == ["alice@example.com", "newjoiner@example.com"], f"Unexpected members: {members}"
-assert len(sess.get_urls) == 2, "Expected 1 transient 429 retry + 1 success"
-assert "includeDerivedMembership=true" in sess.get_urls[0]
-assert "eng%20team%40example.com" in sess.get_urls[0]
-
-# 3. P0-1 & Diffing: run_adder skips alice@example.com (already ASSIGNED custom-cfg-1) and only updates newjoiner@example.com
-config = {
-    "projects": {
-        "my-proj": [
-            {"subscription_tier": "custom-cfg-1", "location": "global", "groups": ["eng@example.com"]},
-            {"subscription_tier": "eu-only-cfg", "location": "eu", "groups": ["eu@example.com"]}
-        ]
-    }
-}
-ns["run_adder"](sess, "https://discoveryengine.googleapis.com/v1", "projects/my-proj/locations/global/userStores/default_user_store", config)
-assert len(sess.post_calls) == 1
-adder_payload = sess.post_calls[0][1]
-assert adder_payload["inlineSource"]["userLicenses"] == [{
-    "userPrincipal": "newjoiner@example.com",
-    "licenseConfig": "projects/180054373655/locations/global/licenseConfigs/custom-cfg-1"
-}]
-
-# 4. P0-2: run_cleanup revokes only departed users on managed_tiers, sparing vip-manual and NO_LICENSE
-sess.post_calls.clear()
-ns["run_cleanup"](sess, "https://discoveryengine.googleapis.com/v1", "projects/my-proj/locations/global/userStores/default_user_store", config)
-assert len(sess.post_calls) == 1
-cleanup_payload = sess.post_calls[0][1]
-assert cleanup_payload["inlineSource"]["userLicenses"] == [{"userPrincipal": "departed@example.com"}]
-
-# 5. P0-2 Negative test: run_cleanup fails closed when entitled_groups is empty
-empty_config = {"projects": {"my-proj": [{"subscription_tier": "custom-cfg-1", "location": "global", "groups": []}]}}
-try:
-    ns["run_cleanup"](sess, "https://discoveryengine.googleapis.com/v1", "projects/my-proj/locations/global/userStores/default_user_store", empty_config)
-    raise AssertionError("Expected RuntimeError when entitled_groups is empty")
-except RuntimeError as e:
-    assert "Refusing to revoke all licenses" in str(e)
-
-# 6. LRO embedded error detection & multi-chunk continuation in batch_update_licenses
-class ChunkTestSession:
-    def __init__(self):
-        self.calls = 0
-    def post(self, url, json=None, timeout=None):
-        self.calls += 1
-        if self.calls == 1:
-            # Chunk 1 returns HTTP 200 but contains an embedded LRO error
-            return MockResp(200, {"error": {"code": 7, "message": "Quota exceeded for chunk 1"}})
-        return MockResp(200, {"name": "operations/op-chunk-2"})
-
-chunk_sess = ChunkTestSession()
-many_updates = [{"userPrincipal": f"user{i}@example.com"} for i in range(150)]
-try:
-    ns["batch_update_licenses"](chunk_sess, "https://discoveryengine.googleapis.com/v1", "parent", many_updates)
-    raise AssertionError("Expected RuntimeError when chunk 1 returned LRO error")
-except RuntimeError as e:
-    assert "chunk 1 returned LRO error" in str(e)
-    assert chunk_sess.calls == 2, f"Expected both chunks to be attempted before raising, got {chunk_sess.calls}"
-
-# 7. In-process concurrency lock returns HTTP 409 when a job is already running
-ns["_JOB_LOCK"].acquire()
-try:
-    resp_body, status_code = ns["handle_trigger"]()
-    assert status_code == 409
-    assert "already running" in resp_body["message"]
-finally:
-    ns["_JOB_LOCK"].release()
-
-print("PYTHON_HARNESS_OK")
-`;
-    const out = execFileSync('python3', ['-c', pyHarness], {
-      cwd: process.cwd(),
-      encoding: 'utf-8',
-    });
-    expect(out).toContain('PYTHON_HARNESS_OK');
+    const script = generateDeploySh(
+      'my-project-123',
+      'global',
+      'default_user_store',
+      'us-central1',
+      'gs://my-staging-bucket/config/entitlements.json',
+      'SUBSCRIPTION_TIER_ENTERPRISE',
+      '',
+      '180054373655',
+    );
+    // `bash -n` parses without executing; a broken line continuation or quote makes it exit non-zero.
+    expect(() => execFileSync('bash', ['-n'], { input: script, encoding: 'utf-8' })).not.toThrow();
+    expect(() =>
+      execFileSync('bash', ['-n'], { input: script.replace('--min-backoff=600s \\\n', '--min-backoff=600s \\\n"'), encoding: 'utf-8', stdio: 'pipe' }),
+    ).toThrow();
   });
+
+  it('main.py.template behavioral harness: operation polling, end-state verification, seat limits, safety guards, retries, dry run, and 10k-user scale', async () => {
+    const { execFileSync } = await import('node:child_process');
+    // Runs the real template functions against a stateful fake of the Directory and license APIs
+    // (components/license/main_template_harness.py). The harness exits non-zero if any check fails.
+    let out = '';
+    try {
+      out = execFileSync('python3', ['components/license/main_template_harness.py'], {
+        cwd: process.cwd(),
+        encoding: 'utf-8',
+      });
+    } catch (err: unknown) {
+      const stdout = (err as { stdout?: string }).stdout ?? '';
+      throw new Error(`main_template_harness.py failed:\n${stdout}`);
+    }
+    expect(out).toMatch(/HARNESS: \d+ passed \/ 0 failed \/ 0 skipped/);
+    expect(out).not.toContain('[FAIL]');
+    expect(out).toContain('PYTHON_HARNESS_OK');
+  }, 30_000);
 
   it('P0-3: getDiscoveryEngineUrl rejects malicious SSRF hostnames and handleEditService sanitizes untrusted location', async () => {
     expect(getDiscoveryEngineUrl('global')).toBe('https://discoveryengine.googleapis.com');
@@ -744,5 +634,466 @@ print("PYTHON_HARNESS_OK")
     );
     expect(onBuildTriggered).toHaveBeenCalledWith('build-999', 'my-project-123');
   });
+
+  it('replaces stale same-location entries across projectId and projectNumber keys and supports direct Update Groups in GCS', async () => {
+    vi.spyOn(api, 'getProject').mockResolvedValue({
+      projectId: 'my-project-123',
+      projectNumber: '180054373655',
+    } as never);
+    vi.spyOn(api, 'listLicenseConfigs').mockResolvedValue({
+      licenseConfigs: [
+        {
+          name: 'projects/my-project-123/locations/global/licenseConfigs/internal_gemini_ent_plus',
+          state: 'ACTIVE',
+        },
+      ],
+    } as never);
+    vi.spyOn(api, 'listBuckets').mockResolvedValue({
+      items: [{ id: 'b1', name: 'my-staging-bucket' }],
+    } as never);
+    const uploadSpy = vi.spyOn(api, 'uploadFileToGcs').mockResolvedValue({} as never);
+    const createBuildSpy = vi.spyOn(api, 'createCloudBuild').mockResolvedValue({} as never);
+    const onConfigSaved = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <GroupLicenseDeploymentModal
+        isOpen={true}
+        onClose={onClose}
+        projectNumber="180054373655"
+        currentConfig={{ appLocation: 'global', userStoreId: 'default_user_store' }}
+        apiLicenseConfigs={[]}
+        editConfig={{
+          billing_account_id: '012345-6789AB-CDEF01',
+          projects: {
+            'my-project-123': [
+              {
+                subscription_tier: 'SUBSCRIPTION_TIER_ENTERPRISE',
+                location: 'global',
+                groups: ['stale-old-tier@example.com'],
+              },
+              {
+                subscription_tier: 'internal_gemini_ent_plus',
+                location: 'global',
+                groups: ['old-group@example.com'],
+              },
+              {
+                subscription_tier: 'internal_gemini_ent_plus',
+                location: 'us',
+                groups: ['us-group@example.com'],
+              },
+            ],
+            '180054373655': [
+              {
+                subscription_tier: 'SUBSCRIPTION_TIER_ENTERPRISE',
+                location: 'global',
+                groups: ['stale-projnum-group@example.com'],
+              },
+            ],
+          },
+          _editMeta: {
+            runRegion: 'us-central1',
+            bucket: 'my-staging-bucket',
+            sku: 'internal_gemini_ent_plus',
+            location: 'global',
+            userStoreId: 'default_user_store',
+            projectId: 'my-project-123',
+          },
+        }}
+        onConfigSaved={onConfigSaved}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Update Groups in GCS' })).not.toBeDisabled();
+    });
+
+    const groupsInput = screen.getByPlaceholderText('group1@example.com, group2@example.com') as HTMLInputElement;
+    expect(groupsInput.value).toBe('old-group@example.com');
+
+    fireEvent.change(groupsInput, { target: { value: 'updated-group@example.com' } });
+
+    // Switch to entitlements.json preview tab and verify stale global entries are gone
+    fireEvent.click(screen.getByRole('button', { name: 'entitlements.json' }));
+    expect(screen.getByText(/updated-group@example\.com/)).toBeInTheDocument();
+    expect(screen.queryByText(/stale-old-tier@example\.com/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/stale-projnum-group@example\.com/)).not.toBeInTheDocument();
+
+    // Click Update Groups in GCS -> uploads only config/entitlements.json without Cloud Build
+    fireEvent.click(screen.getByRole('button', { name: 'Update Groups in GCS' }));
+
+    await waitFor(() => {
+      expect(uploadSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(createBuildSpy).not.toHaveBeenCalled();
+    expect(uploadSpy.mock.calls[0][1]).toBe('config/entitlements.json');
+
+    const uploadedConfigFile = uploadSpy.mock.calls[0][2] as File;
+    const uploadedText = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(uploadedConfigFile);
+    });
+    const uploadedJson = JSON.parse(uploadedText);
+    expect(uploadedJson.projects['my-project-123']).toEqual([
+      {
+        subscription_tier: 'internal_gemini_ent_plus',
+        location: 'us',
+        groups: ['us-group@example.com'],
+      },
+      {
+        subscription_tier: 'internal_gemini_ent_plus',
+        location: 'global',
+        groups: ['updated-group@example.com'],
+      },
+    ]);
+    expect(uploadedJson.projects['180054373655']).toEqual(uploadedJson.projects['my-project-123']);
+    expect(onConfigSaved).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('parses structured GROUP_LICENSING_REPORT_JSON log lines and isolates the latest run from older runs', () => {
+    const structuredReport = {
+      status: 'success',
+      httpStatus: 200,
+      jobType: 'adder',
+      projectId: 'my-proj',
+      location: 'global',
+      subscriptionTier: 'gemini-ent-std',
+      durationSeconds: 3.42,
+      message: 'Job adder completed.',
+      summary: {
+        job: 'adder',
+        dryRun: false,
+        groups: 2,
+        groupMemberCounts: { 'eng@example.com': 120, 'pm@example.com': 30 },
+        entitledUsers: 145,
+        alreadyCorrect: 140,
+        skippedUnmanaged: 2,
+        skippedUnmanagedSample: ['exec1@example.com', 'exec2@example.com'],
+        plannedAssignments: 3,
+        assignedUsersSample: ['new1@example.com', 'new2@example.com', 'new3@example.com'],
+        write: { chunks: 1, submitted: 3, succeeded: 3, failed: 0, unverifiedChunks: 0 },
+        verification: { missingAssignments: 0, sample: [] },
+        warnings: [],
+      },
+    };
+
+    // Entries ordered newest-first as returned by Cloud Logging
+    const entries = [
+      {
+        timestamp: '2026-04-01T12:00:04Z',
+        httpRequest: { status: 200, latency: '3.420s' },
+      },
+      {
+        timestamp: '2026-04-01T12:00:03Z',
+        textPayload: `GROUP_LICENSING_REPORT_JSON: ${JSON.stringify(structuredReport)}`,
+      },
+      {
+        timestamp: '2026-04-01T12:00:02Z',
+        textPayload: 'Applying 3 license assignments (140 already up to date)...',
+      },
+      {
+        timestamp: '2026-04-01T12:00:00Z',
+        textPayload: 'Running Joiner workflow...',
+      },
+      // Older run that should be excluded from rawLogs
+      {
+        timestamp: '2026-04-01T06:00:01Z',
+        textPayload: 'FATAL ERROR: Old failure from 6 hours ago',
+      },
+    ];
+
+    const { report, isComplete } = api.parseGroupLicensingRunLogs(entries, {
+      serviceId: 'group-licensing-adder-global',
+      serviceName: 'projects/my-proj/locations/us-central1/services/group-licensing-adder-global',
+    });
+
+    expect(isComplete).toBe(true);
+    expect(report).not.toBeNull();
+    expect(report?.source).toBe('structured_json');
+    expect(report?.status).toBe('success');
+    expect(report?.httpStatus).toBe(200);
+    expect(report?.durationSeconds).toBe(3.42);
+    expect(report?.summary.groups).toBe(2);
+    expect(report?.summary.entitledUsers).toBe(145);
+    expect(report?.summary.plannedAssignments).toBe(3);
+    expect(report?.summary.alreadyCorrect).toBe(140);
+    expect(report?.summary.assignedUsersSample).toEqual([
+      'new1@example.com',
+      'new2@example.com',
+      'new3@example.com',
+    ]);
+    expect(report?.rawLogs).toEqual([
+      'Running Joiner workflow...',
+      'Applying 3 license assignments (140 already up to date)...',
+    ]);
+  });
+
+  it('parses legacy stdout logs and malformed report JSON via Regex Pattern Matching fallback', () => {
+    const entries = [
+      {
+        timestamp: '2026-04-01T13:00:05Z',
+        httpRequest: { status: 200, latency: '1.85s' },
+      },
+      {
+        timestamp: '2026-04-01T13:00:04Z',
+        textPayload: 'GROUP_LICENSING_REPORT_JSON: {malformed-json',
+      },
+      {
+        timestamp: '2026-04-01T13:00:03Z',
+        textPayload: 'Applying 2 license revocations...',
+      },
+      {
+        timestamp: '2026-04-01T13:00:02Z',
+        textPayload:
+          'User bob@example.com is no longer entitled. Revoking license.\nUser carol@example.com is no longer entitled. Revoking license.',
+      },
+      {
+        timestamp: '2026-04-01T13:00:01Z',
+        textPayload: 'Resolved 18 user members (from 20 total entries) in 1 page(s).',
+      },
+      {
+        timestamp: '2026-04-01T13:00:00Z',
+        textPayload: 'Resolving entitled members for group: Contractors@Example.com',
+      },
+      {
+        timestamp: '2026-04-01T12:59:59Z',
+        textPayload: 'Running Garbage Collection workflow...',
+      },
+    ];
+
+    const { report, isComplete } = api.parseGroupLicensingRunLogs(entries, {
+      serviceId: 'group-licensing-cleanup-global',
+      serviceName: 'projects/my-proj/locations/us-central1/services/group-licensing-cleanup-global',
+    });
+
+    expect(isComplete).toBe(true);
+    expect(report?.source).toBe('parsed_stdout');
+    expect(report?.status).toBe('success');
+    expect(report?.jobType).toBe('cleanup');
+    expect(report?.durationSeconds).toBe(1.85);
+    expect(report?.summary.groupMemberCounts).toEqual({ 'contractors@example.com': 18 });
+    expect(report?.summary.plannedRevocations).toBe(2);
+    expect(report?.summary.revokedUsersSample).toEqual(['bob@example.com', 'carol@example.com']);
+    expect(report?.rawLogs.some((l) => l.startsWith('[Malformed report JSON:'))).toBe(true);
+  });
+
+  it('populates activeReport after manual run and renders the post-run report in GroupAssignmentsTab', async () => {
+    vi.spyOn(api, 'ensureCloudRunInvokerRole').mockResolvedValue(undefined);
+    vi.spyOn(api, 'triggerCloudRunServiceJob').mockResolvedValue({
+      name: 'projects/my-proj/locations/us-central1/jobs/trigger-group-licensing-cleanup-global',
+    });
+    const mockReport = {
+      serviceId: 'group-licensing-cleanup-global',
+      serviceName: 'projects/my-proj/locations/us-central1/services/group-licensing-cleanup-global',
+      jobType: 'cleanup',
+      status: 'aborted' as const,
+      httpStatus: 412,
+      timestamp: '2026-04-01T14:00:00Z',
+      durationSeconds: 0.74,
+      location: 'global',
+      subscriptionTier: 'gemini-ent-plus',
+      message: 'Cleanup aborted before any changes: Configured group(s) returned 0 members: empty@example.com.',
+      summary: {
+        job: 'cleanup',
+        groups: 1,
+        groupMemberCounts: { 'empty@example.com': 0 },
+        entitledUsers: 0,
+        managedLicenses: 250,
+        plannedRevocations: 0,
+        revocationLimit: 50,
+        warnings: ['Group empty@example.com returned 0 members'],
+      },
+      rawLogs: [
+        'Running Garbage Collection workflow...',
+        'SAFETY GUARD - no changes were made: Configured group(s) returned 0 members: empty@example.com.',
+      ],
+      source: 'structured_json' as const,
+    };
+    const fetchReportSpy = vi
+      .spyOn(api, 'fetchGroupLicensingRunReport')
+      .mockResolvedValue(mockReport);
+
+    const { result } = renderHook(() =>
+      useGroupLicensing('180054373655', 'global', 'user_licenses'),
+    );
+
+    const cleanupService: CloudRunServiceItem = {
+      name: 'projects/my-proj/locations/us-central1/services/group-licensing-cleanup-global',
+      uri: 'https://group-licensing-cleanup-global-abc123-uc.a.run.app',
+      labels: {
+        'ge-region': 'global',
+        'ge-sku': 'gemini-ent-plus',
+        'job-type': 'cleanup',
+      },
+    };
+
+    await act(async () => {
+      await result.current.handleRunService(cleanupService);
+    });
+
+    expect(fetchReportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 'my-proj',
+        serviceId: 'group-licensing-cleanup-global',
+        waitForCompletion: true,
+      }),
+    );
+    expect(result.current.activeReport).toEqual(mockReport);
+    expect(toastMock.warning).toHaveBeenCalledWith(
+      expect.stringContaining('was aborted by safety guard'),
+    );
+
+    const onCloseReport = vi.fn();
+    render(
+      <GroupAssignmentsTab
+        isServicesLoading={false}
+        servicesError={null}
+        groupServices={[cleanupService]}
+        lastRunTimes={{}}
+        activeReport={result.current.activeReport}
+        onCloseReport={onCloseReport}
+        apiLicenseConfigs={[]}
+        onNewAssignment={vi.fn()}
+        onRunService={vi.fn()}
+        onEditService={vi.fn()}
+        onDeleteService={vi.fn()}
+      />,
+    );
+
+    const reportPanel = screen.getByTestId('group-licensing-run-report');
+    expect(reportPanel.textContent).toContain('SAFETY ABORTED (HTTP 412)');
+    expect(reportPanel.textContent).toContain('Configured group(s) returned 0 members: empty@example.com.');
+    expect(reportPanel.textContent).toContain('250');
+
+    fireEvent.click(screen.getByRole('button', { name: /Show Execution Logs/i }));
+    expect(reportPanel.textContent).toContain('Running Garbage Collection workflow...');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Report' }));
+    expect(onCloseReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats Cloud Scheduler gRPC code -1 as in-flight running (not error) and continues polling until Cloud Run logs arrive', async () => {
+    // 1. Direct unit check on parseGroupLicensingRunLogs: code -1 is in-flight ("running"), NOT an error
+    const inFlightResult = api.parseGroupLicensingRunLogs([], {
+      serviceId: 'group-licensing-adder-global',
+      serviceName: 'projects/my-proj/locations/us-central1/services/group-licensing-adder-global',
+      schedulerStatus: {
+        lastAttemptTime: '2026-11-05T18:05:11Z',
+        status: { code: -1 },
+      },
+    });
+    expect(inFlightResult.isComplete).toBe(false);
+    expect(inFlightResult.report?.status).toBe('running');
+    expect(inFlightResult.report?.message).toContain('currently executing');
+
+    // Positive gRPC codes (e.g. 7 = PERMISSION_DENIED) must still be reported as completed errors
+    const permissionDeniedResult = api.parseGroupLicensingRunLogs([], {
+      serviceId: 'group-licensing-adder-global',
+      serviceName: 'projects/my-proj/locations/us-central1/services/group-licensing-adder-global',
+      schedulerStatus: {
+        lastAttemptTime: '2026-11-05T18:05:11Z',
+        status: { code: 7, message: 'Caller lacks run.routes.invoke' },
+      },
+    });
+    expect(permissionDeniedResult.isComplete).toBe(true);
+    expect(permissionDeniedResult.report?.status).toBe('error');
+    expect(permissionDeniedResult.report?.message).toContain('PERMISSION_DENIED');
+    expect(permissionDeniedResult.report?.message).toContain('Caller lacks run.routes.invoke');
+
+    // 2. Behavioral check on fetchGroupLicensingRunReport: attempt 1 has empty logs while Cloud Run is in flight,
+    //    attempt 2 returns the completed structured report.
+    const structuredReport = {
+      status: 'success',
+      httpStatus: 200,
+      jobType: 'adder',
+      projectId: 'my-proj',
+      location: 'global',
+      subscriptionTier: 'internal_gemini_ent_plus',
+      durationSeconds: 1.92,
+      message: 'Job adder completed.',
+      summary: {
+        job: 'adder',
+        dryRun: false,
+        groups: 1,
+        groupMemberCounts: { 'test2@wdufrin.altostrat.com': 4 },
+        entitledUsers: 4,
+        alreadyCorrect: 3,
+        plannedAssignments: 1,
+        assignedUsersSample: ['alice@wdufrin.altostrat.com'],
+        warnings: [],
+      },
+    };
+    const gapiSpy = vi
+      .spyOn(core, 'gapiRequest')
+      .mockResolvedValueOnce({ entries: [] } as never)
+      .mockResolvedValueOnce({
+        entries: [
+          {
+            timestamp: '2026-11-05T18:05:14Z',
+            httpRequest: { status: 200, latency: '1.920s' },
+          },
+          {
+            timestamp: '2026-11-05T18:05:13Z',
+            textPayload: `GROUP_LICENSING_REPORT_JSON: ${JSON.stringify(structuredReport)}`,
+          },
+        ],
+      } as never);
+
+    const report = await api.fetchGroupLicensingRunReport({
+      projectId: 'my-proj',
+      quotaProjectId: '180054373655',
+      region: 'us-central1',
+      serviceName: 'projects/my-proj/locations/us-central1/services/group-licensing-adder-global',
+      serviceId: 'group-licensing-adder-global',
+      jobId: 'trigger-group-licensing-adder-global',
+      sinceTimestamp: '2026-11-05T18:05:10Z',
+      waitForCompletion: true,
+      maxAttempts: 3,
+      pollIntervalMs: 1,
+    });
+
+    // Only 2 Cloud Logging calls should be made (no premature Cloud Scheduler status call on attempt 1)
+    expect(gapiSpy).toHaveBeenCalledTimes(2);
+    expect(report?.status).toBe('success');
+    expect(report?.summary.groupMemberCounts).toEqual({ 'test2@wdufrin.altostrat.com': 4 });
+    expect(report?.summary.plannedAssignments).toBe(1);
+
+    // 3. Direct check on partial cold-start logs: extracts group inline from "Resolved N user members for <group>"
+    //    and suppresses benign "Warning: userLicenses filter was rejected (400: {" from warnings
+    const partialColdStart = api.parseGroupLicensingRunLogs(
+      [
+        {
+          timestamp: '2026-11-05T18:54:41Z',
+          textPayload:
+            'Warning: userLicenses filter was rejected (400: {\n"error": {\n"code": 400,\n"message": "Invalid filter field: licenseAssignmentState.",\n"status": "INVALID_ARGUMENT"\n}',
+        },
+        {
+          timestamp: '2026-11-05T18:54:40Z',
+          textPayload: 'Resolved 2 user members for test2@wdufrin.altostrat.com (from 3 total directory entries)',
+        },
+        {
+          timestamp: '2026-11-05T18:54:38Z',
+          textPayload: 'Container starting...',
+        },
+      ],
+      {
+        serviceId: 'group-licensing-adder-global',
+        serviceName: 'projects/my-proj/locations/us-central1/services/group-licensing-adder-global',
+      },
+    );
+    expect(partialColdStart.isComplete).toBe(false);
+    expect(partialColdStart.report?.status).toBe('running');
+    expect(partialColdStart.report?.summary.groups).toBe(1);
+    expect(partialColdStart.report?.summary.entitledUsers).toBe(2);
+    expect(partialColdStart.report?.summary.groupMemberCounts).toEqual({
+      'test2@wdufrin.altostrat.com': 2,
+    });
+    expect(partialColdStart.report?.summary.warnings).toEqual([]);
+  });
 });
+
+
 

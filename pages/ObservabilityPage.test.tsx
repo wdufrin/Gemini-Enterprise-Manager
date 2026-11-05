@@ -12,9 +12,29 @@ vi.mock('../services/apiService', () => ({
 }));
 
 vi.mock('../components/dashboard/ObservabilityDashboard', () => ({
-    default: ({ customData }: { customData?: { totalRequests?: number | string } }) => (
+    default: ({
+        customData
+    }: {
+        customData?: {
+            totalRequests?: number | string;
+            p50LatencyMs?: number;
+            p95LatencyMs?: number;
+            agentData?: Array<{ name: string; count: number; avgLatency?: number; p50?: number; p95?: number }>;
+        };
+    }) => (
         <div data-testid="dashboard">
-            Total Requests: {customData?.totalRequests ?? 'Loading...'}
+            <span>Total Requests: {customData?.totalRequests ?? 'Loading...'}</span>
+            {customData?.p50LatencyMs !== undefined && (
+                <span data-testid="summary-p50">P50: {customData.p50LatencyMs}ms</span>
+            )}
+            {customData?.p95LatencyMs !== undefined && (
+                <span data-testid="summary-p95">P95: {customData.p95LatencyMs}ms</span>
+            )}
+            {customData?.agentData?.map((a) => (
+                <span key={a.name} data-testid={`agent-${a.name}`}>
+                    {a.name}:{a.count}:{a.avgLatency ?? 'none'}:{a.p50 ?? 'none'}:{a.p95 ?? 'none'}
+                </span>
+            ))}
         </div>
     )
 }));
@@ -157,4 +177,88 @@ describe('ObservabilityPage', () => {
 
         expect(await screen.findByText(/403 Access Denied: User lacks bigquery\.jobs\.create permission/i)).toBeInTheDocument();
     });
+
+    it('queries trace_latencies across activity and GenAI tables, parses summary & per-agent P50/P95 latency, and ignores malformed latency cells', async () => {
+        vi.mocked(listBigQueryTables).mockResolvedValue({
+            tables: [
+                {
+                    tableReference: {
+                        projectId: 'test-proj',
+                        datasetId: 'my_dataset',
+                        tableId: 'discoveryengine_googleapis_com_gemini_enterprise_user_activity'
+                    },
+                    type: 'TABLE'
+                },
+                {
+                    tableReference: {
+                        projectId: 'test-proj',
+                        datasetId: 'my_dataset',
+                        tableId: 'discoveryengine_googleapis_com_gen_ai_client_inference_operation_details'
+                    },
+                    type: 'TABLE'
+                }
+            ]
+        });
+
+        vi.mocked(runBigQueryQuery).mockResolvedValue({
+            jobComplete: true,
+            rows: [
+                {
+                    f: [
+                        { v: 'summary' },
+                        { v: '120' },
+                        { v: '30' },
+                        { v: '12' },
+                        { v: '1450' },
+                        { v: '4800' },
+                        { v: null }
+                    ]
+                },
+                {
+                    f: [
+                        { v: 'agent' },
+                        { v: 'Cosmere' },
+                        { v: '85' },
+                        { v: 'cosmere_id' },
+                        { v: '1620' },
+                        { v: '1400' },
+                        { v: '4500' }
+                    ]
+                },
+                {
+                    // Adversarial row with non-numeric / null latency values
+                    f: [
+                        { v: 'agent' },
+                        { v: 'SearchAgent' },
+                        { v: '35' },
+                        { v: 'search_id' },
+                        { v: 'NOT_A_NUMBER' },
+                        { v: '' },
+                        { v: null }
+                    ]
+                }
+            ]
+        });
+
+        render(
+            <ToastProvider>
+                <ObservabilityPage projectNumber="123" projectId="test-proj" />
+            </ToastProvider>
+        );
+
+        await waitFor(() => {
+            expect(screen.getByTestId('dashboard')).toHaveTextContent('Total Requests: 120');
+        });
+
+        expect(screen.getByTestId('summary-p50')).toHaveTextContent('P50: 1450ms');
+        expect(screen.getByTestId('summary-p95')).toHaveTextContent('P95: 4800ms');
+        expect(screen.getByTestId('agent-Cosmere')).toHaveTextContent('Cosmere:85:1620:1400:4500');
+        expect(screen.getByTestId('agent-SearchAgent')).toHaveTextContent('SearchAgent:35:none:none:none');
+
+        const executedSql = vi.mocked(runBigQueryQuery).mock.calls[0]?.[1] || '';
+        expect(executedSql).toContain('trace_latencies AS');
+        expect(executedSql).toContain('discoveryengine_googleapis_com_gen_ai_client_inference_operation_details');
+        expect(executedSql).toContain('APPROX_QUANTILES(tl.latency_ms, 100)[OFFSET(95)]');
+    });
 });
+

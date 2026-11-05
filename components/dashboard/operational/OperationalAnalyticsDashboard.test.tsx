@@ -630,5 +630,167 @@ describe('OperationalAnalyticsDashboard', () => {
         expect(screen.queryByRole('button', { name: /Repair All Views/i })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Recreate View/i })).not.toBeInTheDocument();
     });
+
+    it('computes step_latency_ms and trace_duration_ms in enrichTelemetryRowsWithLatency for multi-step traces and rejects malformed or negative timestamps', async () => {
+        const { enrichTelemetryRowsWithLatency } = await import('../../../hooks/useOperationalDashboardState');
+
+        const rawRows = [
+            // Out-of-order steps for trace A (should sort chronologically: 10:00:00 -> 10:00:04 -> 10:00:11)
+            {
+                trace: 'trace-alpha',
+                timestamp: '2026-08-01 10:00:04 UTC',
+                agent_name: 'Cosmere',
+                input_tokens: 1200,
+                output_tokens: 150
+            },
+            {
+                trace: 'trace-alpha',
+                timestamp: '2026-08-01 10:00:00 UTC',
+                agent_name: 'Cosmere',
+                input_tokens: 800,
+                output_tokens: 90
+            },
+            {
+                trace: 'trace-alpha',
+                timestamp: '2026-08-01 10:00:11 UTC',
+                agent_name: 'Cosmere',
+                input_tokens: 2100,
+                output_tokens: 340
+            },
+            // Single-step trace B (no multi-step delta -> null latency rather than fake number)
+            {
+                trace: 'trace-single',
+                timestamp: '2026-08-01 11:00:00 UTC',
+                agent_name: 'Support',
+                input_tokens: 500,
+                output_tokens: 100
+            },
+            // Malformed timestamp in trace C (adversarial input)
+            {
+                trace: 'trace-malformed',
+                timestamp: 'NOT_A_VALID_TIMESTAMP',
+                agent_name: 'Support',
+                input_tokens: 100,
+                output_tokens: 20
+            },
+            // Row that already has BigQuery-computed latency (should preserve server values)
+            {
+                trace: 'trace-bq',
+                timestamp: '2026-08-01 12:00:00 UTC',
+                agent_name: 'Entraid',
+                step_latency_ms: 1850,
+                trace_duration_ms: 4200
+            }
+        ];
+
+        const enriched = enrichTelemetryRowsWithLatency(rawRows);
+        expect(enriched).toHaveLength(6);
+
+        // Row 0 is the 10:00:04 step (step 2 of trace-alpha: 4000ms after 10:00:00, total trace 11000ms)
+        expect(enriched[0].step_index).toBe(2);
+        expect(enriched[0].is_final_step).toBe(false);
+        expect(enriched[0].step_latency_ms).toBe(4000);
+        expect(enriched[0].trace_duration_ms).toBe(11000);
+
+        // Row 1 is the 10:00:00 step (step 1 of trace-alpha: initial step has null step_latency_ms, total trace 11000ms)
+        expect(enriched[1].step_index).toBe(1);
+        expect(enriched[1].is_final_step).toBe(false);
+        expect(enriched[1].step_latency_ms).toBeNull();
+        expect(enriched[1].trace_duration_ms).toBe(11000);
+
+        // Row 2 is the 10:00:11 step (step 3 of trace-alpha: 7000ms after 10:00:04, total trace 11000ms)
+        expect(enriched[2].step_index).toBe(3);
+        expect(enriched[2].is_final_step).toBe(true);
+        expect(enriched[2].step_latency_ms).toBe(7000);
+        expect(enriched[2].trace_duration_ms).toBe(11000);
+
+        // Single-step trace has null step_latency_ms and null trace_duration_ms
+        expect(enriched[3].step_latency_ms).toBeNull();
+        expect(enriched[3].trace_duration_ms).toBeNull();
+
+        // Malformed timestamp does not throw or produce NaN
+        expect(enriched[4].step_latency_ms).toBeNull();
+        expect(enriched[4].trace_duration_ms).toBeNull();
+
+        // Server-computed BigQuery values are preserved
+        expect(enriched[5].step_latency_ms).toBe(1850);
+        expect(enriched[5].trace_duration_ms).toBe(4200);
+    });
+
+    it('renders Trace Latency (P50 / P95) KPI and Inference & Tool-Loop Latency chart in v_gemini_genai_telemetry', async () => {
+        const { OPERATIONAL_VIEWS } = await import('./analyticsData');
+        const telemetryView = OPERATIONAL_VIEWS['v_gemini_genai_telemetry'];
+
+        const ddlAllLogs = telemetryView.getDdl('test-project', 'test_dataset', new Set(['_AllLogs']));
+        expect(ddlAllLogs).toContain('step_latency_ms');
+        expect(ddlAllLogs).toContain('trace_duration_ms');
+        expect(ddlAllLogs).toContain('TIMESTAMP_DIFF');
+
+        const ddlSinkTables = telemetryView.getDdl(
+            'test-project',
+            'test_dataset',
+            new Set(['discoveryengine_googleapis_com_gen_ai_client_inference_operation_details'])
+        );
+        expect(ddlSinkTables).toContain('step_latency_ms');
+        expect(ddlSinkTables).toContain('trace_duration_ms');
+
+        render(
+            <OperationalAnalyticsDashboard
+                projectId="test-project"
+                projectNumber="123456"
+                datasetId="test_dataset"
+                tables={mockTables}
+            />
+        );
+
+        const viewSelect = screen.getByRole('combobox', { name: /Select Operational View/i });
+        fireEvent.change(viewSelect, { target: { value: 'v_gemini_genai_telemetry' } });
+
+        expect(screen.getByText('Trace Latency (P50 / P95)')).toBeInTheDocument();
+        expect(screen.getByText('Inference & Tool-Loop Latency by Agent (ms)')).toBeInTheDocument();
+        expect(screen.getByText('Step Latency (ms)')).toBeInTheDocument();
+        expect(screen.getByText('Trace Duration (ms)')).toBeInTheDocument();
+    });
+
+    it('estimates P50 and P95 percentiles from Cloud Monitoring distributions and handles malformed bucket inputs safely', async () => {
+        const { estimateDistributionPercentile } = await import('../../assistants/AgentEngineMetricsViewer');
+
+        // 1. Explicit buckets: bounds [100, 500, 1000, 2000], counts [0, 50, 40, 10, 0] (total = 100)
+        // P50 (target=50) lands at top of bucket 1 ([100, 500]) -> 500ms
+        // P95 (target=95) lands halfway through bucket 3 ([1000, 2000]) -> 1500ms
+        const explicitDist = {
+            count: '100',
+            mean: 620,
+            bucketOptions: {
+                explicitBuckets: { bounds: [100, 500, 1000, 2000] }
+            },
+            bucketCounts: ['0', '50', '40', '10', '0']
+        };
+        expect(estimateDistributionPercentile(explicitDist, 0.5)).toBe(500);
+        expect(estimateDistributionPercentile(explicitDist, 0.95)).toBe(1500);
+
+        // 2. Linear buckets: offset=100, width=200, numFiniteBuckets=3 -> bounds [100, 300, 500, 700]
+        const linearDist = {
+            count: '10',
+            mean: 350,
+            bucketOptions: {
+                linearBuckets: { numFiniteBuckets: 3, width: 200, offset: 100 }
+            },
+            bucketCounts: ['0', '5', '5', '0', '0']
+        };
+        expect(estimateDistributionPercentile(linearDist, 0.5)).toBe(300);
+        expect(estimateDistributionPercentile(linearDist, 0.9)).toBe(460);
+
+        // 3. Adversarial / empty inputs
+        expect(estimateDistributionPercentile(undefined, 0.95)).toBeNull();
+        expect(estimateDistributionPercentile({ count: '0', bucketCounts: [] }, 0.5)).toBeNull();
+        expect(
+            estimateDistributionPercentile(
+                { count: '0', bucketOptions: { explicitBuckets: { bounds: [100, 200] } }, bucketCounts: ['0', '0', '0'] },
+                0.95
+            )
+        ).toBeNull();
+    });
 });
+
 

@@ -248,6 +248,8 @@ SELECT
   CAST(NULL AS INT64) AS step_index,
   CAST(NULL AS INT64) AS total_steps,
   CAST(NULL AS BOOL) AS is_final_step,
+  CAST(NULL AS INT64) AS step_latency_ms,
+  CAST(NULL AS INT64) AS trace_duration_ms,
   CAST(NULL AS STRING) AS user_prompt,
   CAST(NULL AS STRING) AS model_response,
   CAST(NULL AS STRING) AS tool_calls,

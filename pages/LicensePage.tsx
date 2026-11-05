@@ -88,6 +88,7 @@ const LicensePage: React.FC<LicensePageProps> = ({
         }}
         apiLicenseConfigs={licenseState.apiLicenseConfigs}
         selectedServiceForEdit={licenseState.selectedServiceForEdit}
+        onGroupConfigSaved={() => void licenseState.fetchGroupServices()}
         isBulkConfirmOpen={licenseState.isBulkConfirmOpen}
         onCloseBulkConfirm={() => licenseState.setIsBulkConfirmOpen(false)}
         onConfirmBulkAction={() => {
@@ -280,12 +281,17 @@ const LicensePage: React.FC<LicensePageProps> = ({
           groupServices={licenseState.groupServices}
           lastRunTimes={licenseState.lastRunTimes}
           serviceGroups={licenseState.serviceGroups}
+          runningServices={licenseState.runningServices}
+          serviceReports={licenseState.serviceReports}
+          activeReport={licenseState.activeReport}
           apiLicenseConfigs={licenseState.apiLicenseConfigs}
           onNewAssignment={() => {
             licenseState.setSelectedServiceForEdit(null);
             licenseState.setIsGroupDeploymentModalOpen(true);
           }}
           onRunService={licenseState.handleRunService}
+          onViewReport={licenseState.handleViewServiceReport}
+          onCloseReport={() => licenseState.setActiveReport(null)}
           onEditService={licenseState.handleEditService}
           onDeleteService={(name) => licenseState.setServiceToDelete(name)}
         />

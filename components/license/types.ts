@@ -75,3 +75,63 @@ export interface CloudRunServiceItem {
 
 export type SortKey = 'userPrincipal' | 'licenseAssignmentState' | 'licenseConfig' | 'lastLoginTime';
 export type SortDirection = 'asc' | 'desc';
+
+export interface GroupLicensingWriteSummary {
+  chunks: number;
+  submitted: number;
+  succeeded: number;
+  failed: number;
+  unverifiedChunks: number;
+}
+
+export interface GroupLicensingSeatShortfall {
+  licenseConfig: string;
+  needed: number;
+  available: number;
+  skipped: number;
+  reason: string;
+  sample: string[];
+}
+
+export interface GroupLicensingRunSummary {
+  job: 'adder' | 'cleanup' | string;
+  dryRun?: boolean;
+  groups?: number;
+  groupMemberCounts?: Record<string, number>;
+  entitledUsers?: number;
+  alreadyCorrect?: number;
+  skippedUnmanaged?: number;
+  skippedUnmanagedSample?: string[];
+  plannedAssignments?: number;
+  assignedUsersSample?: string[];
+  managedLicenses?: number;
+  plannedRevocations?: number;
+  revokedUsersSample?: string[];
+  revocationLimit?: number;
+  seatShortfalls?: GroupLicensingSeatShortfall[];
+  write?: GroupLicensingWriteSummary;
+  verification?: {
+    missingAssignments?: number;
+    lingeringRevocations?: number;
+    sample?: string[];
+  };
+  warnings?: string[];
+  durationSeconds?: number;
+}
+
+export interface GroupLicensingRunReport {
+  serviceId: string;
+  serviceName: string;
+  jobType: 'adder' | 'cleanup' | string;
+  status: 'success' | 'aborted' | 'error' | 'running';
+  httpStatus?: number;
+  timestamp: string;
+  durationSeconds?: number;
+  location?: string;
+  subscriptionTier?: string;
+  message: string;
+  summary: GroupLicensingRunSummary;
+  rawLogs: string[];
+  source: 'structured_json' | 'parsed_stdout' | 'scheduler_status';
+}
+

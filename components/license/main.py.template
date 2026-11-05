@@ -1,30 +1,110 @@
 import os
 import json
+import math
+import random
 import time
 import threading
 import traceback
 import urllib.parse
-from datetime import datetime, timezone
+from collections import Counter
 from flask import Flask, request, jsonify
 import google.auth
 from google.auth.transport.requests import AuthorizedSession
 
-print("Container starting...") 
+try:
+    import requests as _requests
+
+    NETWORK_EXCEPTIONS = (
+        _requests.exceptions.ConnectionError,
+        _requests.exceptions.Timeout,
+        _requests.exceptions.ChunkedEncodingError,
+        ConnectionError,
+        TimeoutError,
+    )
+except ImportError:  # requests ships in the container via requirements.txt; it is only absent in bare test interpreters
+    NETWORK_EXCEPTIONS = (ConnectionError, TimeoutError)
+
+print("Container starting...")
 
 app = Flask(__name__)
 
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
-LOCATION = os.environ.get("LOCATION", "global") 
-USER_STORE_ID = os.environ.get("USER_STORE_ID", "default_user_store")
-JOB_TYPE = os.environ.get("JOB_TYPE", "adder") # 'adder' or 'cleanup'
-PROJECT_NUMBER = os.environ.get("PROJECT_NUMBER")
 
-HTTP_TIMEOUT_SECONDS = int(os.environ.get("HTTP_TIMEOUT_SECONDS", "30"))
-MAX_HTTP_RETRIES = int(os.environ.get("MAX_HTTP_RETRIES", "3"))
-RETRY_BASE_DELAY_SECONDS = float(os.environ.get("HTTP_RETRY_BASE_DELAY", "0.5"))
+def _env_int(name, default):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ValueError(f"Environment variable {name} must be an integer, got {raw!r}.") from exc
+
+
+def _env_float(name, default):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ValueError(f"Environment variable {name} must be a number, got {raw!r}.") from exc
+
+
+def _env_bool(name, default):
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw in ("1", "true", "yes"):
+        return True
+    if raw in ("0", "false", "no"):
+        return False
+    raise ValueError(f"Environment variable {name} must be true or false, got {raw!r}.")
+
+
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
+LOCATION = os.environ.get("LOCATION", "global")
+USER_STORE_ID = os.environ.get("USER_STORE_ID", "default_user_store")
+JOB_TYPE = os.environ.get("JOB_TYPE", "adder")  # 'adder' or 'cleanup'
+PROJECT_NUMBER = os.environ.get("PROJECT_NUMBER")
+SUBSCRIPTION_TIER = os.environ.get("SUBSCRIPTION_TIER", "").strip()
+
+# --- HTTP retry policy ---
+HTTP_TIMEOUT_SECONDS = _env_int("HTTP_TIMEOUT_SECONDS", 30)
+MAX_HTTP_RETRIES = _env_int("MAX_HTTP_RETRIES", 6)
+RETRY_BASE_DELAY_SECONDS = _env_float("HTTP_RETRY_BASE_DELAY", 1.0)
+RETRY_MAX_DELAY_SECONDS = _env_float("HTTP_RETRY_MAX_DELAY", 60.0)
 RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
+# The Admin SDK Directory API reports quota and rate limits as HTTP 403 with these reasons.
+RATE_LIMIT_REASONS = {
+    "userRateLimitExceeded",
+    "rateLimitExceeded",
+    "quotaExceeded",
+    "RATE_LIMIT_EXCEEDED",
+    "RESOURCE_EXHAUSTED",
+}
+
+# --- License writes and verification ---
+BATCH_SIZE = _env_int("BATCH_SIZE", 100)
+MAX_INFLIGHT_OPERATIONS = _env_int("MAX_INFLIGHT_OPERATIONS", 5)
+LRO_POLL_INTERVAL_SECONDS = _env_float("LRO_POLL_INTERVAL", 2.0)
+LRO_POLL_MAX_INTERVAL_SECONDS = _env_float("LRO_POLL_MAX_INTERVAL", 15.0)
+LRO_TIMEOUT_SECONDS = _env_int("LRO_TIMEOUT_SECONDS", 900)
+VERIFY_TIMEOUT_SECONDS = _env_int("VERIFY_TIMEOUT_SECONDS", 180)
+VERIFY_MAX_ATTEMPTS = _env_int("VERIFY_MAX_ATTEMPTS", 6)
+# Stop waiting before Cloud Run's request timeout (1800s) so the run ends with a clear error instead of being killed.
+JOB_SOFT_DEADLINE_SECONDS = _env_int("JOB_SOFT_DEADLINE_SECONDS", 1700)
+
+# --- Safety guards ---
+MAX_REVOCATION_PERCENT = _env_float("MAX_REVOCATION_PERCENT", 5.0)
+MIN_REVOCATION_ALLOWANCE = _env_int("MIN_REVOCATION_ALLOWANCE", 50)
+ALLOW_EMPTY_GROUPS = _env_bool("ALLOW_EMPTY_GROUPS", False)
+OVERRIDE_UNMANAGED_ASSIGNMENTS = _env_bool("OVERRIDE_UNMANAGED_ASSIGNMENTS", False)
+DRY_RUN_DEFAULT = _env_bool("DRY_RUN", False)
+
+ASSIGNED_FILTER = "licenseAssignmentState = ASSIGNED"
+NOT_POLLABLE_STATUS_CODES = (400, 403, 404, 405, 501)
 
 _JOB_LOCK = threading.Lock()
+_job_started_at = time.monotonic()
 
 # Precedence Ranking (Highest to Lowest)
 PRECEDENCE = [
@@ -44,26 +124,119 @@ PRECEDENCE = [
     "SUBSCRIPTION_TIER_EDU_EMERGING"
 ]
 
-def _invoke_http(session, method, url, **kwargs):
-    fn = getattr(session, method)
+
+class _JobError(RuntimeError):
+    def __init__(self, message, summary=None):
+        super().__init__(message)
+        self.summary = summary
+
+
+class SafetyGuardError(_JobError):
+    """A safety check refused to apply changes. No license writes were made."""
+
+
+class LicenseSyncError(_JobError):
+    """One or more license changes failed, were skipped for lack of seats, or could not be verified."""
+
+
+def _sleep(seconds):
+    if seconds > 0:
+        time.sleep(seconds)
+
+
+_assigned_filter_supported = True
+
+
+def _start_job_clock():
+    global _job_started_at, _assigned_filter_supported
+    _job_started_at = time.monotonic()
+    _assigned_filter_supported = True
+
+
+def _past_soft_deadline():
+    return time.monotonic() - _job_started_at > JOB_SOFT_DEADLINE_SECONDS
+
+
+def _as_int(value):
+    """Parses int64 values (the REST API serializes them as strings). Returns None when absent or malformed."""
+    if value is None or value == "":
+        return None
     try:
-        return fn(url, timeout=HTTP_TIMEOUT_SECONDS, **kwargs)
-    except TypeError:
-        # Fallback for custom/test session doubles that do not accept a 'timeout' kwarg
-        return fn(url, **kwargs)
+        return int(value)
+    except (TypeError, ValueError):  # malformed counter in an API response; callers treat None as "unknown"
+        return None
+
+
+def _json_or_none(resp):
+    """Returns the parsed JSON body, or None when the body is not JSON (for example an HTML page from a proxy)."""
+    try:
+        return resp.json()
+    except ValueError:  # requests raises a ValueError subclass for non-JSON bodies; callers treat None as "no body"
+        return None
+
+
+def _error_reasons(resp):
+    body = _json_or_none(resp)
+    reasons = set()
+    err = body.get("error") if isinstance(body, dict) else None
+    if isinstance(err, dict):
+        if err.get("status"):
+            reasons.add(str(err["status"]))
+        for key in ("errors", "details"):
+            items = err.get(key)
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict) and item.get("reason"):
+                        reasons.add(str(item["reason"]))
+    return reasons
+
+
+def _is_rate_limited(resp):
+    if resp.status_code == 429:
+        return True
+    return resp.status_code == 403 and bool(_error_reasons(resp) & RATE_LIMIT_REASONS)
+
+
+def _is_retryable(resp):
+    return resp.status_code in RETRYABLE_STATUS_CODES or _is_rate_limited(resp)
+
+
+def _retry_delay(attempt, resp=None):
+    """Exponential backoff with equal jitter, capped at RETRY_MAX_DELAY_SECONDS. Honors a numeric Retry-After header."""
+    base = min(RETRY_MAX_DELAY_SECONDS, RETRY_BASE_DELAY_SECONDS * (2 ** attempt))
+    delay = base / 2 + random.uniform(0, base / 2)
+    headers = getattr(resp, "headers", None) or {}
+    retry_after = str(headers.get("Retry-After", "")).strip()
+    if retry_after.isdigit():
+        delay = max(delay, min(float(retry_after), RETRY_MAX_DELAY_SECONDS))
+    return delay
+
+
+def _invoke_http(session, method, url, **kwargs):
+    return getattr(session, method)(url, timeout=HTTP_TIMEOUT_SECONDS, **kwargs)
+
 
 def request_with_retry(session, method, url, **kwargs):
-    last_resp = None
-    for attempt in range(MAX_HTTP_RETRIES + 1):
-        resp = _invoke_http(session, method, url, **kwargs)
-        last_resp = resp
-        if resp.status_code not in RETRYABLE_STATUS_CODES or attempt == MAX_HTTP_RETRIES:
+    """Retries network errors, HTTP 429/5xx, and rate-limit 403s with exponential backoff. Returns the final response."""
+    attempt = 0
+    while True:
+        try:
+            resp = _invoke_http(session, method, url, **kwargs)
+        except NETWORK_EXCEPTIONS as exc:
+            if attempt >= MAX_HTTP_RETRIES:
+                raise
+            delay = _retry_delay(attempt)
+            print(f"Network error on {method.upper()} {url}: {type(exc).__name__}: {exc}; retrying in {delay:.1f}s (attempt {attempt + 1}/{MAX_HTTP_RETRIES})")
+            _sleep(delay)
+            attempt += 1
+            continue
+        if attempt >= MAX_HTTP_RETRIES or not _is_retryable(resp):
             return resp
-        delay = RETRY_BASE_DELAY_SECONDS * (2 ** attempt)
-        print(f"Transient HTTP {resp.status_code} for {method.upper()} {url}; retrying in {delay:.2f}s (attempt {attempt + 1}/{MAX_HTTP_RETRIES})...")
-        if delay > 0:
-            time.sleep(delay)
-    return last_resp
+        delay = _retry_delay(attempt, resp)
+        print(f"Transient HTTP {resp.status_code} on {method.upper()} {url}; retrying in {delay:.1f}s (attempt {attempt + 1}/{MAX_HTTP_RETRIES})")
+        _sleep(delay)
+        attempt += 1
+
 
 def load_config(session):
     gcs_uri = os.environ.get("CONFIG_GCS_URI")
@@ -82,9 +255,57 @@ def load_config(session):
         raise Exception(f"Failed to read config from GCS: {resp.text}")
     return resp.json()
 
+
+def _sanitize_label(value):
+    cleaned = "".join(ch if (ch.isalnum() or ch in "_-") else "_" for ch in (value or "").strip().lower())[:63]
+    return cleaned or "default"
+
+
+def _entries_for_location(entitlements):
+    matched = []
+    for ent in entitlements or []:
+        ent_location = ent.get("location")
+        if ent_location and ent_location != LOCATION:
+            continue
+        tier = (ent.get("subscription_tier") or SUBSCRIPTION_TIER or "").strip()
+        groups = [g.strip() for g in (ent.get("groups") or []) if isinstance(g, str) and g.strip()]
+        matched.append((tier, groups))
+    return matched
+
+
+def resolve_entitlements(config):
+    """Returns [(tier, [groups])] for the entitlement entries that apply to this project and location."""
+    projects_config = config.get("projects", {}) if isinstance(config, dict) else {}
+    resolved = []
+    if PROJECT_ID and PROJECT_ID in projects_config:
+        resolved = _entries_for_location(projects_config.get(PROJECT_ID))
+    if not resolved and PROJECT_NUMBER and PROJECT_NUMBER in projects_config:
+        resolved = _entries_for_location(projects_config.get(PROJECT_NUMBER))
+    if not resolved and not (PROJECT_ID or PROJECT_NUMBER):
+        for entitlements in projects_config.values():
+            resolved.extend(_entries_for_location(entitlements))
+
+    if SUBSCRIPTION_TIER and resolved:
+        target_lower = SUBSCRIPTION_TIER.lower()
+        target_label = _sanitize_label(SUBSCRIPTION_TIER)
+        tier_matched = [
+            (tier, groups)
+            for tier, groups in resolved
+            if not tier or tier.lower() == target_lower or _sanitize_label(tier) == target_label
+        ]
+        if tier_matched:
+            return tier_matched
+
+    return resolved
+
+
 def list_group_members(session, group_email):
+    """Returns lowercase emails of USER members (including members of nested groups), excluding service accounts."""
     encoded_group = urllib.parse.quote(group_email.strip(), safe='')
-    url = f"https://admin.googleapis.com/admin/directory/v1/groups/{encoded_group}/members?includeDerivedMembership=true"
+    url = (
+        f"https://admin.googleapis.com/admin/directory/v1/groups/{encoded_group}/members"
+        "?includeDerivedMembership=true&maxResults=200"
+    )
     members = []
     next_page_token = None
     while True:
@@ -94,12 +315,16 @@ def list_group_members(session, group_email):
         resp = request_with_retry(session, "get", full_url)
         if resp.status_code != 200:
             print(f"Error listing members for {group_email}: {resp.text}")
+            if _is_rate_limited(resp):
+                raise RuntimeError(
+                    f"Directory API quota/rate limit still exceeded for {group_email} after {MAX_HTTP_RETRIES} retries "
+                    f"({resp.status_code}): {resp.text[:300]}"
+                )
             if resp.status_code in (401, 403):
                 raise PermissionError(f"Directory API permission denied ({resp.status_code}): Ensure Cloud Run Service Account has Domain-Wide Delegation or Groups Reader role to query {group_email}.")
-            raise RuntimeError(f"Unexpected Directory API error ({resp.status_code}): {resp.text}")
-        data = resp.json()
-        page_members = data.get("members", [])
-        members.extend(page_members)
+            raise RuntimeError(f"Unexpected Directory API error for {group_email} ({resp.status_code}): {resp.text[:300]}")
+        data = _json_or_none(resp) or {}
+        members.extend(data.get("members") or [])
         next_page_token = data.get("nextPageToken")
         if not next_page_token:
             break
@@ -110,63 +335,10 @@ def list_group_members(session, group_email):
         and m.get("email")
         and not m["email"].strip().lower().endswith(".gserviceaccount.com")
     ]
-    print(f"Resolved {len(emails)} user members for {group_email} (from {len(members)} total directory entries)")
-    return emails
+    unique_emails = list(dict.fromkeys(emails))
+    print(f"Resolved {len(unique_emails)} user members for {group_email} (from {len(members)} total directory entries)")
+    return unique_emails
 
-def has_member(session, group_email, user_email):
-    encoded_group = urllib.parse.quote(group_email.strip(), safe='')
-    encoded_user = urllib.parse.quote(user_email.strip(), safe='')
-    url = f"https://admin.googleapis.com/admin/directory/v1/groups/{encoded_group}/hasMember/{encoded_user}"
-    resp = request_with_retry(session, "get", url)
-    if resp.status_code == 200:
-        return resp.json().get("isMember", False)
-    elif resp.status_code in (401, 403):
-        raise PermissionError(f"Directory API permission denied ({resp.status_code}): Ensure Cloud Run Service Account has Domain-Wide Delegation to query {group_email}.")
-    elif resp.status_code != 404:
-        raise RuntimeError(f"Unexpected Directory API error ({resp.status_code}): {resp.text}")
-    return False
-
-def batch_update_licenses(session, base_url, parent, updates, update_mask_paths=None, delete_unassigned=None):
-    """Updates licenses in batches of up to 100"""
-    url = f"{base_url}/{parent}:batchUpdateUserLicenses"
-    batch_errors = []
-    
-    # Chunk updates into batches of 100
-    for i in range(0, len(updates), 100):
-        batch = updates[i:i+100]
-        inline_source = {
-            "userLicenses": batch
-        }
-        if update_mask_paths:
-            inline_source["updateMask"] = {"paths": update_mask_paths}
-        payload = {
-            "inlineSource": inline_source
-        }
-        if delete_unassigned is not None:
-            payload["deleteUnassignedUserLicenses"] = delete_unassigned
-        resp = request_with_retry(session, "post", url, json=payload)
-        if resp.status_code not in [200, 201]:
-            err_msg = f"batchUpdateUserLicenses chunk {i // 100 + 1} failed ({resp.status_code}): {resp.text}"
-            print(err_msg)
-            batch_errors.append(err_msg)
-            continue
-
-        # Check Long-Running Operation / response body for embedded error object
-        try:
-            body = resp.json()
-        except ValueError:
-            body = None
-        if isinstance(body, dict) and body.get("error"):
-            err_detail = body["error"]
-            err_msg = f"batchUpdateUserLicenses chunk {i // 100 + 1} returned LRO error: {json.dumps(err_detail)}"
-            print(err_msg)
-            batch_errors.append(err_msg)
-            continue
-
-        print(f"Successfully updated batch of {len(batch)} users.")
-
-    if batch_errors:
-        raise RuntimeError("; ".join(batch_errors))
 
 def get_highest_tier(tiers):
     valid_tiers = [t for t in tiers if t]
@@ -178,9 +350,10 @@ def get_highest_tier(tiers):
     # Fallback for custom/API LicenseConfig resource IDs not in hardcoded PRECEDENCE
     return sorted(valid_tiers)[0]
 
-def list_all_user_licenses(session, base_url, parent):
-    url = f"{base_url}/{parent}/userLicenses?pageSize=1000"
-    licensed_users = []
+
+def _list_user_license_pages(session, url):
+    """Returns (records, None) on success or (None, failed_response)."""
+    records = []
     next_page_token = None
     while True:
         full_url = url
@@ -188,169 +361,530 @@ def list_all_user_licenses(session, base_url, parent):
             full_url += f"&pageToken={urllib.parse.quote(next_page_token, safe='')}"
         resp = request_with_retry(session, "get", full_url)
         if resp.status_code != 200:
-            print(f"Failed to list user licenses: {resp.text}")
-            raise RuntimeError(f"Failed to list user licenses ({resp.status_code}): {resp.text}")
-        data = resp.json()
-        licensed_users.extend(data.get("userLicenses", []))
+            return None, resp
+        data = _json_or_none(resp) or {}
+        records.extend(data.get("userLicenses") or [])
         next_page_token = data.get("nextPageToken")
         if not next_page_token:
-            break
-    return licensed_users
+            return records, None
 
-def run_adder(session, base_url, parent, config):
-    print("Running Joiner workflow...")
-    projects_config = config.get("projects", {})
-    valid_project_keys = {k for k in (PROJECT_ID, PROJECT_NUMBER) if k}
-    
-    # Map user -> set of eligible tiers
+
+def list_all_user_licenses(session, base_url, parent, assigned_only=False):
+    """Lists user licenses (pageSize=1000). With assigned_only, asks the server for ASSIGNED records only and also
+    filters client-side, so users who never held a license (NO_LICENSE_ATTEMPTED_LOGIN, BLOCKED) are never returned."""
+    global _assigned_filter_supported
+    url = f"{base_url}/{parent}/userLicenses?pageSize=1000"
+    if assigned_only and _assigned_filter_supported:
+        filtered_url = f"{url}&filter={urllib.parse.quote(ASSIGNED_FILTER, safe='')}"
+        records, failed = _list_user_license_pages(session, filtered_url)
+        if failed is None:
+            return [r for r in records if r.get("licenseAssignmentState") == "ASSIGNED"]
+        if failed.status_code != 400:
+            raise RuntimeError(f"Failed to list user licenses ({failed.status_code}): {failed.text}")
+        _assigned_filter_supported = False
+        compact_err = " ".join((failed.text or "").split())[:160]
+        print(
+            f"Note: userLicenses server-side filter was rejected (400: {compact_err}); "
+            "falling back to an unfiltered listing with client-side ASSIGNED filter.",
+            flush=True,
+        )
+    records, failed = _list_user_license_pages(session, url)
+    if failed is not None:
+        raise RuntimeError(f"Failed to list user licenses ({failed.status_code}): {failed.text}")
+    if assigned_only:
+        return [r for r in records if r.get("licenseAssignmentState") == "ASSIGNED"]
+    return records
+
+
+def _shortfall(config_id, reason, needed, available, skipped_updates):
+    return {
+        "licenseConfig": config_id,
+        "reason": reason,
+        "needed": needed,
+        "available": available,
+        "skipped": len(skipped_updates),
+        "sample": [u["userPrincipal"] for u in skipped_updates[:5]],
+    }
+
+
+def _apply_seat_limits(session, base_url, parent, planned, assigned_records, summary):
+    """Trims planned assignments to the seats still available on each target license config.
+
+    Seats in use come from licenseConfigsUsageStats (or the ASSIGNED listing, whichever is higher); purchased seats
+    come from licenseConfigs.get. Users are kept in sorted order so the same users win seats on every run. Seats freed
+    by users moving off a config in this same run are not counted; the next run can use them.
+    Returns (allowed_updates, shortfalls).
+    """
+    if not planned:
+        return [], []
+    by_config = {}
+    for update in planned:
+        by_config.setdefault(update["licenseConfig"], []).append(update)
+
+    used_from_listing = Counter(
+        (ul.get("licenseConfig") or "").split("/")[-1] for ul in assigned_records if ul.get("licenseConfig")
+    )
+    used_from_stats = {}
+    resp = request_with_retry(session, "get", f"{base_url}/{parent}/licenseConfigsUsageStats")
+    if resp.status_code == 200:
+        for stat in (_json_or_none(resp) or {}).get("licenseConfigUsageStats") or []:
+            config_id = str(stat.get("licenseConfig") or "").split("/")[-1]
+            used = _as_int(stat.get("usedLicenseCount"))
+            if config_id and used is not None:
+                used_from_stats[config_id] = used
+    else:
+        summary["warnings"].append(
+            f"licenseConfigsUsageStats unavailable (HTTP {resp.status_code}); seats in use were counted from the user license listing."
+        )
+
+    allowed, shortfalls = [], []
+    for config_name in sorted(by_config):
+        config_id = config_name.split("/")[-1]
+        updates = sorted(by_config[config_name], key=lambda u: u["userPrincipal"])
+        resp = request_with_retry(session, "get", f"{base_url}/{config_name}")
+        if resp.status_code != 200:
+            summary["warnings"].append(
+                f"Could not read license config {config_id} (HTTP {resp.status_code}); seat pre-check skipped for {len(updates)} assignment(s)."
+            )
+            allowed.extend(updates)
+            continue
+        license_config = _json_or_none(resp) or {}
+        state = license_config.get("state")
+        if state and state != "ACTIVE":
+            shortfalls.append(_shortfall(config_id, f"license config state is {state}", len(updates), 0, updates))
+            continue
+        purchased = _as_int(license_config.get("licenseCount"))
+        if purchased is None:
+            summary["warnings"].append(
+                f"License config {config_id} reports no licenseCount; seat pre-check skipped for {len(updates)} assignment(s)."
+            )
+            allowed.extend(updates)
+            continue
+        in_use = max(used_from_stats.get(config_id, 0), used_from_listing.get(config_id, 0))
+        available = max(0, purchased - in_use)
+        if len(updates) > available:
+            shortfalls.append(
+                _shortfall(config_id, f"{purchased} purchased, {in_use} in use", len(updates), available, updates[available:])
+            )
+            updates = updates[:available]
+        allowed.extend(updates)
+    return allowed, shortfalls
+
+
+def _record_finished_operation(chunk_no, op, size, result):
+    if op.get("error"):
+        result["errors"].append(f"batchUpdateUserLicenses chunk {chunk_no} returned LRO error: {json.dumps(op['error'])[:500]}")
+        result["failed"] += size
+        return
+    metadata = op.get("metadata") or {}
+    response = op.get("response") or {}
+    error_samples = response.get("errorSamples") or []
+    failure_count = _as_int(metadata.get("failureCount"))
+    if failure_count is None:
+        failure_count = len(error_samples)
+    success_count = _as_int(metadata.get("successCount"))
+    if success_count is None:
+        success_count = max(0, size - failure_count)
+    result["succeeded"] += success_count
+    result["failed"] += failure_count
+    if failure_count > 0 or error_samples:
+        samples = "; ".join(
+            str(s.get("message", s) if isinstance(s, dict) else s)[:200] for s in error_samples[:3]
+        )
+        result["errors"].append(
+            f"batchUpdateUserLicenses chunk {chunk_no}: {failure_count} of {size} user license update(s) failed. "
+            f"Error samples: {samples or 'none returned'}"
+        )
+
+
+def _poll_pending_operations(session, base_url, pending, result):
+    """Polls each pending operation once and sleeps (with backoff) when none finished. Mutates pending and result."""
+    finished_any = False
+    for op in list(pending):
+        if _past_soft_deadline():
+            result["errors"].append(
+                f"Stopped waiting for chunk {op['chunk']} ({op['name']}) at the {JOB_SOFT_DEADLINE_SECONDS}s soft deadline; "
+                "it may still complete server-side and the next run will reconcile."
+            )
+            pending.remove(op)
+            finished_any = True
+            continue
+        resp = request_with_retry(session, "get", f"{base_url}/{op['name']}")
+        if resp.status_code in NOT_POLLABLE_STATUS_CODES:
+            hint = " (grant discoveryengine.operations.get to poll it)" if resp.status_code == 403 else ""
+            print(f"Warning: operation {op['name']} is not pollable (HTTP {resp.status_code}){hint}; relying on end-state verification.")
+            result["unverifiedChunks"] += 1
+            pending.remove(op)
+            finished_any = True
+            continue
+        if resp.status_code != 200:
+            result["errors"].append(f"Polling chunk {op['chunk']} operation failed ({resp.status_code}): {resp.text[:300]}")
+            pending.remove(op)
+            finished_any = True
+            continue
+        body = _json_or_none(resp) or {}
+        if body.get("done"):
+            _record_finished_operation(op["chunk"], body, op["size"], result)
+            pending.remove(op)
+            finished_any = True
+        elif time.monotonic() - op["started"] > LRO_TIMEOUT_SECONDS:
+            result["errors"].append(f"Chunk {op['chunk']} operation did not finish within {LRO_TIMEOUT_SECONDS}s ({op['name']}).")
+            pending.remove(op)
+            finished_any = True
+    if pending and not finished_any:
+        _sleep(pending[0]["interval"])
+        for op in pending:
+            op["interval"] = min(max(op["interval"] * 1.5, LRO_POLL_INTERVAL_SECONDS), LRO_POLL_MAX_INTERVAL_SECONDS)
+
+
+def _submit_license_batches(session, base_url, parent, updates, update_mask_paths=None, delete_unassigned=None):
+    """Submits updates in chunks of BATCH_SIZE (at most MAX_INFLIGHT_OPERATIONS unfinished at a time) and waits for
+    each long-running operation. Returns a result dict; failures are collected in result["errors"]."""
+    url = f"{base_url}/{parent}:batchUpdateUserLicenses"
+    result = {"chunks": 0, "submitted": 0, "succeeded": 0, "failed": 0, "unverifiedChunks": 0, "errors": []}
+    pending = []
+    size = max(1, BATCH_SIZE)
+    for start in range(0, len(updates), size):
+        chunk_no = start // size + 1
+        batch = updates[start:start + size]
+        while len(pending) >= max(1, MAX_INFLIGHT_OPERATIONS):
+            _poll_pending_operations(session, base_url, pending, result)
+        inline_source = {"userLicenses": batch}
+        if update_mask_paths:
+            inline_source["updateMask"] = {"paths": update_mask_paths}
+        payload = {"inlineSource": inline_source}
+        if delete_unassigned is not None:
+            payload["deleteUnassignedUserLicenses"] = delete_unassigned
+        resp = request_with_retry(session, "post", url, json=payload)
+        result["chunks"] += 1
+        if resp.status_code not in (200, 201):
+            result["errors"].append(f"batchUpdateUserLicenses chunk {chunk_no} failed ({resp.status_code}): {resp.text[:500]}")
+            result["failed"] += len(batch)
+            continue
+        result["submitted"] += len(batch)
+        op = _json_or_none(resp)
+        op = op if isinstance(op, dict) else {}
+        if op.get("done") or op.get("error"):
+            _record_finished_operation(chunk_no, op, len(batch), result)
+        elif op.get("name"):
+            pending.append({
+                "chunk": chunk_no,
+                "name": op["name"],
+                "size": len(batch),
+                "started": time.monotonic(),
+                "interval": LRO_POLL_INTERVAL_SECONDS,
+            })
+        else:
+            result["unverifiedChunks"] += 1
+            print(f"Warning: chunk {chunk_no} returned no operation name; relying on end-state verification.")
+    while pending:
+        _poll_pending_operations(session, base_url, pending, result)
+    print(
+        f"License writes: {result['submitted']} submitted in {result['chunks']} chunk(s); "
+        f"{result['succeeded']} confirmed, {result['failed']} failed, "
+        f"{result['unverifiedChunks']} chunk(s) left to end-state verification."
+    )
+    return result
+
+
+def _raise_if_problems(summary, write_errors, shortfalls, missing=(), lingering=()):
+    problems = list(write_errors)
+    for s in shortfalls:
+        problems.append(
+            f"Seat shortfall on {s['licenseConfig']} ({s['reason']}): needed {s['needed']}, available {s['available']}; "
+            f"{s['skipped']} user(s) left unlicensed (e.g. {', '.join(s['sample'])})"
+        )
+    if missing:
+        problems.append(
+            f"{len(missing)} assignment(s) not visible after the verification window; they may still be processing "
+            f"and the next run will retry any that did not apply (e.g. {', '.join(missing[:5])})"
+        )
+    if lingering:
+        problems.append(
+            f"{len(lingering)} revocation(s) not visible after the verification window (e.g. {', '.join(lingering[:5])})"
+        )
+    if problems:
+        more = f" (+{len(problems) - 20} more)" if len(problems) > 20 else ""
+        raise LicenseSyncError("; ".join(problems[:20]) + more, summary=summary)
+
+
+def batch_update_licenses(session, base_url, parent, updates, update_mask_paths=None, delete_unassigned=None):
+    """Submits updates and waits for the resulting operations. Raises LicenseSyncError if any chunk failed."""
+    result = _submit_license_batches(session, base_url, parent, updates, update_mask_paths, delete_unassigned)
+    if result["errors"]:
+        _raise_if_problems({"write": {k: v for k, v in result.items() if k != "errors"}}, result["errors"], [])
+    return result
+
+
+def verify_license_state(session, base_url, parent, expected_assignments, expected_revocations):
+    """Re-reads ASSIGNED licenses until the planned changes are visible, VERIFY_MAX_ATTEMPTS reads were made, or
+    VERIFY_TIMEOUT_SECONDS elapsed. Returns (missing_assignments, lingering_revocations) as sorted lists."""
+    if not expected_assignments and not expected_revocations:
+        return [], []
+    deadline = time.monotonic() + max(0, VERIFY_TIMEOUT_SECONDS)
+    delay = LRO_POLL_INTERVAL_SECONDS
+    attempt = 0
+    while True:
+        attempt += 1
+        current = {}
+        for ul in list_all_user_licenses(session, base_url, parent, assigned_only=True):
+            principal = (ul.get("userPrincipal") or "").strip().lower()
+            if principal:
+                current[principal] = (ul.get("licenseConfig") or "").split("/")[-1]
+        missing = sorted(p for p, config_id in expected_assignments.items() if current.get(p) != config_id)
+        lingering = sorted(p for p in expected_revocations if p in current)
+        if not missing and not lingering:
+            return [], []
+        if attempt >= max(1, VERIFY_MAX_ATTEMPTS) or time.monotonic() >= deadline or _past_soft_deadline():
+            print(f"Verification after {attempt} read(s): {len(missing)} assignment(s) and {len(lingering)} revocation(s) not visible.")
+            return missing, lingering
+        print(f"Verification read {attempt}: waiting for {len(missing) + len(lingering)} change(s) to become visible...")
+        _sleep(delay)
+        delay = min(max(delay * 2, 1.0), LRO_POLL_MAX_INTERVAL_SECONDS)
+
+
+def _write_summary(result):
+    return {k: v for k, v in result.items() if k != "errors"}
+
+
+def run_adder(session, base_url, parent, config, dry_run=False):
+    _start_job_clock()
+    print(f"Running Joiner workflow{' (DRY RUN)' if dry_run else ''}...")
+    summary = {"job": "adder", "dryRun": dry_run, "warnings": []}
+
+    groups_by_tier = {}
+    for tier, groups in resolve_entitlements(config):
+        if tier:
+            groups_by_tier.setdefault(tier, set()).update(g.lower() for g in groups)
+    managed_tiers = set(groups_by_tier)
+
+    # Each group is listed once even if several entries (or both project ID and number keys) reference it.
+    members_by_group = {}
+    for group in sorted({g for gs in groups_by_tier.values() for g in gs}):
+        print(f"Listing members for group: {group}")
+        members_by_group[group] = list_group_members(session, group)
+
     user_entitlements = {}
-    
-    for proj_id, entitlements in projects_config.items():
-        if valid_project_keys and proj_id not in valid_project_keys:
-            continue # Sharding or project filtering
-            
-        for ent in entitlements:
-            ent_location = ent.get("location")
-            if ent_location and ent_location != LOCATION:
-                continue
-            tier = ent.get("subscription_tier")
-            if not tier:
-                continue
-            groups = ent.get("groups", [])
-            
-            for group in groups:
-                if not group:
-                    continue
-                print(f"Listing members for group: {group}")
-                members = list_group_members(session, group)
-                for member in members:
-                    if member not in user_entitlements:
-                        user_entitlements[member] = set()
-                    user_entitlements[member].add(tier)
-
+    for tier, groups in groups_by_tier.items():
+        for group in groups:
+            for member in members_by_group.get(group, []):
+                user_entitlements.setdefault(member, set()).add(tier)
+    summary["groups"] = len(members_by_group)
+    summary["groupMemberCounts"] = {g: len(members_by_group[g]) for g in sorted(members_by_group)}
+    summary["entitledUsers"] = len(user_entitlements)
     if not user_entitlements:
         print("No assignments to make.")
-        return
+        return summary
 
-    # Pre-fetch existing assigned licenses to skip redundant updates
-    already_assigned_tiers = {}
-    try:
-        existing_licenses = list_all_user_licenses(session, base_url, parent)
-        for ul in existing_licenses:
-            principal = (ul.get("userPrincipal") or "").strip().lower()
-            state = ul.get("licenseAssignmentState")
-            cfg_path = ul.get("licenseConfig") or ""
-            if principal and state == "ASSIGNED" and cfg_path:
-                already_assigned_tiers[principal] = cfg_path.split("/")[-1]
-    except Exception as e:
-        print(f"Warning: Could not pre-fetch existing userLicenses for diffing ({e}); proceeding with full assignment batch.")
+    # Required: without the current state we cannot diff, respect manual assignments, or check seats.
+    assigned_records = list_all_user_licenses(session, base_url, parent, assigned_only=True)
+    current_tier = {}
+    for ul in assigned_records:
+        principal = (ul.get("userPrincipal") or "").strip().lower()
+        if principal:
+            current_tier[principal] = (ul.get("licenseConfig") or "").split("/")[-1]
 
-    updates = []
     target_project = PROJECT_NUMBER or PROJECT_ID
-    for user, tiers in user_entitlements.items():
-        highest_tier = get_highest_tier(tiers)
-        if highest_tier:
-            if already_assigned_tiers.get(user.strip().lower()) == highest_tier:
-                continue
-            license_config = f"projects/{target_project}/locations/{LOCATION}/licenseConfigs/{highest_tier}"
-            updates.append({
-                "userPrincipal": user,
-                "licenseConfig": license_config
-            })
-            
-    if updates:
-        print(f"Applying {len(updates)} license assignments ({len(user_entitlements) - len(updates)} already up to date)...")
-        batch_update_licenses(
-            session,
-            base_url,
-            parent,
-            updates,
-            update_mask_paths=["userPrincipal", "licenseConfig"],
-        )
-    else:
-        print("No assignments to make.")
-
-def run_cleanup(session, base_url, parent, config):
-    print("Running Garbage Collection workflow...")
-    # 1. Resolve entitled groups and managed tiers for this project & location FIRST
-    projects_config = config.get("projects", {})
-    valid_project_keys = {k for k in (PROJECT_ID, PROJECT_NUMBER) if k}
-    entitled_groups = []
-    managed_tiers = set()
-    for proj_id, entitlements in projects_config.items():
-        if valid_project_keys and proj_id not in valid_project_keys:
+    planned, skipped_unmanaged, already_correct = [], [], 0
+    for user in sorted(user_entitlements):
+        highest_tier = get_highest_tier(user_entitlements[user])
+        if not highest_tier:
             continue
-        for ent in entitlements:
-            ent_location = ent.get("location")
-            if ent_location and ent_location != LOCATION:
-                continue
-            tier = ent.get("subscription_tier")
-            if tier:
-                managed_tiers.add(tier)
-            for g in ent.get("groups", []):
-                if g and g not in entitled_groups:
-                    entitled_groups.append(g)
+        current = current_tier.get(user)
+        if current == highest_tier:
+            already_correct += 1
+            continue
+        if current and current not in managed_tiers and not OVERRIDE_UNMANAGED_ASSIGNMENTS:
+            skipped_unmanaged.append(user)
+            continue
+        planned.append({
+            "userPrincipal": user,
+            "licenseConfig": f"projects/{target_project}/locations/{LOCATION}/licenseConfigs/{highest_tier}",
+        })
+    summary["alreadyCorrect"] = already_correct
+    summary["skippedUnmanaged"] = len(skipped_unmanaged)
+    summary["skippedUnmanagedSample"] = skipped_unmanaged[:50]
+    if skipped_unmanaged:
+        print(
+            f"Leaving {len(skipped_unmanaged)} user(s) on licenses from tiers this configuration does not manage "
+            f"(set OVERRIDE_UNMANAGED_ASSIGNMENTS=true to replace them). Sample: {skipped_unmanaged[:5]}"
+        )
+
+    allowed, shortfalls = _apply_seat_limits(session, base_url, parent, planned, assigned_records, summary)
+    summary["plannedAssignments"] = len(allowed)
+    summary["assignedUsersSample"] = [u["userPrincipal"] for u in allowed[:50]]
+    summary["seatShortfalls"] = shortfalls
+
+    if dry_run:
+        print(f"DRY RUN: would assign {len(allowed)} license(s). Sample: {[u['userPrincipal'] for u in allowed[:10]]}")
+        return summary
+    if not allowed:
+        print("No assignments to make.")
+        _raise_if_problems(summary, [], shortfalls)
+        return summary
+
+    print(f"Applying {len(allowed)} license assignments ({already_correct} already up to date)...", flush=True)
+    # Do not include updateMask when assigning licenses; Discovery Engine only requires updateMask when clearing licenseConfig on revocation.
+    result = _submit_license_batches(
+        session,
+        base_url,
+        parent,
+        allowed,
+    )
+    summary["write"] = _write_summary(result)
+    expected = {u["userPrincipal"].lower(): u["licenseConfig"].split("/")[-1] for u in allowed}
+    missing, _ = verify_license_state(session, base_url, parent, expected, set())
+    summary["verification"] = {"missingAssignments": len(missing), "sample": missing[:10]}
+    _raise_if_problems(summary, result["errors"], shortfalls, missing=missing)
+    return summary
+
+
+def run_cleanup(session, base_url, parent, config, dry_run=False):
+    _start_job_clock()
+    print(f"Running Garbage Collection workflow{' (DRY RUN)' if dry_run else ''}...")
+    summary = {"job": "cleanup", "dryRun": dry_run, "warnings": []}
+
+    # 1. Resolve entitled groups and managed tiers for this project & location FIRST
+    entitled_groups, managed_tiers, seen = [], set(), set()
+    for tier, groups in resolve_entitlements(config):
+        if tier:
+            managed_tiers.add(tier)
+        for g in groups:
+            if g.lower() not in seen:
+                seen.add(g.lower())
+                entitled_groups.append(g)
 
     # Fail closed if no entitled groups are configured to prevent accidental mass revocation
     if not entitled_groups:
-        raise RuntimeError(
+        raise SafetyGuardError(
             f"Cleanup aborted: No entitled groups configured for project {PROJECT_ID}/{PROJECT_NUMBER} in location {LOCATION}. "
-            "Refusing to revoke all licenses."
+            "Refusing to revoke all licenses.",
+            summary=summary,
+        )
+    if not managed_tiers:
+        raise SafetyGuardError(
+            f"Cleanup aborted before any changes: no subscription_tier is configured for project {PROJECT_ID}/{PROJECT_NUMBER} "
+            f"in location {LOCATION}. Refusing to treat every license as managed.",
+            summary=summary,
         )
 
     # 2. Pre-fetch all entitled user members across entitled groups in O(G) calls
-    entitled_users = set()
+    entitled_users, empty_groups, group_member_counts = set(), [], {}
     for group in entitled_groups:
         print(f"Resolving entitled members for group: {group}")
         group_members = list_group_members(session, group)
+        group_member_counts[group.lower()] = len(group_members)
+        if not group_members:
+            empty_groups.append(group)
         entitled_users.update(group_members)
+    summary["groups"] = len(entitled_groups)
+    summary["groupMemberCounts"] = {g: group_member_counts[g] for g in sorted(group_member_counts)}
+    summary["entitledUsers"] = len(entitled_users)
+    if empty_groups:
+        message = f"Configured group(s) returned 0 members: {', '.join(empty_groups)}."
+        if not ALLOW_EMPTY_GROUPS:
+            raise SafetyGuardError(
+                f"Cleanup aborted before any changes: {message} This usually means the group was emptied or its nested "
+                "groups were removed. Fix the group, remove it from entitlements.json, or set ALLOW_EMPTY_GROUPS=true.",
+                summary=summary,
+            )
+        summary["warnings"].append(message)
 
-    # 3. List all licensed users (pageSize=1000)
-    licensed_users = list_all_user_licenses(session, base_url, parent)
-            
+    # 3. List licensed users only (ASSIGNED); users who never held a license are never revoked
+    assigned_records = list_all_user_licenses(session, base_url, parent, assigned_only=True)
+
     # 4. Check entitlement for each user managed by this configuration
-    updates = []
-    for ul in licensed_users:
-        user = ul.get("userPrincipal")
-        state = ul.get("licenseAssignmentState")
-        if not user or state in ("UNASSIGNED", "NO_LICENSE"):
+    managed_count = 0
+    revocations = []
+    for ul in assigned_records:
+        principal = (ul.get("userPrincipal") or "").strip()
+        lowered = principal.lower()
+        if not lowered or lowered.endswith(".gserviceaccount.com"):
             continue
-        if user.strip().lower().endswith(".gserviceaccount.com"):
-            continue
+        ul_tier = (ul.get("licenseConfig") or "").split("/")[-1]
+        if not ul_tier or ul_tier not in managed_tiers:
+            continue  # Only revoke licenses on tiers managed by this group config
+        managed_count += 1
+        if lowered not in entitled_users:
+            revocations.append({"userPrincipal": principal})
 
-        # Only revoke users whose licenseConfig belongs to a tier managed by this group config
-        if managed_tiers:
-            ul_config = ul.get("licenseConfig", "")
-            ul_tier = ul_config.split("/")[-1] if ul_config else ""
-            if ul_tier and ul_tier not in managed_tiers:
-                continue
-        
-        is_entitled = user.strip().lower() in entitled_users
-                
-        if not is_entitled:
-            print(f"User {user} is no longer entitled. Revoking license.")
-            updates.append({
-                "userPrincipal": user
-            })
-            
-    if updates:
-        print(f"Applying {len(updates)} license revocations...")
-        batch_update_licenses(
-            session,
-            base_url,
-            parent,
-            updates,
-            update_mask_paths=["userPrincipal", "licenseConfig"],
-            delete_unassigned=False,
+    revocation_limit = max(MIN_REVOCATION_ALLOWANCE, math.ceil(managed_count * MAX_REVOCATION_PERCENT / 100.0))
+    summary.update({
+        "managedLicenses": managed_count,
+        "plannedRevocations": len(revocations),
+        "revokedUsersSample": [r["userPrincipal"] for r in revocations[:50]],
+        "revocationLimit": revocation_limit,
+    })
+    if len(revocations) > revocation_limit:
+        raise SafetyGuardError(
+            f"Cleanup aborted before any changes: {len(revocations)} revocations exceed the safety limit of {revocation_limit} "
+            f"(max of {MIN_REVOCATION_ALLOWANCE} or {MAX_REVOCATION_PERCENT:g}% of {managed_count} managed licenses). "
+            "Verify group membership; if this is expected, raise MAX_REVOCATION_PERCENT or MIN_REVOCATION_ALLOWANCE "
+            "on the cleanup service and run it again.",
+            summary=summary,
         )
-    else:
+    if dry_run:
+        print(f"DRY RUN: would revoke {len(revocations)} license(s). Sample: {[r['userPrincipal'] for r in revocations[:10]]}")
+        return summary
+    if not revocations:
         print("No revocations to make.")
+        return summary
+
+    # Per-user lines are the audit trail of who lost access; the safety limit above bounds their volume.
+    for r in revocations:
+        print(f"User {r['userPrincipal']} is no longer entitled. Revoking license.")
+    print(f"Applying {len(revocations)} license revocations...")
+    result = _submit_license_batches(
+        session,
+        base_url,
+        parent,
+        revocations,
+        update_mask_paths=["userPrincipal", "licenseConfig"],
+        delete_unassigned=False,
+    )
+    summary["write"] = _write_summary(result)
+    _, lingering = verify_license_state(session, base_url, parent, {}, {r["userPrincipal"].lower() for r in revocations})
+    summary["verification"] = {"lingeringRevocations": len(lingering), "sample": lingering[:10]}
+    _raise_if_problems(summary, result["errors"], [], lingering=lingering)
+    return summary
+
+
+def _read_dry_run_flag():
+    body = request.get_json(silent=True)
+    if isinstance(body, dict) and isinstance(body.get("dryRun"), bool):
+        return body["dryRun"]
+    raw = (request.args.get("dryRun") or "").strip().lower()
+    if raw:
+        return raw in ("1", "true", "yes")
+    return DRY_RUN_DEFAULT
+
+
+def _emit_run_report(status, http_status, message, summary=None, started=None):
+    duration_sec = round(max(0.0, time.monotonic() - started), 2) if started is not None else 0.0
+    summary_payload = dict(summary) if isinstance(summary, dict) else {"job": JOB_TYPE, "warnings": []}
+    summary_payload.setdefault("durationSeconds", duration_sec)
+    report = {
+        "status": status,
+        "httpStatus": http_status,
+        "jobType": JOB_TYPE,
+        "projectId": str(PROJECT_ID or ""),
+        "location": LOCATION,
+        "subscriptionTier": SUBSCRIPTION_TIER,
+        "durationSeconds": duration_sec,
+        "message": message,
+        "summary": summary_payload,
+    }
+    print(f"GROUP_LICENSING_REPORT_JSON: {json.dumps(report, sort_keys=True)}", flush=True)
+    return summary_payload
+
 
 @app.route("/", methods=["POST"])
 def handle_trigger():
     if not _JOB_LOCK.acquire(blocking=False):
         return jsonify({"status": "error", "message": f"Job {JOB_TYPE} is already running."}), 409
+    started = time.monotonic()
     try:
+        dry_run = _read_dry_run_flag()
         scopes = [
             'https://www.googleapis.com/auth/cloud-platform',
             'https://www.googleapis.com/auth/admin.directory.group.member.readonly'
@@ -358,29 +892,42 @@ def handle_trigger():
         credentials, project = google.auth.default(scopes=scopes)
         authed_session = AuthorizedSession(credentials)
         authed_session.headers.update({"X-Goog-User-Project": str(PROJECT_ID)})
-        
+
         config = load_config(authed_session)
-        
+
         if LOCATION not in ("global", "us", "eu"):
             raise ValueError(f"Invalid LOCATION: {LOCATION}")
         v1_base = "https://discoveryengine.googleapis.com/v1"
         if LOCATION != "global":
             v1_base = f"https://{LOCATION}-discoveryengine.googleapis.com/v1"
-            
+
         parent = f"projects/{PROJECT_ID}/locations/{LOCATION}/userStores/{USER_STORE_ID}"
 
         if JOB_TYPE == "adder":
-            run_adder(authed_session, v1_base, parent, config)
+            summary = run_adder(authed_session, v1_base, parent, config, dry_run=dry_run)
         elif JOB_TYPE == "cleanup":
-            run_cleanup(authed_session, v1_base, parent, config)
+            summary = run_cleanup(authed_session, v1_base, parent, config, dry_run=dry_run)
         else:
-            return jsonify({"status": "error", "message": f"Unknown JOB_TYPE: {JOB_TYPE}"}), 400
+            msg = f"Unknown JOB_TYPE: {JOB_TYPE}"
+            _emit_run_report("error", 400, msg, started=started)
+            return jsonify({"status": "error", "message": msg}), 400
 
-        return jsonify({"status": "success", "message": f"Job {JOB_TYPE} completed."}), 200
+        msg = f"Job {JOB_TYPE} completed."
+        summary = _emit_run_report("success", 200, msg, summary=summary, started=started)
+        return jsonify({"status": "success", "message": msg, "summary": summary}), 200
 
+    except SafetyGuardError as e:
+        print(f"SAFETY GUARD - no changes were made: {e}")
+        summary = _emit_run_report("aborted", 412, str(e), summary=e.summary, started=started)
+        return jsonify({"status": "aborted", "message": str(e), "summary": summary}), 412
+    except LicenseSyncError as e:
+        print(f"LICENSE SYNC INCOMPLETE: {e}")
+        summary = _emit_run_report("error", 500, str(e), summary=e.summary, started=started)
+        return jsonify({"status": "error", "message": str(e), "summary": summary}), 500
     except Exception as e:
         print(f"FATAL ERROR: {e}")
         traceback.print_exc()
+        _emit_run_report("error", 500, str(e), started=started)
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         _JOB_LOCK.release()

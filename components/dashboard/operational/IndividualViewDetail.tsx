@@ -27,6 +27,7 @@ import { getViewMetadata } from './analyticsMetadata';
 import { TelemetryAndConnectorPanels } from './view-panels/TelemetryAndConnectorPanels';
 import { ActivityAndMessagePanels } from './view-panels/ActivityAndMessagePanels';
 import { ChoicesAndFeedbackPanels } from './view-panels/ChoicesAndFeedbackPanels';
+import { enrichTelemetryRowsWithLatency } from '../../../hooks/useOperationalDashboardState';
 
 interface Props {
     viewId: string;
@@ -91,6 +92,10 @@ export const IndividualViewDetail: React.FC<Props> = ({
     const actualViewName = installedViewsMap.get(viewId) || viewDef.viewName;
     const viewMeta = getViewMetadata(viewId);
     const targetDataset = datasetId || 'your_dataset';
+    const effectiveData =
+        viewId === 'v_gemini_genai_telemetry'
+            ? enrichTelemetryRowsWithLatency(data)
+            : data;
 
     const renderAnalyticsContent = () => {
         switch (viewId) {
@@ -100,7 +105,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
                 return (
                     <TelemetryAndConnectorPanels
                         viewId={viewId}
-                        data={data}
+                        data={effectiveData}
                         overviewLiveData={overviewLiveData}
                     />
                 );
@@ -315,7 +320,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
                     title={`${viewDef.title} Records`}
                     subtitle="Click any row to inspect full JSON payloads, prompts, responses, and tool arguments."
                     columns={viewDef.columns}
-                    data={data}
+                    data={effectiveData}
                     onRowClick={onRowClick}
                     isLoading={isLoading}
                     isSimulated={!hasLiveSource || brokenViews.has(viewId)}

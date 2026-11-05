@@ -67,6 +67,7 @@ interface LicenseModalsProps {
   onCloseGroupDeploymentModal: () => void;
   apiLicenseConfigs: LicenseConfig[];
   selectedServiceForEdit: GroupLicensingEditConfig | null;
+  onGroupConfigSaved?: () => void;
   // Bulk Destructive Modal
   isBulkConfirmOpen: boolean;
   onCloseBulkConfirm: () => void;
@@ -114,6 +115,7 @@ export const LicenseModals: React.FC<LicenseModalsProps> = ({
   onCloseGroupDeploymentModal,
   apiLicenseConfigs,
   selectedServiceForEdit,
+  onGroupConfigSaved,
   isBulkConfirmOpen,
   onCloseBulkConfirm,
   onConfirmBulkAction,
@@ -210,6 +212,7 @@ export const LicenseModals: React.FC<LicenseModalsProps> = ({
           apiLicenseConfigs={apiLicenseConfigs}
           editConfig={selectedServiceForEdit}
           onBuildTriggered={onBuildTriggered}
+          onConfigSaved={onGroupConfigSaved}
         />
       )}
 

@@ -9,6 +9,7 @@ import {
     YAxis,
     CartesianGrid,
     Tooltip,
+    Legend,
     ResponsiveContainer
 } from 'recharts';
 
@@ -18,12 +19,31 @@ interface AgentEngineMetricsViewerProps {
     filterBy?: 'engine_id' | 'tool_id';
 }
 
+export interface CloudMonitoringDistribution {
+    count?: string | number;
+    mean?: number;
+    sumOfSquaredDeviation?: number;
+    bucketOptions?: {
+        exponentialBuckets?: {
+            numFiniteBuckets?: number;
+            growthFactor?: number;
+            scale?: number;
+        };
+        linearBuckets?: {
+            numFiniteBuckets?: number;
+            width?: number;
+            offset?: number;
+        };
+        explicitBuckets?: {
+            bounds?: number[];
+        };
+    };
+    bucketCounts?: Array<string | number>;
+}
+
 interface DistributionPoint {
     value?: {
-        distributionValue?: {
-            count?: string;
-            mean?: number;
-        };
+        distributionValue?: CloudMonitoringDistribution;
     };
 }
 
@@ -31,6 +51,83 @@ interface TimeSeriesItem {
     resource?: { labels?: Record<string, string> };
     metric?: { labels?: Record<string, string> };
     points?: DistributionPoint[];
+}
+
+/**
+ * Estimates a quantile (e.g. 0.5 for P50, 0.95 for P95) from a Cloud Monitoring Distribution value.
+ * Uses histogram bucket interpolation when bucketOptions + bucketCounts are present,
+ * or falls back to normal approximation / mean when buckets are omitted.
+ */
+export function estimateDistributionPercentile(
+    dist: CloudMonitoringDistribution | undefined,
+    quantile: number
+): number | null {
+    if (!dist) return null;
+    const clampedQ = Math.min(1, Math.max(0, quantile));
+
+    const rawCounts = dist.bucketCounts;
+    const opts = dist.bucketOptions;
+    if (Array.isArray(rawCounts) && rawCounts.length > 0 && opts) {
+        const counts = rawCounts.map((c) => Math.max(0, Number(c) || 0));
+        const totalFromBuckets = counts.reduce((acc, c) => acc + c, 0);
+        if (totalFromBuckets > 0) {
+            let bounds: number[] = [];
+            if (opts.explicitBuckets?.bounds && opts.explicitBuckets.bounds.length > 0) {
+                bounds = opts.explicitBuckets.bounds.map(Number);
+            } else if (opts.linearBuckets) {
+                const n = Math.max(0, Number(opts.linearBuckets.numFiniteBuckets) || 0);
+                const width = Number(opts.linearBuckets.width) || 1;
+                const offset = Number(opts.linearBuckets.offset) || 0;
+                for (let k = 0; k <= n; k++) {
+                    bounds.push(offset + k * width);
+                }
+            } else if (opts.exponentialBuckets) {
+                const n = Math.max(0, Number(opts.exponentialBuckets.numFiniteBuckets) || 0);
+                const growth = Number(opts.exponentialBuckets.growthFactor) || 2;
+                const scale = Number(opts.exponentialBuckets.scale) || 1;
+                for (let k = 0; k <= n; k++) {
+                    bounds.push(scale * Math.pow(growth, k));
+                }
+            }
+
+            if (bounds.length > 0) {
+                const target = clampedQ * totalFromBuckets;
+                let cumulative = 0;
+                for (let i = 0; i < counts.length; i++) {
+                    const bucketCount = counts[i];
+                    if (bucketCount <= 0) continue;
+                    const nextCumulative = cumulative + bucketCount;
+                    if (target <= nextCumulative || i === counts.length - 1) {
+                        const fraction = Math.min(1, Math.max(0, (target - cumulative) / bucketCount));
+                        const lower = i === 0 ? 0 : (bounds[Math.min(i - 1, bounds.length - 1)] ?? 0);
+                        const upper =
+                            i < bounds.length
+                                ? bounds[i]
+                                : lower * 1.5 || (dist.mean ? dist.mean * 1.5 : lower);
+                        return Math.max(0, lower + fraction * Math.max(0, upper - lower));
+                    }
+                    cumulative = nextCumulative;
+                }
+            }
+        }
+    }
+
+    if (typeof dist.mean === 'number' && Number.isFinite(dist.mean) && dist.mean > 0) {
+        const count = Number(dist.count) || 1;
+        if (
+            count > 1 &&
+            typeof dist.sumOfSquaredDeviation === 'number' &&
+            dist.sumOfSquaredDeviation > 0
+        ) {
+            const stdDev = Math.sqrt(dist.sumOfSquaredDeviation / count);
+            // Z-score approximation for common percentiles (P50 = 0, P95 ≈ 1.645)
+            const z = clampedQ >= 0.95 ? 1.645 : clampedQ <= 0.5 ? 0 : (clampedQ - 0.5) * 3.29;
+            return Math.max(0, dist.mean + z * stdDev);
+        }
+        return dist.mean;
+    }
+
+    return null;
 }
 
 const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ config, engineId, filterBy = 'engine_id' }) => {
@@ -77,13 +174,13 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
         fetchMetrics();
     }, [config, engineId, daysAgoToFetch, filterBy]);
 
-    // Parse the TimeSeries data into the 4 chart forms
+    // Parse the TimeSeries data into the chart forms
     const parsedData = useMemo(() => {
         if (!timeSeries || timeSeries.length === 0) return null;
 
         let totalToolCalls = 0;
         let totalErrors = 0;
-        const toolStats = new Map<string, { calls: number, errors: number, means: number[], p95s: number[] }>();
+        const toolStats = new Map<string, { calls: number; errors: number; means: number[]; p50s: number[]; p95s: number[] }>();
 
         // Each timeSeries represents a unique combination of labels (e.g., tool_id + status)
         timeSeries.forEach(series => {
@@ -91,7 +188,7 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
             const status = series.metric?.labels?.status || 'UNKNOWN';
             
             if (!toolStats.has(toolId)) {
-                toolStats.set(toolId, { calls: 0, errors: 0, means: [], p95s: [] });
+                toolStats.set(toolId, { calls: 0, errors: 0, means: [], p50s: [], p95s: [] });
             }
             const stats = toolStats.get(toolId)!;
 
@@ -99,7 +196,7 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                 const dist = point.value?.distributionValue;
                 if (!dist) return;
 
-                const count = parseInt(dist.count || '0', 10);
+                const count = parseInt(String(dist.count || '0'), 10);
                 totalToolCalls += count;
                 stats.calls += count;
 
@@ -111,28 +208,58 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                 if (dist.mean) {
                     stats.means.push(dist.mean);
                 }
+
+                const p50 = estimateDistributionPercentile(dist, 0.5);
+                if (p50 !== null && p50 > 0) {
+                    stats.p50s.push(p50);
+                }
+                const p95 = estimateDistributionPercentile(dist, 0.95);
+                if (p95 !== null && p95 > 0) {
+                    stats.p95s.push(p95);
+                }
             });
         });
 
         // Format for Recharts
         const chartData = Array.from(toolStats.entries()).map(([toolId, stats]) => {
-            const avgMean = stats.means.length > 0 ? stats.means.reduce((a,b) => a+b, 0) / stats.means.length : 0;
+            const avgMean = stats.means.length > 0 ? stats.means.reduce((a, b) => a + b, 0) / stats.means.length : 0;
+            const sortedMeans = [...stats.means].sort((a, b) => a - b);
+            const fallbackP50 = sortedMeans.length > 0 ? sortedMeans[Math.floor(sortedMeans.length * 0.5)] : avgMean;
+            const fallbackP95 = sortedMeans.length > 0 ? sortedMeans[Math.min(sortedMeans.length - 1, Math.floor(sortedMeans.length * 0.95))] : avgMean;
+
+            const p50Latency = stats.p50s.length > 0
+                ? stats.p50s.reduce((a, b) => a + b, 0) / stats.p50s.length
+                : fallbackP50;
+            const p95Latency = stats.p95s.length > 0
+                ? Math.max(...stats.p95s)
+                : fallbackP95;
 
             return {
                 toolId: toolId.length > 20 ? toolId.substring(0, 20) + '...' : toolId, // Truncate long names
                 fullToolId: toolId,
                 calls: stats.calls,
                 errorRate: stats.calls > 0 ? (stats.errors / stats.calls) * 100 : 0,
-                avgLatency: avgMean
+                avgLatency: Math.round(avgMean),
+                p50Latency: Math.round(p50Latency),
+                p95Latency: Math.round(p95Latency)
             };
         });
 
         // Sort by calls descending
         chartData.sort((a, b) => b.calls - a.calls);
 
+        const overallMeanLatency = chartData.length > 0
+            ? Math.round(chartData.reduce((acc, d) => acc + d.avgLatency, 0) / chartData.length)
+            : 0;
+        const overallP95Latency = chartData.length > 0
+            ? Math.max(...chartData.map((d) => d.p95Latency))
+            : 0;
+
         return {
             totalToolCalls,
             totalErrors,
+            overallMeanLatency,
+            overallP95Latency,
             chartData
         };
 
@@ -183,7 +310,7 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                 {!isLoading && !error && parsedData && parsedData.totalToolCalls > 0 && (
                     <div className="space-y-8">
                         {/* Summary Cards */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                                 <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Total Tool Calls</div>
                                 <div className="text-3xl font-light text-white">{parsedData.totalToolCalls.toLocaleString()}</div>
@@ -200,6 +327,12 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                                 <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Avg Error Rate</div>
                                 <div className="text-3xl font-light text-white">
                                     {((parsedData.totalErrors / parsedData.totalToolCalls) * 100).toFixed(1)}%
+                                </div>
+                            </div>
+                            <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
+                                <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Latency (Mean / P95)</div>
+                                <div className="text-2xl font-light text-amber-400">
+                                    {parsedData.overallMeanLatency}ms / {parsedData.overallP95Latency}ms
                                 </div>
                             </div>
                         </div>
@@ -278,9 +411,9 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                                 </div>
                             </div>
 
-                            {/* Mean duration by tool */}
+                            {/* Latency distribution by tool (Mean, P50, P95) */}
                             <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 lg:col-span-2">
-                                <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Mean Duration (ms) by tool</h4>
+                                <h4 className="text-sm font-medium text-gray-300 mb-4 px-2">Latency Distribution (Mean / P50 / P95 ms) by tool</h4>
                                 <div className="h-72 w-full">
                                     <ResponsiveContainer width="100%" height={288} minWidth={0}>
                                         <BarChart data={parsedData.chartData} margin={{ top: 5, right: 30, left: 20, bottom: 25 }}>
@@ -305,9 +438,12 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                                             <Tooltip 
                                                 cursor={{ fill: '#374151' }}
                                                 contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6', fontSize: '13px' }}
-                                                formatter={(value: number) => [`${value.toFixed(0)} ms`, 'Mean Duration']}
+                                                formatter={(value: number, name: string) => [`${Number(value).toFixed(0)} ms`, name]}
                                             />
-                                            <Bar dataKey="avgLatency" name="Mean Duration (ms)" fill="#8b5cf6" radius={[4, 4, 0, 0]} maxBarSize={50} />
+                                            <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }} />
+                                            <Bar dataKey="p50Latency" name="Median (P50 ms)" fill="#06b6d4" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                                            <Bar dataKey="avgLatency" name="Mean Duration (ms)" fill="#8b5cf6" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                                            <Bar dataKey="p95Latency" name="Tail (P95 ms)" fill="#f59e0b" radius={[4, 4, 0, 0]} maxBarSize={40} />
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>

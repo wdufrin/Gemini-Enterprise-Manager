@@ -13,7 +13,7 @@ export const telemetryFeedbackViews: Record<string, ViewDefinition> = {
         id: 'v_gemini_genai_telemetry',
         viewName: 'v_gemini_genai_telemetry',
         title: 'GenAI Telemetry & Tool Invocations',
-        description: 'Token consumption, model inferences, prompts, responses, and 1,800+ tool calls with full arguments.',
+        description: 'Token consumption, step & trace latency, model inferences, prompts, responses, and tool calls with full arguments.',
         category: 'Model & Ingestion',
         columns: [
             { key: 'timestamp', header: 'Timestamp', type: 'timestamp' },
@@ -21,6 +21,8 @@ export const telemetryFeedbackViews: Record<string, ViewDefinition> = {
             { key: 'agent_name', header: 'Agent Name', type: 'badge' },
             { key: 'step_index', header: 'Step' },
             { key: 'is_final_step', header: 'Final Step', type: 'badge' },
+            { key: 'step_latency_ms', header: 'Step Latency (ms)' },
+            { key: 'trace_duration_ms', header: 'Trace Duration (ms)' },
             { key: 'finish_reason', header: 'Finish Reason', type: 'badge' },
             { key: 'input_tokens', header: 'In Tokens' },
             { key: 'output_tokens', header: 'Out Tokens' },
@@ -100,17 +102,21 @@ WITH raw_inferences AS (
 user_map AS (
   SELECT
     trace,
-    COALESCE(
-      JSON_VALUE(TO_JSON_STRING(json_payload), '$.userIamPrincipal'),
-      JSON_VALUE(TO_JSON_STRING(json_payload), '$.useriamprincipal')
-    ) AS user_email
+    ARRAY_AGG(
+      COALESCE(
+        JSON_VALUE(TO_JSON_STRING(json_payload), '$.userIamPrincipal'),
+        JSON_VALUE(TO_JSON_STRING(json_payload), '$.useriamprincipal')
+      )
+      IGNORE NULLS
+      ORDER BY timestamp DESC
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS user_email,
+    MIN(timestamp) AS min_activity_ts,
+    MAX(timestamp) AS max_activity_ts
   FROM ${logsSource}
   WHERE log_name LIKE '%gemini_enterprise_user_activity%'
-    AND COALESCE(
-      JSON_VALUE(TO_JSON_STRING(json_payload), '$.userIamPrincipal'),
-      JSON_VALUE(TO_JSON_STRING(json_payload), '$.useriamprincipal')
-    ) IS NOT NULL
-  QUALIFY ROW_NUMBER() OVER(PARTITION BY trace ORDER BY timestamp DESC) = 1
+    AND trace IS NOT NULL
+  GROUP BY trace
 ),${assistCte}
 ranked_steps AS (
   SELECT
@@ -118,7 +124,36 @@ ranked_steps AS (
     u.user_email,
     ${agentNameSelect}
     ROW_NUMBER() OVER(PARTITION BY r.trace ORDER BY r.timestamp ASC) AS step_index,
-    COUNT(1) OVER(PARTITION BY r.trace) AS total_steps
+    COUNT(1) OVER(PARTITION BY r.trace) AS total_steps,
+    GREATEST(
+      0,
+      COALESCE(
+        TIMESTAMP_DIFF(
+          r.timestamp,
+          LAG(r.timestamp) OVER(PARTITION BY r.trace ORDER BY r.timestamp ASC),
+          MILLISECOND
+        ),
+        IF(
+          u.min_activity_ts IS NOT NULL AND u.min_activity_ts < r.timestamp,
+          TIMESTAMP_DIFF(r.timestamp, u.min_activity_ts, MILLISECOND),
+          0
+        )
+      )
+    ) AS step_latency_ms,
+    GREATEST(
+      0,
+      TIMESTAMP_DIFF(
+        GREATEST(
+          MAX(r.timestamp) OVER(PARTITION BY r.trace),
+          COALESCE(u.max_activity_ts, MAX(r.timestamp) OVER(PARTITION BY r.trace))
+        ),
+        LEAST(
+          MIN(r.timestamp) OVER(PARTITION BY r.trace),
+          COALESCE(u.min_activity_ts, MIN(r.timestamp) OVER(PARTITION BY r.trace))
+        ),
+        MILLISECOND
+      )
+    ) AS trace_duration_ms
   FROM raw_inferences r
   LEFT JOIN user_map u ON r.trace = u.trace
   ${assistJoin}
@@ -133,6 +168,8 @@ SELECT
   step_index,
   total_steps,
   (step_index = total_steps) AS is_final_step,
+  step_latency_ms,
+  trace_duration_ms,
   user_prompt,
   model_response,
   tool_calls,
@@ -149,20 +186,24 @@ FROM ranked_steps;`;
             const userMapCteBody = includeActivityMap
                 ? `SELECT
     trace,
-    COALESCE(
-      JSON_VALUE(payload, '$.userIamPrincipal'),
-      JSON_VALUE(payload, '$.useriamprincipal')
-    ) AS user_email
+    ARRAY_AGG(
+      COALESCE(
+        JSON_VALUE(payload, '$.userIamPrincipal'),
+        JSON_VALUE(payload, '$.useriamprincipal')
+      )
+      IGNORE NULLS
+      ORDER BY timestamp DESC
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS user_email,
+    MIN(timestamp) AS min_activity_ts,
+    MAX(timestamp) AS max_activity_ts
   FROM (
     SELECT timestamp, trace, TO_JSON_STRING(jsonPayload) AS payload
     FROM ${sinkActivity.tableRef}
   )
-  WHERE COALESCE(
-    JSON_VALUE(payload, '$.userIamPrincipal'),
-    JSON_VALUE(payload, '$.useriamprincipal')
-  ) IS NOT NULL
-  QUALIFY ROW_NUMBER() OVER(PARTITION BY trace ORDER BY timestamp DESC) = 1`
-                : `SELECT CAST(NULL AS STRING) AS trace, CAST(NULL AS STRING) AS user_email FROM (SELECT 1) WHERE FALSE`;
+  WHERE trace IS NOT NULL
+  GROUP BY trace`
+                : `SELECT CAST(NULL AS STRING) AS trace, CAST(NULL AS STRING) AS user_email, CAST(NULL AS TIMESTAMP) AS min_activity_ts, CAST(NULL AS TIMESTAMP) AS max_activity_ts FROM (SELECT 1) WHERE FALSE`;
 
             return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_gemini_genai_telemetry\` AS
 WITH raw_inferences AS (
@@ -241,7 +282,36 @@ ranked_steps AS (
     u.user_email,
     ${agentNameSelect}
     ROW_NUMBER() OVER(PARTITION BY r.trace ORDER BY r.timestamp ASC) AS step_index,
-    COUNT(1) OVER(PARTITION BY r.trace) AS total_steps
+    COUNT(1) OVER(PARTITION BY r.trace) AS total_steps,
+    GREATEST(
+      0,
+      COALESCE(
+        TIMESTAMP_DIFF(
+          r.timestamp,
+          LAG(r.timestamp) OVER(PARTITION BY r.trace ORDER BY r.timestamp ASC),
+          MILLISECOND
+        ),
+        IF(
+          u.min_activity_ts IS NOT NULL AND u.min_activity_ts < r.timestamp,
+          TIMESTAMP_DIFF(r.timestamp, u.min_activity_ts, MILLISECOND),
+          0
+        )
+      )
+    ) AS step_latency_ms,
+    GREATEST(
+      0,
+      TIMESTAMP_DIFF(
+        GREATEST(
+          MAX(r.timestamp) OVER(PARTITION BY r.trace),
+          COALESCE(u.max_activity_ts, MAX(r.timestamp) OVER(PARTITION BY r.trace))
+        ),
+        LEAST(
+          MIN(r.timestamp) OVER(PARTITION BY r.trace),
+          COALESCE(u.min_activity_ts, MIN(r.timestamp) OVER(PARTITION BY r.trace))
+        ),
+        MILLISECOND
+      )
+    ) AS trace_duration_ms
   FROM raw_inferences r
   LEFT JOIN user_map u ON r.trace = u.trace
   ${assistJoin}
@@ -256,6 +326,8 @@ SELECT
   step_index,
   total_steps,
   (step_index = total_steps) AS is_final_step,
+  step_latency_ms,
+  trace_duration_ms,
   user_prompt,
   model_response,
   tool_calls,
@@ -268,7 +340,10 @@ FROM ranked_steps;`;
   agent_name,
   SUM(input_tokens) AS total_input_tokens,
   SUM(output_tokens) AS total_output_tokens,
-  COUNT(1) AS inference_count
+  COUNT(1) AS inference_count,
+  CAST(ROUND(AVG(NULLIF(step_latency_ms, 0))) AS INT64) AS avg_step_latency_ms,
+  APPROX_QUANTILES(NULLIF(trace_duration_ms, 0), 100)[OFFSET(50)] AS p50_trace_duration_ms,
+  APPROX_QUANTILES(NULLIF(trace_duration_ms, 0), 100)[OFFSET(95)] AS p95_trace_duration_ms
 FROM \`${projectId}.${dataset}.v_gemini_genai_telemetry\`
 GROUP BY agent_name
 ORDER BY (total_input_tokens + total_output_tokens) DESC
@@ -279,6 +354,8 @@ LIMIT 10;`,
   agent_name,
   step_index,
   is_final_step,
+  step_latency_ms,
+  trace_duration_ms,
   finish_reason,
   input_tokens,
   output_tokens,

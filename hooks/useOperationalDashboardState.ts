@@ -57,6 +57,9 @@ export interface OperationalLiveData {
         outputTokens: number;
         calls: number;
         inferenceCount?: number;
+        avgStepLatencyMs?: number;
+        p50LatencyMs?: number;
+        p95LatencyMs?: number;
     }>;
     toolInvocations?: Array<{ tool: string; count: number }>;
     connectorUsage?: Array<{ connector: string; calls: number }>;
@@ -64,6 +67,96 @@ export interface OperationalLiveData {
     aiChoices?: Array<{ name: string; value: number }>;
     feedback?: Array<{ agent: string; thumbsUp: number; thumbsDown: number; total: number }>;
 }
+
+const parseTelemetryTimestampMs = (raw: unknown): number | null => {
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+        return raw > 1e12 ? raw : raw * 1000;
+    }
+    if (typeof raw !== 'string' || !raw.trim()) return null;
+    const trimmed = raw.trim();
+    const num = Number(trimmed);
+    if (Number.isFinite(num) && trimmed.length >= 10 && !trimmed.includes('-')) {
+        return num > 1e12 ? Math.round(num) : Math.round(num * 1000);
+    }
+    const isoCandidate = trimmed.includes('T')
+        ? trimmed
+        : `${trimmed.replace(' ', 'T')}${trimmed.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(trimmed) ? '' : 'Z'}`;
+    const parsed = Date.parse(isoCandidate);
+    return Number.isNaN(parsed) ? null : parsed;
+};
+
+export type EnrichedTelemetryRow<T> = T & {
+    step_index?: string | number;
+    is_final_step?: string | boolean;
+    step_latency_ms?: string | number | null;
+    trace_duration_ms?: string | number | null;
+};
+
+export const enrichTelemetryRowsWithLatency = <T extends Record<string, unknown>>(
+    rows: T[]
+): Array<EnrichedTelemetryRow<T>> => {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+    const traceGroups = new Map<string, Array<{ index: number; tsMs: number }>>();
+    rows.forEach((row, index) => {
+        const trace = typeof row.trace === 'string' ? row.trace.trim() : '';
+        const tsMs = parseTelemetryTimestampMs(row.timestamp);
+        if (!trace || tsMs === null) return;
+        const group = traceGroups.get(trace) || [];
+        group.push({ index, tsMs });
+        traceGroups.set(trace, group);
+    });
+
+    const computedByIndex = new Map<
+        number,
+        {
+            stepIndex: number;
+            isFinalStep: boolean;
+            stepLatencyMs: number | null;
+            traceDurationMs: number | null;
+        }
+    >();
+
+    for (const group of traceGroups.values()) {
+        group.sort((a, b) => a.tsMs - b.tsMs || a.index - b.index);
+        const minTs = group[0].tsMs;
+        const maxTs = group[group.length - 1].tsMs;
+        const rawTraceDurationMs = Math.max(0, maxTs - minTs);
+        const traceDurationMs = group.length > 1 && rawTraceDurationMs > 0 ? rawTraceDurationMs : null;
+        group.forEach((item, stepIdx) => {
+            const prevTs = stepIdx > 0 ? group[stepIdx - 1].tsMs : item.tsMs;
+            const rawStepDelta = stepIdx > 0 ? Math.max(0, item.tsMs - prevTs) : 0;
+            computedByIndex.set(item.index, {
+                stepIndex: stepIdx + 1,
+                isFinalStep: stepIdx === group.length - 1,
+                stepLatencyMs: stepIdx > 0 && rawStepDelta > 0 ? rawStepDelta : null,
+                traceDurationMs,
+            });
+        });
+    }
+
+    return rows.map((row, index): EnrichedTelemetryRow<T> => {
+        const existingStepIndex = row.step_index as string | number | undefined;
+        const existingIsFinalStep = row.is_final_step as string | boolean | undefined;
+        const existingStepLatency = row.step_latency_ms as string | number | null | undefined;
+        const existingTraceDuration = row.trace_duration_ms as string | number | null | undefined;
+        const computed = computedByIndex.get(index);
+        if (!computed) {
+            return {
+                ...row,
+                step_latency_ms: existingStepLatency ?? null,
+                trace_duration_ms: existingTraceDuration ?? null,
+            };
+        }
+        return {
+            ...row,
+            step_index: existingStepIndex ?? computed.stepIndex,
+            is_final_step: existingIsFinalStep ?? computed.isFinalStep,
+            step_latency_ms: existingStepLatency ?? computed.stepLatencyMs,
+            trace_duration_ms: existingTraceDuration ?? computed.traceDurationMs,
+        };
+    });
+};
 
 interface UseOperationalDashboardStateParams {
     projectId: string;
@@ -471,11 +564,17 @@ export function useOperationalDashboardState({
                     autoRepairedViewsRef.current.add(viewId);
                     try {
                         await executeCreateViewWithFallback(viewId);
-                        return await executeBigQueryWithPolling(projectId, fallbackQuerySql || querySql);
+                        return await executeBigQueryWithPolling(projectId, querySql);
                     } catch {
-                        // Auto-repair failed (e.g., read-only IAM permissions); surface original BigQuery error
+                        // Auto-repair failed (e.g., read-only IAM permissions); try legacy fallbackQuerySql if available
+                        if (fallbackQuerySql && fallbackQuerySql !== querySql) {
+                            return await executeBigQueryWithPolling(projectId, fallbackQuerySql);
+                        }
                         throw initialErr;
                     }
+                }
+                if (isViewSchemaError(initialMsg) && fallbackQuerySql && fallbackQuerySql !== querySql) {
+                    return await executeBigQueryWithPolling(projectId, fallbackQuerySql);
                 }
                 throw initialErr;
             }
@@ -529,7 +628,14 @@ export function useOperationalDashboardState({
                     ? availableMainTables.has(viewId)
                     : installedViews.has(viewId);
             if (currentDatasetTables.length > 0 && !hasSourceInMode) {
-                setViewRows((prev) => ({ ...prev, [viewId]: FALLBACK_SNAPSHOT.rows[viewId] || [] }));
+                const fallbackRows = FALLBACK_SNAPSHOT.rows[viewId] || [];
+                setViewRows((prev) => ({
+                    ...prev,
+                    [viewId]:
+                        viewId === 'v_gemini_genai_telemetry'
+                            ? enrichTelemetryRowsWithLatency(fallbackRows)
+                            : fallbackRows
+                }));
                 return;
             }
             setRowsLoading((prev) => ({ ...prev, [viewId]: true }));
@@ -539,17 +645,47 @@ export function useOperationalDashboardState({
                 const actualQuery = actualView !== viewId
                     ? query.replace(new RegExp(`\\.${viewId}\`?`, 'g'), `.${actualView}\``)
                     : query;
-                const res = await queryOperationalSource(viewId, actualQuery, query);
+                const legacyTelemetryRowsQuery =
+                    viewId === 'v_gemini_genai_telemetry'
+                        ? actualQuery
+                              .replace(/\s*step_latency_ms,\n/g, '\n')
+                              .replace(/\s*trace_duration_ms,\n/g, '\n')
+                        : query;
+                const res = await queryOperationalSource(viewId, actualQuery, legacyTelemetryRowsQuery);
                 const fields = res?.schema?.fields || [];
-                const rows = (res?.rows || []).map((r: BigQueryTableRow) => {
+                const legacyTelemetryKeys = [
+                    'timestamp',
+                    'user_email',
+                    'agent_name',
+                    'step_index',
+                    'is_final_step',
+                    'finish_reason',
+                    'input_tokens',
+                    'output_tokens',
+                    'tool_calls',
+                    'user_prompt',
+                    'model_response',
+                    'trace',
+                    'conversation_id'
+                ];
+                const rawRows = (res?.rows || []).map((r: BigQueryTableRow) => {
                     const obj: Record<string, unknown> = {};
+                    const useLegacyTelemetryKeys =
+                        fields.length === 0 &&
+                        viewId === 'v_gemini_genai_telemetry' &&
+                        r.f?.length === legacyTelemetryKeys.length;
                     r.f?.forEach((cell: { v?: unknown }, idx: number) => {
-                        const colName =
-                            fields[idx]?.name || OPERATIONAL_VIEWS[viewId].columns[idx]?.key || `col_${idx}`;
+                        const colName = useLegacyTelemetryKeys
+                            ? legacyTelemetryKeys[idx]
+                            : fields[idx]?.name || OPERATIONAL_VIEWS[viewId].columns[idx]?.key || `col_${idx}`;
                         obj[colName] = cell?.v;
                     });
                     return obj;
                 });
+                const rows =
+                    viewId === 'v_gemini_genai_telemetry'
+                        ? enrichTelemetryRowsWithLatency(rawRows)
+                        : rawRows;
 
                 brokenViewsRef.current.delete(viewId);
                 setBrokenViews((prev) => {
@@ -668,17 +804,34 @@ export function useOperationalDashboardState({
                             agent_name,
                             SUM(input_tokens) as total_input,
                             SUM(output_tokens) as total_output,
+                            COUNT(1) as total_calls,
+                            CAST(ROUND(AVG(NULLIF(step_latency_ms, 0))) AS INT64) as avg_step_latency_ms,
+                            APPROX_QUANTILES(NULLIF(trace_duration_ms, 0), 100)[OFFSET(50)] as p50_latency_ms,
+                            APPROX_QUANTILES(NULLIF(trace_duration_ms, 0), 100)[OFFSET(95)] as p95_latency_ms
+                            FROM \`${projectId}.${datasetId}.${actualView}\`
+                            WHERE agent_name IS NOT NULL
+                            GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 8;`;
+                        const legacyQueryTokens = `SELECT
+                            agent_name,
+                            SUM(input_tokens) as total_input,
+                            SUM(output_tokens) as total_output,
                             COUNT(1) as total_calls
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             WHERE agent_name IS NOT NULL
                             GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 8;`;
-                        const res = await queryOperationalSource('v_gemini_genai_telemetry', queryTokens);
+                        const res = await queryOperationalSource('v_gemini_genai_telemetry', queryTokens, legacyQueryTokens);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedTokens = rows.map((r: BigQueryTableRow) => ({
                             agent: String(r.f?.[0]?.v || 'Unknown'),
                             inputTokens: parseInt(String(r.f?.[1]?.v || '0'), 10),
                             outputTokens: parseInt(String(r.f?.[2]?.v || '0'), 10),
-                            calls: parseInt(String(r.f?.[3]?.v || '0'), 10)
+                            calls: parseInt(String(r.f?.[3]?.v || '0'), 10),
+                            avgStepLatencyMs:
+                                r.f?.[4]?.v != null ? parseInt(String(r.f[4].v), 10) || undefined : undefined,
+                            p50LatencyMs:
+                                r.f?.[5]?.v != null ? parseInt(String(r.f[5].v), 10) || undefined : undefined,
+                            p95LatencyMs:
+                                r.f?.[6]?.v != null ? parseInt(String(r.f[6].v), 10) || undefined : undefined
                         }));
                         setLiveData((prev) => ({ ...prev, genaiTokens: parsedTokens }));
 

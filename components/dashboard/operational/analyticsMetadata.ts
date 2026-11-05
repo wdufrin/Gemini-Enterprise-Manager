@@ -296,6 +296,16 @@ export const OPERATIONAL_VIEWS_METADATA: Record<string, ViewMetadata> = {
                 name: 'step_index',
                 description: 'Sequential turn number in a multi-step agent reasoning execution trace.',
                 formula: 'ROW_NUMBER() OVER(PARTITION BY trace ORDER BY timestamp ASC)'
+            },
+            {
+                name: 'step_latency_ms',
+                description: 'Elapsed time in milliseconds between the prior step (or initial user request) and this model inference step.',
+                formula: 'TIMESTAMP_DIFF(timestamp, COALESCE(LAG(timestamp) OVER(PARTITION BY trace ORDER BY timestamp), min_activity_ts), MILLISECOND)'
+            },
+            {
+                name: 'trace_duration_ms',
+                description: 'Total end-to-end duration in milliseconds across all model and tool steps within the Cloud Trace ID.',
+                formula: 'TIMESTAMP_DIFF(MAX(timestamp) OVER(PARTITION BY trace), MIN(timestamp) OVER(PARTITION BY trace), MILLISECOND)'
             }
         ]
     },
