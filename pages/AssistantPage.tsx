@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Agent, AppEngine, Assistant, Config, IamPolicy, UserProfile } from '../types';
+import { Agent, AppEngine, Assistant, Config, IamPolicy, Page, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import ChatWindow from '../components/agents/ChatWindow';
@@ -42,6 +42,7 @@ interface AssistantPageProps {
   accessToken: string;
   userProfile: UserProfile | null;
   onBuildTriggered?: (buildId: string, projectId?: string) => void;
+  onNavigate?: (page: Page, context?: { appEngineId?: string }) => void;
   context?: { appEngineId?: string } | null;
 }
 
@@ -52,6 +53,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
   accessToken,
   userProfile,
   onBuildTriggered,
+  onNavigate,
   context,
 }) => {
   const { toast } = useToast();
@@ -462,6 +464,14 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
           onBuildTriggered={onBuildTriggered}
           onEngineUpdateSuccess={handleEngineUpdateSuccess}
           onAssistantUpdateSuccess={handleAssistantUpdateSuccess}
+          onOpenLatencyLab={
+            onNavigate
+              ? () =>
+                  onNavigate(Page.LATENCY_LAB, {
+                    appEngineId: selectedRow.engine.name,
+                  })
+              : undefined
+          }
           onRefreshAgents={() =>
             fetchAgentsForAssistant(
               selectedRow.engine.name.split('/').pop()!,

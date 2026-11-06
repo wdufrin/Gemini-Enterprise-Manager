@@ -64,6 +64,7 @@ interface AssistantDetailViewProps {
   onEngineUpdateSuccess: (engine: AppEngine) => void;
   onAssistantUpdateSuccess: (assistant: Assistant) => void;
   onRefreshAgents: () => void;
+  onOpenLatencyLab?: () => void;
 }
 
 export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
@@ -87,6 +88,7 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
   onEngineUpdateSuccess,
   onAssistantUpdateSuccess,
   onRefreshAgents,
+  onOpenLatencyLab,
 }) => {
   // Declared before the early return below so hook order stays stable.
   const [redirectRefreshToken, setRedirectRefreshToken] = useState(0);
@@ -148,6 +150,27 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
           </div>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
+          {onOpenLatencyLab && (
+            <button
+              type="button"
+              onClick={onOpenLatencyLab}
+              className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-500 shadow-md flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4 shrink-0"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <span>Latency Lab</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setIsEvaluateModalOpen(true)}
@@ -364,6 +387,14 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
         config={currentConfig}
         onNavigateToTab={(tab) => setActiveTab(tab)}
         onRefreshAgents={onRefreshAgents}
+        onOpenLatencyLab={
+          onOpenLatencyLab
+            ? () => {
+                setIsEvaluateModalOpen(false);
+                onOpenLatencyLab();
+              }
+            : undefined
+        }
       />
     </div>
   );

@@ -109,4 +109,33 @@ describe('DataTable', () => {
     expect(capturedDownload).toMatch(/^simulated_user_activity_records_\d{4}-\d{2}-\d{2}\.csv$/);
     createElementSpy.mockRestore();
   });
+
+  it('neutralizes leading spreadsheet formula characters (=, +, -, @) when exporting CSV', async () => {
+    let capturedBlob: Blob | null = null;
+    const createObjectURLSpy = vi.fn((blob: Blob) => {
+      capturedBlob = blob;
+      return 'blob:mock-csv';
+    });
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURLSpy, writable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), writable: true });
+
+    const adversarialRows = [
+      { id: '1', agent_name: '=CMD|\' /C calc\'!A0', latency_ms: 120 },
+      { id: '2', agent_name: '+SUM(1,2)', latency_ms: 240 },
+    ];
+
+    render(<DataTable title="Adversarial Export" columns={COLUMNS} data={adversarialRows} />);
+    const exportBtn = screen.getByRole('button', { name: /Export CSV/i });
+    fireEvent.click(exportBtn);
+
+    expect(capturedBlob).not.toBeNull();
+    const csvText = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(capturedBlob as unknown as Blob);
+    });
+    expect(csvText).toContain('"\'=CMD|\' /C calc\'!A0"');
+    expect(csvText).toContain('"\'+SUM(1,2)"');
+  });
 });

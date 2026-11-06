@@ -37,6 +37,7 @@ export const PAGE_ROUTES: Record<Page, string> = {
   [Page.LICENSE]: '/licenses',
   [Page.GE_QUOTA_USAGE]: '/quota',
   [Page.CONFIG_AUDIT]: '/config-audit',
+  [Page.LATENCY_LAB]: '/latency-lab',
 };
 
 const ROUTE_TO_PAGE: Record<string, Page> = Object.entries(PAGE_ROUTES).reduce(

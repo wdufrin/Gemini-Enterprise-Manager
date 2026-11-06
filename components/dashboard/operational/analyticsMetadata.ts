@@ -153,8 +153,7 @@ export const OPERATIONAL_VIEWS_METADATA: Record<string, ViewMetadata> = {
         category: 'User Interactions',
         description: 'Chat turn histories, role payloads, and multi-shard message volumes across agent sessions.',
         sourceTables: [
-            'discoveryengine_googleapis_com_gen_ai_user_message_*',
-            'discoveryengine_googleapis_com_gen_ai_user_message_20260423'
+            'discoveryengine_googleapis_com_gen_ai_user_message_*'
         ],
         rawSyncTables: [
             'discoveryengine_googleapis_com_gen_ai_user_message_* (Cloud Logging Log Router Sink)'
@@ -257,7 +256,7 @@ export const OPERATIONAL_VIEWS_METADATA: Record<string, ViewMetadata> = {
         viewName: 'v_gemini_genai_telemetry',
         title: 'GenAI Telemetry & Tool Invocations',
         category: 'Model & Telemetry',
-        description: 'Token consumption, model inferences, prompts, responses, and 1,800+ tool calls with full arguments.',
+        description: 'Token consumption, model inferences, prompts, responses, and tool calls with full arguments.',
         sourceTables: [
             '_AllLogs (gen_ai.client.inference.operation.details)',
             '_AllLogs (gemini_enterprise_user_activity)',
@@ -639,6 +638,15 @@ export const CHARTS_METADATA: Record<string, ChartMetadata> = {
         metricMeaning: 'Visualizes workload distribution across assistants to identify top performers.',
         sourceTables: ['discoveryengine_googleapis_com_gemini_enterprise_user_activity_*'],
         fieldsUsed: ['agent_name', 'count']
+    },
+    trace_latency_daily: {
+        id: 'trace_latency_daily',
+        title: 'Agent Trace Latency Per Day (P50 / P95 ms)',
+        category: 'Live Traffic',
+        whatItShows: 'Daily P50 (median) and P95 (tail) trace duration in milliseconds across multi-span conversational turns.',
+        metricMeaning: 'Measures end-to-end turn latency from initial request to final response span within each Cloud Trace ID.',
+        sourceTables: ['discoveryengine_googleapis_com_gemini_enterprise_user_activity_*'],
+        fieldsUsed: ['trace', 'TIMESTAMP_DIFF(MAX(timestamp), MIN(timestamp), MILLISECOND)', 'APPROX_QUANTILES']
     },
     daily_interaction_volume: {
         id: 'daily_interaction_volume',

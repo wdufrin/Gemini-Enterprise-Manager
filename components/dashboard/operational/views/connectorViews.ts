@@ -72,6 +72,8 @@ user_map AS (
     ) AS user_email
   FROM ${logsSource}
   WHERE log_name LIKE "%gemini_enterprise_user_activity%"
+    AND trace IS NOT NULL
+    AND trace != ""
     AND COALESCE(
       JSON_VALUE(TO_JSON_STRING(json_payload), '$.userIamPrincipal'),
       JSON_VALUE(TO_JSON_STRING(json_payload), '$.useriamprincipal')
@@ -189,7 +191,11 @@ attributed_calls AS (
     timestamp,
     tool_name,
     connector_type,
-    MAX(raw_user_email) OVER(PARTITION BY trace) AS user_email
+    IF(
+      trace IS NOT NULL AND trace != "",
+      MAX(raw_user_email) OVER(PARTITION BY trace),
+      raw_user_email
+    ) AS user_email
   FROM unified_calls
 )
 SELECT

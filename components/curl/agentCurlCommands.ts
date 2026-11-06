@@ -372,4 +372,28 @@ curl -X GET \\
       }
     ]
   },
+  [Page.LATENCY_LAB]: {
+    description: "The Latency Testing Lab executes live Discovery Engine :streamAssist requests to benchmark Time-to-First-Byte (TTFB), end-to-end latency, planner thought steps, grounded citations, and Before/After Skill routing.",
+    commands: [
+      {
+        title: 'StreamAssist Latency Benchmark Probe',
+        command: `curl -X POST \\
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "query": { "text": "Summarize our incident response runbook and escalation SLA." }
+      }' \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/default_assistant:streamAssist"`
+      },
+      {
+        title: 'Toggle Skill State for Before/After A/B Benchmark',
+        command: `curl -X POST \\
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/default_assistant/agents/[SKILL_AGENT_ID]:enableAgent"`
+      }
+    ]
+  },
 };

@@ -36,6 +36,7 @@ export enum Page {
   LICENSE = 'Licenses',
   GE_QUOTA_USAGE = 'Quota & Cost Estimator',
   CONFIG_AUDIT = 'App Config Audit',
+  LATENCY_LAB = 'Latency Testing Lab',
 }
 
 export type SortableAgentKey = 'displayName' | 'state' | 'owner' | 'name' | 'updateTime' | 'agentType';

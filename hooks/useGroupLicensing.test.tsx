@@ -21,6 +21,7 @@ import { useGroupLicensing, SUPPORTED_GROUP_RUN_REGIONS } from './useGroupLicens
 import { GroupAssignmentsTab } from '../components/license/GroupAssignmentsTab';
 import GroupLicenseDeploymentModal, {
   generateDeploySh,
+  generateManualSetupMarkdown,
   sanitizeCloudRunLabelValue,
 } from '../components/license/GroupLicenseDeploymentModal';
 import mainPyTemplate from '../components/license/main.py.template?raw';
@@ -1092,6 +1093,51 @@ describe('useGroupLicensing & Cloud Run group licensing trigger', () => {
       'test2@wdufrin.altostrat.com': 2,
     });
     expect(partialColdStart.report?.summary.warnings).toEqual([]);
+  });
+
+  it('renders step-by-step Manual Setup Guide (Console & CLI) in GroupAssignmentsTab and GroupLicenseDeploymentModal without requiring Cloud Build', async () => {
+    const md = generateManualSetupMarkdown({
+      projectId: 'my-project-123',
+      projectNumber: '180054373655',
+      location: 'global',
+      userStoreId: 'default_user_store',
+      region: 'us-central1',
+      configGcsUri: 'gs://my-staging-bucket/config/entitlements.json',
+      selectedTier: 'SUBSCRIPTION_TIER_ENTERPRISE',
+    });
+
+    expect(md).toContain('# Manual Group Licensing Setup Guide (No Cloud Build Required)');
+    expect(md).toContain('handle_trigger');
+    expect(md).toContain('group-licensing-adder-global');
+    expect(md).toContain('group-licensing-cleanup-global');
+    expect(md).toContain('license-grouper-sa@my-project-123.iam.gserviceaccount.com');
+    expect(md).toContain('docker build -t "$IMAGE_URI" .');
+    expect(md).toContain('trigger-group-licensing-adder-global');
+
+    const onNewAssignment = vi.fn();
+    render(
+      <GroupAssignmentsTab
+        isServicesLoading={false}
+        servicesError={null}
+        groupServices={[]}
+        lastRunTimes={{}}
+        apiLicenseConfigs={[]}
+        onNewAssignment={onNewAssignment}
+        onRunService={vi.fn()}
+        onEditService={vi.fn()}
+        onDeleteService={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('group-assignments-manual-setup-panel')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Manual Setup Guide \(Console & CLI\)/i }));
+    const panel = screen.getByTestId('group-assignments-manual-setup-panel');
+    expect(panel).toBeInTheDocument();
+    expect(panel.textContent).toContain('Step-by-Step Manual Setup Guide (No Cloud Build Required)');
+    expect(panel.textContent).toContain('handle_trigger');
+
+    fireEvent.click(screen.getByRole('button', { name: /Open Generator & Download \.zip/i }));
+    expect(onNewAssignment).toHaveBeenCalledTimes(1);
   });
 });
 

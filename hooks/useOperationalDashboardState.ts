@@ -140,6 +140,10 @@ export const enrichTelemetryRowsWithLatency = <T extends Record<string, unknown>
         const existingIsFinalStep = row.is_final_step as string | boolean | undefined;
         const existingStepLatency = row.step_latency_ms as string | number | null | undefined;
         const existingTraceDuration = row.trace_duration_ms as string | number | null | undefined;
+        const numericExistingStep = Number(existingStepLatency);
+        const numericExistingTrace = Number(existingTraceDuration);
+        const hasPositiveStepLatency = Number.isFinite(numericExistingStep) && numericExistingStep > 0;
+        const hasPositiveTraceDuration = Number.isFinite(numericExistingTrace) && numericExistingTrace > 0;
         const computed = computedByIndex.get(index);
         if (!computed) {
             return {
@@ -152,8 +156,8 @@ export const enrichTelemetryRowsWithLatency = <T extends Record<string, unknown>
             ...row,
             step_index: existingStepIndex ?? computed.stepIndex,
             is_final_step: existingIsFinalStep ?? computed.isFinalStep,
-            step_latency_ms: existingStepLatency ?? computed.stepLatencyMs,
-            trace_duration_ms: existingTraceDuration ?? computed.traceDurationMs,
+            step_latency_ms: hasPositiveStepLatency ? existingStepLatency : (computed.stepLatencyMs ?? existingStepLatency ?? null),
+            trace_duration_ms: hasPositiveTraceDuration ? existingTraceDuration : (computed.traceDurationMs ?? existingTraceDuration ?? null),
         };
     });
 };
@@ -801,24 +805,22 @@ export function useOperationalDashboardState({
                 run: async () => {
                     try {
                         const queryTokens = `SELECT
-                            agent_name,
+                            COALESCE(agent_name, 'root_agent') as agent_name,
                             SUM(input_tokens) as total_input,
                             SUM(output_tokens) as total_output,
                             COUNT(1) as total_calls,
-                            CAST(ROUND(AVG(NULLIF(step_latency_ms, 0))) AS INT64) as avg_step_latency_ms,
-                            APPROX_QUANTILES(NULLIF(trace_duration_ms, 0), 100)[OFFSET(50)] as p50_latency_ms,
-                            APPROX_QUANTILES(NULLIF(trace_duration_ms, 0), 100)[OFFSET(95)] as p95_latency_ms
+                            CAST(ROUND(AVG(IF(step_latency_ms > 0 AND step_latency_ms < 600000, step_latency_ms, NULL))) AS INT64) as avg_step_latency_ms,
+                            APPROX_QUANTILES(IF(trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(50)] as p50_latency_ms,
+                            APPROX_QUANTILES(IF(trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(95)] as p95_latency_ms
                             FROM \`${projectId}.${datasetId}.${actualView}\`
-                            WHERE agent_name IS NOT NULL
-                            GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 8;`;
+                            GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 50;`;
                         const legacyQueryTokens = `SELECT
-                            agent_name,
+                            COALESCE(agent_name, 'root_agent') as agent_name,
                             SUM(input_tokens) as total_input,
                             SUM(output_tokens) as total_output,
                             COUNT(1) as total_calls
                             FROM \`${projectId}.${datasetId}.${actualView}\`
-                            WHERE agent_name IS NOT NULL
-                            GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 8;`;
+                            GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 50;`;
                         const res = await queryOperationalSource('v_gemini_genai_telemetry', queryTokens, legacyQueryTokens);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedTokens = rows.map((r: BigQueryTableRow) => ({
@@ -882,10 +884,15 @@ export function useOperationalDashboardState({
                     try {
                         const queryUsage = `SELECT
                             connector_name,
+                            SUM(usage_count) as cnt
+                            FROM \`${projectId}.${datasetId}.${actualView}\`
+                            GROUP BY connector_name ORDER BY cnt DESC LIMIT 50;`;
+                        const legacyQueryUsage = `SELECT
+                            connector_name,
                             COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
-                            GROUP BY connector_name ORDER BY cnt DESC LIMIT 6;`;
-                        const res = await queryOperationalSource(connectorViewKey, queryUsage);
+                            GROUP BY connector_name ORDER BY cnt DESC LIMIT 50;`;
+                        const res = await queryOperationalSource(connectorViewKey, queryUsage, legacyQueryUsage);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
                         const parsedUsage = rows.map((r: BigQueryTableRow) => ({
                             connector: String(r.f?.[0]?.v || ''),
@@ -895,11 +902,17 @@ export function useOperationalDashboardState({
 
                         const queryTopUsers = `SELECT
                             user_email,
+                            SUM(usage_count) as cnt
+                            FROM \`${projectId}.${datasetId}.${actualView}\`
+                            WHERE user_email IS NOT NULL AND user_email != ''
+                            GROUP BY user_email ORDER BY cnt DESC LIMIT 5;`;
+                        const legacyQueryTopUsers = `SELECT
+                            user_email,
                             COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             WHERE user_email IS NOT NULL AND user_email != ''
                             GROUP BY user_email ORDER BY cnt DESC LIMIT 5;`;
-                        const resUsers = await queryOperationalSource(connectorViewKey, queryTopUsers);
+                        const resUsers = await queryOperationalSource(connectorViewKey, queryTopUsers, legacyQueryTopUsers);
                         const parsedTopUsers = ((resUsers?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
                             user: String(r.f?.[0]?.v || ''),
                             calls: parseInt(String(r.f?.[1]?.v || '0'), 10)

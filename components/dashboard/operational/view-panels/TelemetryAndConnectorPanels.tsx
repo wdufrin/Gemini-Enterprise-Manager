@@ -36,6 +36,7 @@ export interface GenAiTokenItem {
     inputTokens?: number;
     outputTokens?: number;
     inferenceCount?: number;
+    calls?: number;
     toolCalls?: number;
     avgStepLatencyMs?: number;
     p50LatencyMs?: number;
@@ -80,6 +81,7 @@ export interface TelemetryDataRow {
     connector_type?: string;
     trace?: string;
     timestamp?: string;
+    finish_reason?: string;
     step_latency_ms?: string | number | null;
     trace_duration_ms?: string | number | null;
     [key: string]: unknown;
@@ -89,6 +91,7 @@ interface TelemetryAndConnectorPanelsProps {
     viewId: string;
     data: TelemetryDataRow[];
     overviewLiveData?: TelemetryOverviewLiveData;
+    isSimulated?: boolean;
 }
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16', '#F97316'];
@@ -111,7 +114,8 @@ function formatLatencyMs(ms: number): string {
 export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsProps> = ({
     viewId,
     data,
-    overviewLiveData
+    overviewLiveData,
+    isSimulated = false
 }) => {
     switch (viewId) {
         case 'v_gemini_genai_telemetry': {
@@ -120,6 +124,7 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
             let outTokens = 0;
             let toolCallsCount = 0;
             let totalTelemetryCount = 0;
+            let stopCompletionsCount = 0;
             const toolCounts: Record<string, number> = {};
             const agentTokens: Record<string, { input: number; output: number }> = {};
             const stepLatencies: number[] = [];
@@ -132,6 +137,11 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                 const out = Number(d.output_tokens) || 0;
                 inTokens += inp;
                 outTokens += out;
+
+                const finishReason = String(d.finish_reason || 'STOP').trim().toUpperCase();
+                if (finishReason === 'STOP') {
+                    stopCompletionsCount++;
+                }
 
                 let agent = d.agent_name || 'General';
                 const clean = agent.match(/^([a-zA-Z0-9_-]+?)(?:[-_][0-9]{10,})/);
@@ -173,8 +183,14 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
             if (overviewLiveData?.genaiTokens && overviewLiveData.genaiTokens.length > 0) {
                 inTokens = overviewLiveData.genaiTokens.reduce((acc: number, t: GenAiTokenItem) => acc + (t.inputTokens || 0), 0);
                 outTokens = overviewLiveData.genaiTokens.reduce((acc: number, t: GenAiTokenItem) => acc + (t.outputTokens || 0), 0);
-                totalTelemetryCount = overviewLiveData.genaiTokens.reduce((acc: number, t: GenAiTokenItem) => acc + (t.inferenceCount || 0), 0);
-                toolCallsCount = overviewLiveData.genaiTokens.reduce((acc: number, t: GenAiTokenItem) => acc + (t.toolCalls || 0), 0);
+                totalTelemetryCount = overviewLiveData.genaiTokens.reduce(
+                    (acc: number, t: GenAiTokenItem) => acc + (t.inferenceCount ?? t.calls ?? 0),
+                    0
+                );
+                const tokenToolCalls = overviewLiveData.genaiTokens.reduce((acc: number, t: GenAiTokenItem) => acc + (t.toolCalls || 0), 0);
+                if (tokenToolCalls > 0) {
+                    toolCallsCount = tokenToolCalls;
+                }
             } else {
                 totalTelemetryCount = enrichedRows.length;
             }
@@ -196,22 +212,35 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
             const liveTokensWithLatency = (overviewLiveData?.genaiTokens || []).filter(
                 (t) => (t.p50LatencyMs || 0) > 0 || (t.p95LatencyMs || 0) > 0 || (t.avgStepLatencyMs || 0) > 0
             );
+            const totalLatencyWeight = liveTokensWithLatency.reduce(
+                (acc, t) => acc + Math.max(1, t.inferenceCount ?? t.calls ?? 1),
+                0
+            );
             const p50TraceLatencyMs =
                 liveTokensWithLatency.length > 0
                     ? Math.round(
-                          liveTokensWithLatency.reduce((acc, t) => acc + (t.p50LatencyMs || 0), 0) /
-                              liveTokensWithLatency.length
+                          liveTokensWithLatency.reduce(
+                              (acc, t) => acc + (t.p50LatencyMs || 0) * Math.max(1, t.inferenceCount ?? t.calls ?? 1),
+                              0
+                          ) / totalLatencyWeight
                       )
                     : rowP50LatencyMs;
             const p95TraceLatencyMs =
                 liveTokensWithLatency.length > 0
-                    ? Math.max(...liveTokensWithLatency.map((t) => t.p95LatencyMs || 0))
+                    ? Math.round(
+                          liveTokensWithLatency.reduce(
+                              (acc, t) => acc + (t.p95LatencyMs || 0) * Math.max(1, t.inferenceCount ?? t.calls ?? 1),
+                              0
+                          ) / totalLatencyWeight
+                      )
                     : rowP95LatencyMs;
             const avgStepLatencyMs =
                 liveTokensWithLatency.length > 0
                     ? Math.round(
-                          liveTokensWithLatency.reduce((acc, t) => acc + (t.avgStepLatencyMs || 0), 0) /
-                              liveTokensWithLatency.length
+                          liveTokensWithLatency.reduce(
+                              (acc, t) => acc + (t.avgStepLatencyMs || 0) * Math.max(1, t.inferenceCount ?? t.calls ?? 1),
+                              0
+                          ) / totalLatencyWeight
                       )
                     : rowAvgStepLatencyMs;
 
@@ -277,7 +306,16 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                 ? totalTokensNum >= 1_000_000
                     ? `${(totalTokensNum / 1_000_000).toFixed(1)}M`
                     : `${(totalTokensNum / 1_000).toFixed(1)}K`
-                : '35.7M';
+                : isSimulated
+                    ? '35.7M'
+                    : '0';
+
+            const stopCompletionRate =
+                enrichedRows.length > 0
+                    ? `${Math.round((stopCompletionsCount / enrichedRows.length) * 100)}%`
+                    : isSimulated
+                        ? '100%'
+                        : '—';
 
             return (
                 <div className="space-y-6">
@@ -285,14 +323,14 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                         <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                             <div className="text-xs text-gray-400 uppercase tracking-wide">Telemetry Events</div>
                             <div className="text-2xl font-light text-white mt-1">
-                                {(totalTelemetryCount || enrichedRows.length || 2578).toLocaleString()}
+                                {(totalTelemetryCount || enrichedRows.length || (isSimulated ? 2578 : 0)).toLocaleString()}
                             </div>
                             <div className="text-[11px] text-blue-400 mt-1">Model inferences</div>
                         </div>
                         <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                             <div className="text-xs text-gray-400 uppercase tracking-wide">Tool Calls Populated</div>
                             <div className="text-2xl font-light text-emerald-400 mt-1">
-                                {(toolCallsCount || 1813).toLocaleString()}
+                                {(toolCallsCount || (isSimulated ? 1813 : 0)).toLocaleString()}
                             </div>
                             <div className="text-[11px] text-emerald-400/80 mt-1">SharePoint, Drive, Jira & Search</div>
                         </div>
@@ -310,7 +348,9 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                             <div className="text-2xl font-light text-amber-400 mt-1">
                                 {p50TraceLatencyMs > 0 || p95TraceLatencyMs > 0
                                     ? `${formatLatencyMs(p50TraceLatencyMs)} / ${formatLatencyMs(p95TraceLatencyMs)}`
-                                    : '4.5s / 11.0s'}
+                                    : isSimulated
+                                        ? '4.5s / 11.0s'
+                                        : '—'}
                             </div>
                             <div className="text-[11px] text-amber-300/80 mt-1">
                                 {avgStepLatencyMs > 0
@@ -320,7 +360,7 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                         </div>
                         <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                             <div className="text-xs text-gray-400 uppercase tracking-wide">Generation Status</div>
-                            <div className="text-2xl font-light text-emerald-400 mt-1">100%</div>
+                            <div className="text-2xl font-light text-emerald-400 mt-1">{stopCompletionRate}</div>
                             <div className="text-[11px] text-gray-400 mt-1">STOP completions</div>
                         </div>
                     </div>
@@ -332,12 +372,12 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                             </h4>
                             <div className="h-64 w-full">
                                 <ResponsiveContainer width="100%" height={256}>
-                                    <BarChart data={topAgents.length > 0 ? topAgents : [
+                                    <BarChart data={topAgents.length > 0 ? topAgents : isSimulated ? [
                                         { agent: 'Cosmere', inputTokens: 14200000, outputTokens: 3100000, total: 17300000 },
                                         { agent: 'Entraid', inputTokens: 8900000, outputTokens: 1450000, total: 10350000 },
                                         { agent: 'Sharepoint', inputTokens: 5200000, outputTokens: 980000, total: 6180000 },
                                         { agent: 'Support', inputTokens: 2100000, outputTokens: 420000, total: 2520000 }
-                                    ]}>
+                                    ] : []}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                                         <XAxis dataKey="agent" stroke="#9CA3AF" fontSize={11} interval={0} angle={-15} textAnchor="end" />
                                         <YAxis stroke="#9CA3AF" fontSize={11} tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
@@ -356,13 +396,13 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                             </h4>
                             <div className="h-64 w-full">
                                 <ResponsiveContainer width="100%" height={256}>
-                                    <BarChart layout="vertical" data={sortedTools.length > 0 ? sortedTools : [
+                                    <BarChart layout="vertical" data={sortedTools.length > 0 ? sortedTools : isSimulated ? [
                                         { tool: 'sharepoint_search', count: 987 },
                                         { tool: 'ingestion_search', count: 316 },
                                         { tool: 'cosmere', count: 256 },
                                         { tool: 'google_search', count: 142 },
                                         { tool: 'jira_search', count: 46 }
-                                    ]}>
+                                    ] : []}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
                                         <XAxis type="number" stroke="#9CA3AF" fontSize={11} />
                                         <YAxis type="category" dataKey="tool" stroke="#9CA3AF" fontSize={10} width={100} />
@@ -379,11 +419,11 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                             </h4>
                             <div className="h-64 w-full">
                                 <ResponsiveContainer width="100%" height={256}>
-                                    <BarChart data={agentLatencyChartData.length > 0 ? agentLatencyChartData : [
+                                    <BarChart data={agentLatencyChartData.length > 0 ? agentLatencyChartData : isSimulated ? [
                                         { agent: 'Cosmere', p50LatencyMs: 4200, p95LatencyMs: 9800, avgStepLatencyMs: 3100 },
                                         { agent: 'Entraid', p50LatencyMs: 4800, p95LatencyMs: 11000, avgStepLatencyMs: 3600 },
                                         { agent: 'Sharepoint', p50LatencyMs: 3500, p95LatencyMs: 7400, avgStepLatencyMs: 2800 }
-                                    ]}>
+                                    ] : []}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                                         <XAxis dataKey="agent" stroke="#9CA3AF" fontSize={11} interval={0} angle={-15} textAnchor="end" />
                                         <YAxis stroke="#9CA3AF" fontSize={11} tickFormatter={(v) => `${(Number(v) / 1000).toFixed(1)}s`} />
@@ -448,8 +488,8 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                     .sort((a, b) => b.calls - a.calls)
                     .slice(0, 6);
 
-            const topConnector = sortedConnectors[0]?.connector || 'SharePoint';
-            const topCalls = sortedConnectors[0]?.calls || 817;
+            const topConnector = sortedConnectors[0]?.connector || (isSimulated ? 'SharePoint' : '—');
+            const topCalls = sortedConnectors[0]?.calls || (isSimulated ? 817 : 0);
 
             return (
                 <div className="space-y-6">
@@ -459,21 +499,21 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                                 {is30d ? '30-Day Invocations' : 'Total Invocations'}
                             </div>
                             <div className="text-2xl font-light text-white mt-1">
-                                {(totalInvocations || (is30d ? 1148 : 1813)).toLocaleString()}
+                                {(totalInvocations || (isSimulated ? (is30d ? 1148 : 1813) : 0)).toLocaleString()}
                             </div>
                             <div className="text-[11px] text-emerald-400 mt-1">External tools invoked</div>
                         </div>
                         <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                             <div className="text-xs text-gray-400 uppercase tracking-wide">Unique Connectors</div>
                             <div className="text-2xl font-light text-blue-400 mt-1">
-                                {uniqueConnectors || (is30d ? 12 : 19)}
+                                {uniqueConnectors || (isSimulated ? (is30d ? 12 : 19) : 0)}
                             </div>
                             <div className="text-[11px] text-gray-400 mt-1">Distinct tool integrations</div>
                         </div>
                         <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
                             <div className="text-xs text-gray-400 uppercase tracking-wide">Active Employees</div>
                             <div className="text-2xl font-light text-purple-400 mt-1">
-                                {uniqueUsers || 3}
+                                {uniqueUsers || (isSimulated ? 3 : 0)}
                             </div>
                             <div className="text-[11px] text-gray-400 mt-1">Users triggering connectors</div>
                         </div>
@@ -493,7 +533,7 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                             </h4>
                             <div className="h-64 w-full">
                                 <ResponsiveContainer width="100%" height={256}>
-                                    <BarChart layout="vertical" data={sortedConnectors.length > 0 ? sortedConnectors : [
+                                    <BarChart layout="vertical" data={sortedConnectors.length > 0 ? sortedConnectors : isSimulated ? [
                                         { connector: 'SharePoint', calls: 987 },
                                         { connector: 'Ingestion Search', calls: 316 },
                                         { connector: 'Cosmere', calls: 259 },
@@ -501,7 +541,7 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                                         { connector: 'Email', calls: 4 },
                                         { connector: 'Google Drive', calls: 3 },
                                         { connector: 'Jira', calls: 2 }
-                                    ]}>
+                                    ] : []}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
                                         <XAxis type="number" stroke="#9CA3AF" fontSize={11} />
                                         <YAxis type="category" dataKey="connector" stroke="#9CA3AF" fontSize={10} width={110} />
@@ -519,11 +559,11 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                             <div className="h-64 w-full">
                                 <ResponsiveContainer width="100%" height={256}>
                                     {is30d ? (
-                                        <BarChart layout="vertical" data={sortedUsers.length > 0 ? sortedUsers : [
+                                        <BarChart layout="vertical" data={sortedUsers.length > 0 ? sortedUsers : isSimulated ? [
                                             { user: 'qos-test-user@example.com', calls: 744 },
                                             { user: 'admin@example.com', calls: 291 },
                                             { user: 'alex.morgan@example.com', calls: 95 }
-                                        ]}>
+                                        ] : []}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
                                             <XAxis type="number" stroke="#9CA3AF" fontSize={11} />
                                             <YAxis type="category" dataKey="user" stroke="#9CA3AF" fontSize={9} width={130} tickFormatter={(v) => (v.length > 18 ? v.slice(0, 16) + '...' : v)} />

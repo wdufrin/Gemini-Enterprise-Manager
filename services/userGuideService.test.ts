@@ -89,10 +89,10 @@ describe('userGuideService — Programmatic Verification Suite', () => {
   });
 
   describe('2. Sidebar Tab & Page Enum Coverage', () => {
-    it('maps all 15 active sidebar items in ACTIVE_SIDEBAR_PAGES and TAB_MAPPING to valid GuideSections', () => {
-      expect(ACTIVE_SIDEBAR_PAGES).toHaveLength(15);
-      expect(new Set(ACTIVE_SIDEBAR_PAGES).size).toBe(15);
-      expect(Object.keys(TAB_MAPPING)).toHaveLength(15);
+    it('maps all 16 active sidebar items in ACTIVE_SIDEBAR_PAGES and TAB_MAPPING to valid GuideSections', () => {
+      expect(ACTIVE_SIDEBAR_PAGES).toHaveLength(16);
+      expect(new Set(ACTIVE_SIDEBAR_PAGES).size).toBe(16);
+      expect(Object.keys(TAB_MAPPING)).toHaveLength(16);
 
       for (const page of ACTIVE_SIDEBAR_PAGES) {
         const mapping = TAB_MAPPING[page];
@@ -125,7 +125,7 @@ describe('userGuideService — Programmatic Verification Suite', () => {
         liveItems.push({ page: pageVal, label: pageVal });
       }
 
-      expect(liveItems).toHaveLength(15);
+      expect(liveItems).toHaveLength(16);
       expect(liveItems.map((i) => i.page)).toEqual([...ACTIVE_SIDEBAR_PAGES]);
 
       for (const item of liveItems) {
@@ -136,9 +136,9 @@ describe('userGuideService — Programmatic Verification Suite', () => {
       }
     });
 
-    it('maps all 20 Page enum values in types.ts to valid GuideSections via getSectionForPage', () => {
+    it('maps all 21 Page enum values in types.ts to valid GuideSections via getSectionForPage', () => {
       const allPages = Object.values(Page);
-      expect(allPages).toHaveLength(20);
+      expect(allPages).toHaveLength(21);
 
       for (const page of allPages) {
         expect(PAGE_TO_SECTION_MAP[page]).toBeDefined();

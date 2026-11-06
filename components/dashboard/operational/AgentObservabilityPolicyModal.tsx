@@ -69,7 +69,7 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  // Fetch engines when Option 2 is opened
+  // Fetch engines when Option 2 is opened or location changes
   useEffect(() => {
     if (!isOpen || activeTab !== 'option2_bulk' || !projectId) return;
 
@@ -89,10 +89,12 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
         if (isMounted) {
           const list = res.engines || [];
           setEngines(list);
-          if (list.length > 0 && !selectedEngineId) {
-            const firstId = list[0].name.split('/').pop() || '';
-            setSelectedEngineId(firstId);
-          }
+          setSelectedEngineId((prev) => {
+            if (list.length === 0) return '';
+            const existsInList = list.some((e) => (e.name.split('/').pop() || '') === prev);
+            if (prev && existsInList) return prev;
+            return list[0].name.split('/').pop() || '';
+          });
         }
       } catch (err) {
         if (isMounted) {
@@ -107,7 +109,7 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, activeTab, projectId, selectedLocation, selectedEngineId]);
+  }, [isOpen, activeTab, projectId, selectedLocation]);
 
   // Fetch agents when an engine is selected
   useEffect(() => {
@@ -133,11 +135,14 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
         const baseAgents = res.agents || [];
 
         // Enrich with getAgent to ensure observabilityConfig is populated
+        let enrichFailureCount = 0;
         const enriched = await Promise.all(
           baseAgents.map(async (a) => {
             try {
               return await api.getAgent(a.name, config);
-            } catch {
+            } catch (enrichErr) {
+              enrichFailureCount++;
+              console.warn(`Failed to enrich agent ${a.name}:`, enrichErr);
               return a;
             }
           }),
@@ -145,6 +150,11 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
 
         if (isMounted) {
           setAgents(enriched);
+          if (enrichFailureCount > 0) {
+            setErrorMessage(
+              `Warning: Could not fetch full observability details for ${enrichFailureCount} agent(s); compliance status may be incomplete.`,
+            );
+          }
         }
       } catch (err) {
         if (isMounted) {
@@ -185,16 +195,24 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
       // Refresh agents to reflect changes
       const res = await api.listResources('agents', config);
       const baseAgents = res.agents || [];
+      let enrichFailureCount = 0;
       const enriched = await Promise.all(
         baseAgents.map(async (a) => {
           try {
             return await api.getAgent(a.name, config);
-          } catch {
+          } catch (enrichErr) {
+            enrichFailureCount++;
+            console.warn(`Failed to refresh agent ${a.name} after sweep:`, enrichErr);
             return a;
           }
         }),
       );
       setAgents(enriched);
+      if (enrichFailureCount > 0) {
+        setErrorMessage(
+          `Warning: Could not refresh observability details for ${enrichFailureCount} agent(s) after sweep.`,
+        );
+      }
     } catch (err) {
       setErrorMessage(`Bulk enforcement failed: ${toErrorMessage(err)}`);
     } finally {
@@ -203,7 +221,9 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
   };
 
   const monitoredAgentsCount = agents.filter(
-    (a) => a.observabilityConfig?.observabilityEnabled,
+    (a) =>
+      Boolean(a.observabilityConfig?.observabilityEnabled) &&
+      (!includeSensitive || Boolean(a.observabilityConfig?.sensitiveLoggingEnabled)),
   ).length;
 
   // Terraform Snippet
@@ -218,6 +238,10 @@ terraform {
     google = {
       source  = "hashicorp/google"
       version = ">= 5.0.0"
+    }
+    archive = {
+      source  = "hashicorp/archive"
+      version = ">= 2.4.0"
     }
   }
 }
@@ -255,12 +279,24 @@ resource "google_project_iam_member" "eventarc_receiver" {
   member  = "serviceAccount:\${google_service_account.agent_observability_sa.email}"
 }
 
-# 2. Storage Bucket for Function Source
+# 2. Storage Bucket & Zip Archive for Function Source
 resource "google_storage_bucket" "function_bucket" {
   project                     = var.project_id
   name                        = "\${var.project_id}-ge-telemetry-fn-source"
   location                    = var.region
   uniform_bucket_level_access = true
+}
+
+data "archive_file" "function_source" {
+  type        = "zip"
+  source_dir  = "\${path.module}/function_src"
+  output_path = "\${path.module}/source.zip"
+}
+
+resource "google_storage_bucket_object" "function_archive" {
+  name   = "source-\${data.archive_file.function_source.output_md5}.zip"
+  bucket = google_storage_bucket.function_bucket.name
+  source = data.archive_file.function_source.output_path
 }
 
 # 3. Cloud Function (Gen 2) Auto-Patcher
@@ -276,7 +312,7 @@ resource "google_cloudfunctions2_function" "auto_enabler" {
     source {
       storage_source {
         bucket = google_storage_bucket.function_bucket.name
-        object = "source.zip"
+        object = google_storage_bucket_object.function_archive.name
       }
     }
   }

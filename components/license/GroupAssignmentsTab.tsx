@@ -81,6 +81,7 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
   onDeleteService,
 }) => {
   const [showRawLogs, setShowRawLogs] = useState(false);
+  const [showManualGuide, setShowManualGuide] = useState(false);
 
   const summary = activeReport?.summary;
   const isCleanup = activeReport?.jobType === 'cleanup' || summary?.job === 'cleanup';
@@ -97,23 +98,106 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 p-6 rounded-lg shadow-md border border-gray-700">
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
           <div>
             <h3 className="text-lg font-semibold text-white">Group License Assignments</h3>
             <p className="text-gray-400 text-sm">
               Configure and deploy services to automate license assignment based on group membership.
             </p>
           </div>
-          <button
-            onClick={onNewAssignment}
-            className="px-4 py-2 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 flex items-center"
-          >
-            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            New Assignment
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowManualGuide((prev) => !prev)}
+              className="px-3.5 py-2 bg-gray-700 hover:bg-gray-600 text-blue-300 hover:text-white text-sm font-medium rounded border border-gray-600 transition-colors"
+            >
+              {showManualGuide ? 'Hide Manual Setup Guide' : 'Manual Setup Guide (Console & CLI)'}
+            </button>
+            <button
+              onClick={onNewAssignment}
+              className="px-4 py-2 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 flex items-center"
+            >
+              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              New Assignment
+            </button>
+          </div>
         </div>
+
+        {showManualGuide && (
+          <div
+            data-testid="group-assignments-manual-setup-panel"
+            className="mb-6 bg-gray-900/80 border border-blue-800/70 rounded-lg p-5 space-y-4 text-sm text-gray-300"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-700 pb-3">
+              <div>
+                <h4 className="text-base font-bold text-white">
+                  Step-by-Step Manual Setup Guide (No Cloud Build Required)
+                </h4>
+                <p className="text-xs text-gray-400 mt-1">
+                  If your organization blocks Cloud Build, follow these 4 steps to download the source package and set up the Cloud Run functions manually via the Google Cloud Console or CLI.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onNewAssignment}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded shadow whitespace-nowrap"
+              >
+                Open Generator &amp; Download .zip &rarr;
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div className="bg-gray-800/80 border border-gray-700 rounded-md p-3.5 space-y-1.5">
+                <div className="font-semibold text-blue-300">
+                  1. Generate &amp; Upload <code>entitlements.json</code>
+                </div>
+                <ol className="list-decimal list-inside space-y-1 text-gray-300">
+                  <li>Click <strong>New Assignment</strong> above, select your Project ID, Region, Subscription Tier, Google Groups, and GCS Bucket.</li>
+                  <li>Click <strong>Download .zip</strong> to download <code>group-licensing-source.zip</code> (includes <code>main.py</code>, <code>requirements.txt</code>, <code>Dockerfile</code>, <code>entitlements.json</code>, <code>deploy.sh</code>, and <code>README-MANUAL-SETUP.md</code>).</li>
+                  <li>Click <strong>Update Groups in GCS</strong> (or upload <code>entitlements.json</code> to <code>gs://&lt;your-bucket&gt;/config/entitlements.json</code> in the Cloud Storage Console or via <code>gcloud storage cp</code>).</li>
+                </ol>
+              </div>
+
+              <div className="bg-gray-800/80 border border-gray-700 rounded-md p-3.5 space-y-1.5">
+                <div className="font-semibold text-blue-300">
+                  2. Create Service Account &amp; Grant IAM + Workspace Access
+                </div>
+                <ol className="list-decimal list-inside space-y-1 text-gray-300">
+                  <li>Create service account <code>license-grouper-sa@&lt;project-id&gt;.iam.gserviceaccount.com</code> in <strong>IAM &amp; Admin &rarr; Service Accounts</strong>.</li>
+                  <li>Grant Project roles: <code>Discovery Engine Editor</code>, <code>Logs Writer</code>, and <code>Service Usage Consumer</code>.</li>
+                  <li>Grant Bucket role: <code>Storage Object Viewer</code> on your GCS bucket.</li>
+                  <li>In <strong>Google Workspace Admin Console</strong> (<code>admin.google.com</code>), add the service account to an external-enabled security group and assign that group the <strong>Groups Reader</strong> admin role.</li>
+                </ol>
+              </div>
+
+              <div className="bg-gray-800/80 border border-gray-700 rounded-md p-3.5 space-y-1.5">
+                <div className="font-semibold text-blue-300">
+                  3. Create the Cloud Run Functions (Console or Local Docker CLI)
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-gray-300">
+                  <li><strong>In Cloud Console (Inline Function Editor):</strong> Go to <strong>Cloud Run &rarr; Write a function</strong> and create <code>group-licensing-adder-&lt;location&gt;</code> and <code>group-licensing-cleanup-&lt;location&gt;</code> with Runtime <code>Python 3.11</code>, Entry point <code>handle_trigger</code>, Timeout <code>1800s</code>, Max instances <code>1</code>, Concurrency <code>1</code>, Require authentication, and Service account <code>license-grouper-sa</code>. Paste <code>main.py</code> and <code>requirements.txt</code> from the <code>.zip</code>.</li>
+                  <li><strong>Environment Variables:</strong> Set <code>GOOGLE_CLOUD_PROJECT</code>, <code>PROJECT_NUMBER</code>, <code>LOCATION</code>, <code>USER_STORE_ID</code>, <code>CONFIG_GCS_URI</code>, <code>SUBSCRIPTION_TIER</code>, and <code>JOB_TYPE=adder</code> (or <code>cleanup</code> + <code>MAX_REVOCATION_PERCENT=5</code>, <code>MIN_REVOCATION_ALLOWANCE=50</code>).</li>
+                  <li><strong>Via CLI without Cloud Build:</strong> Build locally with <code>docker build</code>, push to Artifact Registry, and run <code>gcloud run deploy --image=...</code> (full commands included in <code>README-MANUAL-SETUP.md</code>).</li>
+                  <li>Grant <code>license-grouper-sa</code> the <strong>Cloud Run Invoker</strong> (<code>roles/run.invoker</code>) role on both services.</li>
+                </ul>
+              </div>
+
+              <div className="bg-gray-800/80 border border-gray-700 rounded-md p-3.5 space-y-1.5">
+                <div className="font-semibold text-blue-300">
+                  4. Create Cloud Scheduler HTTP Jobs &amp; Verify
+                </div>
+                <ol className="list-decimal list-inside space-y-1 text-gray-300">
+                  <li>In <strong>Cloud Scheduler</strong>, create HTTP POST job <code>trigger-group-licensing-adder-&lt;location&gt;</code> (schedule <code>0 4 * * *</code>) targeting the Adder URL.</li>
+                  <li>Create HTTP POST job <code>trigger-group-licensing-cleanup-&lt;location&gt;</code> (schedule <code>0 */6 * * *</code>) targeting the Cleanup URL.</li>
+                  <li>On both jobs, set <strong>Auth header</strong> to <code>Add OIDC token</code> using <code>license-grouper-sa</code> and <strong>Attempt deadline</strong> to <code>1800s</code>.</li>
+                  <li>Refresh this tab — both services will appear below and can be tested immediately with <strong>Run</strong> and <strong>Report</strong>.</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isServicesLoading ? (
           <div className="text-center p-4">

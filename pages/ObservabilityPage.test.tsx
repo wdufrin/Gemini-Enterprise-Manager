@@ -19,6 +19,8 @@ vi.mock('../components/dashboard/ObservabilityDashboard', () => ({
             totalRequests?: number | string;
             p50LatencyMs?: number;
             p95LatencyMs?: number;
+            volumeData?: Array<{ time: string; requests: number }>;
+            latencyData?: Array<{ date: string; rawDate?: string; p50: number | null; p95: number | null }>;
             agentData?: Array<{ name: string; count: number; avgLatency?: number; p50?: number; p95?: number }>;
         };
     }) => (
@@ -30,6 +32,21 @@ vi.mock('../components/dashboard/ObservabilityDashboard', () => ({
             {customData?.p95LatencyMs !== undefined && (
                 <span data-testid="summary-p95">P95: {customData.p95LatencyMs}ms</span>
             )}
+            {customData?.volumeData && (
+                <span data-testid="volume-order">
+                    {customData.volumeData.map((v) => v.time).join(',')}
+                </span>
+            )}
+            {customData?.latencyData && (
+                <span data-testid="latency-days-count">
+                    Days:{customData.latencyData.length}
+                </span>
+            )}
+            {customData?.latencyData?.map((d) => (
+                <span key={d.rawDate || d.date} data-testid={`latency-day-${d.rawDate || d.date}`}>
+                    {d.date}:{d.p50}:{d.p95}
+                </span>
+            ))}
             {customData?.agentData?.map((a) => (
                 <span key={a.name} data-testid={`agent-${a.name}`}>
                     {a.name}:{a.count}:{a.avgLatency ?? 'none'}:{a.p50 ?? 'none'}:{a.p95 ?? 'none'}
@@ -178,7 +195,9 @@ describe('ObservabilityPage', () => {
         expect(await screen.findByText(/403 Access Denied: User lacks bigquery\.jobs\.create permission/i)).toBeInTheDocument();
     });
 
-    it('queries trace_latencies across activity and GenAI tables, parses summary & per-agent P50/P95 latency, and ignores malformed latency cells', async () => {
+    it('queries trace_latencies & latency_timeseries, builds a full daily latency spine spanning timeRange, sorts volumeData chronologically, and ignores malformed rows', async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+
         vi.mocked(listBigQueryTables).mockResolvedValue({
             tables: [
                 {
@@ -211,6 +230,44 @@ describe('ObservabilityPage', () => {
                         { v: '12' },
                         { v: '1450' },
                         { v: '4800' },
+                        { v: null }
+                    ]
+                },
+                {
+                    // Scrambled volume timestamps that must be sorted chronologically
+                    f: [{ v: 'volume' }, { v: '11-05 22:00' }, { v: '4' }]
+                },
+                {
+                    f: [{ v: 'volume' }, { v: '10-30 14:00' }, { v: '1' }]
+                },
+                {
+                    f: [{ v: 'volume' }, { v: '11-04 06:00' }, { v: '2' }]
+                },
+                {
+                    f: [
+                        { v: 'latency_daily' },
+                        { v: todayIso },
+                        { v: '1551' },
+                        { v: '7606' },
+                        { v: '8' }
+                    ]
+                },
+                {
+                    // Adversarial latency_daily rows with invalid date or non-numeric latencies
+                    f: [
+                        { v: 'latency_daily' },
+                        { v: 'NOT_A_DATE' },
+                        { v: '999' },
+                        { v: '1999' },
+                        { v: '2' }
+                    ]
+                },
+                {
+                    f: [
+                        { v: 'latency_daily' },
+                        { v: '2026-10-31' },
+                        { v: 'NaN_VAL' },
+                        { v: '' },
                         { v: null }
                     ]
                 },
@@ -252,13 +309,35 @@ describe('ObservabilityPage', () => {
 
         expect(screen.getByTestId('summary-p50')).toHaveTextContent('P50: 1450ms');
         expect(screen.getByTestId('summary-p95')).toHaveTextContent('P95: 4800ms');
+        expect(screen.getByTestId('volume-order')).toHaveTextContent('10-30 14:00,11-04 06:00,11-05 22:00');
+        expect(screen.getByTestId(`latency-day-${todayIso}`)).toHaveTextContent(`${todayIso.slice(5)}:1551:7606`);
+        expect(screen.queryByTestId('latency-day-NOT_A_DATE')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('latency-day-2026-10-31')).not.toBeInTheDocument();
         expect(screen.getByTestId('agent-Cosmere')).toHaveTextContent('Cosmere:85:1620:1400:4500');
         expect(screen.getByTestId('agent-SearchAgent')).toHaveTextContent('SearchAgent:35:none:none:none');
 
         const executedSql = vi.mocked(runBigQueryQuery).mock.calls[0]?.[1] || '';
         expect(executedSql).toContain('trace_latencies AS');
+        expect(executedSql).toContain('latency_timeseries AS');
+        expect(executedSql).toContain("SELECT 'latency_daily' as metric_type");
         expect(executedSql).toContain('discoveryengine_googleapis_com_gen_ai_client_inference_operation_details');
-        expect(executedSql).toContain('APPROX_QUANTILES(tl.latency_ms, 100)[OFFSET(95)]');
+        expect(executedSql).toContain('distinct_agent_traces AS');
+        expect(executedSql).toContain('APPROX_QUANTILES(latency_ms, 100)[OFFSET(95)]');
+        expect(executedSql).not.toContain("method_name IN ('StreamAssist', 'Assist', 'Search', 'WriteUserEvent')");
+    });
+
+    it('surfaces BigQuery result.error payloads when runBigQueryQuery resolves with an embedded error', async () => {
+        vi.mocked(runBigQueryQuery).mockResolvedValue({
+            error: { message: 'Unrecognized name: invalid_column at [12:5]' }
+        } as unknown as Awaited<ReturnType<typeof runBigQueryQuery>>);
+
+        render(
+            <ToastProvider>
+                <ObservabilityPage projectNumber="123" projectId="test-proj" />
+            </ToastProvider>
+        );
+
+        expect(await screen.findByText(/Unrecognized name: invalid_column/i)).toBeInTheDocument();
     });
 });
 

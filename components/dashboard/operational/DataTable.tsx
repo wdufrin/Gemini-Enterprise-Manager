@@ -93,7 +93,9 @@ export const DataTable: React.FC<Props> = ({
             return columns.map(c => {
                 const val = row[c.key];
                 if (val === null || val === undefined) return '""';
-                return `"${String(val).replace(/"/g, '""')}"`;
+                const strVal = String(val);
+                const safeStr = /^[=+\-@]/.test(strVal.trimStart()) ? `'${strVal}` : strVal;
+                return `"${safeStr.replace(/"/g, '""')}"`;
             }).join(',');
         });
         const csvContent = [headers.join(','), ...rows].join('\n');

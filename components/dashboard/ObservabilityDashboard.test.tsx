@@ -119,4 +119,99 @@ describe('ObservabilityDashboard', () => {
         fireEvent.click(expandBtn);
         expect(setTimeRange).toHaveBeenCalledWith(30);
     });
+
+    it('renders a daily latency LineChart spanning the full selected timeRange duration when Trace Latency mode is selected', () => {
+        const { rerender } = render(
+            <ObservabilityDashboard
+                datasetId="analytics_prod"
+                customData={{
+                    totalRequests: 48,
+                    totalSessions: 12,
+                    uniqueUsers: 5,
+                    uniqueAgents: 1,
+                    p50LatencyMs: 1551,
+                    p95LatencyMs: 7606,
+                    volumeData: [{ time: '11-05 10:00', requests: 48, errors: 0 }],
+                    latencyData: [
+                        { date: '11-05', rawDate: new Date().toISOString().slice(0, 10), p50: 1551, p95: 7606, count: 8 }
+                    ],
+                    agentData: [
+                        { name: 'Cosmere', id: 'cosmere_1', count: 48, p50: 1551, p95: 7606 }
+                    ],
+                    queries: {
+                        latencyQuery: 'SELECT event_day, p50_latency_ms, p95_latency_ms FROM latency_timeseries'
+                    }
+                }}
+                timeRange={7}
+                setTimeRange={vi.fn()}
+                isLoading={false}
+            />
+        );
+
+        // Initially in Message Volume mode
+        expect(screen.getByText('Top Agents by Message Volume')).toBeInTheDocument();
+
+        // Switch to Trace Latency (ms) mode
+        const latencyBtn = screen.getByTestId('agent-chart-mode-latency');
+        fireEvent.click(latencyBtn);
+
+        expect(screen.getByText('Agent Trace Latency Per Day (P50 / P95 ms — 7d)')).toBeInTheDocument();
+        expect(screen.getByTestId('latency-duration-badge')).toHaveTextContent(/7d Daily Series/i);
+
+        // Expand timeRange to 30 days and verify the daily latency series spans all 30 days
+        rerender(
+            <ObservabilityDashboard
+                datasetId="analytics_prod"
+                customData={{
+                    totalRequests: 48,
+                    totalSessions: 12,
+                    uniqueUsers: 5,
+                    uniqueAgents: 1,
+                    p50LatencyMs: 1551,
+                    p95LatencyMs: 7606,
+                    volumeData: [{ time: '2026-11-05', requests: 48, errors: 0 }],
+                    latencyData: [
+                        { date: '11-05', rawDate: new Date().toISOString().slice(0, 10), p50: 1551, p95: 7606, count: 8 }
+                    ],
+                    agentData: [
+                        { name: 'Cosmere', id: 'cosmere_1', count: 48, p50: 1551, p95: 7606 }
+                    ],
+                    queries: {
+                        latencyQuery: 'SELECT event_day, p50_latency_ms, p95_latency_ms FROM latency_timeseries'
+                    }
+                }}
+                timeRange={30}
+                setTimeRange={vi.fn()}
+                isLoading={false}
+            />
+        );
+
+        expect(screen.getByText('Agent Trace Latency Per Day (P50 / P95 ms — 30d)')).toBeInTheDocument();
+        expect(screen.getByTestId('latency-duration-badge')).toHaveTextContent(/30d Daily Series/i);
+    });
+
+    it('renders avgLatency with an explicit (avg) suffix in the Agent Activity Breakdown table instead of duplicating it as P50 / P95', () => {
+        render(
+            <ObservabilityDashboard
+                datasetId="analytics_prod"
+                customData={{
+                    totalRequests: 12,
+                    totalSessions: 4,
+                    uniqueUsers: 2,
+                    uniqueAgents: 1,
+                    volumeData: [{ time: '10:00', requests: 12, errors: 0 }],
+                    agentData: [
+                        { name: 'Search Agent', id: 'search_app', count: 12, avgLatency: 840 }
+                    ],
+                    queries: {}
+                }}
+                timeRange={7}
+                setTimeRange={vi.fn()}
+                isLoading={false}
+            />
+        );
+
+        expect(screen.getByText('840ms (avg)')).toBeInTheDocument();
+        expect(screen.queryByText('840ms / 840ms')).not.toBeInTheDocument();
+    });
 });

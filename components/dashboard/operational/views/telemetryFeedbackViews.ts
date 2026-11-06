@@ -116,6 +116,7 @@ user_map AS (
   FROM ${logsSource}
   WHERE log_name LIKE '%gemini_enterprise_user_activity%'
     AND trace IS NOT NULL
+    AND trace != ''
   GROUP BY trace
 ),${assistCte}
 ranked_steps AS (
@@ -123,14 +124,14 @@ ranked_steps AS (
     r.*,
     u.user_email,
     ${agentNameSelect}
-    ROW_NUMBER() OVER(PARTITION BY r.trace ORDER BY r.timestamp ASC) AS step_index,
-    COUNT(1) OVER(PARTITION BY r.trace) AS total_steps,
+    ROW_NUMBER() OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING)))) ORDER BY r.timestamp ASC) AS step_index,
+    COUNT(1) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING))))) AS total_steps,
     GREATEST(
       0,
       COALESCE(
         TIMESTAMP_DIFF(
           r.timestamp,
-          LAG(r.timestamp) OVER(PARTITION BY r.trace ORDER BY r.timestamp ASC),
+          LAG(r.timestamp) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING)))) ORDER BY r.timestamp ASC),
           MILLISECOND
         ),
         IF(
@@ -144,12 +145,12 @@ ranked_steps AS (
       0,
       TIMESTAMP_DIFF(
         GREATEST(
-          MAX(r.timestamp) OVER(PARTITION BY r.trace),
-          COALESCE(u.max_activity_ts, MAX(r.timestamp) OVER(PARTITION BY r.trace))
+          MAX(r.timestamp) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING))))),
+          COALESCE(u.max_activity_ts, MAX(r.timestamp) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING))))))
         ),
         LEAST(
-          MIN(r.timestamp) OVER(PARTITION BY r.trace),
-          COALESCE(u.min_activity_ts, MIN(r.timestamp) OVER(PARTITION BY r.trace))
+          MIN(r.timestamp) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING))))),
+          COALESCE(u.min_activity_ts, MIN(r.timestamp) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING))))))
         ),
         MILLISECOND
       )
@@ -202,6 +203,7 @@ FROM ranked_steps;`;
     FROM ${sinkActivity.tableRef}
   )
   WHERE trace IS NOT NULL
+    AND trace != ''
   GROUP BY trace`
                 : `SELECT CAST(NULL AS STRING) AS trace, CAST(NULL AS STRING) AS user_email, CAST(NULL AS TIMESTAMP) AS min_activity_ts, CAST(NULL AS TIMESTAMP) AS max_activity_ts FROM (SELECT 1) WHERE FALSE`;
 
@@ -281,14 +283,14 @@ ranked_steps AS (
     r.*,
     u.user_email,
     ${agentNameSelect}
-    ROW_NUMBER() OVER(PARTITION BY r.trace ORDER BY r.timestamp ASC) AS step_index,
-    COUNT(1) OVER(PARTITION BY r.trace) AS total_steps,
+    ROW_NUMBER() OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING)))) ORDER BY r.timestamp ASC) AS step_index,
+    COUNT(1) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING))))) AS total_steps,
     GREATEST(
       0,
       COALESCE(
         TIMESTAMP_DIFF(
           r.timestamp,
-          LAG(r.timestamp) OVER(PARTITION BY r.trace ORDER BY r.timestamp ASC),
+          LAG(r.timestamp) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING)))) ORDER BY r.timestamp ASC),
           MILLISECOND
         ),
         IF(
@@ -302,12 +304,12 @@ ranked_steps AS (
       0,
       TIMESTAMP_DIFF(
         GREATEST(
-          MAX(r.timestamp) OVER(PARTITION BY r.trace),
-          COALESCE(u.max_activity_ts, MAX(r.timestamp) OVER(PARTITION BY r.trace))
+          MAX(r.timestamp) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING))))),
+          COALESCE(u.max_activity_ts, MAX(r.timestamp) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING))))))
         ),
         LEAST(
-          MIN(r.timestamp) OVER(PARTITION BY r.trace),
-          COALESCE(u.min_activity_ts, MIN(r.timestamp) OVER(PARTITION BY r.trace))
+          MIN(r.timestamp) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING))))),
+          COALESCE(u.min_activity_ts, MIN(r.timestamp) OVER(PARTITION BY COALESCE(NULLIF(r.trace, ''), CONCAT('untraced_', COALESCE(r.insert_id, CAST(r.timestamp AS STRING))))))
         ),
         MILLISECOND
       )
@@ -337,17 +339,17 @@ SELECT
 FROM ranked_steps;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
-  agent_name,
+  COALESCE(agent_name, 'root_agent') AS agent_name,
   SUM(input_tokens) AS total_input_tokens,
   SUM(output_tokens) AS total_output_tokens,
   COUNT(1) AS inference_count,
-  CAST(ROUND(AVG(NULLIF(step_latency_ms, 0))) AS INT64) AS avg_step_latency_ms,
-  APPROX_QUANTILES(NULLIF(trace_duration_ms, 0), 100)[OFFSET(50)] AS p50_trace_duration_ms,
-  APPROX_QUANTILES(NULLIF(trace_duration_ms, 0), 100)[OFFSET(95)] AS p95_trace_duration_ms
+  CAST(ROUND(AVG(IF(step_latency_ms > 0 AND step_latency_ms < 600000, step_latency_ms, NULL))) AS INT64) AS avg_step_latency_ms,
+  APPROX_QUANTILES(IF(trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(50)] AS p50_trace_duration_ms,
+  APPROX_QUANTILES(IF(trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(95)] AS p95_trace_duration_ms
 FROM \`${projectId}.${dataset}.v_gemini_genai_telemetry\`
 GROUP BY agent_name
 ORDER BY (total_input_tokens + total_output_tokens) DESC
-LIMIT 10;`,
+LIMIT 50;`,
         getRowsQuery: (projectId: string, dataset: string) => `SELECT
   timestamp,
   user_email,

@@ -134,6 +134,15 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
         action: () => onNavigate(Page.ASSISTANT),
       },
       {
+        id: 'nav-latency-lab',
+        label: Page.LATENCY_LAB,
+        category: 'Testing & Analysis',
+        description: 'Run live :streamAssist latency benchmarks, Before/After Skill A/B tests, and DataStore/Connector fan-out diagnostics',
+        keywords: ['latency', 'benchmark', 'performance', 'ttfb', 'streamassist', 'ab test', 'skills', 'fanout'],
+        badge: currentPage === Page.LATENCY_LAB ? 'Current' : undefined,
+        action: () => onNavigate(Page.LATENCY_LAB),
+      },
+      {
         id: 'nav-architecture',
         label: Page.ARCHITECTURE,
         category: 'Testing & Analysis',

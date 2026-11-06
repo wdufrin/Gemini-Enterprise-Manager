@@ -253,7 +253,7 @@ export const getAgentEngineToolLatencies = async (
   } else {
     filter = `metric.type="discoveryengine.googleapis.com/tool_total_latencies" AND resource.labels.tool_id=has_substring("${resourceId}")`;
   }
-  const url = `https://monitoring.googleapis.com/v3/projects/${config.projectId}/timeSeries?filter=${encodeURIComponent(filter)}&interval.startTime=${encodeURIComponent(startTime)}&interval.endTime=${encodeURIComponent(endTime)}`;
+  const url = `https://monitoring.googleapis.com/v3/projects/${config.projectId}/timeSeries?filter=${encodeURIComponent(filter)}&interval.startTime=${encodeURIComponent(startTime)}&interval.endTime=${encodeURIComponent(endTime)}&aggregation.perSeriesAligner=ALIGN_DELTA&aggregation.alignmentPeriod=3600s`;
 
   return gapiRequest<{ timeSeries?: TimeSeries[] }>(url, "GET", config.projectId);
 };

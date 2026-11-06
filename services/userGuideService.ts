@@ -80,6 +80,7 @@ export const ACTIVE_SIDEBAR_PAGES = [
   Page.GE_QUOTA_USAGE,
   // Group 3: Testing & Analysis
   Page.ASSISTANT,
+  Page.LATENCY_LAB,
   Page.ARCHITECTURE,
   // Group 4: Security & Access
   Page.AUTHORIZATIONS,
@@ -93,7 +94,7 @@ export const ACTIVE_SIDEBAR_PAGES = [
 ] as const;
 
 /**
- * Canonical mapping from each of the 15 active sidebar Page values to its sidebar label and GuideSection ID.
+ * Canonical mapping from each of the 16 active sidebar Page values to its sidebar label and GuideSection ID.
  */
 export const TAB_MAPPING: Record<
   (typeof ACTIVE_SIDEBAR_PAGES)[number],
@@ -132,6 +133,11 @@ export const TAB_MAPPING: Record<
   [Page.ASSISTANT]: {
     label: 'Engines & Assistants',
     sectionId: 'ch2-engines-assistants',
+    group: 'Testing & Analysis',
+  },
+  [Page.LATENCY_LAB]: {
+    label: 'Latency Testing Lab',
+    sectionId: 'ch2-latency-testing-lab',
     group: 'Testing & Analysis',
   },
   [Page.ARCHITECTURE]: {
@@ -177,7 +183,7 @@ export const TAB_MAPPING: Record<
 };
 
 /**
- * Complete mapping from all 20 Page enum values in types.ts to their corresponding GuideSection ID.
+ * Complete mapping from all Page enum values in types.ts to their corresponding GuideSection ID.
  */
 export const PAGE_TO_SECTION_MAP: Record<Page, string> = {
   [Page.AGENTS]: 'ch1-ge-agent-manager',
@@ -191,6 +197,7 @@ export const PAGE_TO_SECTION_MAP: Record<Page, string> = {
   [Page.MCP_SERVERS]: 'ch2-connectors-data-stores',
   [Page.GE_QUOTA_USAGE]: 'ch2-quota-cost-estimator',
   [Page.ASSISTANT]: 'ch2-engines-assistants',
+  [Page.LATENCY_LAB]: 'ch2-latency-testing-lab',
   [Page.CHAT]: 'ch2-engines-assistants',
   [Page.ARCHITECTURE]: 'ch2-architecture',
   [Page.AUTHORIZATIONS]: 'ch3-authorizations',
@@ -277,6 +284,7 @@ function mapTabName(title: string): string | undefined {
   if (lower.includes('ge agent manager') || lower === 'agent manager') return 'GE Agent Manager';
   if (lower.includes('skills registry')) return 'Skills Registry';
   if (lower.includes('adk studio') || lower.includes('agent builder')) return 'ADK Studio';
+  if (lower.includes('latency testing lab')) return 'Latency Testing Lab';
   if (lower.includes('engines & assistants') || lower.includes('assistants')) return 'Engines & Assistants';
   if (lower.includes('agent runtimes') || lower.includes('engines')) return 'Agent Runtimes';
   if (lower.includes('connectors') && lower.includes('data stores')) return 'Connectors & Data Stores';

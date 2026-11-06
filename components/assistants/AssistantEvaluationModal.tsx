@@ -56,6 +56,7 @@ export interface AssistantEvaluationModalProps {
   config: Config;
   onNavigateToTab?: (tab: EvaluationTargetTab) => void;
   onRefreshAgents?: () => void | Promise<void>;
+  onOpenLatencyLab?: () => void;
 }
 
 type ModalSectionTab = 'findings' | 'byomcp' | 'skills';
@@ -84,6 +85,7 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
   config,
   onNavigateToTab,
   onRefreshAgents,
+  onOpenLatencyLab,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const evalSeqRef = useRef(0);
@@ -1484,6 +1486,17 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {onOpenLatencyLab && (
+              <button
+                type="button"
+                onClick={onOpenLatencyLab}
+                disabled={isBusy}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1"
+                title="Open the dedicated full-screen Latency Testing Lab for this Engine"
+              >
+                <span>⚡ Open Latency Lab</span>
+              </button>
+            )}
             {report && (
               <>
                 <button

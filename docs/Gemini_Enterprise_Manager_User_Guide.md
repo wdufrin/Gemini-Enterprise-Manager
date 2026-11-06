@@ -3116,6 +3116,32 @@ Every error string this chapter's code can produce.
 
 ---
 
+## Latency Testing Lab
+
+Route: `#/latency-lab`. Source: [LatencyLabPage.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/pages/LatencyLabPage.tsx).
+
+### What it's for
+
+The **Latency Testing Lab** is a dedicated full-screen workspace for benchmarking Gemini Enterprise `:streamAssist` latency, evaluating Time-to-First-Byte (TTFB) vs. retrieval/synthesis tail latency, running controlled **Before vs. After Skill A/B experiments**, and diagnosing multi-DataStore and BYOMCP connector fan-out bottlenecks. You can open it directly from the **Testing & Analysis** section of the sidebar, from the **Latency Lab** button on any Assistant Detail page, or from **⚡ Open Latency Lab** inside the Assistant Configuration & Best-Practices Evaluator modal.
+
+### Three workspace modes
+
+1. **`:streamAssist` Latency Benchmark (`1. :streamAssist Latency Benchmark`)**
+   - Build a multi-query benchmark suite or use **Auto-Generate from Attached Sources** / **Load Single-Source vs. Fan-Out Probes** to populate realistic prompts targeting your engine's connected DataStores and BYOMCP tools.
+   - Click **⚡ Run Live `:streamAssist` Benchmark** to execute each prompt against `discoveryengine.googleapis.com/v1alpha/.../assistants/default_assistant:streamAssist`.
+   - Inspect summary telemetry cards (**Avg End-to-End Latency**, **P95 Latency**, **Avg Time-to-First-Byte (TTFB)**, **Avg Planner Thought Steps**, and **Grounded Citations & Routing**) and expand any row in the per-query breakdown table to inspect the planner's intermediate thought trace and grounded answer preview.
+   - Click **Export Telemetry (.json)** to download the full benchmark run for regression tracking.
+
+2. **Before vs. After Skill A/B Lab (`2. Before vs. After Skill A/B Lab`)**
+   - Select any recommended query-routing skill template or existing organizational skill deployed on the engine.
+   - Follow the 3-step workflow (**1. Run Baseline (Before Skill)** → **2. Deploy / Update Skill** → **3. Run After Skill & Diagnose**) to measure exact latency deltas (`ms` and `%`), TTFB improvements, and skill trigger rates on identical queries.
+   - Review automated skill diagnostics (`TRIGGER_VOCABULARY_MISMATCH`, `BROAD_FANOUT_INSTRUCTION`, `MISSING_TARGET_SOURCE_IDENTIFIER`, `SKILL_INSTRUCTION_CONFLICT`, `BEHAVIORAL_GROUNDING_CONFLICT`, `LATENCY_REGRESSION_MULTI_HOP`) and apply recommended fixes directly to the skill draft with **✨ Apply Fix to Skill Draft**.
+
+3. **DataStore & Connector Fan-Out Inspector (`3. DataStore & Connector Fan-Out Inspector`)**
+   - Inspect all DataStore IDs and BYOMCP connectors attached to the selected engine alongside active latency and routing findings, and jump straight into the A/B Lab for any recommended routing skill.
+
+---
+
 # Chapter 3 — Security & Access
 
 **Who this chapter is for** — Administrators who decide *what an agent may do on a user's behalf*, *who may talk to an agent*, *what content is allowed through*, and *what gets recorded*. If you own the audit story for Gemini Enterprise, this is your chapter.

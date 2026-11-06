@@ -748,6 +748,11 @@ def t_handle_trigger():
     _, (body, status), _ = trigger("adder", fake, body={"dryRun": True})
     assert status == 200 and body["summary"]["dryRun"] is True and fake.calls["batch"] == 0
 
+    # Cloud Run Functions inline editor (functions-framework) passes flask.Request as first positional arg
+    ns_fn = load_ns(JOB_TYPE="adder", AuthorizedSession=lambda creds: fake)
+    fn_body, fn_status = ns_fn["handle_trigger"](StubRequest({"dryRun": True}))
+    assert fn_status == 200 and fn_body["summary"]["dryRun"] is True and fake.calls["batch"] == 0
+
     fake = FakeGoogle(groups={GROUP: [], "other@example.com": users(2)}, licenses=[assigned(u) for u in users(2)],
                       config_json=config_for([GROUP, "other@example.com"]))
     _, (body, status), stdout = trigger("cleanup", fake)

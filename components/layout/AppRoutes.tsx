@@ -38,6 +38,7 @@ const LicensePage = React.lazy(() => import('../../pages/LicensePage'));
 const GEQuotaUsagePage = React.lazy(() => import('../../pages/GEQuotaUsagePage'));
 const AgentPermissionsPage = React.lazy(() => import('../../pages/AgentPermissionsPage'));
 const ConfigAuditPage = React.lazy(() => import('../../pages/ConfigAuditPage'));
+const LatencyLabPage = React.lazy(() => import('../../pages/LatencyLabPage'));
 
 interface AppRoutesProps {
   currentPage: Page;
@@ -73,7 +74,9 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
     case Page.SKILLS_REGISTRY:
       return <SkillsRegistryPage {...projectProps} accessToken={accessToken} userProfile={userProfile} />;
     case Page.ASSISTANT:
-      return <AssistantPage {...projectProps} context={pageContext} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={onBuildTriggered} />;
+      return <AssistantPage {...projectProps} context={pageContext} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={onBuildTriggered} onNavigate={onNavigate} />;
+    case Page.LATENCY_LAB:
+      return <LatencyLabPage {...projectProps} context={pageContext} accessToken={accessToken} userProfile={userProfile} onNavigate={onNavigate} />;
     case Page.AUTHORIZATIONS:
       return <AuthorizationsPage {...commonProps} />;
     case Page.AGENT_PERMISSIONS:
@@ -89,7 +92,7 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
     case Page.DIALOGFLOW_AGENTS:
       return <DialogflowAgentsPage {...projectProps} accessToken={accessToken} />;
     case Page.CHAT:
-      return <AssistantPage {...projectProps} context={pageContext} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={onBuildTriggered} />;
+      return <AssistantPage {...projectProps} context={pageContext} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={onBuildTriggered} onNavigate={onNavigate} />;
     case Page.DATA_STORES:
       return <DataStoresPage {...projectProps} accessToken={accessToken} />;
     case Page.MCP_SERVERS:

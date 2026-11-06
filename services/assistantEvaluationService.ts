@@ -67,7 +67,16 @@ export interface RecommendedSkillTemplate {
 export interface SkillBenchmarkQueryRun {
   query: string;
   totalLatencyMs: number;
+  /** Client-observed Time to First Wire Chunk (ms from request start until first StreamChatChunk frame, including sessionInfo). */
   ttfbMs: number;
+  /** Client-observed Time to 1st Thought / Reply Chunk (TTFC-Thought, ms until first planner thought or reply chunk). */
+  ttftMs?: number;
+  /** Client-observed Time to 1st Answer Chunk (TTFC-Answer, ms until first non-thought grounded answer chunk). */
+  ttfaMs?: number;
+  /** Observed inter-chunk deliberation & retrieval window (`ttfaMs - ttftMs`) when separate chunks are emitted. */
+  plannerAndRetrievalMs?: number;
+  /** Observed time spent streaming the final answer after 1st answer chunk (`totalLatencyMs - ttfaMs`). */
+  answerGenerationTailMs?: number;
   answerPreview: string;
   thoughtSteps: string[];
   citationsCount: number;
@@ -102,6 +111,14 @@ export interface SkillPerformanceBenchmarkPhase {
   runs: SkillBenchmarkQueryRun[];
   avgLatencyMs: number;
   avgTtfbMs: number;
+  /** Average client-observed Time to 1st Thought / Reply Chunk (ms) across successful queries in the phase. */
+  avgTtftMs?: number;
+  /** Average client-observed Time to 1st Answer Chunk (ms) across successful queries in the phase. */
+  avgTtfaMs?: number;
+  /** Average observed inter-chunk planner & retrieval window (`avgTtfaMs - avgTtftMs`). */
+  avgPlannerRetrievalMs?: number;
+  /** Number of DataStores scoped in `toolsSpec.vertexAiSearchSpec.dataStoreSpecs`. */
+  scopedDataStoresCount?: number;
   skillTriggerRate: number;
 }
 
@@ -112,6 +129,8 @@ export interface SkillPerformanceComparisonReport {
   latencyDeltaMs?: number;
   latencyDeltaPercent?: number;
   ttfbDeltaMs?: number;
+  ttftDeltaMs?: number;
+  ttfaDeltaMs?: number;
   improved: boolean;
   verdictSummary: string;
   mistakes: SkillDiagnosticMistake[];
@@ -204,6 +223,15 @@ export interface EvaluationCategoryScore {
   passCount: number;
 }
 
+export interface ConnectedDataStoreOption {
+  id: string;
+  resourceName: string;
+  displayName: string;
+  collectionId: string;
+  sourceType: string;
+  isByomcp: boolean;
+}
+
 export interface AssistantEvaluationReport {
   evaluatedAt: string;
   projectId: string;
@@ -221,6 +249,7 @@ export interface AssistantEvaluationReport {
   byomcpEvaluations: ByomcpConnectorEvaluation[];
   recommendedSkills: RecommendedSkillTemplate[];
   connectedDataStoreResourceNames?: string[];
+  connectedDataStoreDetails?: ConnectedDataStoreOption[];
   probeWarnings: string[];
 }
 
@@ -3115,19 +3144,90 @@ ${storeListText}
   };
   findings.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
-  const matchedDataStores = dataStores.filter((ds) => {
-    const dsId = ds.name.split('/').pop() || ds.name;
-    return attachedIds.has(dsId);
+  const byomcpCollectionIds = new Set(byomcpEvaluations.map((m) => m.collectionId));
+  const dsLookupByName = new Map<string, DataStore>();
+  dataStores.forEach((ds) => {
+    dsLookupByName.set(ds.name, ds);
+    const shortId = ds.name.split('/').pop() || ds.name;
+    if (shortId) dsLookupByName.set(shortId, ds);
   });
-  const connectedDataStoreResourceNames =
-    matchedDataStores.length > 0
-      ? matchedDataStores.map((ds) => ds.name)
-      : Array.from(attachedIds).map(
-          (id) =>
-            `projects/${config.projectId}/locations/${config.appLocation || 'global'}/collections/${
-              config.collectionId || 'default_collection'
-            }/dataStores/${id}`,
-        );
+
+  const connectorEntityUriById = new Map<string, { uri: string; collectionId: string; entityName?: string }>();
+  Object.entries(connectorsByCollectionId).forEach(([cid, conn]) => {
+    const rawEntities = Array.isArray(conn?.entities) ? conn.entities : [];
+    rawEntities.forEach((rawEnt) => {
+      const ent = rawEnt as Record<string, unknown>;
+      const dsUri = typeof ent?.dataStore === 'string' ? ent.dataStore.trim() : '';
+      const entName = typeof ent?.entityName === 'string' ? ent.entityName.trim() : undefined;
+      if (dsUri) {
+        const entShortId = dsUri.split('/').pop() || dsUri;
+        connectorEntityUriById.set(entShortId, {
+          uri: dsUri,
+          collectionId: cid,
+          entityName: entName,
+        });
+        connectorEntityUriById.set(dsUri, {
+          uri: dsUri,
+          collectionId: cid,
+          entityName: entName,
+        });
+      }
+    });
+  });
+
+  const connectedDataStoreResourceNames = Array.from(attachedIds).map((id) => {
+    const matchedDs = dsLookupByName.get(id);
+    if (matchedDs?.name) return matchedDs.name;
+    const matchedEntity = connectorEntityUriById.get(id);
+    if (matchedEntity?.uri) return matchedEntity.uri;
+    const matchedCid = Array.from(collectionMap.keys()).find(
+      (c) => id === c || id.startsWith(`${c}_`),
+    );
+    const resolvedCollection = matchedCid || config.collectionId || 'default_collection';
+    return `projects/${config.projectId}/locations/${
+      config.appLocation || 'global'
+    }/collections/${resolvedCollection}/dataStores/${id}`;
+  });
+
+  const connectedDataStoreDetails: ConnectedDataStoreOption[] = connectedDataStoreResourceNames.map(
+    (resourceName) => {
+      const id = resourceName.split('/').pop() || resourceName;
+      const ds = dsLookupByName.get(resourceName) || dsLookupByName.get(id);
+      const entInfo = connectorEntityUriById.get(resourceName) || connectorEntityUriById.get(id);
+      const parts = resourceName.split('/');
+      const collIdx = parts.indexOf('collections');
+      const cidFromUri = collIdx !== -1 && parts[collIdx + 1] ? parts[collIdx + 1] : '';
+      const matchedCid =
+        entInfo?.collectionId ||
+        (cidFromUri && cidFromUri !== 'default_collection'
+          ? cidFromUri
+          : Array.from(collectionMap.keys()).find((c) => id === c || id.startsWith(`${c}_`)) ||
+            cidFromUri ||
+            'default_collection');
+      const conn = matchedCid ? connectorsByCollectionId[matchedCid] : undefined;
+      const isByomcp = byomcpCollectionIds.has(matchedCid) || byomcpCollectionIds.has(id);
+      const rawSource = conn?.dataSource || conn?.connectorType;
+      const sourceType = isByomcp
+        ? 'BYOMCP'
+        : typeof rawSource === 'string' && rawSource.trim()
+          ? rawSource
+          : 'DATA_STORE';
+      const collDisplay = matchedCid ? collectionMap.get(matchedCid)?.displayName : undefined;
+      const displayName =
+        ds?.displayName ||
+        (entInfo?.entityName && collDisplay
+          ? `${collDisplay} (${entInfo.entityName})`
+          : collDisplay || id);
+      return {
+        id,
+        resourceName,
+        displayName,
+        collectionId: matchedCid,
+        sourceType,
+        isByomcp,
+      };
+    },
+  );
 
   return {
     evaluatedAt: new Date().toISOString(),
@@ -3155,6 +3255,7 @@ ${storeListText}
     byomcpEvaluations,
     recommendedSkills,
     connectedDataStoreResourceNames,
+    connectedDataStoreDetails,
     probeWarnings,
   };
 }
@@ -3807,8 +3908,8 @@ export function generateDefaultBenchmarkQueriesForSkill(
 
 /**
  * Executes a set of benchmark queries against the live `:streamAssist` endpoint (`api.streamChat`)
- * and captures end-to-end latency, Time-to-First-Byte (TTFB), planner thought steps, grounded citations,
- * and source/skill routing signals.
+ * and captures end-to-end latency, first wire frame (TTFB), client-observed 1st thought chunk (TTFT),
+ * client-observed 1st answer chunk (TTFA), planner thought steps, grounded citations, and source/skill routing signals.
  */
 export async function runSkillBenchmarkPhase(
   queries: string[],
@@ -3837,17 +3938,25 @@ export async function runSkillBenchmarkPhase(
         }
       : undefined;
 
+  const nowMs = (): number =>
+    typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now();
+
   const runs: SkillBenchmarkQueryRun[] = [];
 
   for (let i = 0; i < cleanQueries.length; i++) {
     const query = cleanQueries[i];
     onProgress?.(`Running query ${i + 1}/${cleanQueries.length}: "${query.slice(0, 60)}..."`);
 
-    const startMs = Date.now();
-    let firstByteMs: number | null = null;
+    const startMs = nowMs();
+    let firstWireChunkMs: number | null = null;
+    let firstTokenMs: number | null = null;
+    let firstAnswerMs: number | null = null;
     const thoughtSteps: string[] = [];
     let answerText = '';
     let citationsCount = 0;
+    let citationRefsTrace = '';
     let skippedReason: string | undefined;
     let diagnosticJson = '';
     let errorMessage: string | undefined;
@@ -3860,6 +3969,11 @@ export async function runSkillBenchmarkPhase(
         config,
         '',
         (chunk) => {
+          const chunkElapsedMs = Math.max(1, Math.round(nowMs() - startMs));
+          if (firstWireChunkMs === null) {
+            firstWireChunkMs = chunkElapsedMs;
+          }
+
           if (chunk.answer?.diagnosticInfo) {
             try {
               diagnosticJson += JSON.stringify(chunk.answer.diagnosticInfo) + ' ';
@@ -3877,15 +3991,24 @@ export async function runSkillBenchmarkPhase(
               const refs = reply.groundedContent?.textGroundingMetadata?.references;
               if (Array.isArray(refs)) {
                 citationsCount += refs.length;
+                try {
+                  citationRefsTrace += JSON.stringify(refs) + ' ';
+                } catch {
+                  // Ignore non-serializable reference objects
+                }
               }
               const replyContent = reply.groundedContent?.content || reply.content;
               if (replyContent) {
-                if (firstByteMs === null && (replyContent.text || replyContent.thought)) {
-                  firstByteMs = Math.max(1, Date.now() - startMs);
+                const elapsedMs = Math.max(1, Math.round(nowMs() - startMs));
+                if (firstTokenMs === null && (replyContent.text || replyContent.thought)) {
+                  firstTokenMs = elapsedMs;
                 }
                 if (replyContent.thought && replyContent.text) {
                   thoughtSteps.push(replyContent.text);
                 } else if (replyContent.text) {
+                  if (firstAnswerMs === null && replyContent.text.trim().length > 0) {
+                    firstAnswerMs = Math.max(firstTokenMs ?? elapsedMs, elapsedMs);
+                  }
                   answerText += replyContent.text;
                 }
               }
@@ -3898,10 +4021,24 @@ export async function runSkillBenchmarkPhase(
       errorMessage = toErrorMessage(err, 'Failed to execute :streamAssist query.');
     }
 
-    const totalLatencyMs = Math.max(1, Date.now() - startMs);
-    const ttfbMs = firstByteMs !== null ? firstByteMs : totalLatencyMs;
+    const totalLatencyMs = Math.max(1, Math.round(nowMs() - startMs));
+    const ttfbMs =
+      firstWireChunkMs !== null
+        ? Math.min(totalLatencyMs, firstWireChunkMs)
+        : firstTokenMs !== null
+          ? Math.min(totalLatencyMs, firstTokenMs)
+          : totalLatencyMs;
+    const ttftMs =
+      firstTokenMs !== null ? Math.min(totalLatencyMs, firstTokenMs) : ttfbMs;
+    const hasGroundedAnswer =
+      !errorMessage && !skippedReason && firstAnswerMs !== null && answerText.trim().length > 0;
+    const ttfaMs = hasGroundedAnswer
+      ? Math.min(totalLatencyMs, Math.max(ttftMs, firstAnswerMs!))
+      : ttftMs;
+    const plannerAndRetrievalMs = hasGroundedAnswer ? Math.max(0, ttfaMs - ttftMs) : 0;
+    const answerGenerationTailMs = hasGroundedAnswer ? Math.max(0, totalLatencyMs - ttfaMs) : 0;
 
-    const combinedTrace = `${thoughtSteps.join(' ')} ${diagnosticJson}`.toLowerCase();
+    const combinedTrace = `${thoughtSteps.join(' ')} ${diagnosticJson} ${citationRefsTrace}`.toLowerCase();
     const routedSources = skillDraft.targetSources.filter((src) =>
       combinedTrace.includes(src.toLowerCase()),
     );
@@ -3912,15 +4049,25 @@ export async function runSkillBenchmarkPhase(
       (skillNameLower.length >= 4 && combinedTrace.includes(skillNameLower)) ||
       (skillIdLower.length >= 4 && combinedTrace.includes(skillIdLower));
 
+    const hasExplicitSkillOrTargets =
+      skillDraft.targetSources.length > 0 ||
+      (skillIdLower.length >= 4 && skillIdLower !== 'engine-latency-suite');
+
     const skillTriggered =
       !errorMessage &&
       !skippedReason &&
-      (mentionsSkill || routedSources.length > 0 || (thoughtSteps.length > 0 && citationsCount > 0));
+      (mentionsSkill ||
+        routedSources.length > 0 ||
+        (!hasExplicitSkillOrTargets && thoughtSteps.length > 0 && citationsCount > 0));
 
     runs.push({
       query,
       totalLatencyMs,
       ttfbMs,
+      ttftMs,
+      ttfaMs,
+      plannerAndRetrievalMs,
+      answerGenerationTailMs,
       answerPreview: answerText.trim().slice(0, 320),
       thoughtSteps,
       citationsCount,
@@ -3931,12 +4078,25 @@ export async function runSkillBenchmarkPhase(
     });
   }
 
+  const successfulRuns = runs.filter(
+    (r) => !r.errorMessage && !r.skippedReason && r.answerPreview.trim().length > 0,
+  );
+  const metricRuns = successfulRuns.length > 0 ? successfulRuns : runs;
+
   const avgLatencyMs = Math.round(
-    runs.reduce((sum, r) => sum + r.totalLatencyMs, 0) / Math.max(1, runs.length),
+    metricRuns.reduce((sum, r) => sum + r.totalLatencyMs, 0) / Math.max(1, metricRuns.length),
   );
   const avgTtfbMs = Math.round(
-    runs.reduce((sum, r) => sum + r.ttfbMs, 0) / Math.max(1, runs.length),
+    metricRuns.reduce((sum, r) => sum + r.ttfbMs, 0) / Math.max(1, metricRuns.length),
   );
+  const avgTtftMs = Math.round(
+    metricRuns.reduce((sum, r) => sum + (r.ttftMs ?? r.ttfbMs), 0) / Math.max(1, metricRuns.length),
+  );
+  const avgTtfaMs = Math.round(
+    metricRuns.reduce((sum, r) => sum + (r.ttfaMs ?? r.totalLatencyMs), 0) /
+      Math.max(1, metricRuns.length),
+  );
+  const avgPlannerRetrievalMs = Math.max(0, avgTtfaMs - avgTtftMs);
   const triggeredCount = runs.filter((r) => r.skillTriggered).length;
   const skillTriggerRate = Math.round((triggeredCount / Math.max(1, runs.length)) * 100);
 
@@ -3945,6 +4105,10 @@ export async function runSkillBenchmarkPhase(
     runs,
     avgLatencyMs,
     avgTtfbMs,
+    avgTtftMs,
+    avgTtfaMs,
+    avgPlannerRetrievalMs,
+    scopedDataStoresCount: dataStoreResourceNames.length,
     skillTriggerRate,
   };
 }
@@ -3981,6 +4145,8 @@ export function diagnoseSkillPerformanceAndMistakes(
     );
     if (failedRuns.length > 0) {
       const firstFail = failedRuns[0];
+      const hasAnyError = failedRuns.some((r) => Boolean(r.errorMessage));
+      const allFailedOrSkipped = failedRuns.length === activePhase.runs.length;
       const reason =
         firstFail.errorMessage ||
         (firstFail.skippedReason
@@ -3988,7 +4154,7 @@ export function diagnoseSkillPerformanceAndMistakes(
           : 'Assistant returned an empty response body');
       mistakes.push({
         code: 'NO_GROUNDED_ANSWER',
-        severity: firstFail.errorMessage ? 'CRITICAL' : 'WARNING',
+        severity: hasAnyError || allFailedOrSkipped ? 'CRITICAL' : 'WARNING',
         title: `${failedRuns.length}/${activePhase.runs.length} Benchmark Query(s) Returned No Grounded Answer`,
         explanation: `Query "${firstFail.query}" did not produce a grounded answer: ${reason}. Conversational greetings or overly restrictive negative constraints in the skill can cause :streamAssist to skip or return empty output.`,
         suggestedFix:
@@ -4164,6 +4330,8 @@ export function diagnoseSkillPerformanceAndMistakes(
   let latencyDeltaMs: number | undefined;
   let latencyDeltaPercent: number | undefined;
   let ttfbDeltaMs: number | undefined;
+  let ttftDeltaMs: number | undefined;
+  let ttfaDeltaMs: number | undefined;
   let improved = false;
   let verdictSummary = '';
 
@@ -4173,6 +4341,12 @@ export function diagnoseSkillPerformanceAndMistakes(
       (latencyDeltaMs / Math.max(1, baseline.avgLatencyMs)) * 100,
     );
     ttfbDeltaMs = postSkill.avgTtfbMs - baseline.avgTtfbMs;
+    const baseTtft = baseline.avgTtftMs ?? baseline.avgTtfbMs;
+    const postTtft = postSkill.avgTtftMs ?? postSkill.avgTtfbMs;
+    ttftDeltaMs = postTtft - baseTtft;
+    const baseTtfa = baseline.avgTtfaMs ?? baseline.avgLatencyMs;
+    const postTtfa = postSkill.avgTtfaMs ?? postSkill.avgLatencyMs;
+    ttfaDeltaMs = postTtfa - baseTtfa;
 
     // 6. Check for Behavioral Grounding / Citation Drop after enabling Skill
     const baseCitations = baseline.runs.reduce((s, r) => s + r.citationsCount, 0);
@@ -4207,20 +4381,37 @@ export function diagnoseSkillPerformanceAndMistakes(
       });
     }
 
-    improved = latencyDeltaMs < 0 && mistakes.filter((m) => m.severity === 'CRITICAL').length === 0;
-    if (latencyDeltaMs < 0) {
+    const postValidRuns = postSkill.runs.filter(
+      (r) => !r.errorMessage && !r.skippedReason && r.answerPreview.trim().length > 0,
+    );
+    improved =
+      postValidRuns.length > 0 &&
+      latencyDeltaMs < 0 &&
+      mistakes.filter((m) => m.severity === 'CRITICAL').length === 0;
+
+    if (postValidRuns.length === 0) {
+      verdictSummary = `Post-skill benchmark failed to produce grounded answers (${postSkill.runs.length}/${postSkill.runs.length} query(s) errored or skipped). Resolve the critical diagnostic finding(s) below before comparing latency.`;
+    } else if (improved) {
       verdictSummary = `Performance improved by ${Math.abs(latencyDeltaPercent)}% (${Math.abs(
         latencyDeltaMs,
       ).toLocaleString()} ms faster average response, ${
         postSkill.skillTriggerRate
       }% skill/source routing match).`;
+    } else if (latencyDeltaMs < 0) {
+      verdictSummary = `Post-skill response was ${Math.abs(latencyDeltaMs).toLocaleString()} ms faster (${Math.abs(
+        latencyDeltaPercent,
+      )}%), but critical Skill or query issues were detected. Review the diagnostic finding(s) below.`;
     } else if (latencyDeltaMs === 0) {
       verdictSummary = `Average latency unchanged (${postSkill.avgLatencyMs.toLocaleString()} ms). Review any diagnostic suggestions below to tighten source routing.`;
     } else {
       verdictSummary = `Post-skill average latency was +${latencyDeltaMs.toLocaleString()} ms (+${latencyDeltaPercent}%) slower than baseline. Review the ${mistakes.length} diagnostic finding(s) below to fix the Skill configuration.`;
     }
   } else if (postSkill) {
+    const postValidRuns = postSkill.runs.filter(
+      (r) => !r.errorMessage && !r.skippedReason && r.answerPreview.trim().length > 0,
+    );
     improved =
+      postValidRuns.length > 0 &&
       postSkill.skillTriggerRate >= 50 &&
       mistakes.filter((m) => m.severity !== 'INFO').length === 0;
     verdictSummary = `Post-skill benchmark completed: ${postSkill.avgLatencyMs.toLocaleString()} ms avg latency (${postSkill.avgTtfbMs.toLocaleString()} ms TTFB), ${postSkill.skillTriggerRate}% skill routing rate.${
@@ -4239,10 +4430,13 @@ export function diagnoseSkillPerformanceAndMistakes(
     latencyDeltaMs,
     latencyDeltaPercent,
     ttfbDeltaMs,
+    ttftDeltaMs,
+    ttfaDeltaMs,
     improved,
     verdictSummary,
     mistakes,
   };
 }
+
 
 

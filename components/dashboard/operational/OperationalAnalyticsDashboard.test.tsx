@@ -680,11 +680,26 @@ describe('OperationalAnalyticsDashboard', () => {
                 agent_name: 'Entraid',
                 step_latency_ms: 1850,
                 trace_duration_ms: 4200
+            },
+            // Multi-step trace where SQL GREATEST(0, ...) returned '0' string (must be overridden by client delta)
+            {
+                trace: 'trace-zero-override',
+                timestamp: '2026-08-01 13:00:00 UTC',
+                agent_name: 'Cosmere',
+                step_latency_ms: '0',
+                trace_duration_ms: '0'
+            },
+            {
+                trace: 'trace-zero-override',
+                timestamp: '2026-08-01 13:00:05 UTC',
+                agent_name: 'Cosmere',
+                step_latency_ms: '0',
+                trace_duration_ms: '0'
             }
         ];
 
         const enriched = enrichTelemetryRowsWithLatency(rawRows);
-        expect(enriched).toHaveLength(6);
+        expect(enriched).toHaveLength(8);
 
         // Row 0 is the 10:00:04 step (step 2 of trace-alpha: 4000ms after 10:00:00, total trace 11000ms)
         expect(enriched[0].step_index).toBe(2);
@@ -715,6 +730,11 @@ describe('OperationalAnalyticsDashboard', () => {
         // Server-computed BigQuery values are preserved
         expect(enriched[5].step_latency_ms).toBe(1850);
         expect(enriched[5].trace_duration_ms).toBe(4200);
+
+        // '0' string values from SQL GREATEST(0, ...) are overridden by positive computed latencies
+        expect(enriched[6].trace_duration_ms).toBe(5000);
+        expect(enriched[7].step_latency_ms).toBe(5000);
+        expect(enriched[7].trace_duration_ms).toBe(5000);
     });
 
     it('renders Trace Latency (P50 / P95) KPI and Inference & Tool-Loop Latency chart in v_gemini_genai_telemetry', async () => {

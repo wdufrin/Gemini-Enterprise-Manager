@@ -849,11 +849,12 @@ def run_cleanup(session, base_url, parent, config, dry_run=False):
     return summary
 
 
-def _read_dry_run_flag():
-    body = request.get_json(silent=True)
+def _read_dry_run_flag(req=None):
+    active_req = req if req is not None else request
+    body = active_req.get_json(silent=True)
     if isinstance(body, dict) and isinstance(body.get("dryRun"), bool):
         return body["dryRun"]
-    raw = (request.args.get("dryRun") or "").strip().lower()
+    raw = (active_req.args.get("dryRun") or "").strip().lower()
     if raw:
         return raw in ("1", "true", "yes")
     return DRY_RUN_DEFAULT
@@ -879,12 +880,12 @@ def _emit_run_report(status, http_status, message, summary=None, started=None):
 
 
 @app.route("/", methods=["POST"])
-def handle_trigger():
+def handle_trigger(req=None):
     if not _JOB_LOCK.acquire(blocking=False):
         return jsonify({"status": "error", "message": f"Job {JOB_TYPE} is already running."}), 409
     started = time.monotonic()
     try:
-        dry_run = _read_dry_run_flag()
+        dry_run = _read_dry_run_flag(req)
         scopes = [
             'https://www.googleapis.com/auth/cloud-platform',
             'https://www.googleapis.com/auth/admin.directory.group.member.readonly'

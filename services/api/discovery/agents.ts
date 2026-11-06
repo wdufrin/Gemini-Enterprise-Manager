@@ -612,8 +612,9 @@ export const bulkEnforceAgentsObservability = async (
     sensitiveLoggingEnabled?: boolean;
   } = { observabilityEnabled: true, sensitiveLoggingEnabled: false },
 ): Promise<BulkObservabilityResult> => {
+  const customAgents = agents.filter((a) => !isGoogleManagedAgent(a));
   const result: BulkObservabilityResult = {
-    total: agents.length,
+    total: customAgents.length,
     updated: 0,
     alreadyCompliant: 0,
     failed: 0,
@@ -624,12 +625,22 @@ export const bulkEnforceAgentsObservability = async (
   const targetObs = options.observabilityEnabled !== false;
   const targetSensitive = Boolean(options.sensitiveLoggingEnabled);
 
-  for (const agent of agents) {
+  for (const agent of customAgents) {
     const currentObs = Boolean(agent.observabilityConfig?.observabilityEnabled);
     const currentSensitive = Boolean(agent.observabilityConfig?.sensitiveLoggingEnabled);
+    const desiredSensitive = targetSensitive ? true : currentSensitive;
 
-    if (currentObs === targetObs && currentSensitive === targetSensitive) {
+    if (currentObs === targetObs && currentSensitive === desiredSensitive) {
       result.alreadyCompliant++;
+      continue;
+    }
+
+    if (hasLegacyAgentAuthorizations(agent)) {
+      result.failed++;
+      result.legacyAuthCount++;
+      result.errors.push(
+        `${agent.displayName || agent.name.split("/").pop() || "Agent"}: Legacy Schema: Created with deprecated 'agent.authorizations' field. Google Cloud API blocks in-place updates to this resource until re-created with 'authorizationConfig'.`,
+      );
       continue;
     }
 
@@ -639,7 +650,7 @@ export const bulkEnforceAgentsObservability = async (
         {
           observabilityConfig: {
             observabilityEnabled: targetObs,
-            sensitiveLoggingEnabled: targetSensitive,
+            sensitiveLoggingEnabled: desiredSensitive,
           },
         },
         config,

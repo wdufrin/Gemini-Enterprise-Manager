@@ -1262,9 +1262,19 @@ describe('assistantEvaluationService', () => {
       expect(defaultQueries.length).toBeGreaterThanOrEqual(2);
       expect(defaultQueries[0]).toContain('search_jira_issues');
 
-      // Mock :streamAssist for Baseline (slower, unguided)
+      // Mock :streamAssist with distinct timestamps for 1st Wire Frame (TTFB), 1st Thought Chunk (TTFT), 1st Answer Chunk (TTFA), and Stream End
+      let fakeNow = 1000;
+      const perfSpy = vi.spyOn(performance, 'now').mockImplementation(() => fakeNow);
+
       vi.mocked(api.streamChat).mockImplementation(
         async (_agent, _query, _session, _cfg, _tok, onChunk) => {
+          // 1st wire frame: sessionInfo @ +95ms (TTFB = 95ms)
+          fakeNow += 95;
+          onChunk({
+            sessionInfo: { session: 'projects/123456/locations/global/sessions/s-1' },
+          });
+          // 1st thought chunk @ +310ms (TTFT = 405ms)
+          fakeNow += 310;
           onChunk({
             answer: {
               replies: [
@@ -1273,6 +1283,14 @@ describe('assistantEvaluationService', () => {
                     content: { thought: true, text: 'Searching across all datastores...' },
                   },
                 },
+              ],
+            },
+          });
+          // 1st grounded answer chunk @ +695ms (TTFA = 1100ms, plannerAndRetrievalMs = 695ms)
+          fakeNow += 695;
+          onChunk({
+            answer: {
+              replies: [
                 {
                   groundedContent: {
                     content: { text: 'Found general results across multiple repositories.' },
@@ -1282,6 +1300,8 @@ describe('assistantEvaluationService', () => {
               ],
             },
           });
+          // Stream completes @ +300ms (totalLatencyMs = 1400ms, answerGenerationTailMs = 300ms)
+          fakeNow += 300;
         },
       );
 
@@ -1298,24 +1318,45 @@ describe('assistantEvaluationService', () => {
         ['projects/123456/locations/global/collections/default_collection/dataStores/ds-1'],
       );
 
+      perfSpy.mockRestore();
+
       expect(baselinePhase.runs).toHaveLength(defaultQueries.length);
       expect(baselinePhase.runs[0].citationsCount).toBe(1);
+      expect(baselinePhase.scopedDataStoresCount).toBe(1);
+      expect(baselinePhase.runs[0].ttfbMs).toBe(95);
+      expect(baselinePhase.runs[0].ttftMs).toBe(405);
+      expect(baselinePhase.runs[0].ttfaMs).toBe(1100);
+      expect(baselinePhase.runs[0].plannerAndRetrievalMs).toBe(695);
+      expect(baselinePhase.runs[0].answerGenerationTailMs).toBe(300);
+      expect(baselinePhase.runs[0].totalLatencyMs).toBe(1400);
+      // Because neither jira-mcp nor the skill ID appeared in the unguided baseline trace, skillTriggered must be false
+      expect(baselinePhase.runs[0].skillTriggered).toBe(false);
+      expect(baselinePhase.avgTtfbMs).toBe(95);
+      expect(baselinePhase.avgTtftMs).toBe(405);
+      expect(baselinePhase.avgTtfaMs).toBe(1100);
+      expect(baselinePhase.avgPlannerRetrievalMs).toBe(695);
 
-      // Simulate Baseline having 3200ms avg latency and Post-Skill having 1400ms avg latency with routed source
+      // Simulate Baseline having 3200ms avg latency (1100ms TTFT, 2100ms TTFA) and Post-Skill having 1400ms avg latency (480ms TTFT, 920ms TTFA)
       const simulatedBaseline = {
         ...baselinePhase,
         avgLatencyMs: 3200,
         avgTtfbMs: 1100,
+        avgTtftMs: 1100,
+        avgTtfaMs: 2100,
       };
       const simulatedPost = {
         ...baselinePhase,
         avgLatencyMs: 1400,
         avgTtfbMs: 480,
+        avgTtftMs: 480,
+        avgTtfaMs: 920,
         skillTriggerRate: 100,
         runs: baselinePhase.runs.map((r) => ({
           ...r,
           totalLatencyMs: 1400,
           ttfbMs: 480,
+          ttftMs: 480,
+          ttfaMs: 920,
           routedSources: ['jira-mcp'],
           skillTriggered: true,
         })),
@@ -1337,8 +1378,50 @@ describe('assistantEvaluationService', () => {
       expect(comparison.improved).toBe(true);
       expect(comparison.latencyDeltaMs).toBe(-1800);
       expect(comparison.latencyDeltaPercent).toBe(-56);
+      expect(comparison.ttftDeltaMs).toBe(-620);
+      expect(comparison.ttfaDeltaMs).toBe(-1180);
       expect(comparison.verdictSummary).toContain('Performance improved by 56%');
       expect(comparison.mistakes).toHaveLength(0);
+
+      // Adversarial check: fast-failing or skipped Post-Skill run (120ms vs 3200ms Baseline) must NEVER report improved=true or "Performance improved"
+      const fastFailedPost = {
+        ...simulatedPost,
+        avgLatencyMs: 120,
+        avgTtfbMs: 120,
+        avgTtftMs: 120,
+        avgTtfaMs: 120,
+        skillTriggerRate: 0,
+        runs: baselinePhase.runs.map((r) => ({
+          ...r,
+          totalLatencyMs: 120,
+          ttfbMs: 120,
+          ttftMs: 120,
+          ttfaMs: 120,
+          answerPreview: '',
+          citationsCount: 0,
+          routedSources: [],
+          skillTriggered: false,
+          skippedReason: 'NON_ASSIST_SEEKING_QUERY_IGNORED',
+        })),
+      };
+      const failedComparison = diagnoseSkillPerformanceAndMistakes(
+        {
+          skillId: guidance.recommendedCompanionSkill.skillIdSuggestion,
+          displayName: guidance.recommendedCompanionSkill.displayName,
+          description: `${guidance.recommendedCompanionSkill.description} ${defaultQueries.join(' ')}`,
+          instruction: guidance.recommendedCompanionSkill.instruction,
+          targetSources: guidance.recommendedCompanionSkill.targetSources,
+        },
+        defaultQueries,
+        simulatedBaseline,
+        fastFailedPost,
+      );
+      expect(failedComparison.improved).toBe(false);
+      expect(failedComparison.verdictSummary).not.toContain('Performance improved');
+      expect(failedComparison.verdictSummary).toContain('failed to produce grounded answers');
+      expect(
+        failedComparison.mistakes.find((m) => m.code === 'NO_GROUNDED_ANSWER')?.severity,
+      ).toBe('CRITICAL');
     });
 
     it('identifies concrete Skill mistakes (trigger mismatch, fan-out instructions, missing target sources, latency regression, and empty answers) and rejects empty query lists', async () => {
@@ -1518,6 +1601,38 @@ describe('assistantEvaluationService', () => {
           (sk) => sk.id === 'skill-connector-jira-cloud-col',
         ),
       ).toBe(true);
+      expect(reportWithAttachedJira.connectedDataStoreResourceNames).toEqual([
+        'projects/123456/locations/global/collections/default_collection/dataStores/ds-1',
+        'projects/123456/locations/global/collections/jira-cloud-col/dataStores/jira-issue-ds',
+        'projects/123456/locations/global/collections/jira-cloud-col/dataStores/jira-comment-ds',
+      ]);
+      expect(
+        reportWithAttachedJira.connectedDataStoreDetails?.map((d) => ({
+          id: d.id,
+          collectionId: d.collectionId,
+          sourceType: d.sourceType,
+          isByomcp: d.isByomcp,
+        })),
+      ).toEqual([
+        {
+          id: 'ds-1',
+          collectionId: 'default_collection',
+          sourceType: 'DATA_STORE',
+          isByomcp: false,
+        },
+        {
+          id: 'jira-issue-ds',
+          collectionId: 'jira-cloud-col',
+          sourceType: 'jira',
+          isByomcp: false,
+        },
+        {
+          id: 'jira-comment-ds',
+          collectionId: 'jira-cloud-col',
+          sourceType: 'jira',
+          isByomcp: false,
+        },
+      ]);
     });
 
     it('detects conflicts between Skills, GE Assistant instructions, and Connector instructions/tools without using internal Google prompts', () => {

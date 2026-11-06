@@ -2,6 +2,8 @@ import React, { useMemo, useState, useRef, useEffect } from 'react';
 import {
     BarChart,
     Bar,
+    LineChart,
+    Line,
     XAxis,
     YAxis,
     CartesianGrid,
@@ -26,10 +28,19 @@ export interface AgentDataItem {
     p95?: number;
 }
 
+export interface LatencyTimeSeriesPoint {
+    date: string;
+    rawDate?: string;
+    p50: number | null;
+    p95: number | null;
+    count?: number;
+}
+
 interface Props {
     datasetId?: string;
     customData?: {
         volumeData?: { time: string, requests: number, errors: number }[];
+        latencyData?: LatencyTimeSeriesPoint[];
         roleData?: { name: string, value: number }[];
         agentData?: AgentDataItem[];
         uniqueUsers?: number;
@@ -41,6 +52,7 @@ interface Props {
         errorRate?: number;
         queries?: {
             volumeQuery?: string;
+            latencyQuery?: string;
             roleQuery?: string;
             agentQuery?: string;
             summaryQuery?: string;
@@ -168,7 +180,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
         { name: 'routing_agent', p50: 320, p95: 900 },
     ], []);
 
-    const defaultSampleAgents = useMemo(() => [
+    const defaultSampleAgents = useMemo<AgentDataItem[]>(() => [
         { name: 'core_assistant', id: 'core_assistant', count: 351, p50: 850, p95: 2450 },
         { name: 'support_agent', id: 'support_agent', count: 124, p50: 620, p95: 1800 },
         { name: 'search_agent', id: 'search_agent', count: 85, p50: 1200, p95: 3500 },
@@ -195,7 +207,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
         return hasLiveResponse ? (customData?.roleData || []) : [];
     }, [customData?.roleData, hasLiveResponse]);
 
-    const agentData = useMemo(() => {
+    const agentData = useMemo<AgentDataItem[]>(() => {
         if (hasLiveResponse) return customData?.agentData || [];
         if (forceMockPreview) return defaultSampleAgents;
         return [];
@@ -252,8 +264,77 @@ const ObservabilityDashboard: React.FC<Props> = ({
     const hasLiveLatency = useMemo(() => {
         if (!hasLiveResponse) return false;
         if ((customData?.p50LatencyMs || 0) > 0 || (customData?.p95LatencyMs || 0) > 0) return true;
+        if ((customData?.latencyData || []).some((d) => (d.p50 || 0) > 0 || (d.p95 || 0) > 0)) return true;
         return agentData.some((a) => (a.p50 || 0) > 0 || (a.p95 || 0) > 0 || (a.avgLatency || 0) > 0);
-    }, [hasLiveResponse, customData?.p50LatencyMs, customData?.p95LatencyMs, agentData]);
+    }, [hasLiveResponse, customData?.p50LatencyMs, customData?.p95LatencyMs, customData?.latencyData, agentData]);
+
+    // Daily latency time-series spanning the full selected timeRange duration
+    const latencySeriesData = useMemo<LatencyTimeSeriesPoint[]>(() => {
+        const daysCount = Math.max(1, timeRange);
+        const anchorNow = new Date();
+
+        if (forceMockPreview) {
+            const samplePoints: LatencyTimeSeriesPoint[] = [];
+            for (let i = daysCount - 1; i >= 0; i--) {
+                const d = new Date(anchorNow);
+                d.setUTCDate(d.getUTCDate() - i);
+                const isoDay = d.toISOString().slice(0, 10);
+                const idx = daysCount - 1 - i;
+                samplePoints.push({
+                    date: isoDay.slice(5),
+                    rawDate: isoDay,
+                    p50: 780 + ((idx * 110) % 420),
+                    p95: 2150 + ((idx * 260) % 980),
+                    count: 8 + (idx % 7)
+                });
+            }
+            return samplePoints;
+        }
+
+        if (!hasLiveResponse || !hasLiveLatency) return [];
+
+        const byIsoOrShortDate = new Map<string, LatencyTimeSeriesPoint>();
+        for (const item of customData?.latencyData || []) {
+            const key = item.rawDate || item.date;
+            if (key) {
+                byIsoOrShortDate.set(key, item);
+                if (item.rawDate) {
+                    byIsoOrShortDate.set(item.rawDate.slice(5), item);
+                }
+            }
+        }
+
+        const spineIsoDates: string[] = [];
+        const seenIso = new Set<string>();
+        for (let i = daysCount - 1; i >= 0; i--) {
+            const d = new Date(anchorNow);
+            d.setUTCDate(d.getUTCDate() - i);
+            const isoDay = d.toISOString().slice(0, 10);
+            seenIso.add(isoDay);
+            spineIsoDates.push(isoDay);
+        }
+
+        for (const item of customData?.latencyData || []) {
+            if (item.rawDate && /^\d{4}-\d{2}-\d{2}$/.test(item.rawDate) && !seenIso.has(item.rawDate)) {
+                seenIso.add(item.rawDate);
+                spineIsoDates.push(item.rawDate);
+            }
+        }
+
+        spineIsoDates.sort((a, b) => a.localeCompare(b));
+
+        return spineIsoDates.map((isoDay) => {
+            const shortDay = isoDay.slice(5);
+            const matched = byIsoOrShortDate.get(isoDay) || byIsoOrShortDate.get(shortDay);
+            return {
+                date: shortDay,
+                rawDate: isoDay,
+                p50: matched ? (matched.p50 ?? null) : null,
+                p95: matched ? (matched.p95 ?? null) : null,
+                count: matched?.count ?? 0
+            };
+        });
+    }, [timeRange, forceMockPreview, hasLiveResponse, hasLiveLatency, customData?.latencyData]);
 
     return (
         <div className="space-y-6">
@@ -616,8 +697,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                 </thead>
                                 <tbody className="divide-y divide-gray-800 text-sm text-gray-300">
                                     {agentData.map((agent: AgentDataItem, idx: number) => {
-                                        const p50 = agent.p50 ?? agent.avgLatency;
-                                        const p95 = agent.p95 ?? agent.avgLatency;
+                                        const hasPercentiles = agent.p50 != null || agent.p95 != null;
                                         return (
                                             <tr key={idx} className="hover:bg-gray-800/40 transition-colors">
                                                 <td className="py-2.5 pl-2 max-w-[200px] truncate" title={`${agent.name} (${agent.id || agent.name})`}>
@@ -625,9 +705,11 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                                     <div className="text-xs text-gray-500 truncate font-mono mt-0.5">{agent.id || agent.name}</div>
                                                 </td>
                                                 <td className="py-2.5 text-right font-mono text-xs text-amber-400">
-                                                    {p50 || p95
-                                                        ? `${p50 ? `${p50.toLocaleString()}ms` : '—'} / ${p95 ? `${p95.toLocaleString()}ms` : '—'}`
-                                                        : '—'}
+                                                    {hasPercentiles
+                                                        ? `${agent.p50 != null ? `${agent.p50.toLocaleString()}ms` : '—'} / ${agent.p95 != null ? `${agent.p95.toLocaleString()}ms` : '—'}`
+                                                        : agent.avgLatency != null && agent.avgLatency > 0
+                                                            ? `${agent.avgLatency.toLocaleString()}ms (avg)`
+                                                            : '—'}
                                                 </td>
                                                 <td className="py-2.5 text-right pr-2 font-mono text-green-400 font-semibold">
                                                     {agent.count.toLocaleString()}
@@ -641,7 +723,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
                     </div>
                 </div>
 
-                {/* Agent Breakdown Chart */}
+                {/* Agent Breakdown & Daily Latency Line Chart */}
                 <div className={`bg-gray-900 border rounded-lg p-4 lg:col-span-2 relative ${!forceMockPreview ? 'border-gray-700' : 'border-yellow-700/50'}`}>
                     <div className="absolute top-2 right-2 flex items-center gap-2">
                         {hasLiveLatency && !forceMockPreview && (
@@ -671,24 +753,44 @@ const ObservabilityDashboard: React.FC<Props> = ({
                         {forceMockPreview && !isLoading && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Simulated Preview</span>
                         )}
-                        {queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />}
+                        {agentChartMode === 'latency' && queries?.latencyQuery ? (
+                            <QueryTooltip query={queries.latencyQuery} />
+                        ) : (
+                            queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />
+                        )}
                     </div>
-                    <div className="flex items-center gap-1.5 mb-4 px-2">
+                    <div className="flex items-center gap-2 mb-4 px-2 flex-wrap">
                         <h4 className="text-sm font-medium text-gray-300">
                             {forceMockPreview
-                                ? 'Agent Latency Sample (ms)'
+                                ? `Agent Trace Latency Per Day (Sample — ${timeRange}d)`
                                 : agentChartMode === 'latency' && hasLiveLatency
-                                    ? 'Agent Trace Latency (P50 / P95 ms)'
+                                    ? `Agent Trace Latency Per Day (P50 / P95 ms — ${timeRange}d)`
                                     : 'Top Agents by Message Volume'}
                         </h4>
-                        <MetricInfoTooltip
-                            title={CHARTS_METADATA.top_agents_chart.title}
-                            whatItShows={CHARTS_METADATA.top_agents_chart.whatItShows}
-                            meaning={CHARTS_METADATA.top_agents_chart.metricMeaning}
-                            sourceTables={CHARTS_METADATA.top_agents_chart.sourceTables}
-                            fieldsUsed={CHARTS_METADATA.top_agents_chart.fieldsUsed}
-                            align="left"
-                        />
+                        {(forceMockPreview || (agentChartMode === 'latency' && hasLiveLatency)) && latencySeriesData.length > 0 && (
+                            <span
+                                data-testid="latency-duration-badge"
+                                className="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-800 text-cyan-300 border border-gray-700"
+                            >
+                                {latencySeriesData.length}d Daily Series ({latencySeriesData[0]?.date ?? '—'} → {latencySeriesData[latencySeriesData.length - 1]?.date ?? '—'})
+                            </span>
+                        )}
+                        {(() => {
+                            const chartMeta =
+                                (forceMockPreview || (agentChartMode === 'latency' && hasLiveLatency)) && CHARTS_METADATA.trace_latency_daily
+                                    ? CHARTS_METADATA.trace_latency_daily
+                                    : CHARTS_METADATA.top_agents_chart;
+                            return (
+                                <MetricInfoTooltip
+                                    title={chartMeta.title}
+                                    whatItShows={chartMeta.whatItShows}
+                                    meaning={chartMeta.metricMeaning}
+                                    sourceTables={chartMeta.sourceTables}
+                                    fieldsUsed={chartMeta.fieldsUsed}
+                                    align="left"
+                                />
+                            );
+                        })()}
                     </div>
                     <div className="h-64 w-full flex justify-center items-center">
                         {isLoading ? (
@@ -696,25 +798,47 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                 <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-400"></div>
                                 <span className="text-xs font-mono">Aggregating per-agent telemetry...</span>
                             </div>
-                        ) : !forceMockPreview && (!topAgentChartData || topAgentChartData.length === 0) ? (
+                        ) : !forceMockPreview &&
+                            !(agentChartMode === 'latency' && hasLiveLatency && latencySeriesData.length > 0) &&
+                            (!topAgentChartData || topAgentChartData.length === 0) ? (
                             <span className="text-sm text-gray-500">No agent logs in this time range.</span>
                         ) : (
                             <ResponsiveContainer width="100%" height={256} minWidth={0}>
-                                {topAgentChartData && !forceMockPreview ? (
+                                {!forceMockPreview ? (
                                     agentChartMode === 'latency' && hasLiveLatency ? (
-                                        <BarChart data={topAgentChartData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
+                                        <LineChart data={latencySeriesData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                                            <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} tick={<CustomXAxisTick />} interval={0} height={60} />
+                                            <XAxis dataKey="date" stroke="#9CA3AF" fontSize={12} />
                                             <YAxis stroke="#9CA3AF" fontSize={12} />
                                             <Tooltip 
                                                 contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
                                             />
                                             <Legend />
-                                            <Bar dataKey="p50" name="Median Latency (P50 ms)" fill="#06B6D4" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-                                            <Bar dataKey="p95" name="Tail Latency (P95 ms)" fill="#F59E0B" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-                                        </BarChart>
+                                            <Line
+                                                type="monotone"
+                                                dataKey="p50"
+                                                name="Median Latency (P50 ms)"
+                                                stroke="#06B6D4"
+                                                strokeWidth={2.5}
+                                                dot={{ r: 3, fill: '#06B6D4' }}
+                                                activeDot={{ r: 5 }}
+                                                connectNulls
+                                                isAnimationActive={false}
+                                            />
+                                            <Line
+                                                type="monotone"
+                                                dataKey="p95"
+                                                name="Tail Latency (P95 ms)"
+                                                stroke="#F59E0B"
+                                                strokeWidth={2.5}
+                                                dot={{ r: 3, fill: '#F59E0B' }}
+                                                activeDot={{ r: 5 }}
+                                                connectNulls
+                                                isAnimationActive={false}
+                                            />
+                                        </LineChart>
                                     ) : (
-                                        <BarChart data={topAgentChartData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
+                                        <BarChart data={topAgentChartData || []} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                                             <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} tick={<CustomXAxisTick />} interval={0} height={60} />
                                             <YAxis stroke="#9CA3AF" fontSize={12} />
@@ -726,17 +850,37 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                         </BarChart>
                                     )
                                 ) : (
-                                    <BarChart data={defaultLatencyData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
+                                    <LineChart data={latencySeriesData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                                        <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} tick={<CustomXAxisTick />} interval={0} height={60} />
+                                        <XAxis dataKey="date" stroke="#9CA3AF" fontSize={12} />
                                         <YAxis stroke="#9CA3AF" fontSize={12} />
                                         <Tooltip 
                                             contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
                                         />
                                         <Legend />
-                                        <Bar dataKey="p50" name="Median Latency (P50)" fill="#10B981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-                                        <Bar dataKey="p95" name="Tail Latency (P95)" fill="#F59E0B" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-                                    </BarChart>
+                                        <Line
+                                            type="monotone"
+                                            dataKey="p50"
+                                            name="Median Latency (P50 ms)"
+                                            stroke="#06B6D4"
+                                            strokeWidth={2.5}
+                                            dot={{ r: 3, fill: '#06B6D4' }}
+                                            activeDot={{ r: 5 }}
+                                            connectNulls
+                                            isAnimationActive={false}
+                                        />
+                                        <Line
+                                            type="monotone"
+                                            dataKey="p95"
+                                            name="Tail Latency (P95 ms)"
+                                            stroke="#F59E0B"
+                                            strokeWidth={2.5}
+                                            dot={{ r: 3, fill: '#F59E0B' }}
+                                            activeDot={{ r: 5 }}
+                                            connectNulls
+                                            isAnimationActive={false}
+                                        />
+                                    </LineChart>
                                 )}
                             </ResponsiveContainer>
                         )}

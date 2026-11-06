@@ -107,6 +107,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
                         viewId={viewId}
                         data={effectiveData}
                         overviewLiveData={overviewLiveData}
+                        isSimulated={!hasLiveSource}
                     />
                 );
 

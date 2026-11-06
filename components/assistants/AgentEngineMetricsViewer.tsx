@@ -180,7 +180,20 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
 
         let totalToolCalls = 0;
         let totalErrors = 0;
-        const toolStats = new Map<string, { calls: number; errors: number; means: number[]; p50s: number[]; p95s: number[] }>();
+        const toolStats = new Map<
+            string,
+            {
+                calls: number;
+                errors: number;
+                weightedMeanSum: number;
+                meanCallCount: number;
+                means: number[];
+                p50s: Array<{ val: number; weight: number }>;
+                p95s: Array<{ val: number; weight: number }>;
+                bucketOptions?: CloudMonitoringDistribution['bucketOptions'];
+                combinedBucketCounts: number[];
+            }
+        >();
 
         // Each timeSeries represents a unique combination of labels (e.g., tool_id + status)
         timeSeries.forEach(series => {
@@ -188,7 +201,16 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
             const status = series.metric?.labels?.status || 'UNKNOWN';
             
             if (!toolStats.has(toolId)) {
-                toolStats.set(toolId, { calls: 0, errors: 0, means: [], p50s: [], p95s: [] });
+                toolStats.set(toolId, {
+                    calls: 0,
+                    errors: 0,
+                    weightedMeanSum: 0,
+                    meanCallCount: 0,
+                    means: [],
+                    p50s: [],
+                    p95s: [],
+                    combinedBucketCounts: [],
+                });
             }
             const stats = toolStats.get(toolId)!;
 
@@ -197,6 +219,7 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                 if (!dist) return;
 
                 const count = parseInt(String(dist.count || '0'), 10);
+                const weight = Math.max(1, count);
                 totalToolCalls += count;
                 stats.calls += count;
 
@@ -206,33 +229,72 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                 }
 
                 if (dist.mean) {
+                    stats.weightedMeanSum += dist.mean * weight;
+                    stats.meanCallCount += weight;
                     stats.means.push(dist.mean);
+                }
+
+                if (dist.bucketOptions && Array.isArray(dist.bucketCounts) && dist.bucketCounts.length > 0) {
+                    if (!stats.bucketOptions) {
+                        stats.bucketOptions = dist.bucketOptions;
+                    }
+                    dist.bucketCounts.forEach((rawC, idx) => {
+                        const c = Math.max(0, Number(rawC) || 0);
+                        stats.combinedBucketCounts[idx] = (stats.combinedBucketCounts[idx] || 0) + c;
+                    });
                 }
 
                 const p50 = estimateDistributionPercentile(dist, 0.5);
                 if (p50 !== null && p50 > 0) {
-                    stats.p50s.push(p50);
+                    stats.p50s.push({ val: p50, weight });
                 }
                 const p95 = estimateDistributionPercentile(dist, 0.95);
                 if (p95 !== null && p95 > 0) {
-                    stats.p95s.push(p95);
+                    stats.p95s.push({ val: p95, weight });
                 }
             });
         });
 
         // Format for Recharts
         const chartData = Array.from(toolStats.entries()).map(([toolId, stats]) => {
-            const avgMean = stats.means.length > 0 ? stats.means.reduce((a, b) => a + b, 0) / stats.means.length : 0;
+            const avgMean =
+                stats.meanCallCount > 0
+                    ? stats.weightedMeanSum / stats.meanCallCount
+                    : stats.means.length > 0
+                        ? stats.means.reduce((a, b) => a + b, 0) / stats.means.length
+                        : 0;
             const sortedMeans = [...stats.means].sort((a, b) => a - b);
             const fallbackP50 = sortedMeans.length > 0 ? sortedMeans[Math.floor(sortedMeans.length * 0.5)] : avgMean;
             const fallbackP95 = sortedMeans.length > 0 ? sortedMeans[Math.min(sortedMeans.length - 1, Math.floor(sortedMeans.length * 0.95))] : avgMean;
 
-            const p50Latency = stats.p50s.length > 0
-                ? stats.p50s.reduce((a, b) => a + b, 0) / stats.p50s.length
-                : fallbackP50;
-            const p95Latency = stats.p95s.length > 0
-                ? Math.max(...stats.p95s)
-                : fallbackP95;
+            const combinedDist: CloudMonitoringDistribution | undefined =
+                stats.bucketOptions && stats.combinedBucketCounts.length > 0
+                    ? {
+                          count: stats.calls,
+                          mean: avgMean,
+                          bucketOptions: stats.bucketOptions,
+                          bucketCounts: stats.combinedBucketCounts,
+                      }
+                    : undefined;
+
+            const combinedP50 = combinedDist ? estimateDistributionPercentile(combinedDist, 0.5) : null;
+            const combinedP95 = combinedDist ? estimateDistributionPercentile(combinedDist, 0.95) : null;
+
+            const totalP50Weight = stats.p50s.reduce((acc, item) => acc + item.weight, 0);
+            const totalP95Weight = stats.p95s.reduce((acc, item) => acc + item.weight, 0);
+
+            const p50Latency =
+                combinedP50 !== null && combinedP50 > 0
+                    ? combinedP50
+                    : totalP50Weight > 0
+                        ? stats.p50s.reduce((acc, item) => acc + item.val * item.weight, 0) / totalP50Weight
+                        : fallbackP50;
+            const p95Latency =
+                combinedP95 !== null && combinedP95 > 0
+                    ? combinedP95
+                    : totalP95Weight > 0
+                        ? stats.p95s.reduce((acc, item) => acc + item.val * item.weight, 0) / totalP95Weight
+                        : fallbackP95;
 
             return {
                 toolId: toolId.length > 20 ? toolId.substring(0, 20) + '...' : toolId, // Truncate long names
@@ -248,8 +310,9 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
         // Sort by calls descending
         chartData.sort((a, b) => b.calls - a.calls);
 
+        const totalWeight = chartData.reduce((acc, d) => acc + Math.max(1, d.calls), 0);
         const overallMeanLatency = chartData.length > 0
-            ? Math.round(chartData.reduce((acc, d) => acc + d.avgLatency, 0) / chartData.length)
+            ? Math.round(chartData.reduce((acc, d) => acc + d.avgLatency * Math.max(1, d.calls), 0) / totalWeight)
             : 0;
         const overallP95Latency = chartData.length > 0
             ? Math.max(...chartData.map((d) => d.p95Latency))

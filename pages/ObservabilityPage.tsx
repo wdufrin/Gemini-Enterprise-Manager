@@ -34,6 +34,7 @@ interface Props {
 
 interface ObservabilityDashboardMetrics {
     volumeData: { time: string; requests: number; errors: number }[];
+    latencyData?: { date: string; rawDate?: string; p50: number | null; p95: number | null; count?: number }[];
     agentData: { name: string; id?: string; count: number; avgLatency?: number; p50?: number; p95?: number }[];
     totalRequests: number;
     totalSessions: number;
@@ -226,6 +227,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
 
                 const dashboardData: ObservabilityDashboardMetrics = {
                     volumeData: [],
+                    latencyData: [],
                     agentData: [],
                     totalRequests: 0,
                     totalSessions: 0,
@@ -234,12 +236,12 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                 };
 
                 if (matchingActivityTables.length > 0) {
-                    const timeFormat = timeRange === 30 ? '%Y-%m-%d' : (timeRange === 7 ? '%m-%d %H:00' : '%H:%M');
+                    const timeFormat = timeRange === 30 ? '%Y-%m-%d' : (timeRange === 7 ? '%Y-%m-%d %H:00' : '%Y-%m-%d %H:%M');
                     const truncUnit = timeRange === 30 ? 'DAY' : 'HOUR';
                     
                     let volumeTimeSelect = '';
                     if (timeRange === 1) {
-                        volumeTimeSelect = `FORMAT_TIMESTAMP('%H:%M', TIMESTAMP_SECONDS(DIV(UNIX_SECONDS(event_time), 900) * 900))`;
+                        volumeTimeSelect = `FORMAT_TIMESTAMP('%Y-%m-%d %H:%M', TIMESTAMP_SECONDS(DIV(UNIX_SECONDS(event_time), 900) * 900))`;
                     } else {
                         volumeTimeSelect = `FORMAT_TIMESTAMP('${timeFormat}', TIMESTAMP_TRUNC(event_time, ${truncUnit}))`;
                     }
@@ -269,7 +271,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                     `);
 
                     const traceSpansUnion = [
-                        `SELECT trace, event_time FROM base_activity WHERE trace IS NOT NULL AND trace != ''`,
+                        `SELECT trace, event_time FROM base_activity WHERE trace IS NOT NULL AND trace != '' AND method_name IN ('StreamAssist', 'Assist', 'Search')`,
                         ...extraTraceSelects
                     ].join('\nUNION ALL\n');
 
@@ -314,10 +316,119 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                       trace_latencies AS (
                         SELECT
                           trace,
+                          MIN(event_time) as trace_time,
                           TIMESTAMP_DIFF(MAX(event_time), MIN(event_time), MILLISECOND) as latency_ms
                         FROM trace_spans
                         GROUP BY trace
                         HAVING latency_ms > 0 AND latency_ms < 600000
+                      )
+                    `;
+
+                    const agentAttributionAndMetricsCTE = `
+                      combined AS (
+                        SELECT 
+                          user_email,
+                          event_time,
+                          agent_name,
+                          agent_id,
+                          CAST(NULL AS STRING) as session_id,
+                          trace,
+                          method_name
+                        FROM base_activity
+                        WHERE method_name = 'WriteUserEvent' AND agent_name IS NOT NULL AND trace IS NOT NULL AND trace != ''
+
+                        UNION ALL
+
+                        SELECT 
+                          user_email,
+                          event_time,
+                          agent_name,
+                          agent_id,
+                          session_id,
+                          trace,
+                          method_name
+                        FROM base_activity
+                        WHERE method_name IN ('StreamAssist', 'Assist', 'Search') AND session_id IS NOT NULL
+                      ),
+                      filled AS (
+                        SELECT 
+                          session_id,
+                          trace,
+                          method_name,
+                          IF(
+                            method_name = 'Search',
+                            agent_name,
+                            COALESCE(
+                              agent_name,
+                              IF(
+                                trace IS NOT NULL AND trace != '',
+                                LAST_VALUE(IF(method_name != 'Search', agent_name, NULL) IGNORE NULLS) OVER (
+                                  PARTITION BY trace
+                                  ORDER BY event_time
+                                  ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                                ),
+                                NULL
+                              )
+                            )
+                          ) as resolved_agent_name,
+                          IF(
+                            method_name = 'Search',
+                            agent_id,
+                            COALESCE(
+                              agent_id,
+                              IF(
+                                trace IS NOT NULL AND trace != '',
+                                LAST_VALUE(IF(method_name != 'Search', agent_id, NULL) IGNORE NULLS) OVER (
+                                  PARTITION BY trace
+                                  ORDER BY event_time
+                                  ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                                ),
+                                NULL
+                              )
+                            )
+                          ) as resolved_agent_id
+                        FROM combined
+                      ),
+                      mapped_agents AS (
+                        SELECT 
+                          COALESCE(resolved_agent_name, 'Global Assistant / Default') as agent_name,
+                          COALESCE(resolved_agent_id, 'default') as agent_id,
+                          trace
+                        FROM filled
+                        WHERE session_id IS NOT NULL
+                      ),
+                      distinct_agent_traces AS (
+                        SELECT DISTINCT
+                          m.agent_name,
+                          m.agent_id,
+                          m.trace,
+                          tl.latency_ms
+                        FROM mapped_agents m
+                        INNER JOIN trace_latencies tl ON m.trace = tl.trace
+                      ),
+                      agent_trace_stats AS (
+                        SELECT
+                          agent_name,
+                          agent_id,
+                          CAST(ROUND(AVG(latency_ms)) AS INT64) as avg_latency_ms,
+                          CAST(ROUND(APPROX_QUANTILES(latency_ms, 100)[OFFSET(50)]) AS INT64) as p50_latency_ms,
+                          CAST(ROUND(APPROX_QUANTILES(latency_ms, 100)[OFFSET(95)]) AS INT64) as p95_latency_ms
+                        FROM distinct_agent_traces
+                        GROUP BY agent_name, agent_id
+                      ),
+                      agent_metrics AS (
+                        SELECT 
+                          m.agent_name,
+                          m.agent_id,
+                          COUNT(*) as count,
+                          ats.avg_latency_ms,
+                          ats.p50_latency_ms,
+                          ats.p95_latency_ms
+                        FROM mapped_agents m
+                        LEFT JOIN agent_trace_stats ats
+                          ON m.agent_name = ats.agent_name AND m.agent_id = ats.agent_id
+                        GROUP BY m.agent_name, m.agent_id, ats.avg_latency_ms, ats.p50_latency_ms, ats.p95_latency_ms
+                        ORDER BY count DESC
                       )
                     `;
 
@@ -340,75 +451,21 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         WHERE method_name IN ('StreamAssist', 'Assist', 'Search')
                         GROUP BY event_time
                       ),
-                      combined AS (
-                        SELECT 
-                          user_email,
-                          event_time,
-                          agent_name,
-                          agent_id,
-                          CAST(NULL AS STRING) as session_id,
-                          CAST(NULL AS STRING) as trace
-                        FROM base_activity
-                        WHERE method_name = 'WriteUserEvent' AND agent_name IS NOT NULL
-
-                        UNION ALL
-
-                        SELECT 
-                          user_email,
-                          event_time,
-                          agent_name,
-                          agent_id,
-                          session_id,
-                          trace
-                        FROM base_activity
-                        WHERE method_name IN ('StreamAssist', 'Assist', 'Search') AND session_id IS NOT NULL
+                      latency_timeseries AS (
+                        SELECT
+                          FORMAT_TIMESTAMP('%Y-%m-%d', TIMESTAMP_TRUNC(trace_time, DAY)) as event_day,
+                          CAST(ROUND(APPROX_QUANTILES(latency_ms, 100)[OFFSET(50)]) AS INT64) as p50_latency_ms,
+                          CAST(ROUND(APPROX_QUANTILES(latency_ms, 100)[OFFSET(95)]) AS INT64) as p95_latency_ms,
+                          COUNT(*) as trace_count
+                        FROM trace_latencies
+                        GROUP BY event_day
                       ),
-                      filled AS (
-                        SELECT 
-                          session_id,
-                          trace,
-                          COALESCE(
-                            agent_name,
-                            LAST_VALUE(agent_name IGNORE NULLS) OVER (
-                              PARTITION BY user_email 
-                              ORDER BY event_time 
-                              ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-                            )
-                          ) as resolved_agent_name,
-                          COALESCE(
-                            agent_id,
-                            LAST_VALUE(agent_id IGNORE NULLS) OVER (
-                              PARTITION BY user_email 
-                              ORDER BY event_time 
-                              ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-                            )
-                          ) as resolved_agent_id
-                        FROM combined
-                      ),
-                      mapped_agents AS (
-                        SELECT 
-                          COALESCE(resolved_agent_name, 'Global Assistant / Default') as agent_name,
-                          COALESCE(resolved_agent_id, 'default') as agent_id,
-                          trace
-                        FROM filled
-                        WHERE session_id IS NOT NULL
-                      ),
-                      agent_metrics AS (
-                        SELECT 
-                          m.agent_name,
-                          m.agent_id,
-                          COUNT(*) as count,
-                          CAST(ROUND(AVG(tl.latency_ms)) AS INT64) as avg_latency_ms,
-                          CAST(ROUND(APPROX_QUANTILES(tl.latency_ms, 100)[OFFSET(50)]) AS INT64) as p50_latency_ms,
-                          CAST(ROUND(APPROX_QUANTILES(tl.latency_ms, 100)[OFFSET(95)]) AS INT64) as p95_latency_ms
-                        FROM mapped_agents m
-                        LEFT JOIN trace_latencies tl ON m.trace = tl.trace
-                        GROUP BY m.agent_name, m.agent_id
-                        ORDER BY count DESC
-                      )
+                      ${agentAttributionAndMetricsCTE}
                       SELECT 'summary' as metric_type, CAST(total_queries AS STRING) as label, CAST(total_sessions AS STRING) as val1, CAST(unique_users AS STRING) as val2, CAST(p50_latency_ms AS STRING) as val3, CAST(p95_latency_ms AS STRING) as val4, CAST(NULL AS STRING) as val5 FROM summary_metrics
                       UNION ALL
                       SELECT 'volume' as metric_type, event_time as label, CAST(requests AS STRING) as val1, NULL as val2, CAST(NULL AS STRING) as val3, CAST(NULL AS STRING) as val4, CAST(NULL AS STRING) as val5 FROM volume_metrics
+                      UNION ALL
+                      SELECT 'latency_daily' as metric_type, event_day as label, CAST(p50_latency_ms AS STRING) as val1, CAST(p95_latency_ms AS STRING) as val2, CAST(trace_count AS STRING) as val3, CAST(NULL AS STRING) as val4, CAST(NULL AS STRING) as val5 FROM latency_timeseries
                       UNION ALL
                       SELECT 'agent' as metric_type, agent_name as label, CAST(count AS STRING) as val1, agent_id as val2, CAST(avg_latency_ms AS STRING) as val3, CAST(p50_latency_ms AS STRING) as val4, CAST(p95_latency_ms AS STRING) as val5 FROM agent_metrics
                     `;
@@ -435,72 +492,22 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         ORDER BY event_time
                     `;
 
+                    dashboardData.queries.latencyQuery = `
+                        WITH ${baseActivityCTE}
+                        SELECT
+                          FORMAT_TIMESTAMP('%Y-%m-%d', TIMESTAMP_TRUNC(trace_time, DAY)) as event_day,
+                          CAST(ROUND(APPROX_QUANTILES(latency_ms, 100)[OFFSET(50)]) AS INT64) as p50_latency_ms,
+                          CAST(ROUND(APPROX_QUANTILES(latency_ms, 100)[OFFSET(95)]) AS INT64) as p95_latency_ms,
+                          COUNT(*) as trace_count
+                        FROM trace_latencies
+                        GROUP BY event_day
+                        ORDER BY event_day
+                    `;
+
                     dashboardData.queries.agentQuery = `
                         WITH ${baseActivityCTE},
-                        combined AS (
-                          SELECT 
-                            user_email,
-                            event_time,
-                            agent_name,
-                            agent_id,
-                            CAST(NULL AS STRING) as session_id,
-                            CAST(NULL AS STRING) as trace
-                          FROM base_activity
-                          WHERE method_name = 'WriteUserEvent' AND agent_name IS NOT NULL
-
-                          UNION ALL
-
-                          SELECT 
-                            user_email,
-                            event_time,
-                            agent_name,
-                            agent_id,
-                            session_id,
-                            trace
-                          FROM base_activity
-                          WHERE method_name IN ('StreamAssist', 'Assist', 'Search') AND session_id IS NOT NULL
-                        ),
-                        filled AS (
-                          SELECT 
-                            session_id,
-                            trace,
-                            COALESCE(
-                              agent_name,
-                              LAST_VALUE(agent_name IGNORE NULLS) OVER (
-                                PARTITION BY user_email 
-                                ORDER BY event_time 
-                                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-                              )
-                            ) as resolved_agent_name,
-                            COALESCE(
-                              agent_id,
-                              LAST_VALUE(agent_id IGNORE NULLS) OVER (
-                                PARTITION BY user_email 
-                                ORDER BY event_time 
-                                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-                              )
-                            ) as resolved_agent_id
-                          FROM combined
-                        ),
-                        mapped_agents AS (
-                          SELECT 
-                            COALESCE(resolved_agent_name, 'Global Assistant / Default') as agent_name,
-                            COALESCE(resolved_agent_id, 'default') as agent_id,
-                            trace
-                          FROM filled
-                          WHERE session_id IS NOT NULL
-                        )
-                        SELECT 
-                          m.agent_name,
-                          m.agent_id,
-                          COUNT(*) as count,
-                          CAST(ROUND(AVG(tl.latency_ms)) AS INT64) as avg_latency_ms,
-                          CAST(ROUND(APPROX_QUANTILES(tl.latency_ms, 100)[OFFSET(50)]) AS INT64) as p50_latency_ms,
-                          CAST(ROUND(APPROX_QUANTILES(tl.latency_ms, 100)[OFFSET(95)]) AS INT64) as p95_latency_ms
-                        FROM mapped_agents m
-                        LEFT JOIN trace_latencies tl ON m.trace = tl.trace
-                        GROUP BY m.agent_name, m.agent_id
-                        ORDER BY count DESC
+                        ${agentAttributionAndMetricsCTE}
+                        SELECT * FROM agent_metrics
                     `;
 
                     dashboardData.queries.userCountQuery = `
@@ -545,6 +552,8 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                     }
 
                     const rows = result?.rows || [];
+                    const latencyByDay = new Map<string, { p50: number | null; p95: number | null; count: number }>();
+                    const rawVolumePoints: Array<{ sortKey: string; time: string; requests: number; errors: number }> = [];
 
                     rows.forEach((row) => {
                         const type = String(row.f?.[0]?.v ?? '');
@@ -566,11 +575,31 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                                 dashboardData.p95LatencyMs = parseInt(String(val4), 10);
                             }
                         } else if (type === 'volume') {
-                            dashboardData.volumeData.push({
-                                time: label,
+                            let displayTime = label;
+                            if (timeRange === 1 && /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$/.test(label)) {
+                                displayTime = label.slice(-5);
+                            } else if (timeRange === 7 && /^\d{4}-\d{2}-\d{2}\s+/.test(label)) {
+                                displayTime = label.slice(5);
+                            }
+                            rawVolumePoints.push({
+                                sortKey: label,
+                                time: displayTime,
                                 requests: parseInt(val1, 10),
                                 errors: 0
                             });
+                        } else if (type === 'latency_daily') {
+                            if (/^\d{4}-\d{2}-\d{2}$/.test(label)) {
+                                const parsedP50 = val1 !== '' && !Number.isNaN(Number(val1)) ? parseInt(val1, 10) : null;
+                                const parsedP95 = val2 !== '' && !Number.isNaN(Number(val2)) ? parseInt(val2, 10) : null;
+                                const parsedCount = val3 != null && val3 !== '' && !Number.isNaN(Number(val3)) ? parseInt(String(val3), 10) : 0;
+                                if (parsedP50 !== null || parsedP95 !== null) {
+                                    latencyByDay.set(label, {
+                                        p50: parsedP50,
+                                        p95: parsedP95,
+                                        count: parsedCount
+                                    });
+                                }
+                            }
                         } else if (type === 'agent') {
                             const avgLat = val3 != null && val3 !== '' && !Number.isNaN(Number(val3)) ? parseInt(String(val3), 10) : undefined;
                             const p50Lat = val4 != null && val4 !== '' && !Number.isNaN(Number(val4)) ? parseInt(String(val4), 10) : undefined;
@@ -585,6 +614,39 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                             });
                         }
                     });
+
+                    // Ensure volumeData is chronologically ordered by full timestamp key
+                    rawVolumePoints.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+                    dashboardData.volumeData = rawVolumePoints.map(({ time, requests, errors }) => ({
+                        time,
+                        requests,
+                        errors
+                    }));
+
+                    // Build daily spine spanning the selected timeRange duration without fabricating points or coercing missing days to 0
+                    if (latencyByDay.size > 0) {
+                        const spineDates = new Set<string>();
+                        const anchorNow = new Date();
+                        for (let i = Math.max(1, timeRange) - 1; i >= 0; i--) {
+                            const d = new Date(anchorNow);
+                            d.setUTCDate(d.getUTCDate() - i);
+                            spineDates.add(d.toISOString().slice(0, 10));
+                        }
+                        for (const dayKey of latencyByDay.keys()) {
+                            spineDates.add(dayKey);
+                        }
+                        const orderedDays = Array.from(spineDates).sort((a, b) => a.localeCompare(b));
+                        dashboardData.latencyData = orderedDays.map((isoDay) => {
+                            const match = latencyByDay.get(isoDay);
+                            return {
+                                date: isoDay.slice(5),
+                                rawDate: isoDay,
+                                p50: match?.p50 ?? null,
+                                p95: match?.p95 ?? null,
+                                count: match?.count ?? 0
+                            };
+                        });
+                    }
 
                     dashboardData.uniqueAgents = dashboardData.agentData.length;
                 }
