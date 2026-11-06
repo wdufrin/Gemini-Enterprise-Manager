@@ -89,6 +89,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
     const [accelerationError, setAccelerationError] = useState<string | null>(null);
     const [accelerationLastInserted, setAccelerationLastInserted] = useState<number | null>(null);
     const [accelerationVersion, setAccelerationVersion] = useState(0);
+    const [accelerationWindowStart, setAccelerationWindowStart] = useState<Date | null>(null);
 
     // 1. Fetch Log Router Sinks (only on mount / projectNumber change)
     useEffect(() => {
@@ -219,9 +220,10 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                 startTime.setDate(startTime.getDate() - timeRange);
                 const startTimeStr = startTime.toISOString();
 
-                // Hybrid read: events before the acceleration watermark come from the small
-                // pre-extracted table; events at/after it come from raw sink tables, so charts are
-                // never stale even if nobody has pressed Refresh recently.
+                // Accelerated read (when enabled and non-empty): activity comes ONLY from the small
+                // pre-extracted table, so charts include events up to the last manual Refresh.
+                // A combined accelerated + raw read was measured at 26-44s purely in BigQuery query
+                // preparation (80k-user benchmark), vs 3-9s accelerated-only, so it is not used.
                 let watermark: Date | null = null;
                 if (accelerationEnabled) {
                     try {
@@ -235,14 +237,16 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                     if (abortController.signal.aborted) return;
                 }
                 setAccelerationWatermark(watermark);
-                const useAccelerated = watermark !== null && watermark.getTime() > startTime.getTime();
-                const rawStart = useAccelerated && watermark ? watermark : startTime;
-                const rawStartIso = rawStart.toISOString();
+                setAccelerationWindowStart(startTime);
+                const useAccelerated = watermark !== null;
+                const watermarkIso = watermark ? watermark.toISOString() : null;
 
-                const matchingActivityTables = selectActivityTablesSince(
-                    tables.map((t: BigQueryTable) => t.tableReference?.tableId || ''),
-                    rawStart
-                );
+                const matchingActivityTables = useAccelerated
+                    ? []
+                    : selectActivityTablesSince(
+                          tables.map((t: BigQueryTable) => t.tableReference?.tableId || ''),
+                          startTime
+                      );
 
                 const matchingGenAiTraceTables = tables
                     .map((t: BigQueryTable) => t.tableReference?.tableId || '')
@@ -287,15 +291,12 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                     // Raw table union with early column filtering. jsonPayload is serialized once per
                     // row in the inner SELECT; the method filter reuses `jp`.
                     const tableSelects = matchingActivityTables.map((t: string) =>
-                        buildRawActivitySelect(effectiveProjectId, datasetId, t, rawStartIso)
+                        buildRawActivitySelect(effectiveProjectId, datasetId, t, startTimeStr)
                     );
                     const baseActivityParts: string[] = [];
-                    if (useAccelerated && watermark) {
-                        baseActivityParts.push(
-                            buildAcceleratedActivitySelect(effectiveProjectId, datasetId, startTimeStr, watermark.toISOString())
-                        );
-                    }
-                    if (tableSelects.length > 0) {
+                    if (useAccelerated) {
+                        baseActivityParts.push(buildAcceleratedActivitySelect(effectiveProjectId, datasetId, startTimeStr));
+                    } else if (tableSelects.length > 0) {
                         baseActivityParts.push(`SELECT ${ACTIVITY_PROJECTION_SQL}\n                        FROM raw_activity`);
                     }
 
@@ -305,7 +306,11 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         timestamp as event_time,
                         TRUE AS is_end_span
                       FROM \`${effectiveProjectId}.${datasetId}.${t}\`
-                      WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                      WHERE timestamp >= TIMESTAMP('${startTimeStr}')${
+                          // Keep latency spans aligned with the accelerated activity cutoff so traces
+                          // newer than the last Refresh don't appear in latency without their queries.
+                          watermarkIso ? `\n                        AND timestamp <= TIMESTAMP('${watermarkIso}')` : ''
+                      }
                         AND trace IS NOT NULL AND trace != ''
                     `);
 
@@ -1158,6 +1163,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                                 <ObservabilityAccelerationPanel
                                     enabled={isAccelerationEnabled}
                                     watermark={accelerationWatermark}
+                                    windowStart={accelerationWindowStart}
                                     busy={accelerationBusy}
                                     error={accelerationError}
                                     lastInsertedRows={accelerationLastInserted}

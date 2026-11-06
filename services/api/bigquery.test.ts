@@ -89,6 +89,10 @@ describe('runBigQueryQuery', () => {
     expect(mockedGapi).toHaveBeenCalledTimes(1 + BIGQUERY_MAX_POLLS);
   });
 
+  it('waits at least 10 minutes in total before giving up (30-day raw scans measured 235s at 80k users)', () => {
+    expect(BIGQUERY_QUERY_TIMEOUT_MS + BIGQUERY_MAX_POLLS * BIGQUERY_POLL_TIMEOUT_MS).toBeGreaterThanOrEqual(600000);
+  });
+
   it('returns an embedded error from the initial request to the caller without polling', async () => {
     mockedGapi.mockResolvedValueOnce({ error: { message: 'Unrecognized name: foo' } });
     const res = await runBigQueryQuery('proj-a', 'SELECT foo');

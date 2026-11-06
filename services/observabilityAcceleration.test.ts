@@ -84,10 +84,11 @@ describe('observabilityAcceleration SQL builders', () => {
         expect(() => buildRefreshMergeSql(P, D, [], '2026-11-05T00:00:00.000Z')).toThrow(/No user-activity sink tables/);
     });
 
-    it('bounds the accelerated read to [start, watermark) and dedupes on (insert_id, event_time)', () => {
-        const sql = buildAcceleratedActivitySelect(P, D, '2026-10-07T00:00:00.000Z', '2026-11-06T12:00:00.000Z');
+    it('reads the accelerated table from the window start (no raw-log tail) and dedupes on (insert_id, event_time)', () => {
+        const sql = buildAcceleratedActivitySelect(P, D, '2026-10-07T00:00:00.000Z');
         expect(sql).toContain("event_time >= TIMESTAMP('2026-10-07T00:00:00.000Z')");
-        expect(sql).toContain("event_time < TIMESTAMP('2026-11-06T12:00:00.000Z')");
+        expect(sql).not.toContain('event_time <');
+        expect(sql).not.toContain('jsonPayload');
         expect(sql).toContain('PARTITION BY insert_id, event_time');
         expect(sql).toMatch(/SELECT user_email, event_time, trace, agent_name, agent_id, session_id, method_name/);
     });
@@ -98,7 +99,7 @@ describe('observabilityAcceleration SQL builders', () => {
         expect(() => buildRawActivitySelect(P, D, SHARD('20261105'), "2026-11-05'); DROP TABLE x; --")).toThrow(
             /Invalid ISO timestamp/
         );
-        expect(() => buildAcceleratedActivitySelect(P, D, 'not-a-date', '2026-11-06T12:00:00.000Z')).toThrow(
+        expect(() => buildAcceleratedActivitySelect(P, D, 'not-a-date')).toThrow(
             /Invalid ISO timestamp/
         );
     });

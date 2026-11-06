@@ -22,9 +22,9 @@
  * of fields the dashboard needs into a small, flat, partitioned table (`ACCELERATION_TABLE_ID`).
  *
  * - Refresh is MANUAL (a button). Nothing runs automatically.
- * - Reads are HYBRID: events up to the table's watermark come from the acceleration table, events
- *   after the watermark come from the raw sink tables. Charts therefore never go stale; skipping a
- *   refresh only means more of the window is read from raw logs.
+ * - Reads use ONLY the acceleration table while it is enabled and non-empty, so charts include
+ *   events up to the last Refresh (shown in the UI). A hybrid accelerated + raw read was benchmarked
+ *   at 80k-user scale and spent 26-44s in BigQuery query preparation vs 3-9s accelerated-only.
  * - Refresh is idempotent: MERGE inserts only (insert_id, event_time) pairs not already present,
  *   and the read path also deduplicates, so overlapping refreshes cannot double-count events.
  *
@@ -219,24 +219,21 @@ export const buildWatermarkQuery = (projectId: string, datasetId: string): strin
 };
 
 /**
- * Accelerated portion of the dashboard read: events in [startIso, watermarkIso). Output columns
- * match ACTIVITY_PROJECTION_SQL order so it can be UNION ALL'd with the raw portion.
+ * Accelerated dashboard read: all events at/after startIso in the acceleration table. Output columns
+ * match ACTIVITY_PROJECTION_SQL order (same shape as the raw path's base_activity).
  */
 export const buildAcceleratedActivitySelect = (
     projectId: string,
     datasetId: string,
     startIso: string,
-    watermarkIso: string,
 ): string => {
     assertSafeIdentifier(projectId, 'project');
     assertSafeIdentifier(datasetId, 'dataset');
     assertIsoTimestamp(startIso);
-    assertIsoTimestamp(watermarkIso);
     return `
       SELECT user_email, event_time, trace, agent_name, agent_id, session_id, method_name
       FROM ${tableRef(projectId, datasetId, ACCELERATION_TABLE_ID)}
       WHERE event_time >= TIMESTAMP('${startIso}')
-        AND event_time < TIMESTAMP('${watermarkIso}')
       QUALIFY ROW_NUMBER() OVER (PARTITION BY insert_id, event_time ORDER BY event_time) = 1
     `;
 };

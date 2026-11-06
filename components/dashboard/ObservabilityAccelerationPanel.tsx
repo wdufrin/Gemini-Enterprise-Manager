@@ -26,6 +26,8 @@ export type AccelerationBusyState = 'enabling' | 'refreshing' | 'disabling' | nu
 interface Props {
     enabled: boolean;
     watermark: Date | null;
+    /** Start of the dashboard's selected time range, used to warn when it begins after the last refresh. */
+    windowStart?: Date | null;
     busy: AccelerationBusyState;
     error: string | null;
     lastInsertedRows: number | null;
@@ -39,6 +41,7 @@ const formatUtc = (d: Date) => `${d.toISOString().slice(0, 16).replace('T', ' ')
 export const ObservabilityAccelerationPanel: React.FC<Props> = ({
     enabled,
     watermark,
+    windowStart = null,
     busy,
     error,
     lastInsertedRows,
@@ -48,6 +51,7 @@ export const ObservabilityAccelerationPanel: React.FC<Props> = ({
 }) => {
     const [confirmDisable, setConfirmDisable] = useState(false);
     const isBusy = busy !== null;
+    const windowAfterWatermark = Boolean(enabled && watermark && windowStart && watermark.getTime() < windowStart.getTime());
 
     return (
         <div
@@ -71,7 +75,7 @@ export const ObservabilityAccelerationPanel: React.FC<Props> = ({
                 {enabled ? (
                     <p data-testid="acceleration-freshness">
                         {watermark
-                            ? `Accelerated through ${formatUtc(watermark)}. Newer events are read from raw logs, so charts stay current; press Refresh to move more history into the fast table.`
+                            ? `Charts show events through ${formatUtc(watermark)} (last refresh). Newer events appear after you press Refresh Acceleration.`
                             : `Acceleration table is empty (no user activity in the last ${ACCELERATION_BACKFILL_DAYS} days at last refresh). Charts read raw logs.`}
                     </p>
                 ) : (
@@ -80,6 +84,12 @@ export const ObservabilityAccelerationPanel: React.FC<Props> = ({
                         table of pre-extracted activity fields, so charts stop re-parsing raw log JSON on every load. Setup reads
                         the last {ACCELERATION_BACKFILL_DAYS} days of raw logs once. Refresh is manual. Data older than{' '}
                         {ACCELERATION_PARTITION_EXPIRATION_DAYS} days is deleted automatically.
+                    </p>
+                )}
+                {windowAfterWatermark && (
+                    <p data-testid="acceleration-window-warning" role="status" className="text-amber-300">
+                        The selected time range starts after the last refresh, so these charts show no activity. Press
+                        Refresh Acceleration to load newer events.
                     </p>
                 )}
                 {lastInsertedRows !== null && !error && (

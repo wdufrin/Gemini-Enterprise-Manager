@@ -233,8 +233,12 @@ export const insertBigQueryRows = async (
 export const BIGQUERY_QUERY_TIMEOUT_MS = 30000;
 /** Long-poll wait for each jobs.getQueryResults call while a job is still running. */
 export const BIGQUERY_POLL_TIMEOUT_MS = 10000;
-/** Max getQueryResults polls (~10s each) before giving up: ~30s + 18 x 10s ≈ 3.5 minutes. */
-export const BIGQUERY_MAX_POLLS = 18;
+/**
+ * Max getQueryResults polls (~10s each) before giving up: 30s + 57 x 10s = 10 minutes.
+ * Raised from ~3.5 minutes after an 80k-user benchmark measured 235s for a 30-day raw-log
+ * dashboard query and 73s for a 30-day acceleration backfill.
+ */
+export const BIGQUERY_MAX_POLLS = 57;
 
 const throwIfBigQueryError = (result: BigQueryQueryResponse<unknown> | undefined, fallback: string): void => {
   if (result?.error || (result?.errors && result.errors.length > 0)) {

@@ -418,7 +418,7 @@ describe('ObservabilityPage', () => {
         });
         const summaryRow = { f: [{ v: 'summary' }, { v: '77' }, { v: '5' }, { v: '3' }] };
 
-        it('reads events before the watermark from the acceleration table and only newer events from raw logs', async () => {
+        it('reads activity ONLY from the acceleration table (no raw-log JSON) and caps latency spans at the watermark', async () => {
             const watermark = new Date(Date.now() - 3 * 3600 * 1000);
             vi.mocked(listBigQueryTables).mockResolvedValue({ tables: [tableEntry(UA_TABLE), tableEntry(ACCEL)] });
             vi.mocked(runBigQueryQuery).mockImplementation(async (_p: string, sql: string) => {
@@ -439,12 +439,42 @@ describe('ObservabilityPage', () => {
             });
             const mainSql = vi.mocked(runBigQueryQuery).mock.calls.map((c) => c[1]).find((q) => q.includes('summary_metrics'))!;
             expect(mainSql).toContain(`FROM \`test-proj.my_dataset.${ACCEL}\``);
-            expect(mainSql).toContain(`event_time < TIMESTAMP('${watermark.toISOString()}')`);
-            expect(mainSql).toContain(`WHERE timestamp >= TIMESTAMP('${watermark.toISOString()}')`);
+            expect(mainSql).not.toContain(`\`test-proj.my_dataset.${UA_TABLE}\``);
+            expect(mainSql).not.toContain('raw_activity');
+            expect(mainSql).not.toContain('TO_JSON_STRING(jsonPayload)');
             expect(screen.getByTestId('acceleration-status-badge')).toHaveTextContent('ON');
             expect(screen.getByTestId('acceleration-freshness')).toHaveTextContent(
-                `Accelerated through ${watermark.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+                `Charts show events through ${watermark.toISOString().slice(0, 16).replace('T', ' ')} UTC (last refresh)`
             );
+            expect(screen.queryByTestId('acceleration-window-warning')).not.toBeInTheDocument();
+        });
+
+        it('caps AI inference latency spans at the watermark and warns when the selected window starts after the last refresh', async () => {
+            const INF_TABLE = 'discoveryengine_googleapis_com_gen_ai_client_inference_operation_details';
+            const staleWatermark = new Date(Date.now() - 3 * 86400 * 1000);
+            vi.mocked(listBigQueryTables).mockResolvedValue({
+                tables: [tableEntry(UA_TABLE), tableEntry(INF_TABLE), tableEntry(ACCEL)]
+            });
+            vi.mocked(runBigQueryQuery).mockImplementation(async (_p: string, sql: string) => {
+                if (sql.startsWith('SELECT MAX(event_time) AS watermark')) {
+                    return { rows: [{ f: [{ v: String(staleWatermark.getTime() / 1000) }] }] };
+                }
+                return { jobComplete: true, rows: [summaryRow] };
+            });
+
+            render(
+                <ToastProvider>
+                    <ObservabilityPage projectNumber="123" projectId="test-proj" />
+                </ToastProvider>
+            );
+
+            expect(await screen.findByTestId('acceleration-window-warning')).toHaveTextContent(
+                /selected time range starts after the last refresh/
+            );
+            const mainSql = vi.mocked(runBigQueryQuery).mock.calls.map((c) => c[1]).find((q) => q.includes('summary_metrics'))!;
+            expect(mainSql).toContain(`\`test-proj.my_dataset.${INF_TABLE}\``);
+            expect(mainSql).toContain(`AND timestamp <= TIMESTAMP('${staleWatermark.toISOString()}')`);
+            expect(mainSql).not.toContain(`\`test-proj.my_dataset.${UA_TABLE}\``);
         });
 
         it('shows the watermark error and falls back to raw logs when the acceleration table cannot be read', async () => {
