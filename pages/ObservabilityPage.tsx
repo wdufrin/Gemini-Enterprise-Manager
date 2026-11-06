@@ -8,6 +8,18 @@ import { AgentObservabilityPolicyModal } from '../components/dashboard/operation
 import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
 import { Config } from '../types';
+import {
+    ACCELERATION_TABLE_ID,
+    ACTIVITY_PROJECTION_SQL,
+    buildAcceleratedActivitySelect,
+    buildRawActivitySelect,
+    disableAcceleration,
+    enableAcceleration,
+    getAccelerationWatermark,
+    refreshAcceleration,
+    selectActivityTablesSince,
+} from '../services/observabilityAcceleration';
+import { ObservabilityAccelerationPanel, AccelerationBusyState } from '../components/dashboard/ObservabilityAccelerationPanel';
 
 function useSafeToast() {
     try {
@@ -70,6 +82,14 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
 
     const queryCache = useRef<Map<string, ObservabilityDashboardMetrics>>(new Map());
 
+    // High-scale acceleration (opt-in, manual refresh only)
+    const [accelerationWatermark, setAccelerationWatermark] = useState<Date | null>(null);
+    const [accelerationBusy, setAccelerationBusy] = useState<AccelerationBusyState>(null);
+    const accelerationBusyRef = useRef(false);
+    const [accelerationError, setAccelerationError] = useState<string | null>(null);
+    const [accelerationLastInserted, setAccelerationLastInserted] = useState<number | null>(null);
+    const [accelerationVersion, setAccelerationVersion] = useState(0);
+
     // 1. Fetch Log Router Sinks (only on mount / projectNumber change)
     useEffect(() => {
         if (!projectNumber) {
@@ -116,12 +136,16 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
         const nonSearchActivitySink = bqSinks.find((sink: LoggingSink) => {
             const f = sink.filter || '';
             const hasUserActivity = f.includes('gemini_enterprise_user_activity') || f.includes('user_activity');
-            const isSolelySearch = f.includes('methodName="Search"') && !f.includes('NOT') && !f.includes('!=');
+            const isSolelySearch = /methodName\s*=\s*"Search"/i.test(f) && !/\b(NOT|OR)\b/i.test(f) && !f.includes('!=');
             return hasUserActivity && !isSolelySearch;
         });
         if (nonSearchActivitySink) return nonSearchActivitySink;
 
-        // 3. Any sink matching user activity
+        // 3. Catch-all sink (empty filter exports all project logs including all 4 core tables)
+        const catchAllSink = bqSinks.find((sink: LoggingSink) => !(sink.filter || '').trim());
+        if (catchAllSink) return catchAllSink;
+
+        // 4. Any sink matching user activity
         const anyActivitySink = bqSinks.find((sink: LoggingSink) => {
             const f = sink.filter || '';
             return f.includes('gemini_enterprise_user_activity') || f.includes('user_activity');
@@ -172,7 +196,8 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
             return;
         }
 
-        const cacheKey = `${effectiveProjectId}:${datasetId}:${timeRange}`;
+        const accelerationEnabled = tables.some((t: BigQueryTable) => t.tableReference?.tableId === ACCELERATION_TABLE_ID);
+        const cacheKey = `${effectiveProjectId}:${datasetId}:${timeRange}:accel=${accelerationEnabled ? accelerationVersion : 'off'}`;
         if (queryCache.current.has(cacheKey)) {
             setDashboardData(queryCache.current.get(cacheKey)!);
             return;
@@ -194,17 +219,30 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                 startTime.setDate(startTime.getDate() - timeRange);
                 const startTimeStr = startTime.toISOString();
 
-                const matchingActivityTables = tables
-                    .map((t: BigQueryTable) => t.tableReference?.tableId || '')
-                    .filter((id: string) => {
-                        if (id.startsWith('v_')) return false;
-                        if (id === 'discoveryengine_googleapis_com_gemini_enterprise_user_activity') return true;
-                        if (id.startsWith('discoveryengine_googleapis_com_gemini_enterprise_user_activity_')) {
-                            const datePart = id.split('_').pop()!;
-                            return /^\d{8}$/.test(datePart) ? datePart >= suffixStart : true;
-                        }
-                        return false;
-                    });
+                // Hybrid read: events before the acceleration watermark come from the small
+                // pre-extracted table; events at/after it come from raw sink tables, so charts are
+                // never stale even if nobody has pressed Refresh recently.
+                let watermark: Date | null = null;
+                if (accelerationEnabled) {
+                    try {
+                        watermark = await getAccelerationWatermark(effectiveProjectId, datasetId);
+                        setAccelerationError(null);
+                    } catch (accelErr: unknown) {
+                        // Not silent: the panel shows this, and the dashboard reads raw logs instead.
+                        setAccelerationError(`${toErrorMessage(accelErr)} — showing data from raw logs instead.`);
+                        watermark = null;
+                    }
+                    if (abortController.signal.aborted) return;
+                }
+                setAccelerationWatermark(watermark);
+                const useAccelerated = watermark !== null && watermark.getTime() > startTime.getTime();
+                const rawStart = useAccelerated && watermark ? watermark : startTime;
+                const rawStartIso = rawStart.toISOString();
+
+                const matchingActivityTables = selectActivityTablesSince(
+                    tables.map((t: BigQueryTable) => t.tableReference?.tableId || ''),
+                    rawStart
+                );
 
                 const matchingGenAiTraceTables = tables
                     .map((t: BigQueryTable) => t.tableReference?.tableId || '')
@@ -219,7 +257,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                             if (id === prefix) return true;
                             if (id.startsWith(`${prefix}_`)) {
                                 const datePart = id.split('_').pop()!;
-                                return /^\d{8}$/.test(datePart) ? datePart >= suffixStart : true;
+                                return /^\d{8}$/.test(datePart) ? datePart >= suffixStart : false;
                             }
                         }
                         return false;
@@ -235,7 +273,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                     queries: {}
                 };
 
-                if (matchingActivityTables.length > 0) {
+                if (matchingActivityTables.length > 0 || useAccelerated) {
                     const timeFormat = timeRange === 30 ? '%Y-%m-%d' : (timeRange === 7 ? '%Y-%m-%d %H:00' : '%Y-%m-%d %H:%M');
                     const truncUnit = timeRange === 30 ? 'DAY' : 'HOUR';
                     
@@ -246,69 +284,42 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         volumeTimeSelect = `FORMAT_TIMESTAMP('${timeFormat}', TIMESTAMP_TRUNC(event_time, ${truncUnit}))`;
                     }
 
-                    // Raw table union with early column filtering
-                    const tableSelects = matchingActivityTables.map((t: string) => `
-                      SELECT 
-                        TO_JSON_STRING(jsonPayload) as jp,
-                        timestamp as event_time,
-                        trace,
-                        insertId
-                      FROM \`${effectiveProjectId}.${datasetId}.${t}\`
-                      WHERE timestamp >= TIMESTAMP('${startTimeStr}')
-                        AND COALESCE(
-                          JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.methodName'),
-                          JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodname')
-                        ) IN ('WriteUserEvent', 'StreamAssist', 'Assist', 'Search')
-                    `);
+                    // Raw table union with early column filtering. jsonPayload is serialized once per
+                    // row in the inner SELECT; the method filter reuses `jp`.
+                    const tableSelects = matchingActivityTables.map((t: string) =>
+                        buildRawActivitySelect(effectiveProjectId, datasetId, t, rawStartIso)
+                    );
+                    const baseActivityParts: string[] = [];
+                    if (useAccelerated && watermark) {
+                        baseActivityParts.push(
+                            buildAcceleratedActivitySelect(effectiveProjectId, datasetId, startTimeStr, watermark.toISOString())
+                        );
+                    }
+                    if (tableSelects.length > 0) {
+                        baseActivityParts.push(`SELECT ${ACTIVITY_PROJECTION_SQL}\n                        FROM raw_activity`);
+                    }
 
                     const extraTraceSelects = matchingGenAiTraceTables.map((t: string) => `
                       SELECT
                         trace,
-                        timestamp as event_time
+                        timestamp as event_time,
+                        TRUE AS is_end_span
                       FROM \`${effectiveProjectId}.${datasetId}.${t}\`
                       WHERE timestamp >= TIMESTAMP('${startTimeStr}')
                         AND trace IS NOT NULL AND trace != ''
                     `);
 
                     const traceSpansUnion = [
-                        `SELECT trace, event_time FROM base_activity WHERE trace IS NOT NULL AND trace != '' AND method_name IN ('StreamAssist', 'Assist', 'Search')`,
+                        `SELECT trace, event_time, (method_name IN ('StreamAssist', 'Assist', 'Search')) AS is_end_span FROM base_activity WHERE trace IS NOT NULL AND trace != ''`,
                         ...extraTraceSelects
                     ].join('\nUNION ALL\n');
 
                     const baseActivityCTE = `
-                      raw_activity AS (
+                      ${tableSelects.length > 0 ? `raw_activity AS (
                         ${tableSelects.join('\nUNION ALL\n')}
-                      ),
+                      ),` : ''}
                       base_activity AS (
-                        SELECT
-                          COALESCE(
-                            JSON_VALUE(jp, '$.useriamprincipal'),
-                            JSON_VALUE(jp, '$.userIamPrincipal')
-                          ) as user_email,
-                          event_time,
-                          trace,
-                          COALESCE(
-                            JSON_VALUE(jp, '$.request.userevent.agentspaceinfo.agentinfo.name'),
-                            JSON_VALUE(jp, '$.response.agentinfo.displayname'),
-                            IF(COALESCE(JSON_VALUE(jp, '$.logMetadata.methodName'), JSON_VALUE(jp, '$.logmetadata.methodname')) = 'Search', 
-                               CONCAT('Search (', COALESCE(REGEXP_EXTRACT(JSON_VALUE(jp, '$.request.servingconfig'), r'engines/([^/]+)'), 'default'), ')'), 
-                               NULL)
-                          ) as agent_name,
-                          COALESCE(
-                            JSON_VALUE(jp, '$.request.userevent.agentspaceinfo.agentinfo.agentid'),
-                            JSON_VALUE(jp, '$.response.agentinfo.agent'),
-                            IF(COALESCE(JSON_VALUE(jp, '$.logMetadata.methodName'), JSON_VALUE(jp, '$.logmetadata.methodname')) = 'Search', 'search', NULL)
-                          ) as agent_id,
-                          COALESCE(
-                            REGEXP_EXTRACT(JSON_VALUE(jp, '$.response.answer.name'), r'sessions/([^/]+)'), 
-                            trace, 
-                            insertId
-                          ) as session_id,
-                          COALESCE(
-                            JSON_VALUE(jp, '$.logMetadata.methodName'),
-                            JSON_VALUE(jp, '$.logmetadata.methodname')
-                          ) as method_name
-                        FROM raw_activity
+                        ${baseActivityParts.join('\nUNION ALL\n')}
                       ),
                       trace_spans AS (
                         ${traceSpansUnion}
@@ -317,7 +328,11 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         SELECT
                           trace,
                           MIN(event_time) as trace_time,
-                          TIMESTAMP_DIFF(MAX(event_time), MIN(event_time), MILLISECOND) as latency_ms
+                          TIMESTAMP_DIFF(
+                            MAX(IF(is_end_span, event_time, NULL)),
+                            MIN(event_time),
+                            MILLISECOND
+                          ) as latency_ms
                         FROM trace_spans
                         GROUP BY trace
                         HAVING latency_ms > 0 AND latency_ms < 600000
@@ -335,7 +350,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                           trace,
                           method_name
                         FROM base_activity
-                        WHERE method_name = 'WriteUserEvent' AND agent_name IS NOT NULL AND trace IS NOT NULL AND trace != ''
+                        WHERE method_name = 'WriteUserEvent' AND (agent_name IS NOT NULL OR agent_id IS NOT NULL) AND trace IS NOT NULL AND trace != ''
 
                         UNION ALL
 
@@ -362,10 +377,17 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                               agent_name,
                               IF(
                                 trace IS NOT NULL AND trace != '',
-                                LAST_VALUE(IF(method_name != 'Search', agent_name, NULL) IGNORE NULLS) OVER (
-                                  PARTITION BY trace
-                                  ORDER BY event_time
-                                  ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                                COALESCE(
+                                  LAST_VALUE(IF(method_name != 'Search', agent_name, NULL) IGNORE NULLS) OVER (
+                                    PARTITION BY trace
+                                    ORDER BY event_time
+                                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                                  ),
+                                  LAST_VALUE(IF(method_name != 'Search', agent_name, NULL) IGNORE NULLS) OVER (
+                                    PARTITION BY trace
+                                    ORDER BY event_time
+                                    ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                                  )
                                 ),
                                 NULL
                               )
@@ -378,10 +400,17 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                               agent_id,
                               IF(
                                 trace IS NOT NULL AND trace != '',
-                                LAST_VALUE(IF(method_name != 'Search', agent_id, NULL) IGNORE NULLS) OVER (
-                                  PARTITION BY trace
-                                  ORDER BY event_time
-                                  ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                                COALESCE(
+                                  LAST_VALUE(IF(method_name != 'Search', agent_id, NULL) IGNORE NULLS) OVER (
+                                    PARTITION BY trace
+                                    ORDER BY event_time
+                                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                                  ),
+                                  LAST_VALUE(IF(method_name != 'Search', agent_id, NULL) IGNORE NULLS) OVER (
+                                    PARTITION BY trace
+                                    ORDER BY event_time
+                                    ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                                  )
                                 ),
                                 NULL
                               )
@@ -617,11 +646,23 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
 
                     // Ensure volumeData is chronologically ordered by full timestamp key
                     rawVolumePoints.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-                    dashboardData.volumeData = rawVolumePoints.map(({ time, requests, errors }) => ({
-                        time,
-                        requests,
-                        errors
-                    }));
+                    const timeCounts = new Map<string, number>();
+                    for (const pt of rawVolumePoints) {
+                        timeCounts.set(pt.time, (timeCounts.get(pt.time) || 0) + 1);
+                    }
+                    const seenDuplicateTimes = new Set<string>();
+                    dashboardData.volumeData = rawVolumePoints.map(({ sortKey, time, requests, errors }) => {
+                        let resolvedTime = time;
+                        if ((timeCounts.get(time) || 0) > 1 && !seenDuplicateTimes.has(time) && /^\d{4}-\d{2}-\d{2}\s+/.test(sortKey)) {
+                            seenDuplicateTimes.add(time);
+                            resolvedTime = sortKey.slice(5);
+                        }
+                        return {
+                            time: resolvedTime,
+                            requests,
+                            errors
+                        };
+                    });
 
                     // Build daily spine spanning the selected timeRange duration without fabricating points or coercing missing days to 0
                     if (latencyByDay.size > 0) {
@@ -635,7 +676,9 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                         for (const dayKey of latencyByDay.keys()) {
                             spineDates.add(dayKey);
                         }
-                        const orderedDays = Array.from(spineDates).sort((a, b) => a.localeCompare(b));
+                        const orderedDays = Array.from(spineDates)
+                            .sort((a, b) => a.localeCompare(b))
+                            .slice(-Math.max(1, timeRange));
                         dashboardData.latencyData = orderedDays.map((isoDay) => {
                             const match = latencyByDay.get(isoDay);
                             return {
@@ -664,7 +707,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
 
         runQuery();
         return () => abortController.abort();
-    }, [effectiveProjectId, datasetId, timeRange, tables]);
+    }, [effectiveProjectId, datasetId, timeRange, tables, accelerationVersion]);
 
     const refreshTables = useCallback(async () => {
         if ((!projectId && !projectNumber) || !datasetId) return;
@@ -678,6 +721,50 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
             toast.error(`Failed to refresh BigQuery tables: ${toErrorMessage(e)}`);
         }
     }, [projectId, projectNumber, datasetId, toast]);
+
+    const isAccelerationEnabled = useMemo(
+        () => tables.some((t: BigQueryTable) => t.tableReference?.tableId === ACCELERATION_TABLE_ID),
+        [tables]
+    );
+
+    // All acceleration actions are user-initiated. The ref blocks a second click (or a second
+    // action) before React re-renders the disabled button.
+    const runAccelerationAction = useCallback(
+        async (kind: Exclude<AccelerationBusyState, null>) => {
+            if (accelerationBusyRef.current || !datasetId || !effectiveProjectId) return;
+            accelerationBusyRef.current = true;
+            setAccelerationBusy(kind);
+            setAccelerationError(null);
+            try {
+                const tableIds = tables.map((t: BigQueryTable) => t.tableReference?.tableId || '');
+                if (kind === 'disabling') {
+                    await disableAcceleration(effectiveProjectId, datasetId);
+                    setAccelerationLastInserted(null);
+                    setAccelerationWatermark(null);
+                } else {
+                    const result =
+                        kind === 'enabling'
+                            ? await enableAcceleration(effectiveProjectId, datasetId, tableIds)
+                            : await refreshAcceleration(effectiveProjectId, datasetId, tableIds);
+                    setAccelerationLastInserted(result.insertedRows);
+                    setAccelerationWatermark(result.watermark);
+                }
+                queryCache.current.clear();
+                if (kind !== 'refreshing') {
+                    // Table created or dropped: reload the table list so reads switch mode.
+                    const tablesResponse = await listBigQueryTables(effectiveProjectId, datasetId);
+                    setTables(tablesResponse.tables || []);
+                }
+                setAccelerationVersion((v) => v + 1);
+            } catch (err: unknown) {
+                setAccelerationError(toErrorMessage(err));
+            } finally {
+                accelerationBusyRef.current = false;
+                setAccelerationBusy(null);
+            }
+        },
+        [datasetId, effectiveProjectId, tables]
+    );
 
     const datasetObjects = useMemo(() => {
         const map = new Map<string, 'View' | 'Partitioned'>();
@@ -817,8 +904,8 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                                                 );
                                                 const isSearchOnly = Boolean(
                                                     sink.filter &&
-                                                    sink.filter.includes('methodName="Search"') &&
-                                                    !sink.filter.includes('NOT') &&
+                                                    /methodName\s*=\s*"Search"/i.test(sink.filter) &&
+                                                    !/\b(NOT|OR)\b/i.test(sink.filter) &&
                                                     !sink.filter.includes('!=')
                                                 );
                                                 const isUserActivity = Boolean(
@@ -1067,6 +1154,18 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                                     </select>
                                 </div>
                             </div>
+                            {datasetId && tables.length > 0 && (
+                                <ObservabilityAccelerationPanel
+                                    enabled={isAccelerationEnabled}
+                                    watermark={accelerationWatermark}
+                                    busy={accelerationBusy}
+                                    error={accelerationError}
+                                    lastInsertedRows={accelerationLastInserted}
+                                    onEnable={() => runAccelerationAction('enabling')}
+                                    onRefresh={() => runAccelerationAction('refreshing')}
+                                    onDisable={() => runAccelerationAction('disabling')}
+                                />
+                            )}
                             <ObservabilityDashboard
                                 datasetId={datasetId}
                                 customData={dashboardData}

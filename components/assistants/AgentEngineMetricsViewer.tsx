@@ -296,14 +296,17 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
                         ? stats.p95s.reduce((acc, item) => acc + item.val * item.weight, 0) / totalP95Weight
                         : fallbackP95;
 
+            const roundMetric = (val: number) =>
+                val > 0 && val < 1 ? Number(val.toFixed(2)) : Math.round(val);
+
             return {
                 toolId: toolId.length > 20 ? toolId.substring(0, 20) + '...' : toolId, // Truncate long names
                 fullToolId: toolId,
                 calls: stats.calls,
                 errorRate: stats.calls > 0 ? (stats.errors / stats.calls) * 100 : 0,
-                avgLatency: Math.round(avgMean),
-                p50Latency: Math.round(p50Latency),
-                p95Latency: Math.round(p95Latency)
+                avgLatency: roundMetric(avgMean),
+                p50Latency: roundMetric(p50Latency),
+                p95Latency: roundMetric(p95Latency)
             };
         });
 
@@ -311,9 +314,14 @@ const AgentEngineMetricsViewer: React.FC<AgentEngineMetricsViewerProps> = ({ con
         chartData.sort((a, b) => b.calls - a.calls);
 
         const totalWeight = chartData.reduce((acc, d) => acc + Math.max(1, d.calls), 0);
-        const overallMeanLatency = chartData.length > 0
-            ? Math.round(chartData.reduce((acc, d) => acc + d.avgLatency * Math.max(1, d.calls), 0) / totalWeight)
-            : 0;
+        const overallMeanRaw =
+            chartData.length > 0
+                ? chartData.reduce((acc, d) => acc + d.avgLatency * Math.max(1, d.calls), 0) / totalWeight
+                : 0;
+        const overallMeanLatency =
+            overallMeanRaw > 0 && overallMeanRaw < 1
+                ? Number(overallMeanRaw.toFixed(2))
+                : Math.round(overallMeanRaw);
         const overallP95Latency = chartData.length > 0
             ? Math.max(...chartData.map((d) => d.p95Latency))
             : 0;

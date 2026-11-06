@@ -158,6 +158,17 @@ describe('ObservabilityDashboard', () => {
         expect(screen.getByText('Agent Trace Latency Per Day (P50 / P95 ms — 7d)')).toBeInTheDocument();
         expect(screen.getByTestId('latency-duration-badge')).toHaveTextContent(/7d Daily Series/i);
 
+        const series7dJson = screen.getByTestId('latency-series-container').getAttribute('data-series-json');
+        expect(series7dJson).toBeTruthy();
+        const series7d = JSON.parse(series7dJson!) as Array<{ date: string; p50: number | null; p95: number | null }>;
+        expect(series7d).toHaveLength(7);
+        const populated7d = series7d.filter((d) => d.p50 !== null || d.p95 !== null);
+        const missing7d = series7d.filter((d) => d.p50 === null && d.p95 === null);
+        expect(populated7d).toHaveLength(1);
+        expect(populated7d[0].p50).toBe(1551);
+        expect(populated7d[0].p95).toBe(7606);
+        expect(missing7d).toHaveLength(6);
+
         // Expand timeRange to 30 days and verify the daily latency series spans all 30 days
         rerender(
             <ObservabilityDashboard
@@ -188,9 +199,14 @@ describe('ObservabilityDashboard', () => {
 
         expect(screen.getByText('Agent Trace Latency Per Day (P50 / P95 ms — 30d)')).toBeInTheDocument();
         expect(screen.getByTestId('latency-duration-badge')).toHaveTextContent(/30d Daily Series/i);
+
+        const series30dJson = screen.getByTestId('latency-series-container').getAttribute('data-series-json');
+        const series30d = JSON.parse(series30dJson!) as Array<{ date: string; p50: number | null; p95: number | null }>;
+        expect(series30d).toHaveLength(30);
+        expect(series30d.filter((d) => d.p50 === null && d.p95 === null)).toHaveLength(29);
     });
 
-    it('renders avgLatency with an explicit (avg) suffix in the Agent Activity Breakdown table instead of duplicating it as P50 / P95', () => {
+    it('renders avgLatency with an explicit (avg) suffix in the Agent Activity Breakdown table and shows no-daily-latency-series when daily latencyData has no non-null points', () => {
         render(
             <ObservabilityDashboard
                 datasetId="analytics_prod"
@@ -200,6 +216,9 @@ describe('ObservabilityDashboard', () => {
                     uniqueUsers: 2,
                     uniqueAgents: 1,
                     volumeData: [{ time: '10:00', requests: 12, errors: 0 }],
+                    latencyData: [
+                        { date: '11-05', rawDate: '2026-11-05', p50: null, p95: null, count: 0 }
+                    ],
                     agentData: [
                         { name: 'Search Agent', id: 'search_app', count: 12, avgLatency: 840 }
                     ],
@@ -213,5 +232,12 @@ describe('ObservabilityDashboard', () => {
 
         expect(screen.getByText('840ms (avg)')).toBeInTheDocument();
         expect(screen.queryByText('840ms / 840ms')).not.toBeInTheDocument();
+
+        // Switch to Trace Latency mode when only agent avgLatency exists (no daily latency points)
+        fireEvent.click(screen.getByTestId('agent-chart-mode-latency'));
+        expect(screen.getByTestId('no-daily-latency-series')).toBeInTheDocument();
+        expect(screen.getByTestId('no-daily-latency-series')).toHaveTextContent(
+            /No daily trace latency percentiles available for this window/i
+        );
     });
 });

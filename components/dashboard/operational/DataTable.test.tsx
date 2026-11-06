@@ -118,6 +118,7 @@ describe('DataTable', () => {
     });
     Object.defineProperty(URL, 'createObjectURL', { value: createObjectURLSpy, writable: true });
     Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), writable: true });
+    const anchorClickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     const adversarialRows = [
       { id: '1', agent_name: '=CMD|\' /C calc\'!A0', latency_ms: 120 },
@@ -127,6 +128,7 @@ describe('DataTable', () => {
     render(<DataTable title="Adversarial Export" columns={COLUMNS} data={adversarialRows} />);
     const exportBtn = screen.getByRole('button', { name: /Export CSV/i });
     fireEvent.click(exportBtn);
+    anchorClickSpy.mockRestore();
 
     expect(capturedBlob).not.toBeNull();
     const csvText = await new Promise<string>((resolve, reject) => {

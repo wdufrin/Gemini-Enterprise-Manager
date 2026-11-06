@@ -212,35 +212,46 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
             const liveTokensWithLatency = (overviewLiveData?.genaiTokens || []).filter(
                 (t) => (t.p50LatencyMs || 0) > 0 || (t.p95LatencyMs || 0) > 0 || (t.avgStepLatencyMs || 0) > 0
             );
-            const totalLatencyWeight = liveTokensWithLatency.reduce(
+            const p50Tokens = liveTokensWithLatency.filter((t) => (t.p50LatencyMs || 0) > 0);
+            const p50Weight = p50Tokens.reduce(
+                (acc, t) => acc + Math.max(1, t.inferenceCount ?? t.calls ?? 1),
+                0
+            );
+            const p95Tokens = liveTokensWithLatency.filter((t) => (t.p95LatencyMs || 0) > 0);
+            const p95Weight = p95Tokens.reduce(
+                (acc, t) => acc + Math.max(1, t.inferenceCount ?? t.calls ?? 1),
+                0
+            );
+            const stepTokens = liveTokensWithLatency.filter((t) => (t.avgStepLatencyMs || 0) > 0);
+            const stepWeight = stepTokens.reduce(
                 (acc, t) => acc + Math.max(1, t.inferenceCount ?? t.calls ?? 1),
                 0
             );
             const p50TraceLatencyMs =
-                liveTokensWithLatency.length > 0
+                p50Tokens.length > 0 && p50Weight > 0
                     ? Math.round(
-                          liveTokensWithLatency.reduce(
+                          p50Tokens.reduce(
                               (acc, t) => acc + (t.p50LatencyMs || 0) * Math.max(1, t.inferenceCount ?? t.calls ?? 1),
                               0
-                          ) / totalLatencyWeight
+                          ) / p50Weight
                       )
                     : rowP50LatencyMs;
             const p95TraceLatencyMs =
-                liveTokensWithLatency.length > 0
+                p95Tokens.length > 0 && p95Weight > 0
                     ? Math.round(
-                          liveTokensWithLatency.reduce(
+                          p95Tokens.reduce(
                               (acc, t) => acc + (t.p95LatencyMs || 0) * Math.max(1, t.inferenceCount ?? t.calls ?? 1),
                               0
-                          ) / totalLatencyWeight
+                          ) / p95Weight
                       )
                     : rowP95LatencyMs;
             const avgStepLatencyMs =
-                liveTokensWithLatency.length > 0
+                stepTokens.length > 0 && stepWeight > 0
                     ? Math.round(
-                          liveTokensWithLatency.reduce(
+                          stepTokens.reduce(
                               (acc, t) => acc + (t.avgStepLatencyMs || 0) * Math.max(1, t.inferenceCount ?? t.calls ?? 1),
                               0
-                          ) / totalLatencyWeight
+                          ) / stepWeight
                       )
                     : rowAvgStepLatencyMs;
 
@@ -466,22 +477,22 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                 typeTotals[t] = (typeTotals[t] || 0) + cnt;
             });
 
-            if (overviewLiveData?.connectorUsage && overviewLiveData.connectorUsage.length > 0) {
+            if ((is30d || data.length === 0) && overviewLiveData?.connectorUsage && overviewLiveData.connectorUsage.length > 0) {
                 totalInvocations = overviewLiveData.connectorUsage.reduce((acc: number, c: ConnectorUsageItem) => acc + (c.calls || 0), 0);
                 uniqueConnectors = overviewLiveData.connectorUsage.length;
             }
-            if (overviewLiveData?.topConnectorUsers && overviewLiveData.topConnectorUsers.length > 0) {
-                uniqueUsers = overviewLiveData.topConnectorUsers.length;
+            if ((is30d || data.length === 0) && overviewLiveData?.topConnectorUsers && overviewLiveData.topConnectorUsers.length > 0) {
+                uniqueUsers = Math.max(uniqueUsers, overviewLiveData.topConnectorUsers.length);
             }
 
-            const sortedConnectors = overviewLiveData?.connectorUsage && overviewLiveData.connectorUsage.length > 0
+            const sortedConnectors = (is30d || data.length === 0) && overviewLiveData?.connectorUsage && overviewLiveData.connectorUsage.length > 0
                 ? overviewLiveData.connectorUsage
                 : Object.entries(connectorTotals)
                     .map(([connector, calls]) => ({ connector, calls }))
                     .sort((a, b) => b.calls - a.calls)
                     .slice(0, 8);
 
-            const sortedUsers = overviewLiveData?.topConnectorUsers && overviewLiveData.topConnectorUsers.length > 0
+            const sortedUsers = (is30d || data.length === 0) && overviewLiveData?.topConnectorUsers && overviewLiveData.topConnectorUsers.length > 0
                 ? overviewLiveData.topConnectorUsers
                 : Object.entries(userTotals)
                     .map(([user, calls]) => ({ user, calls }))
@@ -489,7 +500,7 @@ export const TelemetryAndConnectorPanels: React.FC<TelemetryAndConnectorPanelsPr
                     .slice(0, 6);
 
             const topConnector = sortedConnectors[0]?.connector || (isSimulated ? 'SharePoint' : '—');
-            const topCalls = sortedConnectors[0]?.calls || (isSimulated ? 817 : 0);
+            const topCalls = sortedConnectors[0]?.calls ?? (isSimulated ? 817 : 0);
 
             return (
                 <div className="space-y-6">

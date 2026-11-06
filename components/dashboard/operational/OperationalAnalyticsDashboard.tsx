@@ -55,6 +55,7 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
         isValidatingSchema,
         schemaValidationReport,
         brokenViews,
+        stubViews,
         installedViews,
         installedViewsMap,
         tableNames,
@@ -704,6 +705,7 @@ export const OperationalAnalyticsDashboard: React.FC<Props> = ({
                         installedViewsMap={installedViewsMap}
                         operatingViewId={operatingViewId}
                         brokenViews={brokenViews}
+                        stubViews={stubViews}
                         tableNames={tableNames}
                         dataSourceMode={dataSourceMode}
                         availableMainTables={availableMainTables}

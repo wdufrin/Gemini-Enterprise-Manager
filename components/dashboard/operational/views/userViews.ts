@@ -35,86 +35,100 @@ SELECT
 FROM \`${projectId}.${dataset}.gemini_assist_activity\`;`;
             }
 
+            // Notes for large tenants:
+            // - jsonPayload is serialized ONCE per row (as `jp`) instead of once per JSON_VALUE call.
+            // - Dedup partitions by (insertId, timestamp). Cloud Logging duplicate exports of the same
+            //   LogEntry share both values, and because `timestamp` is a window partition key, an outer
+            //   `WHERE event_time >= ...` filter cannot change ROW_NUMBER() results, so BigQuery is
+            //   allowed to apply it before the window instead of deduplicating all history first.
             const sinkActivity = resolveSinkTable(projectId, dataset, USER_ACTIVITY_TABLE, tables);
             if (!sinkActivity.hasAnyTable && hasTable(tables, '_AllLogs')) {
                 const logsSource = getLogsSource(projectId, dataset, tables);
                 return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_user_activity\` AS
-SELECT 
+SELECT
   COALESCE(
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.useriamprincipal'),
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.userIamPrincipal')
-  ) AS user_email, 
-  timestamp AS event_time, 
+    JSON_VALUE(jp, '$.useriamprincipal'),
+    JSON_VALUE(jp, '$.userIamPrincipal')
+  ) AS user_email,
+  timestamp AS event_time,
   COALESCE(
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.agentinfo.displayname'),
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.agentInfo.displayName'),
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.agent.displayname'),
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.agent.displayName'),
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userevent.agentspaceinfo.agentinfo.name'),
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userEvent.agentspaceInfo.agentInfo.name'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userevent.engine'), r'/engines/([^/]+)'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userEvent.engine'), r'/engines/([^/]+)'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.logmetadata.name'), r'/engines/([^/]+)'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.logMetadata.name'), r'/engines/([^/]+)')
-  ) AS agent_name, 
+    JSON_VALUE(jp, '$.response.agentinfo.displayname'),
+    JSON_VALUE(jp, '$.response.agentInfo.displayName'),
+    JSON_VALUE(jp, '$.request.agent.displayname'),
+    JSON_VALUE(jp, '$.request.agent.displayName'),
+    JSON_VALUE(jp, '$.request.userevent.agentspaceinfo.agentinfo.name'),
+    JSON_VALUE(jp, '$.request.userEvent.agentspaceInfo.agentInfo.name'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.request.userevent.engine'), r'/engines/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.request.userEvent.engine'), r'/engines/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.logmetadata.name'), r'/engines/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.logMetadata.name'), r'/engines/([^/]+)')
+  ) AS agent_name,
   COALESCE(
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.agentsspec.agentspecs[0].agentid'),
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.agentsSpec.agentSpecs[0].agentId'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.agentinfo.agent'), r'/agents/([^/]+)'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.agentInfo.agent'), r'/agents/([^/]+)'),
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userevent.agentspaceinfo.agentinfo.agentid'),
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.request.userEvent.agentspaceInfo.agentInfo.agentId')
-  ) AS agent_id, 
+    JSON_VALUE(jp, '$.request.agentsspec.agentspecs[0].agentid'),
+    JSON_VALUE(jp, '$.request.agentsSpec.agentSpecs[0].agentId'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.response.agentinfo.agent'), r'/agents/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.response.agentInfo.agent'), r'/agents/([^/]+)'),
+    JSON_VALUE(jp, '$.request.userevent.agentspaceinfo.agentinfo.agentid'),
+    JSON_VALUE(jp, '$.request.userEvent.agentspaceInfo.agentInfo.agentId')
+  ) AS agent_id,
   COALESCE(
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(json_payload), '$.response.answer.name'), r'sessions/([^/]+)'), 
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.response.answer.name'), r'sessions/([^/]+)'),
     trace
-  ) AS session_id, 
+  ) AS session_id,
   COALESCE(
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logmetadata.methodname'),
-    JSON_VALUE(TO_JSON_STRING(json_payload), '$.logMetadata.methodName')
-  ) AS method_name, 
-  insert_id AS insertId 
-FROM ${logsSource}
-WHERE log_name LIKE '%gemini_enterprise_user_activity%';`;
+    JSON_VALUE(jp, '$.logmetadata.methodname'),
+    JSON_VALUE(jp, '$.logMetadata.methodName')
+  ) AS method_name,
+  insert_id AS insertId
+FROM (
+  SELECT timestamp, trace, insert_id, TO_JSON_STRING(json_payload) AS jp
+  FROM ${logsSource}
+  WHERE log_name LIKE '%gemini_enterprise_user_activity%'
+)
+QUALIFY ROW_NUMBER() OVER(PARTITION BY insert_id, timestamp ORDER BY timestamp DESC) = 1;`;
             }
 
             return `CREATE OR REPLACE VIEW \`${projectId}.${dataset}.v_consolidated_user_activity\` AS
-SELECT 
+SELECT
   COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.useriamprincipal'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.userIamPrincipal')
-  ) AS user_email, 
-  timestamp AS event_time, 
+    JSON_VALUE(jp, '$.useriamprincipal'),
+    JSON_VALUE(jp, '$.userIamPrincipal')
+  ) AS user_email,
+  timestamp AS event_time,
   COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.displayname'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.displayName'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayname'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agent.displayName'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.agentspaceinfo.agentinfo.name'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.agentspaceInfo.agentInfo.name'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.engine'), r'/engines/([^/]+)'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.engine'), r'/engines/([^/]+)'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.name'), r'/engines/([^/]+)'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.name'), r'/engines/([^/]+)')
-  ) AS agent_name, 
+    JSON_VALUE(jp, '$.response.agentinfo.displayname'),
+    JSON_VALUE(jp, '$.response.agentInfo.displayName'),
+    JSON_VALUE(jp, '$.request.agent.displayname'),
+    JSON_VALUE(jp, '$.request.agent.displayName'),
+    JSON_VALUE(jp, '$.request.userevent.agentspaceinfo.agentinfo.name'),
+    JSON_VALUE(jp, '$.request.userEvent.agentspaceInfo.agentInfo.name'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.request.userevent.engine'), r'/engines/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.request.userEvent.engine'), r'/engines/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.logmetadata.name'), r'/engines/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.logMetadata.name'), r'/engines/([^/]+)')
+  ) AS agent_name,
   COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agentsspec.agentspecs[0].agentid'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.agentsSpec.agentSpecs[0].agentId'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentinfo.agent'), r'/agents/([^/]+)'),
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.agentInfo.agent'), r'/agents/([^/]+)'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userevent.agentspaceinfo.agentinfo.agentid'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.request.userEvent.agentspaceInfo.agentInfo.agentId')
-  ) AS agent_id, 
+    JSON_VALUE(jp, '$.request.agentsspec.agentspecs[0].agentid'),
+    JSON_VALUE(jp, '$.request.agentsSpec.agentSpecs[0].agentId'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.response.agentinfo.agent'), r'/agents/([^/]+)'),
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.response.agentInfo.agent'), r'/agents/([^/]+)'),
+    JSON_VALUE(jp, '$.request.userevent.agentspaceinfo.agentinfo.agentid'),
+    JSON_VALUE(jp, '$.request.userEvent.agentspaceInfo.agentInfo.agentId')
+  ) AS agent_id,
   COALESCE(
-    REGEXP_EXTRACT(JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.response.answer.name'), r'sessions/([^/]+)'), 
+    REGEXP_EXTRACT(JSON_VALUE(jp, '$.response.answer.name'), r'sessions/([^/]+)'),
     trace
-  ) AS session_id, 
+  ) AS session_id,
   COALESCE(
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logmetadata.methodname'),
-    JSON_VALUE(TO_JSON_STRING(jsonPayload), '$.logMetadata.methodName')
-  ) AS method_name, 
-  insertId 
-FROM ${sinkActivity.tableRef};`;
+    JSON_VALUE(jp, '$.logmetadata.methodname'),
+    JSON_VALUE(jp, '$.logMetadata.methodName')
+  ) AS method_name,
+  insertId
+FROM (
+  SELECT timestamp, trace, insertId, TO_JSON_STRING(jsonPayload) AS jp
+  FROM ${sinkActivity.tableRef}
+)
+QUALIFY ROW_NUMBER() OVER(PARTITION BY insertId, timestamp ORDER BY timestamp DESC) = 1;`;
         },
         getQuery: (projectId: string, dataset: string) => `SELECT
   DATE(event_time) AS event_date,

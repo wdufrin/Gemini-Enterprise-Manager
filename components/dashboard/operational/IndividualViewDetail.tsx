@@ -41,6 +41,7 @@ interface Props {
     installedViewsMap: Map<string, string>;
     operatingViewId: string | null;
     brokenViews: Map<string, string>;
+    stubViews?: Set<string>;
     tableNames: Set<string>;
     onCreateView: (viewId: string) => Promise<void>;
     onDropView: (viewId: string) => Promise<void>;
@@ -62,6 +63,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
     installedViewsMap,
     operatingViewId,
     brokenViews,
+    stubViews,
     tableNames,
     onCreateView,
     onDropView,
@@ -89,6 +91,8 @@ export const IndividualViewDetail: React.FC<Props> = ({
     const isInstalled = installedViews.has(viewId);
     const hasMainTable = availableMainTables.has(viewId);
     const hasLiveSource = dataSourceMode === 'tables' ? hasMainTable : isInstalled;
+    const isViewSimulated =
+        !hasLiveSource || brokenViews.has(viewId) || Boolean(stubViews?.has(viewId));
     const actualViewName = installedViewsMap.get(viewId) || viewDef.viewName;
     const viewMeta = getViewMetadata(viewId);
     const targetDataset = datasetId || 'your_dataset';
@@ -107,7 +111,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
                         viewId={viewId}
                         data={effectiveData}
                         overviewLiveData={overviewLiveData}
-                        isSimulated={!hasLiveSource}
+                        isSimulated={isViewSimulated}
                     />
                 );
 
@@ -324,7 +328,7 @@ export const IndividualViewDetail: React.FC<Props> = ({
                     data={effectiveData}
                     onRowClick={onRowClick}
                     isLoading={isLoading}
-                    isSimulated={!hasLiveSource || brokenViews.has(viewId)}
+                    isSimulated={isViewSimulated}
                 />
             </div>
         </div>

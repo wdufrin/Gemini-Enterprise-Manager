@@ -362,6 +362,20 @@ export const hasMainTablesForView = (
         hasShardedTable(baseTables, AI_CHOICE_TABLE) ||
         hasTable(baseTables, 'gemini_genai_telemetry')
       );
+    case 'v_user_connector_usage':
+    case 'v_user_connector_usage_30d':
+      return (
+        hasTable(baseTables, USER_ACTIVITY_TABLE) ||
+        hasShardedTable(baseTables, USER_ACTIVITY_TABLE) ||
+        hasTable(baseTables, INFERENCE_DETAILS_TABLE) ||
+        hasShardedTable(baseTables, INFERENCE_DETAILS_TABLE)
+      );
+    case 'v_consolidated_user_activity':
+      return (
+        hasTable(baseTables, USER_ACTIVITY_TABLE) ||
+        hasShardedTable(baseTables, USER_ACTIVITY_TABLE) ||
+        hasTable(baseTables, 'gemini_assist_activity')
+      );
     default:
       return (
         hasTable(baseTables, USER_ACTIVITY_TABLE) ||

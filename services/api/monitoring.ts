@@ -247,11 +247,12 @@ export const getAgentEngineToolLatencies = async (
   endTime: string,
   filterBy: "engine_id" | "tool_id" = "engine_id",
 ): Promise<{ timeSeries?: TimeSeries[] }> => {
+  const safeId = resourceId.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   let filter = "";
   if (filterBy === "engine_id") {
-    filter = `metric.type="discoveryengine.googleapis.com/tool_total_latencies" AND resource.labels.engine_id="${resourceId}"`;
+    filter = `metric.type="discoveryengine.googleapis.com/tool_total_latencies" AND resource.labels.engine_id="${safeId}"`;
   } else {
-    filter = `metric.type="discoveryengine.googleapis.com/tool_total_latencies" AND resource.labels.tool_id=has_substring("${resourceId}")`;
+    filter = `metric.type="discoveryengine.googleapis.com/tool_total_latencies" AND resource.labels.tool_id=has_substring("${safeId}")`;
   }
   const url = `https://monitoring.googleapis.com/v3/projects/${config.projectId}/timeSeries?filter=${encodeURIComponent(filter)}&interval.startTime=${encodeURIComponent(startTime)}&interval.endTime=${encodeURIComponent(endTime)}&aggregation.perSeriesAligner=ALIGN_DELTA&aggregation.alignmentPeriod=3600s`;
 

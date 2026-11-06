@@ -33,9 +33,7 @@ WITH unified_calls AS (
     t.timestamp,
     COALESCE(
       JSON_VALUE(p, "$.id"),
-      t.span_id,
-      t.insert_id,
-      TO_HEX(SHA256(CONCAT(t.trace, CAST(t.timestamp AS STRING), JSON_VALUE(p, "$.name"))))
+      TO_HEX(SHA256(CONCAT(COALESCE(t.trace, ''), COALESCE(t.span_id, ''), COALESCE(t.insert_id, ''), CAST(t.timestamp AS STRING), TO_JSON_STRING(p))))
     ) AS call_id,
     JSON_VALUE(p, "$.name") AS tool_name,
     "Agent Tool" AS connector_type
@@ -139,9 +137,7 @@ GROUP BY user_email, connector_name, connector_type;`;
     t.timestamp,
     COALESCE(
       JSON_VALUE(p, "$.id"),
-      t.spanId,
-      t.insertId,
-      TO_HEX(SHA256(CONCAT(COALESCE(t.trace, ''), CAST(t.timestamp AS STRING), JSON_VALUE(p, "$.name"))))
+      TO_HEX(SHA256(CONCAT(COALESCE(t.trace, ''), COALESCE(t.spanId, ''), COALESCE(t.insertId, ''), CAST(t.timestamp AS STRING), TO_JSON_STRING(p))))
     ) AS call_id,
     JSON_VALUE(p, "$.name") AS tool_name,
     "Agent Tool" AS connector_type,

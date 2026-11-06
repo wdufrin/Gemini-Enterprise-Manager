@@ -18,7 +18,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useModalA11y } from '../../../hooks/useModalA11y';
 import { Agent, AppEngine, Config } from '../../../types';
 import * as api from '../../../services/apiService';
-import { BulkObservabilityResult } from '../../../services/api/discovery/agents';
+import { BulkObservabilityResult, isGoogleManagedAgent } from '../../../services/api/discovery/agents';
 import { toErrorMessage } from '../../../utils/errors';
 
 interface Props {
@@ -220,7 +220,8 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
     }
   };
 
-  const monitoredAgentsCount = agents.filter(
+  const customAgents = agents.filter((a) => !isGoogleManagedAgent(a));
+  const monitoredAgentsCount = customAgents.filter(
     (a) =>
       Boolean(a.observabilityConfig?.observabilityEnabled) &&
       (!includeSensitive || Boolean(a.observabilityConfig?.sensitiveLoggingEnabled)),
@@ -390,7 +391,7 @@ def on_agent_created(cloud_event):
     payload = {
         "observabilityConfig": {
             "observabilityEnabled": True,
-            "sensitiveLoggingEnabled": True
+            "sensitiveLoggingEnabled": ${includeSensitive ? 'True' : 'False'}
         }
     }
     data_bytes = json.dumps(payload).encode("utf-8")
@@ -797,12 +798,12 @@ def on_agent_created(cloud_event):
                     ) : (
                       <span
                         className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
-                          agents.length > 0 && monitoredAgentsCount === agents.length
+                          customAgents.length > 0 && monitoredAgentsCount === customAgents.length
                             ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
                             : 'bg-amber-950/80 text-amber-300 border-amber-700/60'
                         }`}
                       >
-                        {monitoredAgentsCount} / {agents.length} Agents Telemetry Enabled
+                        {monitoredAgentsCount} / {customAgents.length} Agents Telemetry Enabled
                       </span>
                     )}
                   </div>
@@ -822,7 +823,7 @@ def on_agent_created(cloud_event):
                     <button
                       type="button"
                       onClick={handleRunSweep}
-                      disabled={isSweeping || isLoadingAgents || agents.length === 0}
+                      disabled={isSweeping || isLoadingAgents || customAgents.length === 0}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-all shadow-md flex items-center gap-2"
                     >
                       {isSweeping ? (
@@ -951,6 +952,7 @@ def on_agent_created(cloud_event):
                       </thead>
                       <tbody className="divide-y divide-gray-800 bg-gray-900/50">
                         {agents.map((agent) => {
+                          const isManaged = isGoogleManagedAgent(agent);
                           const isObsEnabled = Boolean(agent.observabilityConfig?.observabilityEnabled);
                           const isSensEnabled = Boolean(agent.observabilityConfig?.sensitiveLoggingEnabled);
                           const hasLegacyAuth = Boolean(agent.authorizations && agent.authorizations.length > 0);
@@ -960,6 +962,14 @@ def on_agent_created(cloud_event):
                               <td className="px-4 py-2.5 text-white font-medium">
                                 <div className="flex items-center gap-2">
                                   <span>{agent.displayName || id}</span>
+                                  {isManaged && (
+                                    <span
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-950/90 text-blue-300 border border-blue-700/70"
+                                      title="Google-managed first-party agent. Observability is managed by Google Cloud."
+                                    >
+                                      Google-Managed
+                                    </span>
+                                  )}
                                   {hasLegacyAuth && (
                                     <span
                                       className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 text-amber-300 border border-amber-700/70"
@@ -976,6 +986,8 @@ def on_agent_created(cloud_event):
                                   className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-bold text-[10px] ${
                                     isObsEnabled
                                       ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60'
+                                      : isManaged
+                                      ? 'bg-blue-950 text-blue-300 border border-blue-700/60'
                                       : hasLegacyAuth
                                       ? 'bg-amber-950 text-amber-300 border border-amber-700/60'
                                       : 'bg-red-950 text-red-300 border border-red-700/60'
@@ -985,17 +997,21 @@ def on_agent_created(cloud_event):
                                     className={`w-1.5 h-1.5 rounded-full ${
                                       isObsEnabled
                                         ? 'bg-emerald-400'
+                                        : isManaged
+                                        ? 'bg-blue-400'
                                         : hasLegacyAuth
                                         ? 'bg-amber-400'
                                         : 'bg-red-400'
                                     }`}
                                   ></span>
-                                  {isObsEnabled ? 'ON' : hasLegacyAuth ? 'OFF (Legacy Blocked)' : 'OFF (Blindspot)'}
+                                  {isObsEnabled ? 'ON' : isManaged ? 'Google-Managed (Exempt)' : hasLegacyAuth ? 'OFF (Legacy Blocked)' : 'OFF (Blindspot)'}
                                 </span>
                               </td>
                               <td className="px-4 py-2.5 text-gray-400 font-mono">
                                 {isSensEnabled ? (
                                   <span className="text-emerald-400 font-semibold">Enabled</span>
+                                ) : isManaged ? (
+                                  <span className="text-gray-500">N/A (Managed)</span>
                                 ) : (
                                   <span className="text-gray-500">Disabled</span>
                                 )}

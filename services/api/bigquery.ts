@@ -224,18 +224,93 @@ export const insertBigQueryRows = async (
   );
 };
 
+/**
+ * Server-side wait for jobs.query. BigQuery's default is 10s; slow 30-day scans on large
+ * tenants would otherwise return `jobComplete: false` and require extra round-trips.
+ * Kept at 30s (not higher) because each in-flight request occupies one of the 6 slots in
+ * `globalApiLimiter`.
+ */
+export const BIGQUERY_QUERY_TIMEOUT_MS = 30000;
+/** Long-poll wait for each jobs.getQueryResults call while a job is still running. */
+export const BIGQUERY_POLL_TIMEOUT_MS = 10000;
+/** Max getQueryResults polls (~10s each) before giving up: ~30s + 18 x 10s ≈ 3.5 minutes. */
+export const BIGQUERY_MAX_POLLS = 18;
+
+const throwIfBigQueryError = (result: BigQueryQueryResponse<unknown> | undefined, fallback: string): void => {
+  if (result?.error || (result?.errors && result.errors.length > 0)) {
+    throw new Error(result.error?.message || result.errors?.[0]?.message || fallback);
+  }
+};
+
 export const runBigQueryQuery = async <T = Record<string, unknown>>(
   projectId: string,
   query: string,
   suppressErrorLog: boolean = false,
 ): Promise<BigQueryQueryResponse<T>> => {
-  return gapiRequest<BigQueryQueryResponse<T>>(
+  let result = await gapiRequest<BigQueryQueryResponse<T>>(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`,
     "POST",
     projectId,
     undefined,
-    { query, useLegacySql: false },
+    { query, useLegacySql: false, timeoutMs: BIGQUERY_QUERY_TIMEOUT_MS },
     undefined,
     suppressErrorLog,
   );
+
+  // Embedded errors are returned to the caller unchanged (callers already surface them).
+  if (result?.error || (result?.errors && result.errors.length > 0)) {
+    return result;
+  }
+
+  let polls = 0;
+  while (result?.jobComplete === false) {
+    const jobId = result.jobReference?.jobId;
+    if (!jobId) {
+      throw new Error("BigQuery reported the query as incomplete but returned no job reference to poll.");
+    }
+    if (polls >= BIGQUERY_MAX_POLLS) {
+      throw new Error(`BigQuery job ${jobId} did not complete after ${polls} polling attempts.`);
+    }
+    const params = new URLSearchParams({ timeoutMs: String(BIGQUERY_POLL_TIMEOUT_MS) });
+    const location = result.jobReference?.location;
+    if (location) params.set("location", location);
+    result = await gapiRequest<BigQueryQueryResponse<T>>(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${encodeURIComponent(jobId)}?${params.toString()}`,
+      "GET",
+      projectId,
+      undefined,
+      undefined,
+      undefined,
+      suppressErrorLog,
+    );
+    throwIfBigQueryError(result, "BigQuery polling failed");
+    polls++;
+  }
+
+  return result;
+};
+
+/**
+ * Validates a query and returns the bytes BigQuery would scan, without running it or
+ * incurring query cost (jobs.query with dryRun: true).
+ */
+export const dryRunBigQueryQuery = async (
+  projectId: string,
+  query: string,
+): Promise<{ totalBytesProcessed: number }> => {
+  const result = await gapiRequest<BigQueryQueryResponse>(
+    `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`,
+    "POST",
+    projectId,
+    undefined,
+    { query, useLegacySql: false, dryRun: true },
+    undefined,
+    true,
+  );
+  throwIfBigQueryError(result, "BigQuery dry run failed");
+  const bytes = Number(result?.totalBytesProcessed);
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    throw new Error(`BigQuery dry run returned an invalid totalBytesProcessed: ${String(result?.totalBytesProcessed)}`);
+  }
+  return { totalBytesProcessed: bytes };
 };

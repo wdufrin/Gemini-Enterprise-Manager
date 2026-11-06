@@ -83,15 +83,34 @@ export const ObservabilityDataDictionaryModal: React.FC<Props> = ({
         );
     }, [metricsList, searchQuery]);
 
+    const filteredCharts = useMemo(() => {
+        if (!searchQuery) return chartsList;
+        const q = searchQuery.toLowerCase();
+        return chartsList.filter(
+            (c) =>
+                c.title.toLowerCase().includes(q) ||
+                c.category.toLowerCase().includes(q) ||
+                c.whatItShows.toLowerCase().includes(q) ||
+                c.metricMeaning.toLowerCase().includes(q) ||
+                c.sourceTables.some((t) => t.toLowerCase().includes(q))
+        );
+    }, [chartsList, searchQuery]);
+
     // Table matrix: map each source table to views that use it
     const tableMatrix = useMemo(() => {
         const map = new Map<string, { views: string[]; charts: string[]; description: string; tableType: string }>();
 
         // Register default known tables
         map.set('discoveryengine_googleapis_com_gemini_enterprise_user_activity_*', {
-            views: ['Live Activity Dashboard', 'v_consolidated_user_activity'],
-            charts: ['Request Volume', 'Agent Activity Breakdown', 'Top Agents Visualized', 'Daily Interaction Volume', 'Agent Popularity Share'],
-            description: 'Core partitioned log sink table recording all user interactions, StreamAssist queries, and Search calls.',
+            views: ['Live Activity Dashboard', 'v_consolidated_user_activity', 'v_gemini_assist_activity', 'v_gemini_search_activity', 'v_gemini_genai_telemetry', 'v_user_connector_usage', 'v_agent_feedback', 'v_admin_feedback_review', 'v_agent_feedback_detailed'],
+            charts: ['Request Volume', 'Agent Activity Breakdown', 'Top Agents Visualized', 'Agent Trace Latency Per Day', 'Daily Interaction Volume', 'Agent Popularity Share'],
+            description: 'Core partitioned log sink table recording all user interactions, StreamAssist queries, Search calls, and feedback events.',
+            tableType: 'Raw BQ Sync Table (Log Router Sink)'
+        });
+        map.set('discoveryengine_googleapis_com_gen_ai_client_inference_operation_details_*', {
+            views: ['v_gemini_genai_telemetry', 'v_user_connector_usage', 'v_user_connector_usage_30d'],
+            charts: ['Token Consumption by Agent', 'Tool Invocations by Tool Name', 'Invocations by Connector', 'Top Connector Users', 'Agent Trace Latency Per Day'],
+            description: 'Partitioned Log Router sink table recording GenAI model inference operations, token counts, and tool call execution spans.',
             tableType: 'Raw BQ Sync Table (Log Router Sink)'
         });
         map.set('_AllLogs', {
@@ -115,8 +134,8 @@ export const ObservabilityDataDictionaryModal: React.FC<Props> = ({
         map.set('v_user_connector_usage', {
             views: ['v_user_connector_usage_30d'],
             charts: ['Invocations by Connector', 'Top Connector Users'],
-            description: 'Consolidated view grouping tool calls and search sources into normalized connector identities. Backed upstream by _AllLogs.',
-            tableType: 'Derived Operational View (Backed by _AllLogs)'
+            description: 'Consolidated view grouping tool calls and search sources into normalized connector identities. Backed upstream by Log Router sink tables or _AllLogs.',
+            tableType: 'Derived Operational View'
         });
         map.set('gemini_assist_activity', {
             views: ['v_consolidated_user_activity (optional)', 'v_gemini_assist_activity (optional)'],
@@ -495,10 +514,10 @@ export const ObservabilityDataDictionaryModal: React.FC<Props> = ({
 
                             <div>
                                 <h4 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">
-                                    Observability Charts ({chartsList.length})
+                                    Observability Charts ({filteredCharts.length})
                                 </h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                                    {chartsList.map((c) => (
+                                    {filteredCharts.map((c) => (
                                         <div
                                             key={c.id}
                                             className="p-4 bg-gray-950 rounded-xl border border-gray-800 space-y-2 text-xs"

@@ -344,8 +344,8 @@ FROM ranked_steps;`;
   SUM(output_tokens) AS total_output_tokens,
   COUNT(1) AS inference_count,
   CAST(ROUND(AVG(IF(step_latency_ms > 0 AND step_latency_ms < 600000, step_latency_ms, NULL))) AS INT64) AS avg_step_latency_ms,
-  APPROX_QUANTILES(IF(trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(50)] AS p50_trace_duration_ms,
-  APPROX_QUANTILES(IF(trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(95)] AS p95_trace_duration_ms
+  APPROX_QUANTILES(IF(is_final_step IS TRUE AND trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(50)] AS p50_trace_duration_ms,
+  APPROX_QUANTILES(IF(is_final_step IS TRUE AND trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(95)] AS p95_trace_duration_ms
 FROM \`${projectId}.${dataset}.v_gemini_genai_telemetry\`
 GROUP BY agent_name
 ORDER BY (total_input_tokens + total_output_tokens) DESC

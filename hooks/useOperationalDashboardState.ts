@@ -32,6 +32,18 @@ interface BigQueryTableRow {
     [key: string]: unknown;
 }
 
+/**
+ * Overview cards/charts aggregate only the most recent N days. Previously these queries had
+ * no time filter and re-scanned all retained history on every page load.
+ */
+export const OPERATIONAL_LOOKBACK_DAYS = 30;
+const LOOKBACK_START_SQL = `TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${OPERATIONAL_LOOKBACK_DAYS} DAY)`;
+/**
+ * Max overview query tasks running at once. `globalApiLimiter` allows 6 in-flight API calls and
+ * each BigQuery call may hold a slot for up to 30s, so 3 leaves headroom for the rest of the UI.
+ */
+export const OPERATIONAL_QUERY_CONCURRENCY = 3;
+
 export interface SchemaValidationIssue {
     target: string;
     kind: 'table' | 'view';
@@ -70,19 +82,20 @@ export interface OperationalLiveData {
 
 const parseTelemetryTimestampMs = (raw: unknown): number | null => {
     if (typeof raw === 'number' && Number.isFinite(raw)) {
+        if (raw <= 0) return null;
         return raw > 1e12 ? raw : raw * 1000;
     }
     if (typeof raw !== 'string' || !raw.trim()) return null;
     const trimmed = raw.trim();
     const num = Number(trimmed);
-    if (Number.isFinite(num) && trimmed.length >= 10 && !trimmed.includes('-')) {
+    if (Number.isFinite(num) && num > 0 && trimmed.length >= 10 && !trimmed.includes('-')) {
         return num > 1e12 ? Math.round(num) : Math.round(num * 1000);
     }
     const isoCandidate = trimmed.includes('T')
         ? trimmed
         : `${trimmed.replace(' ', 'T')}${trimmed.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(trimmed) ? '' : 'Z'}`;
     const parsed = Date.parse(isoCandidate);
-    return Number.isNaN(parsed) ? null : parsed;
+    return Number.isNaN(parsed) || parsed <= 0 ? null : parsed;
 };
 
 export type EnrichedTelemetryRow<T> = T & {
@@ -142,22 +155,32 @@ export const enrichTelemetryRowsWithLatency = <T extends Record<string, unknown>
         const existingTraceDuration = row.trace_duration_ms as string | number | null | undefined;
         const numericExistingStep = Number(existingStepLatency);
         const numericExistingTrace = Number(existingTraceDuration);
-        const hasPositiveStepLatency = Number.isFinite(numericExistingStep) && numericExistingStep > 0;
-        const hasPositiveTraceDuration = Number.isFinite(numericExistingTrace) && numericExistingTrace > 0;
+        const hasPositiveStepLatency =
+            existingStepLatency !== null &&
+            existingStepLatency !== undefined &&
+            existingStepLatency !== '' &&
+            Number.isFinite(numericExistingStep) &&
+            numericExistingStep > 0;
+        const hasPositiveTraceDuration =
+            existingTraceDuration !== null &&
+            existingTraceDuration !== undefined &&
+            existingTraceDuration !== '' &&
+            Number.isFinite(numericExistingTrace) &&
+            numericExistingTrace > 0;
         const computed = computedByIndex.get(index);
         if (!computed) {
             return {
                 ...row,
-                step_latency_ms: existingStepLatency ?? null,
-                trace_duration_ms: existingTraceDuration ?? null,
+                step_latency_ms: hasPositiveStepLatency ? existingStepLatency : null,
+                trace_duration_ms: hasPositiveTraceDuration ? existingTraceDuration : null,
             };
         }
         return {
             ...row,
             step_index: existingStepIndex ?? computed.stepIndex,
             is_final_step: existingIsFinalStep ?? computed.isFinalStep,
-            step_latency_ms: hasPositiveStepLatency ? existingStepLatency : (computed.stepLatencyMs ?? existingStepLatency ?? null),
-            trace_duration_ms: hasPositiveTraceDuration ? existingTraceDuration : (computed.traceDurationMs ?? existingTraceDuration ?? null),
+            step_latency_ms: hasPositiveStepLatency ? existingStepLatency : (computed.stepLatencyMs ?? null),
+            trace_duration_ms: hasPositiveTraceDuration ? existingTraceDuration : (computed.traceDurationMs ?? null),
         };
     });
 };
@@ -380,7 +403,13 @@ export function useOperationalDashboardState({
         );
     };
 
+    // Reset per-dataset state only when datasetId actually changes. Running this on mount used to
+    // replace droppedViews/extraInstalledViews with new (empty) objects, which recomputed
+    // installedViews, re-created fetchLiveData, and executed every overview query twice.
+    const lastDatasetIdRef = useRef<string | undefined>(datasetId);
     useEffect(() => {
+        if (lastDatasetIdRef.current === datasetId) return;
+        lastDatasetIdRef.current = datasetId;
         setLiveData({});
         setViewRows({});
         setExtraInstalledViews(new Set());
@@ -764,6 +793,7 @@ export function useOperationalDashboardState({
                     try {
                         const queryDaily = `SELECT CAST(event_time AS DATE) as dt, COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
+                            WHERE event_time >= ${LOOKBACK_START_SQL}
                             GROUP BY dt ORDER BY dt ASC;`;
                         const res = await queryOperationalSource('v_consolidated_user_activity', queryDaily);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
@@ -777,6 +807,7 @@ export function useOperationalDashboardState({
                             COALESCE(agent_name, 'Default Assistant') as agent,
                             COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
+                            WHERE event_time >= ${LOOKBACK_START_SQL}
                             GROUP BY agent ORDER BY cnt DESC LIMIT 6;`;
                         const resAgents = await queryOperationalSource('v_consolidated_user_activity', queryAgents);
                         const parsedAgents = ((resAgents?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
@@ -810,9 +841,10 @@ export function useOperationalDashboardState({
                             SUM(output_tokens) as total_output,
                             COUNT(1) as total_calls,
                             CAST(ROUND(AVG(IF(step_latency_ms > 0 AND step_latency_ms < 600000, step_latency_ms, NULL))) AS INT64) as avg_step_latency_ms,
-                            APPROX_QUANTILES(IF(trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(50)] as p50_latency_ms,
-                            APPROX_QUANTILES(IF(trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(95)] as p95_latency_ms
+                            APPROX_QUANTILES(IF(is_final_step IS TRUE AND trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(50)] as p50_latency_ms,
+                            APPROX_QUANTILES(IF(is_final_step IS TRUE AND trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL), 100)[OFFSET(95)] as p95_latency_ms
                             FROM \`${projectId}.${datasetId}.${actualView}\`
+                            WHERE timestamp >= ${LOOKBACK_START_SQL}
                             GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 50;`;
                         const legacyQueryTokens = `SELECT
                             COALESCE(agent_name, 'root_agent') as agent_name,
@@ -820,6 +852,7 @@ export function useOperationalDashboardState({
                             SUM(output_tokens) as total_output,
                             COUNT(1) as total_calls
                             FROM \`${projectId}.${datasetId}.${actualView}\`
+                            WHERE timestamp >= ${LOOKBACK_START_SQL}
                             GROUP BY agent_name ORDER BY (total_input + total_output) DESC LIMIT 50;`;
                         const res = await queryOperationalSource('v_gemini_genai_telemetry', queryTokens, legacyQueryTokens);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
@@ -842,6 +875,7 @@ export function useOperationalDashboardState({
                             COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
                             WHERE tool_calls IS NOT NULL AND tool_calls != ''
+                              AND timestamp >= ${LOOKBACK_START_SQL}
                             GROUP BY tool ORDER BY cnt DESC LIMIT 6;`;
                         const resTools = await queryOperationalSource('v_gemini_genai_telemetry', queryTools);
                         const parsedTools = ((resTools?.rows || []) as BigQueryTableRow[]).map((r: BigQueryTableRow) => ({
@@ -942,6 +976,7 @@ export function useOperationalDashboardState({
                             finish_reason,
                             COUNT(1) as cnt
                             FROM \`${projectId}.${datasetId}.${actualView}\`
+                            WHERE timestamp >= ${LOOKBACK_START_SQL}
                             GROUP BY finish_reason ORDER BY cnt DESC;`;
                         const res = await queryOperationalSource('v_consolidated_ai_choices', queryChoices);
                         const rows = (res?.rows || []) as BigQueryTableRow[];
@@ -976,6 +1011,7 @@ export function useOperationalDashboardState({
                           COUNTIF(feedback IN ('DISLIKE', 'THUMBS_DOWN', 'NEGATIVE')) AS thumbs_down,
                           COUNT(1) AS total
                         FROM \`${projectId}.${datasetId}.${actualView}\`
+                        WHERE event_time >= ${LOOKBACK_START_SQL}
                         GROUP BY agent_name
                         ORDER BY total DESC;`;
                         const res = await queryOperationalSource('v_agent_feedback', query);
@@ -1011,20 +1047,29 @@ export function useOperationalDashboardState({
         });
 
         try {
-            for (const task of tasks) {
-                setQueryProgress({
-                    completed: completedCount,
-                    total: tasks.length,
-                    currentLabel: task.label
-                });
-                await task.run();
-                completedCount += 1;
-                setQueryProgress({
-                    completed: completedCount,
-                    total: tasks.length,
-                    currentLabel: task.label
-                });
-            }
+            // Tasks hit independent views, so run them with bounded concurrency instead of one
+            // after another. Each task.run() catches its own errors and records them in brokenViews.
+            let nextIndex = 0;
+            const worker = async () => {
+                while (nextIndex < tasks.length) {
+                    const task = tasks[nextIndex++];
+                    setQueryProgress({
+                        completed: completedCount,
+                        total: tasks.length,
+                        currentLabel: task.label
+                    });
+                    await task.run();
+                    completedCount += 1;
+                    setQueryProgress({
+                        completed: completedCount,
+                        total: tasks.length,
+                        currentLabel: task.label
+                    });
+                }
+            };
+            await Promise.all(
+                Array.from({ length: Math.min(OPERATIONAL_QUERY_CONCURRENCY, tasks.length) }, () => worker())
+            );
         } finally {
             setLiveDataLoading(false);
         }
@@ -1413,6 +1458,7 @@ export function useOperationalDashboardState({
         isValidatingSchema,
         schemaValidationReport,
         brokenViews,
+        stubViews,
         installedViews,
         installedViewsMap,
         tableNames,

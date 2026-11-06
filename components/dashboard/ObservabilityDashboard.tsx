@@ -181,10 +181,10 @@ const ObservabilityDashboard: React.FC<Props> = ({
     ], []);
 
     const defaultSampleAgents = useMemo<AgentDataItem[]>(() => [
-        { name: 'core_assistant', id: 'core_assistant', count: 351, p50: 850, p95: 2450 },
-        { name: 'support_agent', id: 'support_agent', count: 124, p50: 620, p95: 1800 },
-        { name: 'search_agent', id: 'search_agent', count: 85, p50: 1200, p95: 3500 },
-        { name: 'routing_agent', id: 'routing_agent', count: 42, p50: 320, p95: 900 },
+        { name: 'core_assistant', id: 'core_assistant', count: 18, p50: 850, p95: 2450 },
+        { name: 'support_agent', id: 'support_agent', count: 9, p50: 620, p95: 1800 },
+        { name: 'search_agent', id: 'search_agent', count: 6, p50: 1200, p95: 3500 },
+        { name: 'routing_agent', id: 'routing_agent', count: 3, p50: 320, p95: 900 },
     ], []);
 
     const hasLiveResponse = Boolean(customData) && !forceMockPreview;
@@ -254,9 +254,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
             const truncatedName = a.name.length > 20 ? a.name.substring(0, 20) + '...' : a.name;
             return {
                 name: `${truncatedName}|${a.id || a.name}`,
-                count: a.count,
-                p50: a.p50 ?? a.avgLatency ?? 0,
-                p95: a.p95 ?? a.avgLatency ?? 0
+                count: a.count
             };
         });
     }, [agentData, hasLiveResponse]);
@@ -267,6 +265,11 @@ const ObservabilityDashboard: React.FC<Props> = ({
         if ((customData?.latencyData || []).some((d) => (d.p50 || 0) > 0 || (d.p95 || 0) > 0)) return true;
         return agentData.some((a) => (a.p50 || 0) > 0 || (a.p95 || 0) > 0 || (a.avgLatency || 0) > 0);
     }, [hasLiveResponse, customData?.p50LatencyMs, customData?.p95LatencyMs, customData?.latencyData, agentData]);
+
+    const hasDailyLatencyPoints = useMemo(() => {
+        if (!hasLiveResponse) return false;
+        return (customData?.latencyData || []).some((d) => (d.p50 != null && d.p50 > 0) || (d.p95 != null && d.p95 > 0));
+    }, [hasLiveResponse, customData?.latencyData]);
 
     // Daily latency time-series spanning the full selected timeRange duration
     const latencySeriesData = useMemo<LatencyTimeSeriesPoint[]>(() => {
@@ -291,7 +294,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
             return samplePoints;
         }
 
-        if (!hasLiveResponse || !hasLiveLatency) return [];
+        if (!hasLiveResponse || !hasDailyLatencyPoints) return [];
 
         const byIsoOrShortDate = new Map<string, LatencyTimeSeriesPoint>();
         for (const item of customData?.latencyData || []) {
@@ -322,8 +325,9 @@ const ObservabilityDashboard: React.FC<Props> = ({
         }
 
         spineIsoDates.sort((a, b) => a.localeCompare(b));
+        const boundedSpineDates = spineIsoDates.slice(-daysCount);
 
-        return spineIsoDates.map((isoDay) => {
+        return boundedSpineDates.map((isoDay) => {
             const shortDay = isoDay.slice(5);
             const matched = byIsoOrShortDate.get(isoDay) || byIsoOrShortDate.get(shortDay);
             return {
@@ -334,7 +338,12 @@ const ObservabilityDashboard: React.FC<Props> = ({
                 count: matched?.count ?? 0
             };
         });
-    }, [timeRange, forceMockPreview, hasLiveResponse, hasLiveLatency, customData?.latencyData]);
+    }, [timeRange, forceMockPreview, hasLiveResponse, hasDailyLatencyPoints, customData?.latencyData]);
+
+    const hasNonNullSeriesPoint = useMemo(
+        () => latencySeriesData.some((pt) => pt.p50 != null || pt.p95 != null),
+        [latencySeriesData]
+    );
 
     return (
         <div className="space-y-6">
@@ -753,7 +762,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
                         {forceMockPreview && !isLoading && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Simulated Preview</span>
                         )}
-                        {agentChartMode === 'latency' && queries?.latencyQuery ? (
+                        {agentChartMode === 'latency' && hasLiveLatency && queries?.latencyQuery ? (
                             <QueryTooltip query={queries.latencyQuery} />
                         ) : (
                             queries?.agentQuery && <QueryTooltip query={queries.agentQuery} />
@@ -767,7 +776,7 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                     ? `Agent Trace Latency Per Day (P50 / P95 ms — ${timeRange}d)`
                                     : 'Top Agents by Message Volume'}
                         </h4>
-                        {(forceMockPreview || (agentChartMode === 'latency' && hasLiveLatency)) && latencySeriesData.length > 0 && (
+                        {(forceMockPreview || (agentChartMode === 'latency' && hasLiveLatency)) && hasNonNullSeriesPoint && (
                             <span
                                 data-testid="latency-duration-badge"
                                 className="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-800 text-cyan-300 border border-gray-700"
@@ -792,26 +801,43 @@ const ObservabilityDashboard: React.FC<Props> = ({
                             );
                         })()}
                     </div>
-                    <div className="h-64 w-full flex justify-center items-center">
+                    <div
+                        className="h-64 w-full flex justify-center items-center"
+                        data-testid={(forceMockPreview || (agentChartMode === 'latency' && hasLiveLatency)) && hasNonNullSeriesPoint ? 'latency-series-container' : undefined}
+                        data-series-json={(forceMockPreview || (agentChartMode === 'latency' && hasLiveLatency)) && hasNonNullSeriesPoint ? JSON.stringify(latencySeriesData) : undefined}
+                    >
                         {isLoading ? (
                             <div className="flex flex-col items-center gap-2 text-blue-300">
                                 <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-400"></div>
                                 <span className="text-xs font-mono">Aggregating per-agent telemetry...</span>
                             </div>
+                        ) : !forceMockPreview && agentChartMode === 'latency' && hasLiveLatency && !hasNonNullSeriesPoint ? (
+                            <span data-testid="no-daily-latency-series" className="text-sm text-gray-500">
+                                No daily trace latency percentiles available for this window.
+                            </span>
                         ) : !forceMockPreview &&
-                            !(agentChartMode === 'latency' && hasLiveLatency && latencySeriesData.length > 0) &&
+                            !(agentChartMode === 'latency' && hasLiveLatency && hasNonNullSeriesPoint) &&
                             (!topAgentChartData || topAgentChartData.length === 0) ? (
                             <span className="text-sm text-gray-500">No agent logs in this time range.</span>
                         ) : (
                             <ResponsiveContainer width="100%" height={256} minWidth={0}>
                                 {!forceMockPreview ? (
-                                    agentChartMode === 'latency' && hasLiveLatency ? (
+                                    agentChartMode === 'latency' && hasLiveLatency && hasNonNullSeriesPoint ? (
                                         <LineChart data={latencySeriesData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                                             <XAxis dataKey="date" stroke="#9CA3AF" fontSize={12} />
                                             <YAxis stroke="#9CA3AF" fontSize={12} />
                                             <Tooltip 
                                                 contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
+                                                formatter={(value: unknown, name: string | number | undefined) => [
+                                                    value != null && typeof value === 'number' ? `${value.toLocaleString()} ms` : 'No traces (interpolated)',
+                                                    String(name ?? '')
+                                                ]}
+                                                labelFormatter={(label: unknown, payload: ReadonlyArray<{ payload?: LatencyTimeSeriesPoint }>) => {
+                                                    const pt = payload?.[0]?.payload;
+                                                    const countSuffix = pt?.count != null ? ` (${pt.count.toLocaleString()} ${pt.count === 1 ? 'trace' : 'traces'})` : '';
+                                                    return `Date: ${String(label)}${countSuffix}`;
+                                                }}
                                             />
                                             <Legend />
                                             <Line
@@ -856,6 +882,15 @@ const ObservabilityDashboard: React.FC<Props> = ({
                                         <YAxis stroke="#9CA3AF" fontSize={12} />
                                         <Tooltip 
                                             contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
+                                            formatter={(value: unknown, name: string | number | undefined) => [
+                                                value != null && typeof value === 'number' ? `${value.toLocaleString()} ms` : 'No traces (interpolated)',
+                                                String(name ?? '')
+                                            ]}
+                                            labelFormatter={(label: unknown, payload: ReadonlyArray<{ payload?: LatencyTimeSeriesPoint }>) => {
+                                                const pt = payload?.[0]?.payload;
+                                                const countSuffix = pt?.count != null ? ` (${pt.count.toLocaleString()} ${pt.count === 1 ? 'trace' : 'traces'})` : '';
+                                                return `Date: ${String(label)}${countSuffix}`;
+                                            }}
                                         />
                                         <Legend />
                                         <Line

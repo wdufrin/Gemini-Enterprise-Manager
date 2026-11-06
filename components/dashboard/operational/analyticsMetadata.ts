@@ -187,17 +187,19 @@ export const OPERATIONAL_VIEWS_METADATA: Record<string, ViewMetadata> = {
         category: 'Gemini Enterprise',
         description: 'Assist-level queries, answers, and completion states from Enterprise assistants.',
         sourceTables: [
-            '_AllLogs',
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_*',
+            '_AllLogs (fallback)',
             'gemini_assist_activity (optional)'
         ],
         rawSyncTables: [
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_* (Cloud Logging Log Router Sink)',
             '_AllLogs (Cloud Logging Sink / Log Analytics Linked Dataset)'
         ],
         logFilters: [
             'log_name LIKE "%gemini_enterprise_user_activity%"',
             'JSON_VALUE(json_payload.logMetadata.methodName) IN ("StreamAssist", "Assist")'
         ],
-        primarySourceDescription: 'AllLogs stream filtered by log_name LIKE "%gemini_enterprise_user_activity%" and methodName IN ("StreamAssist", "Assist").',
+        primarySourceDescription: 'Partitioned Log Router sink table (or _AllLogs stream) filtered by log_name LIKE "%gemini_enterprise_user_activity%" and methodName IN ("StreamAssist", "Assist").',
         keyMetrics: [
             {
                 name: 'user_query',
@@ -223,16 +225,18 @@ export const OPERATIONAL_VIEWS_METADATA: Record<string, ViewMetadata> = {
         category: 'Gemini Enterprise',
         description: 'Enterprise Search queries, data source retrieval operations, and caller emails.',
         sourceTables: [
-            '_AllLogs'
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_*',
+            '_AllLogs (fallback)'
         ],
         rawSyncTables: [
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_* (Cloud Logging Log Router Sink)',
             '_AllLogs (Cloud Logging Sink / Log Analytics Linked Dataset)'
         ],
         logFilters: [
             'log_name LIKE "%gemini_enterprise_user_activity%"',
             'JSON_VALUE(json_payload.logMetadata.methodName) = "Search"'
         ],
-        primarySourceDescription: 'AllLogs stream filtered by log_name LIKE "%gemini_enterprise_user_activity%" and methodName = "Search".',
+        primarySourceDescription: 'Partitioned Log Router sink table (or _AllLogs stream) filtered by log_name LIKE "%gemini_enterprise_user_activity%" and methodName = "Search".',
         keyMetrics: [
             {
                 name: 'search_query',
@@ -258,11 +262,14 @@ export const OPERATIONAL_VIEWS_METADATA: Record<string, ViewMetadata> = {
         category: 'Model & Telemetry',
         description: 'Token consumption, model inferences, prompts, responses, and tool calls with full arguments.',
         sourceTables: [
-            '_AllLogs (gen_ai.client.inference.operation.details)',
-            '_AllLogs (gemini_enterprise_user_activity)',
+            'discoveryengine_googleapis_com_gen_ai_client_inference_operation_details_*',
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_*',
+            '_AllLogs (fallback)',
             'gemini_assist_activity (optional)'
         ],
         rawSyncTables: [
+            'discoveryengine_googleapis_com_gen_ai_client_inference_operation_details_* (Cloud Logging Log Router Sink)',
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_* (Cloud Logging Log Router Sink)',
             '_AllLogs (Cloud Logging Sink / Log Analytics Linked Dataset)'
         ],
         logFilters: [
@@ -345,11 +352,13 @@ export const OPERATIONAL_VIEWS_METADATA: Record<string, ViewMetadata> = {
         category: 'Connectors & Tools',
         description: 'Cumulative invocations across Sharepoint, Drive, Jira, Search, and custom agent tools.',
         sourceTables: [
-            '_AllLogs (gen_ai tool parts)',
-            '_AllLogs (gemini_enterprise_user_activity search)',
-            '_AllLogs (user principal mapping)'
+            'discoveryengine_googleapis_com_gen_ai_client_inference_operation_details_*',
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_*',
+            '_AllLogs (fallback)'
         ],
         rawSyncTables: [
+            'discoveryengine_googleapis_com_gen_ai_client_inference_operation_details_* (Cloud Logging Log Router Sink)',
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_* (Cloud Logging Log Router Sink)',
             '_AllLogs (Cloud Logging Sink / Log Analytics Linked Dataset)'
         ],
         logFilters: [
@@ -388,9 +397,13 @@ export const OPERATIONAL_VIEWS_METADATA: Record<string, ViewMetadata> = {
         category: 'Connectors & Tools',
         description: 'Rolling 30-day active connector adoption with first and last usage timestamps.',
         sourceTables: [
-            'v_user_connector_usage'
+            'v_user_connector_usage',
+            'discoveryengine_googleapis_com_gen_ai_client_inference_operation_details_*',
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_*'
         ],
         rawSyncTables: [
+            'discoveryengine_googleapis_com_gen_ai_client_inference_operation_details_* (Cloud Logging Log Router Sink)',
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_* (Cloud Logging Log Router Sink)',
             '_AllLogs (Cloud Logging Sink / Log Analytics Linked Dataset via v_user_connector_usage)'
         ],
         logFilters: [
@@ -422,10 +435,11 @@ export const OPERATIONAL_VIEWS_METADATA: Record<string, ViewMetadata> = {
         category: 'Feedback & Quality',
         description: 'End-user sentiment ratings, thumbs up / thumbs down counts, reasons, and comment feedback.',
         sourceTables: [
-            '_AllLogs (add-feedback events)',
-            '_AllLogs (interaction events)'
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_*',
+            '_AllLogs (fallback)'
         ],
         rawSyncTables: [
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_* (Cloud Logging Log Router Sink)',
             '_AllLogs (Cloud Logging Sink / Log Analytics Linked Dataset)'
         ],
         logFilters: [
@@ -463,10 +477,11 @@ export const OPERATIONAL_VIEWS_METADATA: Record<string, ViewMetadata> = {
         category: 'Feedback & Quality',
         description: 'Executive review feed of end-user feedback, sentiment ratings, and prompt/response triage.',
         sourceTables: [
-            '_AllLogs (add-feedback events)',
-            '_AllLogs (interaction events with response text)'
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_*',
+            '_AllLogs (fallback)'
         ],
         rawSyncTables: [
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_* (Cloud Logging Log Router Sink)',
             '_AllLogs (Cloud Logging Sink / Log Analytics Linked Dataset)'
         ],
         logFilters: [
@@ -499,10 +514,11 @@ export const OPERATIONAL_VIEWS_METADATA: Record<string, ViewMetadata> = {
         category: 'Feedback & Quality',
         description: 'Turn-by-turn prompts, agent answers, assist tokens, and feedback comments.',
         sourceTables: [
-            '_AllLogs (add-feedback events)',
-            '_AllLogs (interaction events with agent IDs)'
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_*',
+            '_AllLogs (fallback)'
         ],
         rawSyncTables: [
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_* (Cloud Logging Log Router Sink)',
             '_AllLogs (Cloud Logging Sink / Log Analytics Linked Dataset)'
         ],
         logFilters: [
@@ -645,7 +661,12 @@ export const CHARTS_METADATA: Record<string, ChartMetadata> = {
         category: 'Live Traffic',
         whatItShows: 'Daily P50 (median) and P95 (tail) trace duration in milliseconds across multi-span conversational turns.',
         metricMeaning: 'Measures end-to-end turn latency from initial request to final response span within each Cloud Trace ID.',
-        sourceTables: ['discoveryengine_googleapis_com_gemini_enterprise_user_activity_*'],
+        sourceTables: [
+            'discoveryengine_googleapis_com_gemini_enterprise_user_activity_*',
+            'discoveryengine_googleapis_com_gen_ai_client_inference_operation_details_*',
+            'discoveryengine_googleapis_com_gen_ai_user_message_*',
+            'discoveryengine_googleapis_com_gen_ai_choice_*'
+        ],
         fieldsUsed: ['trace', 'TIMESTAMP_DIFF(MAX(timestamp), MIN(timestamp), MILLISECOND)', 'APPROX_QUANTILES']
     },
     daily_interaction_volume: {
@@ -740,11 +761,23 @@ export const CHARTS_METADATA: Record<string, ChartMetadata> = {
     }
 };
 
+const VIEW_METADATA_ALIASES: Record<string, string> = {
+    v_user_activity: 'v_consolidated_user_activity',
+    v_genai_telemetry: 'v_gemini_genai_telemetry',
+    v_ai_choices: 'v_consolidated_ai_choices',
+    v_feedback: 'v_agent_feedback',
+    v_detailed_feedback: 'v_agent_feedback_detailed',
+    v_user_messages: 'v_consolidated_user_messages',
+    v_assist_activity: 'v_gemini_assist_activity',
+    v_search_activity: 'v_gemini_search_activity'
+};
+
 /**
  * Returns the source tables for a given view ID
  */
 export const getViewSourceTables = (viewId: string): string[] => {
-    const meta = OPERATIONAL_VIEWS_METADATA[viewId];
+    const canonical = VIEW_METADATA_ALIASES[viewId] || viewId;
+    const meta = OPERATIONAL_VIEWS_METADATA[canonical];
     return meta ? meta.sourceTables : ['_AllLogs'];
 };
 
@@ -752,7 +785,8 @@ export const getViewSourceTables = (viewId: string): string[] => {
  * Returns the raw BigQuery tables created by the Cloud Logging sync for a given view ID
  */
 export const getViewRawSyncTables = (viewId: string): string[] => {
-    const meta = OPERATIONAL_VIEWS_METADATA[viewId];
+    const canonical = VIEW_METADATA_ALIASES[viewId] || viewId;
+    const meta = OPERATIONAL_VIEWS_METADATA[canonical];
     return meta?.rawSyncTables || meta?.sourceTables || ['_AllLogs'];
 };
 
@@ -760,7 +794,8 @@ export const getViewRawSyncTables = (viewId: string): string[] => {
  * Returns the log filters applied to the raw sync logs for a given view ID
  */
 export const getViewLogFilters = (viewId: string): string[] => {
-    const meta = OPERATIONAL_VIEWS_METADATA[viewId];
+    const canonical = VIEW_METADATA_ALIASES[viewId] || viewId;
+    const meta = OPERATIONAL_VIEWS_METADATA[canonical];
     return meta?.logFilters || [];
 };
 
@@ -768,7 +803,8 @@ export const getViewLogFilters = (viewId: string): string[] => {
  * Returns the metadata for a given view ID
  */
 export const getViewMetadata = (viewId: string): ViewMetadata | undefined => {
-    return OPERATIONAL_VIEWS_METADATA[viewId];
+    const canonical = VIEW_METADATA_ALIASES[viewId] || viewId;
+    return OPERATIONAL_VIEWS_METADATA[canonical];
 };
 
 /**

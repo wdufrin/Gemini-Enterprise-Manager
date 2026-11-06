@@ -199,4 +199,63 @@ describe('AgentObservabilityPolicyModal', () => {
     expect(screen.getByText(/Console Banner Reference/i)).toBeInTheDocument();
     expect(screen.getByText(/Summary Recommendation for Enterprise Architects/i)).toBeInTheDocument();
   });
+
+  it('excludes Google-managed agents from the compliance denominator and badges them as Google-Managed (Exempt)', async () => {
+    vi.mocked(api.listResources).mockImplementation(((type: string) => {
+      if (type === 'engines') {
+        return Promise.resolve({
+          engines: [
+            {
+              name: 'projects/test-project-123/locations/global/collections/default_collection/engines/engine-alpha',
+              displayName: 'Enterprise Engine',
+            },
+          ],
+        });
+      }
+      if (type === 'agents') {
+        return Promise.resolve({
+          agents: [
+            {
+              name: 'projects/test-project-123/locations/global/collections/default_collection/engines/engine-alpha/assistants/default_assistant/agents/custom-bot',
+              displayName: 'Custom FinOps Bot',
+              observabilityConfig: { observabilityEnabled: true, sensitiveLoggingEnabled: true },
+            },
+            {
+              name: 'projects/test-project-123/locations/global/collections/default_collection/engines/engine-alpha/assistants/default_assistant/agents/deep_research',
+              displayName: 'Deep Research',
+              observabilityConfig: { observabilityEnabled: false },
+            },
+          ],
+        });
+      }
+      return Promise.resolve({});
+    }) as unknown as typeof api.listResources);
+
+    vi.mocked(api.getAgent).mockImplementation(async (name: string) => {
+      if (name.endsWith('/custom-bot')) {
+        return {
+          name,
+          displayName: 'Custom FinOps Bot',
+          observabilityConfig: { observabilityEnabled: true, sensitiveLoggingEnabled: true },
+        };
+      }
+      return {
+        name,
+        displayName: 'Deep Research',
+        observabilityConfig: { observabilityEnabled: false },
+      };
+    });
+
+    render(<AgentObservabilityPolicyModal {...defaultProps} />);
+
+    fireEvent.click(screen.getByText(/Option 2: Bulk Sweep in Manager/i));
+
+    await waitFor(() => {
+      expect(screen.getByText('Custom FinOps Bot')).toBeInTheDocument();
+      expect(screen.getByText('Deep Research')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Google-Managed (Exempt)')).toBeInTheDocument();
+    expect(screen.getByText(/1 \/ 1 Agents Telemetry Enabled/i)).toBeInTheDocument();
+  });
 });

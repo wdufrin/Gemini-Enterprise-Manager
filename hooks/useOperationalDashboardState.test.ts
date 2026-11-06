@@ -362,5 +362,238 @@ describe('useOperationalDashboardState hook', () => {
         expect(result.current.actionMessage?.type).toBe('error');
         expect(result.current.actionMessage?.text).toContain("Cannot resolve field 'parts'");
     });
+
+    it('restricts trace_duration_ms quantiles to is_final_step IS TRUE and falls back to legacyQueryTokens and COUNT(1) connector queries when legacy views lack newer columns', async () => {
+        const legacyViewTables = [
+            { tableReference: { datasetId: 'test_dataset', tableId: 'v_gemini_genai_telemetry' } },
+            { tableReference: { datasetId: 'test_dataset', tableId: 'v_user_connector_usage_30d' } },
+        ];
+
+        const executedSqls: string[] = [];
+        vi.mocked(apiService.runBigQueryQuery).mockImplementation(async (_proj: string, sql: string) => {
+            executedSqls.push(sql);
+            if (sql.includes('v_gemini_genai_telemetry') && sql.includes('step_latency_ms')) {
+                throw new Error('Unrecognized name: step_latency_ms at [5:18]');
+            }
+            if (sql.includes('v_gemini_genai_telemetry')) {
+                return {
+                    jobComplete: true,
+                    rows: [
+                        {
+                            f: [
+                                { v: 'Cosmere' },
+                                { v: '14000' },
+                                { v: '3200' },
+                                { v: '22' },
+                            ],
+                        },
+                    ],
+                };
+            }
+            if (sql.includes('v_user_connector_usage_30d') && sql.includes('SUM(usage_count)')) {
+                throw new Error('Unrecognized name: usage_count at [3:15]');
+            }
+            if (sql.includes('v_user_connector_usage_30d') && sql.includes('GROUP BY connector_name')) {
+                return {
+                    jobComplete: true,
+                    rows: [
+                        {
+                            f: [{ v: 'jira_cloud' }, { v: '18' }, { v: '4' }],
+                        },
+                    ],
+                };
+            }
+            if (sql.includes('v_user_connector_usage_30d') && sql.includes('GROUP BY user_email')) {
+                return {
+                    jobComplete: true,
+                    rows: [
+                        {
+                            f: [{ v: 'eng@example.com' }, { v: '12' }, { v: '2' }],
+                        },
+                    ],
+                };
+            }
+            return { jobComplete: true, rows: [] };
+        });
+
+        const { result } = renderHook(() =>
+            useOperationalDashboardState({
+                projectId: 'test-project',
+                projectNumber: '123456',
+                datasetId: 'test_dataset',
+                tables: legacyViewTables,
+            })
+        );
+
+        await waitFor(() => {
+            expect(result.current.liveDataLoading).toBe(false);
+        });
+
+        // Verify primary queryTokens SQL restricted trace_duration_ms quantiles to is_final_step IS TRUE (R2-4)
+        const primaryTokensQuery = executedSqls.find(
+            (q) => q.includes('v_gemini_genai_telemetry') && q.includes('step_latency_ms')
+        );
+        expect(primaryTokensQuery).toBeDefined();
+        expect(primaryTokensQuery).toContain(
+            'IF(is_final_step IS TRUE AND trace_duration_ms > 0 AND trace_duration_ms < 600000, trace_duration_ms, NULL)'
+        );
+
+        // Verify legacyQueryTokens fallback populated genaiTokens and totalTelemetry
+        expect(result.current.liveData.genaiTokens).toEqual([
+            {
+                agent: 'Cosmere',
+                inputTokens: 14000,
+                outputTokens: 3200,
+                calls: 22,
+                avgStepLatencyMs: undefined,
+                p50LatencyMs: undefined,
+                p95LatencyMs: undefined,
+            },
+        ]);
+        expect(result.current.totalTelemetry).toBe(22);
+
+        // Verify COUNT(1) connector fallback populated connectorUsage and topConnectorUsers
+        expect(result.current.liveData.connectorUsage).toEqual([
+            { connector: 'jira_cloud', calls: 18 },
+        ]);
+        expect(result.current.liveData.topConnectorUsers).toEqual([
+            { user: 'eng@example.com', calls: 12 },
+        ]);
+    });
+
+    it('applies a 30-day lookback filter to every overview query', async () => {
+        const allViewTables = [
+            'v_consolidated_user_activity',
+            'v_gemini_genai_telemetry',
+            'v_consolidated_ai_choices',
+            'v_agent_feedback',
+        ].map((tableId) => ({ tableReference: { datasetId: 'test_dataset', tableId } }));
+
+        const { result } = renderHook(() =>
+            useOperationalDashboardState({
+                projectId: 'test-project',
+                projectNumber: '123456',
+                datasetId: 'test_dataset',
+                tables: allViewTables,
+            })
+        );
+
+        await waitFor(() => {
+            expect(result.current.liveDataLoading).toBe(false);
+        });
+
+        const sqls = vi.mocked(apiService.runBigQueryQuery).mock.calls.map((c) => c[1]);
+        const lookback = 'TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)';
+        const overviewQueries = sqls.filter((q) => !q.includes('CREATE OR REPLACE VIEW'));
+        // 2 user activity + 2 telemetry + 1 choices + 1 feedback
+        expect(overviewQueries).toHaveLength(6);
+        for (const q of overviewQueries) {
+            expect(q, q).toContain(lookback);
+        }
+        expect(overviewQueries.filter((q) => q.includes(`event_time >= ${lookback}`))).toHaveLength(3);
+        expect(overviewQueries.filter((q) => q.includes(`timestamp >= ${lookback}`))).toHaveLength(3);
+    });
+
+    it('runs independent overview tasks concurrently but never more than OPERATIONAL_QUERY_CONCURRENCY at once, and isolates a failing task', async () => {
+        const { OPERATIONAL_QUERY_CONCURRENCY } = await import('./useOperationalDashboardState');
+        const allViewTables = [
+            'v_consolidated_user_activity',
+            'v_gemini_genai_telemetry',
+            'v_consolidated_ai_choices',
+            'v_agent_feedback',
+        ].map((tableId) => ({ tableReference: { datasetId: 'test_dataset', tableId } }));
+
+        let inFlight = 0;
+        let maxInFlight = 0;
+        vi.mocked(apiService.runBigQueryQuery).mockImplementation(async (_p: string, sql: string) => {
+            inFlight++;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            await new Promise((r) => setTimeout(r, 20));
+            inFlight--;
+            if (sql.includes('v_consolidated_ai_choices')) {
+                throw new Error('403 Access Denied on v_consolidated_ai_choices');
+            }
+            return { jobComplete: true, rows: [] };
+        });
+
+        const { result } = renderHook(() =>
+            useOperationalDashboardState({
+                projectId: 'test-project',
+                projectNumber: '123456',
+                datasetId: 'test_dataset',
+                tables: allViewTables,
+            })
+        );
+
+        await waitFor(() => {
+            expect(result.current.liveDataLoading).toBe(false);
+        });
+
+        expect(maxInFlight).toBeGreaterThan(1);
+        expect(maxInFlight).toBeLessThanOrEqual(OPERATIONAL_QUERY_CONCURRENCY);
+        expect(result.current.brokenViews.get('v_consolidated_ai_choices')).toBe(
+            '403 Access Denied on v_consolidated_ai_choices'
+        );
+        expect(result.current.brokenViews.has('v_agent_feedback')).toBe(false);
+        expect(result.current.queryProgress.completed).toBe(4);
+        expect(result.current.queryProgress.total).toBe(4);
+    });
+
+    it('still resets broken views and re-queries the new dataset when datasetId changes after mount', async () => {
+        vi.mocked(apiService.runBigQueryQuery).mockImplementation(async (_p: string, sql: string) => {
+            if (sql.includes('old_dataset')) throw new Error('403 Access Denied on old_dataset');
+            return { jobComplete: true, rows: [] };
+        });
+        // Stable references per dataset, as the page supplies from state.
+        const tablesByDataset: Record<string, Array<{ tableReference: { datasetId: string; tableId: string } }>> = {
+            old_dataset: [{ tableReference: { datasetId: 'old_dataset', tableId: 'v_consolidated_user_activity' } }],
+            new_dataset: [{ tableReference: { datasetId: 'new_dataset', tableId: 'v_consolidated_user_activity' } }],
+        };
+        const tablesFor = (ds: string) => tablesByDataset[ds];
+
+        const { result, rerender } = renderHook(
+            ({ ds }: { ds: string }) =>
+                useOperationalDashboardState({
+                    projectId: 'test-project',
+                    projectNumber: '123456',
+                    datasetId: ds,
+                    tables: tablesFor(ds),
+                }),
+            { initialProps: { ds: 'old_dataset' } }
+        );
+
+        await waitFor(() => {
+            expect(result.current.brokenViews.get('v_consolidated_user_activity')).toBe('403 Access Denied on old_dataset');
+        });
+
+        rerender({ ds: 'new_dataset' });
+
+        await waitFor(() => {
+            expect(result.current.brokenViews.size).toBe(0);
+            expect(
+                vi.mocked(apiService.runBigQueryQuery).mock.calls.some((c) => c[1].includes('`test-project.new_dataset.'))
+            ).toBe(true);
+        });
+    });
+
+    it('generates v_consolidated_user_activity DDL that serializes the payload once per row and dedupes on (insertId, timestamp)', () => {
+        const sinkDdl = OPERATIONAL_VIEWS['v_consolidated_user_activity'].getDdl(
+            'test-project',
+            'test_dataset',
+            new Set(['discoveryengine_googleapis_com_gemini_enterprise_user_activity'])
+        );
+        expect(sinkDdl.match(/TO_JSON_STRING\(/g)).toHaveLength(1);
+        expect(sinkDdl).toContain('PARTITION BY insertId, timestamp');
+        expect(sinkDdl).not.toContain('PARTITION BY insertId ORDER BY');
+
+        const allLogsDdl = OPERATIONAL_VIEWS['v_consolidated_user_activity'].getDdl(
+            'test-project',
+            'test_dataset',
+            new Set(['_AllLogs'])
+        );
+        expect(allLogsDdl.match(/TO_JSON_STRING\(/g)).toHaveLength(1);
+        expect(allLogsDdl).toContain('PARTITION BY insert_id, timestamp');
+        expect(allLogsDdl).toContain("WHERE log_name LIKE '%gemini_enterprise_user_activity%'");
+    });
 });
 

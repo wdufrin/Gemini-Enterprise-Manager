@@ -23,7 +23,7 @@ describe('OperationalAnalyticsDashboard', () => {
         (apiService.runBigQueryQuery as any).mockResolvedValue({ rows: [] });
     });
 
-    it('renders KPI summary cards and category filters', () => {
+    it('renders KPI summary cards and category filters', async () => {
         render(
             <OperationalAnalyticsDashboard
                 projectId="test-project"
@@ -41,9 +41,13 @@ describe('OperationalAnalyticsDashboard', () => {
         expect(screen.getByText('All Analytics Views')).toBeInTheDocument();
         expect(screen.getByText('GenAI Telemetry & Tokens')).toBeInTheDocument();
         expect(screen.getByText('Connector Usage')).toBeInTheDocument();
+
+        await waitFor(() => {
+            expect(apiService.runBigQueryQuery).toHaveBeenCalled();
+        });
     });
 
-    it('shows Live View for installed views and MOCK for missing views', () => {
+    it('shows Live View for installed views and MOCK for missing views', async () => {
         render(
             <OperationalAnalyticsDashboard
                 projectId="test-project"
@@ -60,6 +64,10 @@ describe('OperationalAnalyticsDashboard', () => {
         // v_gemini_genai_telemetry is not in mockTables -> MOCK
         const mockBadges = screen.getAllByText('MOCK');
         expect(mockBadges.length).toBeGreaterThanOrEqual(1);
+
+        await waitFor(() => {
+            expect(apiService.runBigQueryQuery).toHaveBeenCalled();
+        });
     });
 
     it('calls runBigQueryQuery when Add View to BigQuery is clicked', async () => {
@@ -125,7 +133,7 @@ describe('OperationalAnalyticsDashboard', () => {
         });
     });
 
-    it('filters charts when category pill is selected', () => {
+    it('filters charts when category pill is selected', async () => {
         render(
             <OperationalAnalyticsDashboard
                 projectId="test-project"
@@ -140,6 +148,10 @@ describe('OperationalAnalyticsDashboard', () => {
 
         expect(screen.getByText('Connector Usage (Rolling 30 Days)')).toBeInTheDocument();
         expect(screen.queryByText('GenAI Telemetry & Token Consumption')).not.toBeInTheDocument();
+
+        await waitFor(() => {
+            expect(apiService.runBigQueryQuery).toHaveBeenCalled();
+        });
     });
 
     it('displays EmptyChartState for live views that have 0 records instead of mock data', async () => {
@@ -217,6 +229,10 @@ describe('OperationalAnalyticsDashboard', () => {
         expect(window.location.hash).not.toBe('#v_admin_feedback_review');
         expect(window.location.hash).toBe('#/observability?view=v_admin_feedback_review');
         expect(sessionStorage.getItem('agentspace-observability-view')).toBe('v_admin_feedback_review');
+
+        await waitFor(() => {
+            expect(apiService.runBigQueryQuery).toHaveBeenCalled();
+        });
     });
 
     it('generates view DDLs without trailing _* when tables are time-partitioned or no _YYYYMMDD fragments exist, and uses _* only when date-sharded fragments exist', async () => {
@@ -657,13 +673,15 @@ describe('OperationalAnalyticsDashboard', () => {
                 input_tokens: 2100,
                 output_tokens: 340
             },
-            // Single-step trace B (no multi-step delta -> null latency rather than fake number)
+            // Single-step trace B (no multi-step delta -> null latency rather than fake number, even if SQL returned '0')
             {
                 trace: 'trace-single',
                 timestamp: '2026-08-01 11:00:00 UTC',
                 agent_name: 'Support',
                 input_tokens: 500,
-                output_tokens: 100
+                output_tokens: 100,
+                step_latency_ms: '0',
+                trace_duration_ms: '0'
             },
             // Malformed timestamp in trace C (adversarial input)
             {
@@ -695,11 +713,19 @@ describe('OperationalAnalyticsDashboard', () => {
                 agent_name: 'Cosmere',
                 step_latency_ms: '0',
                 trace_duration_ms: '0'
+            },
+            // Adversarial negative numeric timestamp (must be rejected as null rather than treated as pre-1970 epoch)
+            {
+                trace: 'trace-negative-ts',
+                timestamp: -500,
+                agent_name: 'AdversarialAgent',
+                step_latency_ms: '0',
+                trace_duration_ms: '0'
             }
         ];
 
         const enriched = enrichTelemetryRowsWithLatency(rawRows);
-        expect(enriched).toHaveLength(8);
+        expect(enriched).toHaveLength(9);
 
         // Row 0 is the 10:00:04 step (step 2 of trace-alpha: 4000ms after 10:00:00, total trace 11000ms)
         expect(enriched[0].step_index).toBe(2);
@@ -719,7 +745,7 @@ describe('OperationalAnalyticsDashboard', () => {
         expect(enriched[2].step_latency_ms).toBe(7000);
         expect(enriched[2].trace_duration_ms).toBe(11000);
 
-        // Single-step trace has null step_latency_ms and null trace_duration_ms
+        // Single-step trace normalizes SQL '0' strings to null step_latency_ms and null trace_duration_ms
         expect(enriched[3].step_latency_ms).toBeNull();
         expect(enriched[3].trace_duration_ms).toBeNull();
 
@@ -732,9 +758,14 @@ describe('OperationalAnalyticsDashboard', () => {
         expect(enriched[5].trace_duration_ms).toBe(4200);
 
         // '0' string values from SQL GREATEST(0, ...) are overridden by positive computed latencies
+        expect(enriched[6].step_latency_ms).toBeNull();
         expect(enriched[6].trace_duration_ms).toBe(5000);
         expect(enriched[7].step_latency_ms).toBe(5000);
         expect(enriched[7].trace_duration_ms).toBe(5000);
+
+        // Negative numeric timestamp is rejected and SQL '0' is normalized to null
+        expect(enriched[8].step_latency_ms).toBeNull();
+        expect(enriched[8].trace_duration_ms).toBeNull();
     });
 
     it('renders Trace Latency (P50 / P95) KPI and Inference & Tool-Loop Latency chart in v_gemini_genai_telemetry', async () => {
@@ -770,6 +801,57 @@ describe('OperationalAnalyticsDashboard', () => {
         expect(screen.getByText('Inference & Tool-Loop Latency by Agent (ms)')).toBeInTheDocument();
         expect(screen.getByText('Step Latency (ms)')).toBeInTheDocument();
         expect(screen.getByText('Trace Duration (ms)')).toBeInTheDocument();
+
+        await waitFor(() => {
+            expect(apiService.runBigQueryQuery).toHaveBeenCalled();
+        });
+    });
+
+    it('renders live zero KPIs (never hardcoded mock numbers) in TelemetryAndConnectorPanels when isSimulated is false and data is empty, and labels stubViews as Simulated Data', async () => {
+        const { TelemetryAndConnectorPanels } = await import('./view-panels/TelemetryAndConnectorPanels');
+        const { IndividualViewDetail } = await import('./IndividualViewDetail');
+
+        const { unmount } = render(
+            <TelemetryAndConnectorPanels
+                viewId="v_gemini_genai_telemetry"
+                data={[]}
+                isSimulated={false}
+            />
+        );
+
+        // Must never display hardcoded simulated KPI numbers when isSimulated is false
+        expect(screen.queryByText('2,578')).not.toBeInTheDocument();
+        expect(screen.queryByText('35.7M')).not.toBeInTheDocument();
+        expect(screen.queryByText('4.5s / 11.0s')).not.toBeInTheDocument();
+        expect(screen.queryByText('STOP (100%)')).not.toBeInTheDocument();
+        expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
+        unmount();
+
+        // Verify IndividualViewDetail treats a view in stubViews as simulated (R2-3)
+        render(
+            <IndividualViewDetail
+                viewId="v_gemini_genai_telemetry"
+                data={[]}
+                projectId="test-project"
+                datasetId="test_dataset"
+                dataSourceMode="views"
+                availableMainTables={new Set()}
+                installedViews={new Set(['v_gemini_genai_telemetry'])}
+                installedViewsMap={new Map([['v_gemini_genai_telemetry', 'v_gemini_genai_telemetry']])}
+                operatingViewId={null}
+                brokenViews={new Map()}
+                stubViews={new Set(['v_gemini_genai_telemetry'])}
+                tableNames={new Set()}
+                onBackToOverview={vi.fn()}
+                onCreateView={vi.fn()}
+                onDropView={vi.fn()}
+                onSwitchToMainTables={vi.fn()}
+                onRowClick={vi.fn()}
+            />
+        );
+
+        expect(screen.getByText('Simulated Data')).toBeInTheDocument();
+        expect(screen.queryByText('Live BigQuery')).not.toBeInTheDocument();
     });
 
     it('estimates P50 and P95 percentiles from Cloud Monitoring distributions and handles malformed bucket inputs safely', async () => {
