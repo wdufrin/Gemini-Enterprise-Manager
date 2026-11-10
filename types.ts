@@ -1287,6 +1287,11 @@ export interface GroupLicensingEditConfig {
     location?: string;
     userStoreId?: string;
     projectId?: string;
+    ingress?: 'internal' | 'internal-and-cloud-load-balancing' | 'all';
+    vpcEgress?: '' | 'private-ranges-only' | 'all-traffic';
+    vpcNetwork?: string;
+    vpcSubnet?: string;
+    vpcConnector?: string;
   };
 }
 export type { UserLicense, LicenseConfig, BillingAccount, BillingAccountLicenseConfig } from './components/license/types';

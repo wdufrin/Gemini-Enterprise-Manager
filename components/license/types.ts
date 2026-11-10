@@ -61,8 +61,17 @@ export interface BillingAccountLicenseConfig {
 export interface CloudRunServiceItem {
   name: string;
   uri?: string;
+  ingress?: string;
   template?: {
     serviceAccount?: string;
+    vpcAccess?: {
+      connector?: string;
+      egress?: string;
+      networkInterfaces?: Array<{
+        network?: string;
+        subnetwork?: string;
+      }>;
+    };
     containers?: Array<{
       env?: Array<{ name: string; value?: string }>;
     }>;

@@ -241,6 +241,25 @@ export function useGroupLicensing(
     const rawLocation = envLocation || labelLocation || appLocation || 'global';
     const safeLocation = ALLOWED_APP_LOCATIONS.has(rawLocation) ? rawLocation : 'global';
 
+    const mappedIngress: NonNullable<GroupLicensingEditConfig['_editMeta']>['ingress'] =
+      service.ingress === 'INGRESS_TRAFFIC_INTERNAL_ONLY'
+        ? 'internal'
+        : service.ingress === 'INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER'
+          ? 'internal-and-cloud-load-balancing'
+          : service.ingress === 'INGRESS_TRAFFIC_ALL'
+            ? 'all'
+            : undefined;
+    const rawVpcAccess = service.template?.vpcAccess;
+    const mappedVpcEgress: NonNullable<GroupLicensingEditConfig['_editMeta']>['vpcEgress'] =
+      rawVpcAccess?.egress === 'ALL_TRAFFIC'
+        ? 'all-traffic'
+        : rawVpcAccess?.egress === 'PRIVATE_RANGES_ONLY'
+          ? 'private-ranges-only'
+          : undefined;
+    const mappedVpcConnector = rawVpcAccess?.connector?.trim() || undefined;
+    const mappedVpcNetwork = rawVpcAccess?.networkInterfaces?.[0]?.network?.trim() || undefined;
+    const mappedVpcSubnet = rawVpcAccess?.networkInterfaces?.[0]?.subnetwork?.trim() || undefined;
+
     try {
       const content = await api.getGcsObjectContent(bucket, objectName, projectNumber);
       const parsedConfig = JSON.parse(content) as GroupLicensingEditConfig;
@@ -253,6 +272,11 @@ export function useGroupLicensing(
           location: safeLocation,
           userStoreId: envUserStoreId || 'default_user_store',
           projectId: envProject || serviceNameParts[1] || projectNumber,
+          ...(mappedIngress ? { ingress: mappedIngress } : {}),
+          ...(mappedVpcEgress ? { vpcEgress: mappedVpcEgress } : {}),
+          ...(mappedVpcNetwork ? { vpcNetwork: mappedVpcNetwork } : {}),
+          ...(mappedVpcSubnet ? { vpcSubnet: mappedVpcSubnet } : {}),
+          ...(mappedVpcConnector ? { vpcConnector: mappedVpcConnector } : {}),
         },
       };
       setSelectedServiceForEdit(enrichedConfig);

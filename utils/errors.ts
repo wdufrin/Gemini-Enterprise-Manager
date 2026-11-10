@@ -69,3 +69,42 @@ export const formatActAsServiceAccountError = (
   );
 };
 
+/**
+ * Uses Regex Pattern Matching on Cloud Run Organization Policy precondition failures
+ * (`constraints/run.allowedVPCEgress` and `constraints/run.allowedIngress`).
+ * (Known limit: matches error strings referencing `run.allowedVPCEgress` or `run.allowedIngress` /
+ * `run.allowed ingress`; non-matching messages are returned unchanged.)
+ */
+const ORG_POLICY_VPC_EGRESS_REGEX = /run\.allowed\s*vpc\s*egress/i;
+const ORG_POLICY_INGRESS_REGEX = /run\.allowed\s*ingress/i;
+
+export const formatCloudRunDeploymentError = (
+  err: unknown,
+  fallback = 'An unknown error occurred.',
+  fallbackProjectId?: string,
+): string => {
+  const afterActAs = formatActAsServiceAccountError(err, fallback, fallbackProjectId);
+  const hitVpcEgress = ORG_POLICY_VPC_EGRESS_REGEX.test(afterActAs);
+  const hitIngress = ORG_POLICY_INGRESS_REGEX.test(afterActAs);
+
+  if (!hitVpcEgress && !hitIngress) {
+    return afterActAs;
+  }
+
+  const projectId = fallbackProjectId || 'YOUR_PROJECT_ID';
+  const fixes: string[] = [];
+  if (hitIngress) {
+    fixes.push(
+      `Ingress Policy (constraints/run.allowedIngress): Set Cloud Run Ingress to "internal" (--ingress=internal). Cloud Scheduler in the same project is recognized as internal traffic.`,
+    );
+  }
+  if (hitVpcEgress) {
+    fixes.push(
+      `VPC Egress Policy (constraints/run.allowedVPCEgress): Configure Direct VPC Egress (--network=<VPC> --subnet=<SUBNET> --vpc-egress=private-ranges-only or all-traffic) or a Serverless VPC Connector (--vpc-connector=<CONNECTOR>). Inspect allowed values with: gcloud resource-manager org-policies describe run.allowedVPCEgress --project="${projectId}" --effective`,
+    );
+  }
+
+  return `${afterActAs} — GCP Org Policy Fix: ${fixes.join(' ')}`;
+};
+
+

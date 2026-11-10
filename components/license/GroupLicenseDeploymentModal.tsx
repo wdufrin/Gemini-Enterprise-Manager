@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { Config, GcsBucket, LicenseConfig, GroupLicensingEditConfig } from '../../types';
 import * as api from '../../services/apiService';
-import { formatActAsServiceAccountError, toErrorMessage } from '../../utils/errors';
+import { formatCloudRunDeploymentError, toErrorMessage } from '../../utils/errors';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import {
     assertValidBucketPath,
@@ -23,12 +23,106 @@ interface GroupLicenseDeploymentModalProps {
   onConfigSaved?: () => void;
 }
 
+export type CloudRunIngressOption = 'internal' | 'internal-and-cloud-load-balancing' | 'all';
+export type CloudRunVpcEgressOption = '' | 'private-ranges-only' | 'all-traffic';
+
+export interface CloudRunNetworkConfig {
+    ingress?: CloudRunIngressOption;
+    vpcEgress?: CloudRunVpcEgressOption;
+    vpcNetwork?: string;
+    vpcSubnet?: string;
+    vpcConnector?: string;
+}
+
 const generateMainPy = () => {
     return mainPyTemplate;
 };
 
 const ALLOWED_APP_LOCATIONS = new Set(['global', 'us', 'eu']);
+const ALLOWED_CLOUD_RUN_INGRESS = new Set<CloudRunIngressOption>([
+    'internal',
+    'internal-and-cloud-load-balancing',
+    'all',
+]);
+const ALLOWED_VPC_EGRESS = new Set<CloudRunVpcEgressOption>(['', 'private-ranges-only', 'all-traffic']);
 const GROUP_EMAIL_PATTERN = /^[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+/**
+ * Anchored Regex Pattern Matching allowlists for GCP VPC identifiers (short resource names or
+ * Shared VPC cross-project URIs). Permits only `[a-z0-9.:/-]` so shell metacharacters cannot pass.
+ */
+const VPC_NETWORK_PATTERN =
+    /^(?:[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?|projects\/[a-z0-9][-a-z0-9.:]{3,61}[a-z0-9]\/global\/networks\/[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?)$/;
+const VPC_SUBNET_PATTERN =
+    /^(?:[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?|projects\/[a-z0-9][-a-z0-9.:]{3,61}[a-z0-9]\/regions\/[a-z][-a-z0-9]{1,30}[a-z0-9]\/subnetworks\/[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?)$/;
+const VPC_CONNECTOR_PATTERN =
+    /^(?:[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?|projects\/[a-z0-9][-a-z0-9.:]{3,61}[a-z0-9]\/locations\/[a-z][-a-z0-9]{1,30}[a-z0-9]\/connectors\/[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?)$/;
+
+export const validateCloudRunNetworkConfig = (raw?: CloudRunNetworkConfig): Required<CloudRunNetworkConfig> => {
+    const ingress = (raw?.ingress || 'internal').trim() as CloudRunIngressOption;
+    if (!ALLOWED_CLOUD_RUN_INGRESS.has(ingress)) {
+        throw new Error(`Cloud Run Ingress must be one of: internal, internal-and-cloud-load-balancing, all (got "${raw?.ingress}").`);
+    }
+
+    const vpcEgress = (raw?.vpcEgress || '').trim() as CloudRunVpcEgressOption;
+    if (!ALLOWED_VPC_EGRESS.has(vpcEgress)) {
+        throw new Error(`VPC Egress must be "", "private-ranges-only", or "all-traffic" (got "${raw?.vpcEgress}").`);
+    }
+
+    const vpcNetwork = (raw?.vpcNetwork || '').trim();
+    if (vpcNetwork && !VPC_NETWORK_PATTERN.test(vpcNetwork)) {
+        throw new Error(
+            `Invalid VPC Network: "${vpcNetwork}". Expected a network name like "default" or "projects/<host-project>/global/networks/<network>".`
+        );
+    }
+
+    const vpcSubnet = (raw?.vpcSubnet || '').trim();
+    if (vpcSubnet && !VPC_SUBNET_PATTERN.test(vpcSubnet)) {
+        throw new Error(
+            `Invalid VPC Subnet: "${vpcSubnet}". Expected a subnet name like "my-subnet" or "projects/<host-project>/regions/<region>/subnetworks/<subnet>".`
+        );
+    }
+
+    const vpcConnector = (raw?.vpcConnector || '').trim();
+    if (vpcConnector && !VPC_CONNECTOR_PATTERN.test(vpcConnector)) {
+        throw new Error(
+            `Invalid Serverless VPC Connector: "${vpcConnector}". Expected a connector name like "my-connector" or "projects/<host-project>/locations/<region>/connectors/<connector>".`
+        );
+    }
+
+    if (vpcConnector && (vpcNetwork || vpcSubnet)) {
+        throw new Error(
+            'Specify either Direct VPC Egress (VPC Network / Subnet) or a Serverless VPC Connector, not both.'
+        );
+    }
+
+    if (vpcEgress && !vpcConnector && !vpcNetwork && !vpcSubnet) {
+        throw new Error(
+            `VPC Egress "${vpcEgress}" requires specifying a VPC Network / Subnet (Direct VPC Egress) or a Serverless VPC Connector.`
+        );
+    }
+
+    return {
+        ingress,
+        vpcEgress,
+        vpcNetwork,
+        vpcSubnet,
+        vpcConnector,
+    };
+};
+
+const formatInlineGcloudNetworkFlags = (net: Required<CloudRunNetworkConfig>): string => {
+    const parts = [`--ingress="${net.ingress}"`];
+    if (net.vpcConnector) {
+        parts.push(`--vpc-connector="${net.vpcConnector}"`);
+        parts.push(`--vpc-egress="${net.vpcEgress || 'private-ranges-only'}"`);
+    } else if (net.vpcNetwork || net.vpcSubnet) {
+        if (net.vpcNetwork) parts.push(`--network="${net.vpcNetwork}"`);
+        if (net.vpcSubnet) parts.push(`--subnet="${net.vpcSubnet}"`);
+        parts.push(`--vpc-egress="${net.vpcEgress || 'private-ranges-only'}"`);
+    }
+    return parts.join(' ');
+};
 
 export const sanitizeCloudRunLabelValue = (value: string): string => {
     const cleaned = value
@@ -47,7 +141,8 @@ export const generateDeploySh = (
     configGcsUri: string,
     selectedTier: string,
     impersonatedUser: string,
-    projectNumber: string
+    projectNumber: string,
+    networkConfig?: CloudRunNetworkConfig
 ) => {
     const trimmedProjectId = projectId.trim();
     const trimmedLocation = location.trim();
@@ -59,7 +154,29 @@ export const generateDeploySh = (
     const safeSkuLabel = sanitizeCloudRunLabelValue(trimmedTier);
     const bucketName = trimmedConfigGcsUri.replace(/^gs:\/\//i, '').split('/')[0];
 
-    let content = "set -e\n";
+    const defaultIngress: CloudRunIngressOption =
+        networkConfig?.ingress && ALLOWED_CLOUD_RUN_INGRESS.has(networkConfig.ingress)
+            ? networkConfig.ingress
+            : 'internal';
+    const defaultVpcEgress =
+        networkConfig?.vpcEgress && ALLOWED_VPC_EGRESS.has(networkConfig.vpcEgress)
+            ? networkConfig.vpcEgress
+            : '';
+    const defaultVpcNetwork =
+        networkConfig?.vpcNetwork && VPC_NETWORK_PATTERN.test(networkConfig.vpcNetwork.trim())
+            ? networkConfig.vpcNetwork.trim()
+            : '';
+    const defaultVpcSubnet =
+        networkConfig?.vpcSubnet && VPC_SUBNET_PATTERN.test(networkConfig.vpcSubnet.trim())
+            ? networkConfig.vpcSubnet.trim()
+            : '';
+    const defaultVpcConnector =
+        networkConfig?.vpcConnector && VPC_CONNECTOR_PATTERN.test(networkConfig.vpcConnector.trim())
+            ? networkConfig.vpcConnector.trim()
+            : '';
+
+    let content = "#!/usr/bin/env bash\n";
+    content += "set -e\n";
     content += "PROJECT_ID=\"" + trimmedProjectId + "\"\n";
     content += "REGION=\"" + trimmedRegion + "\"\n";
     content += "CONFIG_GCS_URI=\"" + trimmedConfigGcsUri + "\"\n";
@@ -70,6 +187,32 @@ export const generateDeploySh = (
     content += "LOCATION=\"" + trimmedLocation + "\"\n";
     content += "USER_STORE_ID=\"" + trimmedUserStoreId + "\"\n";
     content += "SA_NAME=\"license-grouper-sa\"\n\n";
+
+    content += "# Cloud Run Org Policy settings (constraints/run.allowedIngress & constraints/run.allowedVPCEgress)\n";
+    content += "# Cloud Scheduler in the same project is recognized as internal traffic, so 'internal' works out of the box.\n";
+    content += "INGRESS=\"${INGRESS:-" + defaultIngress + "}\"\n";
+    content += "VPC_EGRESS=\"${VPC_EGRESS:-" + defaultVpcEgress + "}\"\n";
+    content += "VPC_NETWORK=\"${VPC_NETWORK:-" + defaultVpcNetwork + "}\"\n";
+    content += "VPC_SUBNET=\"${VPC_SUBNET:-" + defaultVpcSubnet + "}\"\n";
+    content += "VPC_CONNECTOR=\"${VPC_CONNECTOR:-" + defaultVpcConnector + "}\"\n\n";
+
+    content += "NETWORK_FLAGS=(\"--ingress=$INGRESS\")\n";
+    content += "if [ -n \"$VPC_CONNECTOR\" ]; then\n";
+    content += "  NETWORK_FLAGS+=(\"--vpc-connector=$VPC_CONNECTOR\")\n";
+    content += "else\n";
+    content += "  if [ -n \"$VPC_NETWORK\" ]; then\n";
+    content += "    NETWORK_FLAGS+=(\"--network=$VPC_NETWORK\")\n";
+    content += "  fi\n";
+    content += "  if [ -n \"$VPC_SUBNET\" ]; then\n";
+    content += "    NETWORK_FLAGS+=(\"--subnet=$VPC_SUBNET\")\n";
+    content += "  fi\n";
+    content += "fi\n";
+    content += "if [ -n \"$VPC_CONNECTOR\" ] || [ -n \"$VPC_NETWORK\" ] || [ -n \"$VPC_SUBNET\" ]; then\n";
+    content += "  NETWORK_FLAGS+=(\"--vpc-egress=${VPC_EGRESS:-private-ranges-only}\")\n";
+    content += "elif [ -n \"$VPC_EGRESS\" ]; then\n";
+    content += "  echo \"❌ Error: VPC_EGRESS=$VPC_EGRESS requires setting VPC_NETWORK / VPC_SUBNET (Direct VPC Egress) or VPC_CONNECTOR.\" >&2\n";
+    content += "  exit 1\n";
+    content += "fi\n\n";
 
     content += "echo \"Ensuring Cloud Identity, Cloud Run, and Cloud Scheduler APIs are enabled...\"\n";
     content += "gcloud services enable cloudidentity.googleapis.com run.googleapis.com cloudscheduler.googleapis.com --project \"$PROJECT_ID\" || true\n\n";
@@ -115,6 +258,7 @@ export const generateDeploySh = (
 
     // One instance handling one request at a time, so two runs can never overlap; 30-minute request timeout.
     const runServiceFlags =
+        "    \"${NETWORK_FLAGS[@]}\" \\\n" +
         "    --timeout=1800 \\\n" +
         "    --max-instances=1 \\\n" +
         "    --concurrency=1 \\\n";
@@ -219,6 +363,7 @@ export const generateManualSetupMarkdown = (params: {
     region: string;
     configGcsUri: string;
     selectedTier: string;
+    networkConfig?: CloudRunNetworkConfig;
 }) => {
     const projectId = params.projectId.trim() || 'YOUR_PROJECT_ID';
     const projectNumber = params.projectNumber.trim() || 'YOUR_PROJECT_NUMBER';
@@ -234,6 +379,30 @@ export const generateManualSetupMarkdown = (params: {
     const cleanupService = `group-licensing-cleanup-${location}`;
     const adderJob = `trigger-group-licensing-adder-${location}`;
     const cleanupJob = `trigger-group-licensing-cleanup-${location}`;
+
+    const safeNetwork: Required<CloudRunNetworkConfig> = {
+        ingress:
+            params.networkConfig?.ingress && ALLOWED_CLOUD_RUN_INGRESS.has(params.networkConfig.ingress)
+                ? params.networkConfig.ingress
+                : 'internal',
+        vpcEgress:
+            params.networkConfig?.vpcEgress && ALLOWED_VPC_EGRESS.has(params.networkConfig.vpcEgress)
+                ? params.networkConfig.vpcEgress
+                : '',
+        vpcNetwork:
+            params.networkConfig?.vpcNetwork && VPC_NETWORK_PATTERN.test(params.networkConfig.vpcNetwork.trim())
+                ? params.networkConfig.vpcNetwork.trim()
+                : '',
+        vpcSubnet:
+            params.networkConfig?.vpcSubnet && VPC_SUBNET_PATTERN.test(params.networkConfig.vpcSubnet.trim())
+                ? params.networkConfig.vpcSubnet.trim()
+                : '',
+        vpcConnector:
+            params.networkConfig?.vpcConnector && VPC_CONNECTOR_PATTERN.test(params.networkConfig.vpcConnector.trim())
+                ? params.networkConfig.vpcConnector.trim()
+                : '',
+    };
+    const inlineNetworkFlags = formatInlineGcloudNetworkFlags(safeNetwork);
 
     return `# Manual Group Licensing Setup Guide (No Cloud Build Required)
 
@@ -325,9 +494,11 @@ Choose **Option 3A (Google Cloud Console Inline Function Editor)** OR **Option 3
    - **Region:** \`${region}\`
    - **Runtime:** \`Python 3.11\` (or \`Python 3.12\`)
    - **Authentication:** Select **Require authentication**
+   - **Ingress:** Select **Internal** *(satisfies \`constraints/run.allowedIngress\`; Cloud Scheduler in the same project is permitted as internal traffic)*
    - Expand **Container(s), Volumes, Networking, Security**:
      - **General > Request timeout:** \`1800\` seconds
      - **Scaling > Maximum number of instances:** \`1\` (and **Maximum concurrent requests per instance:** \`1\`)
+     - **Networking > Outbound traffic** *(if your org enforces \`constraints/run.allowedVPCEgress\`)*: Enable **Send traffic directly to a VPC** (or select a VPC Connector), pick a subnet with **Private Google Access** enabled (or Cloud NAT if using \`all-traffic\`), and choose your allowed egress mode.
      - **Security > Service account:** \`${saEmail}\`
      - **Labels** (optional but recommended):
        - \`ge-region\` = \`${location}\`
@@ -390,6 +561,7 @@ gcloud run deploy "${adderService}" \\
   --project="$PROJECT_ID" \\
   --region="$REGION" \\
   --no-allow-unauthenticated \\
+  ${inlineNetworkFlags} \\
   --service-account="$SA_EMAIL" \\
   --timeout=1800 --max-instances=1 --concurrency=1 \\
   --labels="ge-region=$LOCATION,ge-sku=${safeSkuLabel},job-type=adder" \\
@@ -401,6 +573,7 @@ gcloud run deploy "${cleanupService}" \\
   --project="$PROJECT_ID" \\
   --region="$REGION" \\
   --no-allow-unauthenticated \\
+  ${inlineNetworkFlags} \\
   --service-account="$SA_EMAIL" \\
   --timeout=1800 --max-instances=1 --concurrency=1 \\
   --labels="ge-region=$LOCATION,ge-sku=${safeSkuLabel},job-type=cleanup" \\
@@ -495,6 +668,13 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
     const [isDeploying, setIsDeploying] = useState(false);
     const [isSavingConfig, setIsSavingConfig] = useState(false);
     const [deployError, setDeployError] = useState<string | null>(null);
+    const [networkConfig, setNetworkConfig] = useState<Required<CloudRunNetworkConfig>>({
+        ingress: 'internal',
+        vpcEgress: '',
+        vpcNetwork: '',
+        vpcSubnet: '',
+        vpcConnector: '',
+    });
 
     useModalA11y({
         isOpen,
@@ -554,6 +734,14 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                 userStoreId: meta?.userStoreId || currentConfig.userStoreId || 'default_user_store',
             }));
 
+            setNetworkConfig({
+                ingress: meta?.ingress && ALLOWED_CLOUD_RUN_INGRESS.has(meta.ingress) ? meta.ingress : 'internal',
+                vpcEgress: meta?.vpcEgress && ALLOWED_VPC_EGRESS.has(meta.vpcEgress) ? meta.vpcEgress : '',
+                vpcNetwork: meta?.vpcNetwork || '',
+                vpcSubnet: meta?.vpcSubnet || '',
+                vpcConnector: meta?.vpcConnector || '',
+            });
+
             if (meta?.bucket) {
                 setSelectedBucket(meta.bucket);
             }
@@ -567,6 +755,13 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                 appLocation: safeDefaultLocation,
                 userStoreId: currentConfig.userStoreId || 'default_user_store',
             }));
+            setNetworkConfig({
+                ingress: 'internal',
+                vpcEgress: '',
+                vpcNetwork: '',
+                vpcSubnet: '',
+                vpcConnector: '',
+            });
         }
 
         if (projectNumber) {
@@ -759,7 +954,8 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
         configGcsUri,
         selectedTier,
         "",
-        effectiveProjectNumber
+        effectiveProjectNumber,
+        networkConfig
     );
     const requirementsTxt = "Flask==3.0.0\ngunicorn==22.0.0\nfunctions-framework>=3.5.0\ngoogle-auth>=2.22.0\nrequests>=2.31.0";
     const dockerfile = "FROM python:3.11-slim\nENV PYTHONUNBUFFERED True\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nCMD [\"gunicorn\", \"--bind\", \"0.0.0.0:8080\", \"--workers\", \"1\", \"--threads\", \"8\", \"--timeout\", \"0\", \"main:app\"]";
@@ -771,6 +967,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
         region: config.runRegion,
         configGcsUri,
         selectedTier,
+        networkConfig,
     });
 
     /**
@@ -778,7 +975,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
      * generateDeploySh() concatenates into the generated deploy.sh, as well as the
      * Google Group emails written to entitlements.json.
      */
-    const validateDeploymentInputs = () => {
+    const validateDeploymentInputs = (requireNetworkValidation = true) => {
         const validProjectId = assertValidProjectIdentifier(config.projectId, 'Project ID');
         const validRunRegion = assertValidGcpResourceName(config.runRegion, 'Run region');
         const validAppLocation = assertValidGcpResourceName(appLocation, 'App location');
@@ -808,6 +1005,16 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             }
         }
 
+        const validNetworkConfig = requireNetworkValidation
+            ? validateCloudRunNetworkConfig(networkConfig)
+            : {
+                  ingress: 'internal' as CloudRunIngressOption,
+                  vpcEgress: '' as CloudRunVpcEgressOption,
+                  vpcNetwork: '',
+                  vpcSubnet: '',
+                  vpcConnector: '',
+              };
+
         return {
             validProjectId,
             validRunRegion,
@@ -816,6 +1023,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             validSelectedTier,
             validProjectNumber,
             validConfigGcsUri,
+            validNetworkConfig,
         };
     };
 
@@ -864,7 +1072,8 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             validated.validConfigGcsUri,
             validated.validSelectedTier,
             "",
-            validated.validProjectNumber
+            validated.validProjectNumber,
+            validated.validNetworkConfig
         );
         const validatedManualGuide = generateManualSetupMarkdown({
             projectId: validated.validProjectId,
@@ -874,6 +1083,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             region: validated.validRunRegion,
             configGcsUri: validated.validConfigGcsUri,
             selectedTier: validated.validSelectedTier,
+            networkConfig: validated.validNetworkConfig,
         });
 
         const zip = new JSZip();
@@ -904,7 +1114,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
         setDeployError(null);
 
         try {
-            const validated = validateDeploymentInputs();
+            const validated = validateDeploymentInputs(false);
             const mergedConfigJson = await loadMergedEntitlementsJson(validated.validProjectId);
             const configBlob = new Blob([mergedConfigJson], { type: 'application/json' });
             const configFile = new File([configBlob], "entitlements.json", { type: "application/json" });
@@ -938,7 +1148,8 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                 validated.validConfigGcsUri,
                 validated.validSelectedTier,
                 "",
-                validated.validProjectNumber
+                validated.validProjectNumber,
+                validated.validNetworkConfig
             );
 
             const zip = new JSZip();
@@ -986,7 +1197,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             onClose();
 
         } catch (err: unknown) {
-            setDeployError(formatActAsServiceAccountError(err, "Failed to trigger Cloud Build.", config.projectId));
+            setDeployError(formatCloudRunDeploymentError(err, "Failed to trigger Cloud Build.", config.projectId));
         } finally {
             setIsDeploying(false);
         }
@@ -1099,6 +1310,98 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                         <div>
                             <label className="block text-sm font-medium text-gray-400">Groups (Comma separated emails)</label>
                             <input type="text" value={groupsInput} onChange={(e) => setGroupsInput(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" placeholder="group1@example.com, group2@example.com" disabled={isBusy} />
+                        </div>
+
+                        <div className="pt-4 border-t border-gray-700 space-y-3" data-testid="group-licensing-network-config">
+                            <div>
+                                <h3 className="text-sm font-semibold text-white">Cloud Run Network &amp; Org Policy</h3>
+                                <p className="text-xs text-gray-400">
+                                    Defaults to <code>--ingress=internal</code> (satisfies <code>run.allowedIngress</code>; same-project Cloud Scheduler is permitted). Set VPC Egress if your org enforces <code>run.allowedVPCEgress</code>.
+                                </p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label htmlFor="gl-cloud-run-ingress" className="block text-xs font-medium text-gray-400 mb-1">Ingress (<code>run.allowedIngress</code>)</label>
+                                    <select
+                                        id="gl-cloud-run-ingress"
+                                        aria-label="Cloud Run Ingress"
+                                        value={networkConfig.ingress}
+                                        onChange={(e) => setNetworkConfig({ ...networkConfig, ingress: e.target.value as CloudRunIngressOption })}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-xs text-white"
+                                        disabled={isBusy}
+                                    >
+                                        <option value="internal">internal (Recommended)</option>
+                                        <option value="internal-and-cloud-load-balancing">internal-and-cloud-load-balancing</option>
+                                        <option value="all">all</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label htmlFor="gl-vpc-egress" className="block text-xs font-medium text-gray-400 mb-1">VPC Egress (<code>run.allowedVPCEgress</code>)</label>
+                                    <select
+                                        id="gl-vpc-egress"
+                                        aria-label="VPC Egress"
+                                        value={networkConfig.vpcEgress}
+                                        onChange={(e) => setNetworkConfig({ ...networkConfig, vpcEgress: e.target.value as CloudRunVpcEgressOption })}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-xs text-white"
+                                        disabled={isBusy}
+                                    >
+                                        <option value="">None (Default internet egress)</option>
+                                        <option value="private-ranges-only">private-ranges-only</option>
+                                        <option value="all-traffic">all-traffic (Requires PGA / NAT)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {(networkConfig.vpcEgress !== '' || networkConfig.vpcNetwork !== '' || networkConfig.vpcSubnet !== '' || networkConfig.vpcConnector !== '') && (
+                                <div className="bg-gray-900/60 border border-gray-700 rounded-md p-3 space-y-2.5">
+                                    <div className="grid grid-cols-2 gap-2.5">
+                                        <div>
+                                            <label htmlFor="gl-vpc-network" className="block text-xs font-medium text-gray-400 mb-1">Direct VPC Network</label>
+                                            <input
+                                                id="gl-vpc-network"
+                                                aria-label="Direct VPC Network"
+                                                type="text"
+                                                value={networkConfig.vpcNetwork}
+                                                onChange={(e) => setNetworkConfig({ ...networkConfig, vpcNetwork: e.target.value })}
+                                                className="w-full bg-gray-700 border border-gray-600 rounded-md p-1.5 text-xs text-white"
+                                                placeholder="default"
+                                                disabled={isBusy}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label htmlFor="gl-vpc-subnet" className="block text-xs font-medium text-gray-400 mb-1">Direct VPC Subnet</label>
+                                            <input
+                                                id="gl-vpc-subnet"
+                                                aria-label="Direct VPC Subnet"
+                                                type="text"
+                                                value={networkConfig.vpcSubnet}
+                                                onChange={(e) => setNetworkConfig({ ...networkConfig, vpcSubnet: e.target.value })}
+                                                className="w-full bg-gray-700 border border-gray-600 rounded-md p-1.5 text-xs text-white"
+                                                placeholder="my-subnet or projects/.../subnetworks/..."
+                                                disabled={isBusy}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label htmlFor="gl-vpc-connector" className="block text-xs font-medium text-gray-400 mb-1">Or Serverless VPC Connector (leave Direct VPC blank)</label>
+                                        <input
+                                            id="gl-vpc-connector"
+                                            aria-label="Serverless VPC Connector"
+                                            type="text"
+                                            value={networkConfig.vpcConnector}
+                                            onChange={(e) => setNetworkConfig({ ...networkConfig, vpcConnector: e.target.value })}
+                                            className="w-full bg-gray-700 border border-gray-600 rounded-md p-1.5 text-xs text-white"
+                                            placeholder="my-connector or projects/.../locations/.../connectors/..."
+                                            disabled={isBusy}
+                                        />
+                                    </div>
+                                    {networkConfig.vpcEgress === 'all-traffic' && (
+                                        <p className="text-[11px] text-amber-300">
+                                            Note: With <code>all-traffic</code>, ensure your VPC subnet has <strong>Private Google Access</strong> enabled (or a Cloud NAT gateway) so Cloud Run can reach <code>*.googleapis.com</code>.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <div className="pt-4 border-t border-gray-700">
@@ -1220,7 +1523,8 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                                         <ul className="list-disc list-inside text-xs space-y-1 text-gray-300">
                                             <li><strong>Adder Service Name:</strong> <code className="bg-gray-900 px-1.5 py-0.5 rounded text-white">{adderServiceName}</code> &nbsp;|&nbsp; <strong>Cleanup Service Name:</strong> <code className="bg-gray-900 px-1.5 py-0.5 rounded text-white">{cleanupServiceName}</code></li>
                                             <li><strong>Region:</strong> <code>{config.runRegion}</code> &nbsp;|&nbsp; <strong>Runtime:</strong> <code>Python 3.11</code> (or <code>3.12</code>) &nbsp;|&nbsp; <strong>Entry point:</strong> <code className="bg-gray-900 px-1.5 py-0.5 rounded text-amber-300">handle_trigger</code></li>
-                                            <li><strong>Authentication:</strong> Select <strong>Require authentication</strong></li>
+                                            <li><strong>Authentication &amp; Ingress:</strong> Select <strong>Require authentication</strong> and set <strong>Ingress</strong> to <strong>Internal</strong> (satisfies <code>run.allowedIngress</code>; same-project Cloud Scheduler is permitted).</li>
+                                            <li><strong>Networking (if <code>run.allowedVPCEgress</code> is enforced):</strong> Under <strong>Networking &rarr; Outbound traffic</strong>, enable <strong>Send traffic directly to a VPC</strong> (or select a VPC Connector) on a subnet with Private Google Access enabled.</li>
                                             <li><strong>Container / Scaling / Security:</strong> Request timeout = <code>1800</code> sec, Max instances = <code>1</code>, Max concurrent requests per instance = <code>1</code>, Service account = <code>{saEmailDisplay}</code></li>
                                             <li><strong>Labels:</strong> <code>{`ge-region=${appLocation}`}</code>, <code>{`ge-sku=${safeSkuLabelDisplay}`}</code>, and <code>job-type=adder</code> (or <code>cleanup</code>)</li>
                                         </ul>
@@ -1268,12 +1572,14 @@ IMAGE_URI="${config.runRegion}-docker.pkg.dev/${config.projectId || 'YOUR_PROJEC
 docker build -t "$IMAGE_URI" . && docker push "$IMAGE_URI"
 
 gcloud run deploy "${adderServiceName}" --image="$IMAGE_URI" --project="${config.projectId || 'YOUR_PROJECT_ID'}" --region="${config.runRegion}" \\
-  --no-allow-unauthenticated --service-account="${saEmailDisplay}" --timeout=1800 --max-instances=1 --concurrency=1 \\
+  --no-allow-unauthenticated ${formatInlineGcloudNetworkFlags(networkConfig)} \\
+  --service-account="${saEmailDisplay}" --timeout=1800 --max-instances=1 --concurrency=1 \\
   --labels="ge-region=${appLocation},ge-sku=${safeSkuLabelDisplay},job-type=adder" \\
   --set-env-vars="GOOGLE_CLOUD_PROJECT=${config.projectId || 'YOUR_PROJECT_ID'},LOCATION=${appLocation},USER_STORE_ID=${config.userStoreId},CONFIG_GCS_URI=${configGcsUri},SUBSCRIPTION_TIER=${selectedTier},JOB_TYPE=adder,PROJECT_NUMBER=${effectiveProjectNumber}"
 
 gcloud run deploy "${cleanupServiceName}" --image="$IMAGE_URI" --project="${config.projectId || 'YOUR_PROJECT_ID'}" --region="${config.runRegion}" \\
-  --no-allow-unauthenticated --service-account="${saEmailDisplay}" --timeout=1800 --max-instances=1 --concurrency=1 \\
+  --no-allow-unauthenticated ${formatInlineGcloudNetworkFlags(networkConfig)} \\
+  --service-account="${saEmailDisplay}" --timeout=1800 --max-instances=1 --concurrency=1 \\
   --labels="ge-region=${appLocation},ge-sku=${safeSkuLabelDisplay},job-type=cleanup" \\
   --set-env-vars="GOOGLE_CLOUD_PROJECT=${config.projectId || 'YOUR_PROJECT_ID'},LOCATION=${appLocation},USER_STORE_ID=${config.userStoreId},CONFIG_GCS_URI=${configGcsUri},SUBSCRIPTION_TIER=${selectedTier},JOB_TYPE=cleanup,PROJECT_NUMBER=${effectiveProjectNumber},MAX_REVOCATION_PERCENT=5,MIN_REVOCATION_ALLOWANCE=50"`}</pre>
                                     </div>
@@ -1334,6 +1640,20 @@ gcloud iam service-accounts list --project="${config.projectId || 'YOUR_PROJECT_
 # 2. Grant Service Account User (roles/iam.serviceAccountUser) to your GCP user:
 gcloud iam service-accounts add-iam-policy-binding "${saEmailDisplay}" \\
   --member="user:<YOUR_EMAIL>" --role="roles/iam.serviceAccountUser" --project="${config.projectId || 'YOUR_PROJECT_ID'}"`}</pre>
+                                    </div>
+
+                                    <div className="bg-purple-950/30 border border-purple-700/60 rounded-lg p-3.5 space-y-2">
+                                        <h4 className="font-semibold text-purple-300">Troubleshooting: Org Policies <code>run.allowedIngress</code> &amp; <code>run.allowedVPCEgress</code></h4>
+                                        <p className="text-xs text-gray-300">
+                                            <code>deploy.sh</code> now defaults to <code>--ingress=internal</code> (Cloud Scheduler in the same project is permitted as internal traffic). If your organization also enforces <code>constraints/run.allowedVPCEgress</code>, select <strong>VPC Egress</strong> + your <strong>Direct VPC Network / Subnet</strong> on the left, or pass env vars directly to <code>deploy.sh</code>:
+                                        </p>
+                                        <pre className="p-2 bg-gray-950 border border-gray-700 rounded text-[11px] text-gray-300 font-mono overflow-x-auto whitespace-pre">{`# Check your project's effective Cloud Run Org Policies & subnets:
+gcloud resource-manager org-policies describe run.allowedIngress --project="${config.projectId || 'YOUR_PROJECT_ID'}" --effective
+gcloud resource-manager org-policies describe run.allowedVPCEgress --project="${config.projectId || 'YOUR_PROJECT_ID'}" --effective
+gcloud compute networks subnets list --regions="${config.runRegion}" --project="${config.projectId || 'YOUR_PROJECT_ID'}"
+
+# Run deploy.sh with Direct VPC Egress (or set on the left before downloading):
+INGRESS="internal" VPC_NETWORK="default" VPC_SUBNET="<YOUR_SUBNET>" VPC_EGRESS="private-ranges-only" ./deploy.sh`}</pre>
                                     </div>
                                 </div>
                             ) : (
