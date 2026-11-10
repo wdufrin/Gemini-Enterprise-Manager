@@ -571,13 +571,14 @@ export const probeProjectEnrollment = async (
     },
     {
       id: "agentRegistryEnabled",
-      label: "Cloud Agent & Skills Registry (v1alpha)",
+      label: "Cloud Agent & Skills Registry (v1 GA)",
       visibilityTag: "agentregistry.googleapis.com",
       enrolled: agentRegistryEnabled,
       probed: true,
       reason: agentRegistryReason,
       gatedFeatures: [
         "Skills Registry CRUD (createSkill, updateSkill, deleteSkill)",
+        "Automated Skill Security Scanning & Findings Triage (scanningConfig, findings)",
         "MCP Server & Endpoint Registry Discovery",
       ],
     },

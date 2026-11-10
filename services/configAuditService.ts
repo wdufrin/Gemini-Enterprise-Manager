@@ -394,6 +394,16 @@ export async function runConfigAudit(
   }
 
   if (!srcSkillsFetchFailed && !tgtSkillsFetchFailed) {
+    const resolveScanPolicy = (s: RegistrySkill): string => {
+      const explicit = s.scanningConfig?.policy;
+      if (explicit) return explicit;
+      const pub = (s.publisher || '').toLowerCase();
+      if (pub.includes('cloud.google.com') || pub.includes('discoveryengine.googleapis.com')) {
+        return 'GOOGLE_VERIFIED';
+      }
+      return 'ENABLED_BLOCKING';
+    };
+
     const targetSkillMap = new Map<string, RegistrySkill>();
     targetSkills.forEach((s) => {
       const id = s.skillId || s.name.split('/').pop() || s.displayName;
@@ -422,15 +432,28 @@ export async function runConfigAudit(
           targetSkillMap.get(skillId) || targetSkillMap.get(skillTitle.toLowerCase().trim());
 
         if (matchedSkill) {
+          const srcPolicy = resolveScanPolicy(srcSkill);
+          const tgtPolicy = resolveScanPolicy(matchedSkill);
+          const isPolicyMatch = srcPolicy === tgtPolicy;
+          const isTargetDisabled = tgtPolicy === 'DISABLED';
+
           items.push({
             id: `skill-${skillId}`,
             category: 'Skills & Tools',
             name: `Skill: ${skillTitle}`,
-            sourceValue: `State: ${srcSkill.state || 'ACTIVE'}`,
-            targetValue: `State: ${matchedSkill.state || 'ACTIVE'}`,
-            status: 'MATCH',
-            severity: 'OK',
-            details: 'Skill exists in destination Agent Registry.',
+            sourceValue: `State: ${srcSkill.state || 'ACTIVE'} | Scan: ${srcPolicy}`,
+            targetValue: `State: ${matchedSkill.state || 'ACTIVE'} | Scan: ${tgtPolicy}`,
+            status: !isPolicyMatch || isTargetDisabled ? 'DRIFT' : 'MATCH',
+            severity: !isPolicyMatch || isTargetDisabled ? 'WARNING' : 'OK',
+            details: isTargetDisabled
+              ? `Destination skill "${skillTitle}" has security auto-scanning DISABLED (Source: ${srcPolicy}). New revisions will bypass LLM vulnerability & secret scanning.`
+              : !isPolicyMatch
+              ? `Skill exists in destination Agent Registry, but scanningConfig.policy differs (Source: ${srcPolicy} vs Target: ${tgtPolicy}).`
+              : `Skill exists in destination Agent Registry with aligned scanning policy (${tgtPolicy}).`,
+            remediation:
+              !isPolicyMatch || isTargetDisabled
+                ? `Update scanningConfig.policy on "${skillTitle}" in destination Agent Registry to "${srcPolicy === 'DISABLED' ? 'ENABLED_BLOCKING' : srcPolicy}".`
+                : undefined,
           });
         } else {
           items.push({
@@ -443,6 +466,29 @@ export async function runConfigAudit(
             severity: 'WARNING',
             details: `Source skill "${skillTitle}" is not registered in destination. Agents requiring this skill must have it published to target.`,
             remediation: `Publish "${skillTitle}" to destination Agent Registry or use gemini-migrate v1.3.0 Tool Migrator.`,
+          });
+        }
+      }
+    }
+
+    // Also flag any target-only skills that have security auto-scanning explicitly disabled
+    for (const tgtSkill of targetSkills) {
+      const tgtPolicy = resolveScanPolicy(tgtSkill);
+      if (tgtPolicy === 'DISABLED') {
+        const skillId = tgtSkill.skillId || tgtSkill.name.split('/').pop() || tgtSkill.displayName;
+        const alreadyReported = items.some((it) => it.id === `skill-${skillId}`);
+        if (!alreadyReported) {
+          const skillTitle = tgtSkill.displayName || skillId;
+          items.push({
+            id: `tgt-skill-scan-disabled-${skillId}`,
+            category: 'Skills & Tools',
+            name: `Target Skill Auto-Scan: ${skillTitle}`,
+            sourceValue: 'N/A (Target Only)',
+            targetValue: 'Scan: DISABLED',
+            status: 'DRIFT',
+            severity: 'WARNING',
+            details: `Destination skill "${skillTitle}" has automated security scanning DISABLED.`,
+            remediation: `Enable ENABLED_BLOCKING scanning on "${skillTitle}" in Skills Registry or enforce custom.skillsScanningEnforcement Org Policy.`,
           });
         }
       }

@@ -379,6 +379,9 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
     [filteredSkills]
   );
 
+  const [adminApprovalEnforcedOverride, setAdminApprovalEnforcedOverride] = useState(false);
+  const [isEnforcingAdminApproval, setIsEnforcingAdminApproval] = useState(false);
+
   const missingEngineFeatures = useMemo(() => {
     if (!engine?.features || engineFeaturesEnabledOverride) return [];
     const missing: string[] = [];
@@ -391,17 +394,46 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
     return missing;
   }, [engine, engineFeaturesEnabledOverride]);
 
+  const unreviewedSharingEnabled = useMemo(() => {
+    if (!engine?.features || adminApprovalEnforcedOverride) return false;
+    return engine.features['skill-sharing-without-admin-approval'] === 'FEATURE_STATE_ON';
+  }, [engine, adminApprovalEnforcedOverride]);
+
   const handleEnableEngineSkillFeatures = async () => {
     setIsEnablingEngineFeatures(true);
     try {
       await api.ensureSkillSharingOnEngine(config);
       setEngineFeaturesEnabledOverride(true);
-      toast.success('Enabled skills and skill-sharing features on the Gemini Enterprise engine.');
+      toast.success('Enabled skills and skill-sharing features on the Gemini Enterprise engine (with admin approval preserved).');
       onRefreshSkills();
     } catch (err) {
       toast.error('Failed to enable engine skill features: ' + toErrorMessage(err));
     } finally {
       setIsEnablingEngineFeatures(false);
+    }
+  };
+
+  const handleRequireAdminApproval = async () => {
+    if (!engine) return;
+    setIsEnforcingAdminApproval(true);
+    try {
+      const engineName =
+        engine.name ||
+        `projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId || 'default_collection'}/engines/${config.appId}`;
+      const updatedFeatures = {
+        ...(engine.features || {}),
+        'skill-sharing-without-admin-approval': 'FEATURE_STATE_OFF',
+      };
+      await api.updateEngine(engineName, { features: updatedFeatures }, ['features'], config);
+      setAdminApprovalEnforcedOverride(true);
+      toast.success(
+        'Enforced administrator approval for shared skills (skill-sharing-without-admin-approval set to OFF).'
+      );
+      onRefreshSkills();
+    } catch (err) {
+      toast.error('Failed to enforce admin approval: ' + toErrorMessage(err));
+    } finally {
+      setIsEnforcingAdminApproval(false);
     }
   };
 
@@ -509,6 +541,32 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
             className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shrink-0 transition-colors shadow"
           >
             {isEnablingEngineFeatures ? 'Enabling...' : 'Enable Skill Features'}
+          </button>
+        </div>
+      )}
+
+      {unreviewedSharingEnabled && (
+        <div
+          role="alert"
+          data-testid="skills-unreviewed-sharing-warning"
+          className="p-4 bg-blue-950/40 border border-blue-700/70 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        >
+          <div className="text-xs text-blue-200 space-y-1">
+            <div className="font-bold text-blue-100">
+              🛡️ Governance Notice: Unreviewed Skill Sharing Enabled (`skill-sharing-without-admin-approval`)
+            </div>
+            <p className="text-blue-200/90">
+              Employees can currently share web app skills organization-wide without administrator review or Agent Registry security scanning. Require admin approval so shared skills can be audited via <strong>Scan via Registry</strong> before promotion.
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="require-skill-admin-approval-btn"
+            onClick={handleRequireAdminApproval}
+            disabled={isEnforcingAdminApproval}
+            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shrink-0 transition-colors shadow"
+          >
+            {isEnforcingAdminApproval ? 'Updating...' : 'Require Admin Approval'}
           </button>
         </div>
       )}

@@ -30,6 +30,7 @@ import * as api from '../services/apiService';
 import * as core from '../services/api/core';
 import { GapiError, getDiscoveryEngineUrl } from '../services/api/core';
 import { ensureCloudRunInvokerRole, triggerCloudRunServiceJob } from '../services/api/cloudRun';
+import { formatActAsServiceAccountError } from '../utils/errors';
 
 const toastMock = {
   success: vi.fn(),
@@ -1139,7 +1140,177 @@ describe('useGroupLicensing & Cloud Run group licensing trigger', () => {
     fireEvent.click(screen.getByRole('button', { name: /Open Generator & Download \.zip/i }));
     expect(onNewAssignment).toHaveBeenCalledTimes(1);
   });
+
+  it('decodes numeric and email service account actAs errors into GCP IAM remediation commands and handles malformed inputs safely', async () => {
+    const customerNumericError =
+      'generic::permission_denied: caller does not have permission to act as service account projects/g7372556-ge-prod-prod-9y/serviceAccounts/110704003257377761995';
+
+    const decodedNumeric = formatActAsServiceAccountError(new Error(customerNumericError));
+    expect(decodedNumeric).toContain('no Google Workspace Admin required');
+    expect(decodedNumeric).toContain('uniqueId 110704003257377761995');
+    expect(decodedNumeric).toContain(
+      'gcloud iam service-accounts list --project="g7372556-ge-prod-prod-9y" --filter="uniqueId=110704003257377761995"',
+    );
+    expect(decodedNumeric).toContain('roles/iam.serviceAccountUser');
+
+    // Email-formatted resource name and bare email with trailing sentence period must preserve internal dots
+    const decodedEmailResource = formatActAsServiceAccountError(
+      'PERMISSION_DENIED: caller does not have permission to act as service account projects/my-proj/serviceAccounts/license-grouper-sa@my-proj.iam.gserviceaccount.com.',
+    );
+    expect(decodedEmailResource).toContain(
+      'gcloud iam service-accounts add-iam-policy-binding "license-grouper-sa@my-proj.iam.gserviceaccount.com"',
+    );
+    expect(decodedEmailResource).toContain('--project="my-proj"');
+
+    const decodedBareEmail = formatActAsServiceAccountError(
+      'Caller does not have permission to act as service account license-grouper-sa@my-proj.iam.gserviceaccount.com.',
+      'Fallback',
+      'my-proj',
+    );
+    expect(decodedBareEmail).toContain(
+      'gcloud iam service-accounts add-iam-policy-binding "license-grouper-sa@my-proj.iam.gserviceaccount.com"',
+    );
+    expect(decodedBareEmail).toContain('--project="my-proj"');
+
+    // Negative / adversarial inputs: unrelated errors and malformed objects must not match or throw
+    expect(formatActAsServiceAccountError(null, 'Default fallback')).toBe('Default fallback');
+    expect(formatActAsServiceAccountError({ message: 12345 }, 'Malformed object')).toBe('Malformed object');
+    expect(
+      formatActAsServiceAccountError(
+        new GapiError('User does not have storage.objects.create access', 403, 'PERMISSION_DENIED'),
+      ),
+    ).toBe('User does not have storage.objects.create access');
+
+    // Verify handleRunService surfaces the decoded remediation in toast.error when Cloud Scheduler :run fails with actAs
+    vi.spyOn(api, 'ensureCloudRunInvokerRole').mockResolvedValue(undefined);
+    vi.spyOn(api, 'triggerCloudRunServiceJob').mockRejectedValue(
+      new GapiError(customerNumericError, 403, 'PERMISSION_DENIED'),
+    );
+
+    const { result } = renderHook(() =>
+      useGroupLicensing('180054373655', 'global', 'group_assignments'),
+    );
+
+    await act(async () => {
+      await result.current.handleRunService({
+        name: 'projects/g7372556-ge-prod-prod-9y/locations/us-central1/services/group-licensing-adder-global',
+        uri: 'https://group-licensing-adder-global-xyz.a.run.app',
+      });
+    });
+
+    expect(toastMock.error).toHaveBeenCalledWith(
+      expect.stringContaining('--filter="uniqueId=110704003257377761995"'),
+    );
+    expect(toastMock.error).toHaveBeenCalledWith(
+      expect.stringContaining('roles/iam.serviceAccountUser'),
+    );
+  });
+
+  it('includes Cloud Identity API, caller actAs binding in deploy.sh, and Group & IAM Access guidance in GroupLicenseDeploymentModal', async () => {
+    const script = generateDeploySh(
+      'g7372556-ge-prod-prod-9y',
+      'global',
+      'default_user_store',
+      'us-central1',
+      'gs://prod-bucket/config/entitlements.json',
+      'SUBSCRIPTION_TIER_ENTERPRISE',
+      '',
+      '180054373655',
+    );
+    expect(script).toContain('cloudidentity.googleapis.com');
+    expect(script).toContain('roles/iam.serviceAccountUser');
+    expect(script).toContain('ACTIVE_CALLER="$(gcloud config get-value account');
+
+    const md = generateManualSetupMarkdown({
+      projectId: 'g7372556-ge-prod-prod-9y',
+      projectNumber: '180054373655',
+      location: 'global',
+      userStoreId: 'default_user_store',
+      region: 'us-central1',
+      configGcsUri: 'gs://prod-bucket/config/entitlements.json',
+      selectedTier: 'SUBSCRIPTION_TIER_ENTERPRISE',
+    });
+    expect(md).toContain('cloudidentity.googleapis.com');
+    expect(md).toContain('roles/iam.serviceAccountUser');
+    expect(md).toContain('Option A (Recommended — Zero Google Workspace Admin Console access needed)');
+
+    // Also verify Cloud Identity Groups API cold-start stdout log is parsed accurately
+    const coldStartCloudIdentity = api.parseGroupLicensingRunLogs(
+      [
+        {
+          timestamp: '2026-11-10T19:00:02Z',
+          textPayload:
+            'Resolved 7 user members for ge-users@customer.com via Cloud Identity Groups API (2 group(s) inspected).',
+        },
+        {
+          timestamp: '2026-11-10T19:00:01Z',
+          textPayload:
+            'Admin SDK Directory API returned 403 for ge-users@customer.com; falling back to Cloud Identity Groups API...',
+        },
+      ],
+      {
+        serviceId: 'group-licensing-adder-global',
+        serviceName: 'projects/g7372556-ge-prod-prod-9y/locations/us-central1/services/group-licensing-adder-global',
+      },
+    );
+    expect(coldStartCloudIdentity.report?.summary.groupMemberCounts).toEqual({
+      'ge-users@customer.com': 7,
+    });
+    expect(coldStartCloudIdentity.report?.summary.warnings).toEqual([]);
+
+    // Render modal, inspect Group & IAM Access tab, and verify Cloud Build actAs error alert
+    vi.spyOn(api, 'getProject').mockResolvedValue({
+      projectId: 'g7372556-ge-prod-prod-9y',
+      projectNumber: '180054373655',
+    } as never);
+    vi.spyOn(api, 'listLicenseConfigs').mockResolvedValue({ licenseConfigs: [] } as never);
+    vi.spyOn(api, 'listBuckets').mockResolvedValue({
+      items: [{ id: 'b1', name: 'prod-bucket' }],
+    } as never);
+    vi.spyOn(api, 'getGcsObjectContent').mockRejectedValue(new GapiError('Not found', 404, 'NOT_FOUND'));
+    vi.spyOn(api, 'uploadFileToGcs').mockResolvedValue({} as never);
+    vi.spyOn(api, 'createCloudBuild').mockRejectedValue(
+      new GapiError(
+        'generic::permission_denied: caller does not have permission to act as service account projects/g7372556-ge-prod-prod-9y/serviceAccounts/110704003257377761995',
+        403,
+        'PERMISSION_DENIED',
+      ),
+    );
+
+    render(
+      <GroupLicenseDeploymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        projectNumber="g7372556-ge-prod-prod-9y"
+        currentConfig={{ appLocation: 'global', userStoreId: 'default_user_store' }}
+        apiLicenseConfigs={[]}
+        editConfig={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Deploy Job' })).not.toBeDisabled();
+    });
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Group & IAM Access' })[0]);
+    const permissionsGuide = screen.getByTestId('group-licensing-permissions-guide');
+    expect(permissionsGuide.textContent).toContain('Option A (Recommended — No Google Workspace Admin Console Needed)');
+    expect(permissionsGuide.textContent).toContain('cloudidentity.googleapis.com');
+    expect(permissionsGuide.textContent).toContain('roles/iam.serviceAccountUser');
+
+    fireEvent.change(screen.getByPlaceholderText('group1@example.com, group2@example.com'), {
+      target: { value: 'ge-users@customer.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy Job' }));
+
+    await waitFor(() => {
+      const alertText = screen.getByRole('alert').textContent || '';
+      expect(alertText).toContain('--filter="uniqueId=110704003257377761995"');
+      expect(alertText).toContain('roles/iam.serviceAccountUser');
+    });
+  });
 });
+
 
 
 

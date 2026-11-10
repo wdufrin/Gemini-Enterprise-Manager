@@ -27,6 +27,8 @@ vi.mock('../../services/apiService', () => ({
   updateAgent: vi.fn(),
   deleteSkillAgent: vi.fn(),
   ensureSkillSharingOnEngine: vi.fn(),
+  updateEngine: vi.fn(),
+  scanSkillMarkdownViaRegistry: vi.fn(),
   suspendAgent: vi.fn(),
   rejectAgent: vi.fn(),
   enableAgent: vi.fn(),
@@ -362,5 +364,94 @@ describe('SkillsViewer Component', () => {
     // Negative assertion: the 1 skill that failed with 403 remains selected so the user knows which item failed, and the error toast is rendered
     expect(screen.getByText('1 selected')).toBeInTheDocument();
     expect(screen.getByText(/403 PERMISSION_DENIED/i)).toBeInTheDocument();
+  });
+
+  it('warns when skill-sharing-without-admin-approval is FEATURE_STATE_ON and enforces admin approval on click', async () => {
+    vi.mocked(api.updateEngine).mockResolvedValue({} as AppEngine);
+    const onRefreshSkills = vi.fn();
+    const unreviewedEngine: AppEngine = {
+      name: 'projects/123/locations/global/collections/default_collection/engines/test-engine-id',
+      displayName: 'Test Engine',
+      solutionType: 'SOLUTION_TYPE_CHAT',
+      features: {
+        skills: 'FEATURE_STATE_ON',
+        'skill-sharing': 'FEATURE_STATE_ON',
+        'skill-sharing-without-admin-approval': 'FEATURE_STATE_ON',
+      },
+    };
+
+    renderWithToast(
+      <SkillsViewer
+        agents={mockAgents}
+        config={mockConfig}
+        engine={unreviewedEngine}
+        userProfile={mockUserProfile}
+        onRefreshSkills={onRefreshSkills}
+      />
+    );
+
+    expect(screen.getByTestId('skills-unreviewed-sharing-warning')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('require-skill-admin-approval-btn'));
+
+    await waitFor(() => {
+      expect(api.updateEngine).toHaveBeenCalledWith(
+        unreviewedEngine.name,
+        {
+          features: {
+            skills: 'FEATURE_STATE_ON',
+            'skill-sharing': 'FEATURE_STATE_ON',
+            'skill-sharing-without-admin-approval': 'FEATURE_STATE_OFF',
+          },
+        },
+        ['features'],
+        mockConfig
+      );
+      expect(onRefreshSkills).toHaveBeenCalled();
+    });
+  });
+
+  it('runs Scan via Registry inside SkillDetailModal and surfaces critical prompt-injection findings before promotion', async () => {
+    vi.mocked(api.scanSkillMarkdownViaRegistry).mockResolvedValueOnce({
+      skillResourceName:
+        'projects/test-project-123/locations/global/skills/private-gem-scan-org-skill-1',
+      revisionName:
+        'projects/test-project-123/locations/global/skills/private-gem-scan-org-skill-1/revisions/rev-1',
+      scanResult: {
+        scanState: 'SUCCEEDED',
+        findings: ['projects/test-project-123/locations/global/findings/f-inj-1'],
+      },
+      findings: [
+        {
+          name: 'projects/test-project-123/locations/global/findings/f-inj-1',
+          resource:
+            'projects/test-project-123/locations/global/skills/private-gem-scan-org-skill-1/revisions/rev-1',
+          severity: 'SEVERITY_CRITICAL',
+          findingClass: 'VULNERABILITY',
+          files: [{ path: 'SKILL.md', lineNumber: 3 }],
+          detail: 'Instruction attempts to exfiltrate financial table rows to external endpoint.',
+        },
+      ],
+      cleanedUp: true,
+    });
+
+    renderWithToast(
+      <SkillsViewer
+        agents={mockAgents}
+        config={mockConfig}
+        userProfile={mockUserProfile}
+        onRefreshSkills={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Inspect Corporate Financial Forecaster'));
+    const scanBtn = await screen.findByTestId('scan-skill-via-registry-btn');
+    fireEvent.click(scanBtn);
+
+    const verdictPanel = await screen.findByTestId('skill-security-scan-verdict');
+    expect(verdictPanel.textContent).toContain('Security Risks Detected (1 Finding) — Do Not Promote');
+    expect(verdictPanel.textContent).toContain('CRITICAL');
+    expect(verdictPanel.textContent).toContain('VULNERABILITY');
+    expect(verdictPanel.textContent).toContain('SKILL.md:3');
+    expect(verdictPanel.textContent).toContain('exfiltrate financial table rows');
   });
 });

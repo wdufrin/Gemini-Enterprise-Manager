@@ -17,7 +17,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as api from '../services/apiService';
 import { Config, GroupLicensingEditConfig } from '../types';
-import { toErrorMessage } from '../utils/errors';
+import { formatActAsServiceAccountError, toErrorMessage } from '../utils/errors';
 import { useToast } from '../context/ToastContext';
 import { CloudRunServiceItem, GroupLicensingRunReport } from '../components/license/types';
 import { sanitizeCloudRunLabelValue } from '../components/license/GroupLicenseDeploymentModal';
@@ -424,7 +424,9 @@ export function useGroupLicensing(
         }
       }
     } catch (err: unknown) {
-      toast.error(`Error triggering service: ${toErrorMessage(err)}`);
+      toast.error(
+        `Error triggering service: ${formatActAsServiceAccountError(err, 'An unknown error occurred.', serviceProject)}`
+      );
     } finally {
       setRunningServices((prev) => ({ ...prev, [serviceId]: false }));
     }

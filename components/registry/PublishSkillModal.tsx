@@ -15,8 +15,9 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { Config, RegistrySkill } from '../../types';
+import { Config, RegistrySkill, SkillScanningPolicy } from '../../types';
 import * as api from '../../services/apiService';
+import { useToast } from '../../context/ToastContext';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import JSZip from 'jszip';
 
@@ -26,6 +27,8 @@ interface PublishSkillModalProps {
   config: Config;
   onSkillPublished: () => void;
 }
+
+const MAX_SINGLE_FILE_SCAN_BYTES = 1024 * 1024; // 1 MB per-file scan limit
 
 const TEMPLATES: Record<string, { name: string; description: string; instruction: string }> = {
   brandVoice: {
@@ -96,11 +99,14 @@ const PublishSkillModal: React.FC<PublishSkillModalProps> = ({
   onSkillPublished,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
   const [skillId, setSkillId] = useState('company-brand-voice');
   const [displayName, setDisplayName] = useState('Company Brand Voice');
-  const [publisherNamespace, setPublisherNamespace] = useState('default');
   const [description, setDescription] = useState(TEMPLATES.brandVoice.description);
+  const [sourceMode, setSourceMode] = useState<'INLINE_MARKDOWN' | 'GCS_URI'>('INLINE_MARKDOWN');
   const [instruction, setInstruction] = useState(TEMPLATES.brandVoice.instruction);
+  const [gcsUri, setGcsUri] = useState('');
+  const [scanningPolicy, setScanningPolicy] = useState<SkillScanningPolicy>('ENABLED_BLOCKING');
   const [targetState, setTargetState] = useState<'TARGET_STATE_ACTIVE' | 'TARGET_STATE_DRAFT'>('TARGET_STATE_ACTIVE');
   const [selectedTemplate, setSelectedTemplate] = useState('brandVoice');
   const [isPublishing, setIsPublishing] = useState(false);
@@ -115,12 +121,22 @@ const PublishSkillModal: React.FC<PublishSkillModalProps> = ({
 
   if (!isOpen) return null;
 
+  const sanitizedPreviewId =
+    skillId
+      .trim()
+      .toLowerCase()
+      .replace(/^private-/, '')
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'skill-id';
+
   const handleTemplateChange = (templateKey: string) => {
     setSelectedTemplate(templateKey);
+    setSourceMode('INLINE_MARKDOWN');
     const tmpl = TEMPLATES[templateKey];
     if (tmpl) {
       setSkillId(tmpl.name);
-      setDisplayName(tmpl.name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()));
+      setDisplayName(tmpl.name.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()));
       setDescription(tmpl.description);
       setInstruction(tmpl.instruction);
     }
@@ -137,96 +153,126 @@ const PublishSkillModal: React.FC<PublishSkillModalProps> = ({
       return;
     }
 
-    setIsPublishing(true);
-    setError(null);
+    const sanitizedId = skillId
+      .trim()
+      .toLowerCase()
+      .replace(/^private-/, '')
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '');
 
-    try {
-      const sanitizedId = skillId.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
-      
-      const skillMd = instruction.trim() || `---
-name: ${sanitizedId}
-description: ${description.trim()}
----
+    if (!sanitizedId) {
+      setError('Skill ID must contain at least one lowercase letter or digit.');
+      return;
+    }
 
-# ${displayName}
+    let initialRevision: RegistrySkill['initialRevision'];
+    if (sourceMode === 'GCS_URI') {
+      const trimmedUri = gcsUri.trim();
+      if (!trimmedUri.startsWith('gs://') || !trimmedUri.toLowerCase().endsWith('.zip')) {
+        setError('Cloud Storage Archive URI must start with gs:// and point to a .zip bundle (e.g. gs://my-bucket/skills/brand-voice.zip).');
+        return;
+      }
+      initialRevision = {
+        gcsSource: {
+          uri: trimmedUri,
+        },
+      };
+    } else {
+      const skillMd =
+        instruction.trim() ||
+        `---\nname: ${sanitizedId}\ndescription: ${description.trim()}\n---\n\n# ${displayName.trim()}\n\n${description.trim()}`;
 
-${description.trim()}`;
+      if (scanningPolicy !== 'DISABLED') {
+        const mdBytes = new TextEncoder().encode(skillMd).length;
+        if (mdBytes > MAX_SINGLE_FILE_SCAN_BYTES) {
+          setError(
+            `SKILL.md size (${mdBytes} bytes) exceeds the 1 MB (${MAX_SINGLE_FILE_SCAN_BYTES} bytes) single-file scanning limit enforced by Cloud Agent Registry.`
+          );
+          return;
+        }
+      }
 
       const zip = new JSZip();
       zip.file('SKILL.md', skillMd);
       const b64Zip = await zip.generateAsync({ type: 'base64' });
+      initialRevision = {
+        archiveUploadSource: {
+          archiveContent: b64Zip,
+        },
+      };
+    }
 
+    setIsPublishing(true);
+    setError(null);
+
+    try {
       const payload: Partial<RegistrySkill> = {
         displayName: displayName.trim(),
         description: description.trim() || undefined,
         type: 'SIMPLE',
-        targetState: 'TARGET_STATE_DRAFT',
-        initialRevision: {
-          archiveUploadSource: {
-            archiveContent: b64Zip,
-          },
-        } as any,
+        targetState,
+        scanningConfig: {
+          policy: scanningPolicy,
+        },
+        initialRevision,
       };
 
-      // Only set publisher if a verified publisher (e.g. discoveryengine.googleapis.com, cloud.google.com) is chosen
-      if (publisherNamespace.trim() && publisherNamespace !== 'default' && publisherNamespace !== config.projectId) {
-        payload.publisher = `projects/${config.projectId}/locations/${config.appLocation || 'global'}/publishers/${publisherNamespace.trim()}`;
-      }
-
       const createdSkill = await api.createRegistrySkill(payload, config, sanitizedId);
-
-      // If user selected active, poll until skill is ready and revision is ACTIVE
-      if (targetState === 'TARGET_STATE_ACTIVE') {
-        const fallbackResourceName = payload.publisher
-          ? `projects/${config.projectId}/locations/${config.appLocation || 'global'}/skills/${sanitizedId}`
+      const skillResourceName =
+        createdSkill?.name && createdSkill.name.includes('/skills/')
+          ? createdSkill.name
           : `projects/${config.projectId}/locations/${config.appLocation || 'global'}/skills/private-${sanitizedId}`;
-        const skillResourceName =
-          createdSkill?.name && createdSkill.name.includes('/skills/')
-            ? createdSkill.name
-            : fallbackResourceName;
 
-        let activated = false;
-        let lastPollError = '';
-        for (let i = 0; i < 10; i++) {
-          await new Promise((r) => setTimeout(r, 2500));
-          try {
-            const currentSkill = await api.getRegistrySkill(skillResourceName, config);
-            const revs = await api.listRegistrySkillRevisions(skillResourceName, config);
-            const isReady = currentSkill.state !== 'STATE_CREATING';
-            const activeRev = revs.find((r) => r.state === 'ACTIVE') || revs[0];
+      // In Agent Registry v1 GA:
+      // - If targetState is TARGET_STATE_ACTIVE and scanningConfig.policy is ENABLED_BLOCKING,
+      //   Agent Registry places the skill in STATE_DRAFT during the LLM security scan and
+      //   automatically transitions it to STATE_ACTIVE once the scan succeeds with 0 findings.
+      // - Perform a brief check on the initial revision scanResult if listRegistrySkillRevisions is available.
+      if (
+        targetState === 'TARGET_STATE_ACTIVE' &&
+        scanningPolicy === 'ENABLED_BLOCKING' &&
+        typeof api.listRegistrySkillRevisions === 'function'
+      ) {
+        const revs = await api.listRegistrySkillRevisions(skillResourceName, config);
+        const latestRev = revs?.[0];
+        const scanState = latestRev?.scanResult?.scanState;
+        const findingCount = latestRev?.scanResult?.findings?.length || 0;
 
-            if (isReady && activeRev) {
-              await api.updateRegistrySkill(
-                skillResourceName,
-                {
-                  defaultRevision: activeRev.name,
-                  targetState: 'TARGET_STATE_ACTIVE',
-                },
-                ['default_revision', 'target_state'],
-                config
-              );
-              activated = true;
-              break;
-            }
-          } catch (pollErr: unknown) {
-            console.warn('Waiting for initial revision ingestion...', pollErr);
-            lastPollError = pollErr instanceof Error ? pollErr.message : String(pollErr);
-          }
-        }
-
-        if (!activated) {
+        if (findingCount > 0) {
           onSkillPublished();
-          throw new Error(
-            `Skill was created in Draft state, but initial revision ingestion did not complete within 25 seconds${lastPollError ? ` (last poll warning: ${lastPollError})` : ''}. You can activate it from the Skill Details modal once ingestion finishes.`
+          setError(
+            `Skill "${displayName.trim()}" was created in Draft state, but activation was blocked by Agent Registry Security Scanning (${findingCount} security finding${findingCount === 1 ? '' : 's'} detected). Open the skill's Security Findings tab to inspect and remediate.`
           );
+          return;
         }
+        if (scanState === 'FAILED' || scanState === 'UNSUPPORTED_FORMAT') {
+          onSkillPublished();
+          setError(
+            `Skill "${displayName.trim()}" was created in Draft state, but security scanning ended in ${scanState}${latestRev?.scanResult?.errorMessage ? `: ${latestRev.scanResult.errorMessage}` : ''}.`
+          );
+          return;
+        }
+        if (createdSkill?.state === 'STATE_DRAFT' || scanState === 'RUNNING') {
+          toast.info(
+            `Published "${displayName.trim()}". Agent Registry is running the blocking security scan and will automatically transition the skill to Active once 0 findings are confirmed.`
+          );
+        } else {
+          toast.success(`Published "${displayName.trim()}" to Google Cloud Agent Registry.`);
+        }
+      } else {
+        toast.success(`Published "${displayName.trim()}" to Google Cloud Agent Registry.`);
       }
 
       onSkillPublished();
       onClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to publish central skill:', err);
-      setError(err.message || 'Failed to publish skill to Google Cloud Agent Registry.');
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Failed to publish skill to Google Cloud Agent Registry.';
+      setError(message);
     } finally {
       setIsPublishing(false);
     }
@@ -259,16 +305,16 @@ ${description.trim()}`;
             <div>
               <h3 id="publish-skill-title" className="text-base font-bold text-gray-100 flex items-center gap-2">
                 Publish Enterprise Skill to Central Registry
-                <span className="px-2 py-0.5 text-[11px] font-semibold bg-purple-900/60 text-purple-300 rounded border border-purple-700">
-                  Agent Registry
+                <span className="px-2 py-0.5 text-[11px] font-semibold bg-purple-900/60 text-purple-300 rounded border border-purple-700 font-mono">
+                  Agent Registry v1 GA
                 </span>
               </h3>
               <p className="text-xs text-gray-400 mt-0.5">
-                Publishes a 1st-class company skill to Google Cloud Agent Registry ({config.projectId}).
+                Publishes a standalone organization skill to Google Cloud Agent Registry ({config.projectId}).
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-200">
+          <button type="button" onClick={onClose} aria-label="Close modal" className="text-gray-400 hover:text-gray-200">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -289,7 +335,7 @@ ${description.trim()}`;
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <div>
-                    <div className="font-bold text-red-100">Skill Publication Failed</div>
+                    <div className="font-bold text-red-100">Skill Publication Notice</div>
                     <div className="mt-0.5 leading-relaxed">{error}</div>
                   </div>
                 </div>
@@ -308,7 +354,7 @@ ${description.trim()}`;
                 )}
               </div>
               <div className="text-[11px] text-red-300/90 border-t border-red-800/60 pt-1.5">
-                Remediation: Verify that <code className="font-mono">agentregistry.googleapis.com</code> is enabled, the Skill ID is lowercase alphanumeric with hyphens, and your account has <code className="font-mono">roles/agentregistry.admin</code>.
+                Remediation: Verify that <code className="font-mono">agentregistry.googleapis.com</code> is enabled, your account holds <code className="font-mono">roles/agentregistry.admin</code>, and any Org Policy constraint (<code className="font-mono">custom.skillsScanningEnforcement</code>) permits the selected scanning policy.
               </div>
             </div>
           )}
@@ -341,13 +387,14 @@ ${description.trim()}`;
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Display Name */}
             <div>
-              <label className="block text-xs font-semibold text-gray-300 mb-1">
+              <label htmlFor="publish-skill-display-name" className="block text-xs font-semibold text-gray-300 mb-1">
                 Display Name <span className="text-red-400">*</span>
               </label>
               <input
+                id="publish-skill-display-name"
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
@@ -359,12 +406,13 @@ ${description.trim()}`;
 
             {/* Skill ID */}
             <div>
-              <label className="block text-xs font-semibold text-gray-300 mb-1">
+              <label htmlFor="publish-skill-id" className="block text-xs font-semibold text-gray-300 mb-1">
                 Skill ID / Slash Command <span className="text-red-400">*</span>
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-2 text-gray-500 text-xs font-mono">/</span>
                 <input
+                  id="publish-skill-id"
                   type="text"
                   value={skillId}
                   onChange={(e) => setSkillId(e.target.value)}
@@ -373,73 +421,153 @@ ${description.trim()}`;
                   required
                 />
               </div>
-            </div>
-
-            {/* Publisher Namespace */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-300 mb-1">
-                Publisher Namespace
-              </label>
-              <select
-                value={publisherNamespace}
-                onChange={(e) => setPublisherNamespace(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-              >
-                <option value="default">🏢 Organization Internal (Default)</option>
-                <option value="discoveryengine.googleapis.com">Gemini Enterprise (discoveryengine)</option>
-                <option value="cloud.google.com">Google Cloud (cloud.google.com)</option>
-              </select>
+              <div className="text-[10px] text-gray-400 font-mono mt-1 truncate" title={`projects/${config.projectId}/locations/${config.appLocation || 'global'}/skills/private-${sanitizedPreviewId}`}>
+                GA Resource ID: <span className="text-purple-300">private-{sanitizedPreviewId}</span>
+              </div>
             </div>
           </div>
 
           {/* Description / Semantic Trigger */}
           <div>
-            <label className="block text-xs font-semibold text-gray-300 mb-1">
-              Semantic Activation Trigger & Description <span className="text-red-400">*</span>
+            <label htmlFor="publish-skill-description" className="block text-xs font-semibold text-gray-300 mb-1">
+              Semantic Activation Trigger &amp; Description <span className="text-red-400">*</span>
             </label>
             <textarea
+              id="publish-skill-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              placeholder="Describe what this skill does and the exact scenarios when Gemini Enterprise should trigger it..."
+              placeholder="Describe what this skill does and the exact scenarios when Gemini Enterprise or ADK agents should trigger it..."
               className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-xs text-gray-200 focus:outline-none focus:border-blue-500"
               required
             />
             <p className="text-[11px] text-gray-500 mt-1">
-              This description instructs the model when to automatically activate this skill during conversations.
+              Used by Gemini Enterprise and Vertex AI Agent Platform planners for progressive disclosure routing.
             </p>
           </div>
 
-          {/* SKILL.md Markdown Content */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-300 mb-1">
-              Skill Execution Guidelines (<span className="font-mono text-blue-400">SKILL.md</span>)
-            </label>
-            <textarea
-              value={instruction}
-              onChange={(e) => setInstruction(e.target.value)}
-              rows={10}
-              placeholder="Markdown instructions, domain rules, and structured response criteria..."
-              className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-blue-500 leading-relaxed"
-              required
-            />
+          {/* Package Source Selector (Inline SKILL.md vs GCS Archive) */}
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-gray-300">Skill Revision Bundle Source</span>
+              <div className="inline-flex bg-gray-900 p-1 rounded-lg border border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setSourceMode('INLINE_MARKDOWN')}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+                    sourceMode === 'INLINE_MARKDOWN'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  📝 Inline SKILL.md
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSourceMode('GCS_URI')}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+                    sourceMode === 'GCS_URI'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  ☁️ Cloud Storage ZIP (gs://)
+                </button>
+              </div>
+            </div>
+
+            {sourceMode === 'INLINE_MARKDOWN' ? (
+              <div>
+                <label htmlFor="publish-skill-markdown" className="block text-xs font-semibold text-gray-300 mb-1">
+                  Skill Execution Guidelines (<span className="font-mono text-blue-400">SKILL.md</span>)
+                </label>
+                <textarea
+                  id="publish-skill-markdown"
+                  value={instruction}
+                  onChange={(e) => setInstruction(e.target.value)}
+                  rows={9}
+                  placeholder="Markdown instructions, domain rules, and structured response criteria..."
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-blue-500 leading-relaxed"
+                  required
+                />
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="publish-skill-gcs-uri" className="block text-xs font-semibold text-gray-300 mb-1">
+                  Cloud Storage ZIP Archive URI (<span className="font-mono text-blue-400">initialRevision.gcsSource.uri</span>)
+                </label>
+                <input
+                  id="publish-skill-gcs-uri"
+                  type="text"
+                  value={gcsUri}
+                  onChange={(e) => setGcsUri(e.target.value)}
+                  placeholder="gs://my-enterprise-skills/brand-voice-v1.zip"
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-blue-500"
+                  required
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Archive must contain a root <code className="font-mono text-gray-300">SKILL.md</code> and optional <code className="font-mono text-gray-300">scripts/</code> or <code className="font-mono text-gray-300">assets/</code> directories (max 10 MB uncompressed when auto-scanning is enabled).
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Security Auto-Scanning Policy */}
+          <div className="p-3.5 bg-gray-900/70 rounded-lg border border-emerald-700/40 space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <label htmlFor="publish-skill-scan-policy" className="text-xs font-semibold text-gray-100 flex items-center gap-1.5">
+                  <span>🛡️ Automated Security Scanning Policy</span>
+                  <span className="px-1.5 py-0.5 text-[10px] font-mono bg-emerald-900/50 text-emerald-300 rounded border border-emerald-700/60">
+                    scanningConfig.policy
+                  </span>
+                </label>
+                <div className="text-[11px] text-gray-400 mt-0.5">
+                  Scans <code className="font-mono">SKILL.md</code>, <code className="font-mono">scripts/</code>, and <code className="font-mono">assets/</code> via LLM for prompt injection, data exfiltration, and hardcoded secrets.
+                </div>
+              </div>
+              <select
+                id="publish-skill-scan-policy"
+                data-testid="publish-skill-scan-policy-select"
+                value={scanningPolicy}
+                onChange={(e) => setScanningPolicy(e.target.value as SkillScanningPolicy)}
+                className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-200 font-semibold focus:outline-none focus:border-blue-500 shrink-0"
+              >
+                <option value="ENABLED_BLOCKING">🛡️ Blocking (Recommended Default)</option>
+                <option value="ENABLED_NONBLOCKING">👁️ Non-Blocking (Audit Findings Only)</option>
+                <option value="DISABLED">⚪ Disabled (No Auto-Scan)</option>
+              </select>
+            </div>
+            {scanningPolicy === 'ENABLED_BLOCKING' && (
+              <div className="text-[11px] text-emerald-300/90 bg-emerald-950/30 border border-emerald-800/50 rounded px-2.5 py-1.5">
+                Revisions with critical/high/low vulnerabilities or secrets are automatically blocked from download and cannot be promoted as <code className="font-mono">defaultRevision</code>.
+              </div>
+            )}
+            {scanningPolicy === 'DISABLED' && (
+              <div className="text-[11px] text-amber-300/90 bg-amber-950/30 border border-amber-800/50 rounded px-2.5 py-1.5">
+                Warning: Disabling auto-scanning bypasses vulnerability and secret checks and will be rejected if your organization enforces <code className="font-mono">custom.skillsScanningEnforcement</code>.
+              </div>
+            )}
           </div>
 
           {/* Target State */}
-          <div className="p-3 bg-gray-900/60 rounded-lg border border-gray-700/80 flex items-center justify-between">
+          <div className="p-3.5 bg-gray-900/60 rounded-lg border border-gray-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
-              <div className="text-xs font-semibold text-gray-200">Catalog Availability Status</div>
+              <label htmlFor="publish-skill-target-state" className="text-xs font-semibold text-gray-200 block">
+                Catalog Availability Status
+              </label>
               <div className="text-[11px] text-gray-400 mt-0.5">
-                Active skills immediately appear in the Gemini Enterprise Skills Gallery with a + Install button.
+                Active skills appear in the Gemini Enterprise <strong>Browse skills</strong> gallery where employees click <strong>+ Install</strong> to add them to their workspace.
               </div>
             </div>
             <select
+              id="publish-skill-target-state"
               value={targetState}
-              onChange={(e) => setTargetState(e.target.value as any)}
-              className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-200 font-semibold focus:outline-none focus:border-blue-500"
+              onChange={(e) => setTargetState(e.target.value as 'TARGET_STATE_ACTIVE' | 'TARGET_STATE_DRAFT')}
+              className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-200 font-semibold focus:outline-none focus:border-blue-500 shrink-0"
             >
-              <option value="TARGET_STATE_ACTIVE">🟢 Active (Live in Company)</option>
-              <option value="TARGET_STATE_DRAFT">🟡 Draft (Staging)</option>
+              <option value="TARGET_STATE_ACTIVE">🟢 Active (Live in Gallery)</option>
+              <option value="TARGET_STATE_DRAFT">🟡 Draft (Staging Only)</option>
             </select>
           </div>
         </form>
@@ -454,6 +582,7 @@ ${description.trim()}`;
             Cancel
           </button>
           <button
+            type="button"
             onClick={handlePublish}
             disabled={isPublishing}
             className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-lg shadow-md transition-colors disabled:opacity-50 flex items-center gap-1.5"

@@ -207,5 +207,45 @@ describe('configAuditService', () => {
     const summary = await runConfigAudit(sourceConfig, targetConfig);
     expect(summary.overallScore).toBe(0);
   });
+
+  it('flags DRIFT when destination Agent Registry skill has scanningConfig.policy DISABLED while source is ENABLED_BLOCKING', async () => {
+    vi.mocked(api.getEngine).mockImplementation(async (appId, cfg) => ({
+      name: `projects/${cfg.projectId}/locations/global/collections/default_collection/engines/${appId}`,
+      displayName: 'Test Engine',
+      solutionType: 'SOLUTION_TYPE_SEARCH_AND_ASSISTANT',
+    } as unknown as AppEngine));
+    vi.mocked(api.listResources).mockResolvedValue({ dataStores: [] });
+    vi.mocked(api.listAuthorizations).mockResolvedValue({ authorizations: [] });
+    vi.mocked(api.listLicenseConfigsUsageStats).mockResolvedValue({ licenseConfigUsageStats: [] } as unknown as { licenseConfigUsageStats: [] });
+
+    vi.mocked(api.listRegistrySkills).mockImplementation(async (cfg) => {
+      if (cfg.projectId === 'source-project-100') {
+        return [
+          {
+            name: 'projects/source-project-100/locations/global/skills/private-sec-playbook',
+            displayName: 'SecOps Playbook',
+            state: 'STATE_ACTIVE',
+            scanningConfig: { policy: 'ENABLED_BLOCKING' },
+          },
+        ];
+      }
+      return [
+        {
+          name: 'projects/target-project-200/locations/global/skills/private-sec-playbook',
+          displayName: 'SecOps Playbook',
+          state: 'STATE_ACTIVE',
+          scanningConfig: { policy: 'DISABLED' },
+        },
+      ];
+    });
+
+    const summary = await runConfigAudit(sourceConfig, targetConfig);
+    const skillItem = summary.items.find((i) => i.name === 'Skill: SecOps Playbook');
+    expect(skillItem).toBeDefined();
+    expect(skillItem?.status).toBe('DRIFT');
+    expect(skillItem?.severity).toBe('WARNING');
+    expect(skillItem?.details).toContain('security auto-scanning DISABLED');
+    expect(summary.driftCount).toBeGreaterThan(0);
+  });
 });
 

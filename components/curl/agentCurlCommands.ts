@@ -19,17 +19,17 @@ import { CurlInfoMap } from './types';
 
 export const AGENT_CURL_COMMANDS: CurlInfoMap = {
   [Page.SKILLS_REGISTRY]: {
-    description: "These are the REST API calls for managing skills and revisions in the Google Cloud Agent Platform Skills Registry (agentregistry.googleapis.com), and deploying skills to Gemini Enterprise assistant engines.",
+    description: "These are the REST API calls for managing enterprise skills, auto-scanning policies, and security findings in Google Cloud Agent Registry (agentregistry.googleapis.com/v1 GA), and deploying skills to Gemini Enterprise assistant engines.",
     commands: [
       {
         title: 'List Skills in Registry',
         command: `curl -X GET \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  "https://agentregistry.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills"`
+  "https://agentregistry.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills"`
       },
       {
-        title: 'Publish / Create Skill with ZIP Bundle',
+        title: 'Publish / Create Skill with Auto-Scanning Policy',
         command: `curl -X POST \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "Content-Type: application/json" \\
@@ -37,20 +37,46 @@ export const AGENT_CURL_COMMANDS: CurlInfoMap = {
   -d '{
         "displayName": "IT Incident Postmortem",
         "description": "Generates structured IT incident postmortem reports.",
-        "source": {
-          "inlineSource": {
-            "archive": "[BASE64_ENCODED_ZIP_CONTAINING_SKILL_MD]"
+        "type": "SIMPLE",
+        "targetState": "TARGET_STATE_ACTIVE",
+        "scanningConfig": {
+          "policy": "ENABLED_BLOCKING"
+        },
+        "initialRevision": {
+          "archiveUploadSource": {
+            "archiveContent": "[BASE64_ENCODED_ZIP_CONTAINING_SKILL_MD]"
           }
         }
       }' \\
-  "https://agentregistry.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills?skillId=[SKILL_ID]"`
+  "https://agentregistry.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills?skillId=[SKILL_ID]"`
       },
       {
-        title: 'List Skill Revisions',
+        title: 'Update Skill Auto-Scanning Policy (ENABLED_BLOCKING / ENABLED_NONBLOCKING / DISABLED)',
+        command: `curl -X PATCH \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "scanningConfig": {
+          "policy": "ENABLED_BLOCKING"
+        }
+      }' \\
+  "https://agentregistry.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/private-[SKILL_ID]?updateMask=scanningConfig"`
+      },
+      {
+        title: 'List Skill Revisions & Scan Results',
         command: `curl -X GET \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  "https://agentregistry.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/[SKILL_ID]/revisions"`
+  "https://agentregistry.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/private-[SKILL_ID]/revisions"`
+      },
+      {
+        title: 'List Security Findings for a Skill Revision',
+        command: `curl -G \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  --data-urlencode 'filter=resource="projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/private-[SKILL_ID]/revisions/[REVISION_ID]"' \\
+  "https://agentregistry.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/findings"`
       },
       {
         title: 'Activate Skill in Company Catalog',
@@ -60,12 +86,12 @@ export const AGENT_CURL_COMMANDS: CurlInfoMap = {
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   -d '{
         "targetState": "TARGET_STATE_ACTIVE",
-        "defaultRevision": "projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/[SKILL_ID]/revisions/[REVISION_ID]"
+        "defaultRevision": "projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/private-[SKILL_ID]/revisions/[REVISION_ID]"
       }' \\
-  "https://agentregistry.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/[SKILL_ID]?updateMask=default_revision,target_state"`
+  "https://agentregistry.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/private-[SKILL_ID]?updateMask=default_revision,target_state"`
       },
       {
-        title: 'Deploy Skill to Gemini Enterprise Engine Assistant',
+        title: 'Link Agent Registry Skill to Gemini Enterprise Engine Gallery',
         command: `curl -X POST \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "Content-Type: application/json" \\
@@ -76,7 +102,7 @@ export const AGENT_CURL_COMMANDS: CurlInfoMap = {
         "state": "ENABLED",
         "sharingConfig": { "scope": "ALL_USERS" },
         "skillAgentDefinition": {
-          "instruction": "Generates structured IT incident postmortem reports."
+          "agentRegistrySkill": "projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/private-[SKILL_ID]"
         }
       }' \\
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/default_assistant/agents?agentId=[SKILL_ID]"`
@@ -86,7 +112,7 @@ export const AGENT_CURL_COMMANDS: CurlInfoMap = {
         command: `curl -X DELETE \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  "https://agentregistry.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/[SKILL_ID]"`
+  "https://agentregistry.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/skills/private-[SKILL_ID]"`
       }
     ]
   },

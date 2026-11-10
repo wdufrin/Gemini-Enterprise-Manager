@@ -162,13 +162,13 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
 
               <div className="bg-gray-800/80 border border-gray-700 rounded-md p-3.5 space-y-1.5">
                 <div className="font-semibold text-blue-300">
-                  2. Create Service Account &amp; Grant IAM + Workspace Access
+                  2. Create Service Account, Grant GCP IAM &amp; Add to Group (No Workspace Admin Needed)
                 </div>
                 <ol className="list-decimal list-inside space-y-1 text-gray-300">
-                  <li>Create service account <code>license-grouper-sa@&lt;project-id&gt;.iam.gserviceaccount.com</code> in <strong>IAM &amp; Admin &rarr; Service Accounts</strong>.</li>
-                  <li>Grant Project roles: <code>Discovery Engine Editor</code>, <code>Logs Writer</code>, and <code>Service Usage Consumer</code>.</li>
-                  <li>Grant Bucket role: <code>Storage Object Viewer</code> on your GCS bucket.</li>
-                  <li>In <strong>Google Workspace Admin Console</strong> (<code>admin.google.com</code>), add the service account to an external-enabled security group and assign that group the <strong>Groups Reader</strong> admin role.</li>
+                  <li>Enable <code>cloudidentity.googleapis.com</code> on your GCP project and create <code>license-grouper-sa@&lt;project-id&gt;.iam.gserviceaccount.com</code> in <strong>IAM &amp; Admin &rarr; Service Accounts</strong>.</li>
+                  <li><strong>Important (prevents <code>actAs</code> error):</strong> On <code>license-grouper-sa</code> &rarr; <strong>Permissions</strong>, grant <em>your admin user account</em> the <strong>Service Account User</strong> (<code>roles/iam.serviceAccountUser</code>) role so you can attach it to Cloud Run and Cloud Scheduler.</li>
+                  <li>Grant <code>license-grouper-sa</code> Project roles: <code>Discovery Engine Editor</code>, <code>Logs Writer</code>, <code>Service Usage Consumer</code>, plus Bucket role <code>Storage Object Viewer</code>.</li>
+                  <li><strong>Group Read Access (No Workspace Admin Console needed):</strong> Add <code>license-grouper-sa@...</code> directly as a <strong>Member</strong> of your target Google Group(s) in <code>groups.google.com</code> or <strong>GCP IAM &rarr; Groups</strong> (enable <em>Allow external members</em> on the group if restricted).</li>
                 </ol>
               </div>
 

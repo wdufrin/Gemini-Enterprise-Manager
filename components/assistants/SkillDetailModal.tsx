@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Agent, Config } from '../../types';
+import { Agent, Config, RegistrySkillFinding, RegistrySkillScanResult } from '../../types';
 import * as api from '../../services/apiService';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
@@ -31,6 +31,14 @@ import {
   validateSkillDisplayName,
 } from '../../utils/skillExportUtils';
 import ExportSkillsModal from './ExportSkillsModal';
+
+interface SkillSecurityScanSummary {
+  mode: 'STAGED_MARKDOWN_SCAN' | 'LINKED_REGISTRY_SKILL';
+  revisionName: string;
+  scanResult: RegistrySkillScanResult;
+  findings: RegistrySkillFinding[];
+  scannedAt: string;
+}
 
 interface SkillDetailModalProps {
   skill: Agent | null;
@@ -52,10 +60,15 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const mdFileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<'instructions' | 'config' | 'raw'>('instructions');
+  const [activeTab, setActiveTab] = useState<'instructions' | 'security' | 'config' | 'raw'>('instructions');
   const [copied, setCopied] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+
+  // Agent Registry Security Audit State
+  const [isScanningSecurity, setIsScanningSecurity] = useState(false);
+  const [securityScanSummary, setSecurityScanSummary] = useState<SkillSecurityScanSummary | null>(null);
+  const [securityScanError, setSecurityScanError] = useState<string | null>(null);
 
   // SKILL.md Editing State
   const [isEditingInstructions, setIsEditingInstructions] = useState(Boolean(initialEditMode));
@@ -100,8 +113,12 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
         setFullSkillMdText(rawInst);
       }
       setEditError(null);
+      setSecurityScanSummary(null);
+      setSecurityScanError(null);
       setIsEditingInstructions(Boolean(initialEditMode));
       if (initialEditMode) {
+        setActiveTab('instructions');
+      } else {
         setActiveTab('instructions');
       }
     }
@@ -111,7 +128,7 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
     isOpen,
     onClose,
     containerRef,
-    preventClose: isUpdating || isExportOpen,
+    preventClose: isUpdating || isScanningSecurity || isExportOpen,
   });
 
   if (!isOpen || !skill) return null;
@@ -124,6 +141,98 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   const normalizedState = (skill.state || 'PRIVATE').toUpperCase();
   const canEditSkillMd =
     classification.origin !== 'GOOGLE_1P' && !classification.isInstructionRedactedForAdmin;
+  const canScanViaRegistry =
+    classification.origin !== 'GOOGLE_1P' &&
+    !classification.isInstructionRedactedForAdmin &&
+    Boolean(skillDef.instruction?.trim() || skillDef.agentRegistrySkill);
+
+  const handleRunSecurityScan = async () => {
+    setActiveTab('security');
+    setIsScanningSecurity(true);
+    setSecurityScanError(null);
+
+    try {
+      if (skillDef.agentRegistrySkill && !skillDef.instruction?.trim()) {
+        if (
+          typeof api.listRegistrySkillRevisions !== 'function' ||
+          typeof api.listRegistryFindings !== 'function'
+        ) {
+          throw new Error('Agent Registry scanning APIs are not available in this environment.');
+        }
+        const revs = await api.listRegistrySkillRevisions(skillDef.agentRegistrySkill, config);
+        if (revs.length === 0) {
+          throw new Error(
+            `Linked Agent Registry skill "${skillDef.agentRegistrySkill}" has no published revisions to inspect.`
+          );
+        }
+        const latestRev = revs.find((r) => r.state === 'ACTIVE') || revs[0];
+        const revFindings = await api.listRegistryFindings(
+          config,
+          `resource="${latestRev.name}"`
+        );
+        setSecurityScanSummary({
+          mode: 'LINKED_REGISTRY_SKILL',
+          revisionName: latestRev.name,
+          scanResult: latestRev.scanResult || { scanState: 'SUCCEEDED', findings: [] },
+          findings: revFindings,
+          scannedAt: new Date().toISOString(),
+        });
+        if (revFindings.length > 0) {
+          toast.error(
+            `Security scan detected ${revFindings.length} finding(s) on linked Agent Registry skill.`
+          );
+        } else {
+          toast.success('Linked Agent Registry skill revision passed security scan with 0 findings.');
+        }
+      } else {
+        if (typeof api.scanSkillMarkdownViaRegistry !== 'function') {
+          throw new Error('Agent Registry security scanner API is not available.');
+        }
+        const markdownToScan = isEditingInstructions
+          ? editorMode === 'full_skill_md'
+            ? fullSkillMdText
+            : buildSkillMarkdownDocument({
+                name: skillId,
+                description: editDescription || skill.description || skill.displayName || skillId,
+                body: editInstruction,
+              })
+          : skillDef.instruction || '';
+
+        const verdict = await api.scanSkillMarkdownViaRegistry(
+          {
+            skillKey: skillId,
+            displayName: skill.displayName || skillId,
+            description: skill.description || editDescription,
+            markdownContent: markdownToScan,
+            cleanupAfterScan: true,
+          },
+          config
+        );
+        setSecurityScanSummary({
+          mode: 'STAGED_MARKDOWN_SCAN',
+          revisionName: verdict.revisionName,
+          scanResult: verdict.scanResult,
+          findings: verdict.findings,
+          scannedAt: new Date().toISOString(),
+        });
+        if (verdict.findings.length > 0) {
+          toast.error(
+            `Agent Registry security scan flagged ${verdict.findings.length} finding(s) in "${skill.displayName}". Review before promoting.`
+          );
+        } else {
+          toast.success(
+            `Agent Registry security scan passed (0 findings) for "${skill.displayName}".`
+          );
+        }
+      }
+    } catch (err: unknown) {
+      const msg = toErrorMessage(err);
+      setSecurityScanError(msg);
+      toast.error(`Security scan failed: ${msg}`);
+    } finally {
+      setIsScanningSecurity(false);
+    }
+  };
 
   const handleSwitchEditorMode = (nextMode: 'markdown' | 'full_skill_md') => {
     setEditError(null);
@@ -432,7 +541,19 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
               <p className="text-xs text-gray-400 mt-1 font-mono break-all">{skill.name}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            {canScanViaRegistry && (
+              <button
+                type="button"
+                data-testid="scan-skill-via-registry-btn"
+                disabled={isScanningSecurity || isUpdating}
+                onClick={() => void handleRunSecurityScan()}
+                className="px-2.5 py-1.5 bg-emerald-950/70 hover:bg-emerald-900/80 disabled:opacity-50 text-emerald-200 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 border border-emerald-700/70 whitespace-nowrap"
+                title="Audit SKILL.md instructions for prompt injection, exfiltration, and secrets via Google Cloud Agent Registry LLM Security Scanner"
+              >
+                <span>{isScanningSecurity ? '⏳ Scanning...' : '🛡️ Scan via Registry'}</span>
+              </button>
+            )}
             {canEditSkillMd && (
               <button
                 type="button"
@@ -477,8 +598,11 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
         </div>
 
         {/* Tab Selection */}
-        <div className="flex border-b border-gray-700 bg-gray-900/40 px-5 pt-3 gap-3">
+        <div role="tablist" aria-label="Skill details tabs" className="flex flex-wrap border-b border-gray-700 bg-gray-900/40 px-5 pt-3 gap-3">
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'instructions'}
             onClick={() => setActiveTab('instructions')}
             className={`pb-2.5 px-2 text-xs font-semibold border-b-2 transition-colors ${
               activeTab === 'instructions'
@@ -489,6 +613,36 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
             Instructions (`SKILL.md`)
           </button>
           <button
+            type="button"
+            role="tab"
+            data-testid="skill-security-scan-tab"
+            aria-selected={activeTab === 'security'}
+            onClick={() => setActiveTab('security')}
+            className={`pb-2.5 px-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+              activeTab === 'security'
+                ? 'border-emerald-500 text-emerald-400'
+                : 'border-transparent text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <span>🛡️ Security Scan</span>
+            {securityScanSummary && (
+              <span
+                className={`px-1.5 py-0.5 text-[10px] font-bold rounded-full border ${
+                  securityScanSummary.findings.length > 0
+                    ? 'bg-red-900/70 text-red-200 border-red-700'
+                    : 'bg-emerald-900/70 text-emerald-200 border-emerald-700'
+                }`}
+              >
+                {securityScanSummary.findings.length > 0
+                  ? `${securityScanSummary.findings.length} Finding${securityScanSummary.findings.length === 1 ? '' : 's'}`
+                  : 'Clean'}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'config'}
             onClick={() => setActiveTab('config')}
             className={`pb-2.5 px-2 text-xs font-semibold border-b-2 transition-colors ${
               activeTab === 'config'
@@ -496,9 +650,12 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
                 : 'border-transparent text-gray-400 hover:text-gray-200'
             }`}
           >
-            Metadata & Tools
+            Metadata &amp; Tools
           </button>
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'raw'}
             onClick={() => setActiveTab('raw')}
             className={`pb-2.5 px-2 text-xs font-semibold border-b-2 transition-colors ${
               activeTab === 'raw'
@@ -761,6 +918,131 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
                       This skill utilizes an external registry package, Cloud Storage files, or first-party connector binaries.
                     </span>
                   )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'security' && (
+            <div data-testid="skill-security-scan-panel" className="space-y-4 text-xs">
+              <div className="p-4 bg-gray-900/80 border border-emerald-700/50 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="font-bold text-gray-100 flex items-center gap-2">
+                    <span>🛡️ Agent Registry LLM Security Scanner</span>
+                    <span className="px-1.5 py-0.5 text-[10px] font-mono bg-emerald-950/60 text-emerald-300 rounded border border-emerald-800">
+                      agentregistry.googleapis.com/v1
+                    </span>
+                  </div>
+                  <p className="text-gray-400 text-[11px] leading-relaxed">
+                    Gemini Enterprise does not natively auto-scan web app skills on creation. Use this governance check before promoting shared employee skills to audit <code className="font-mono">SKILL.md</code> for prompt injection, data exfiltration instructions, and hardcoded secrets.
+                  </p>
+                </div>
+                {canScanViaRegistry && (
+                  <button
+                    type="button"
+                    data-testid="run-skill-security-scan-panel-btn"
+                    disabled={isScanningSecurity || isUpdating}
+                    onClick={() => void handleRunSecurityScan()}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow transition-colors shrink-0"
+                  >
+                    {isScanningSecurity ? '⏳ Scanning via Agent Registry...' : '🛡️ Run Security Scan'}
+                  </button>
+                )}
+              </div>
+
+              {classification.isInstructionRedactedForAdmin ? (
+                <div className="p-4 bg-purple-950/30 border border-purple-700/70 rounded-lg text-purple-200 space-y-1.5">
+                  <div className="font-bold">🔒 Private User Skill — Instructions Redacted Until Shared</div>
+                  <p className="text-[11px] text-purple-200/90 leading-relaxed">
+                    Discovery Engine redacts private user skill instructions (<code className="font-mono">PRIVATE</code> state) from administrators. Keep <code className="font-mono">skill-sharing-without-admin-approval</code> turned <strong>OFF</strong> on your engine so employees must submit skills for admin review, exposing <code className="font-mono">SKILL.md</code> for security scanning prior to org-wide promotion.
+                  </p>
+                </div>
+              ) : classification.origin === 'GOOGLE_1P' ? (
+                <div className="p-4 bg-emerald-950/25 border border-emerald-700/60 rounded-lg text-emerald-200">
+                  ✨ First-party Google connector skills are verified upstream by Google Cloud.
+                </div>
+              ) : isScanningSecurity ? (
+                <div className="p-8 bg-gray-900/60 border border-gray-700 rounded-lg text-center text-gray-300 space-y-2">
+                  <div className="font-semibold">
+                    Packaging <code className="font-mono">SKILL.md</code> and running blocking LLM scan in Cloud Agent Registry...
+                  </div>
+                  <div className="text-[11px] text-gray-400">
+                    Inspecting instructions for prompt injection, exfiltration vectors, and embedded credentials.
+                  </div>
+                </div>
+              ) : securityScanError ? (
+                <div
+                  role="alert"
+                  data-testid="skill-security-scan-error"
+                  className="p-4 bg-red-950/50 border border-red-700 rounded-lg text-red-200 space-y-1.5"
+                >
+                  <div className="font-bold">Security Scan Failed</div>
+                  <div className="font-mono text-[11px] break-all">{securityScanError}</div>
+                  <div className="text-[11px] text-red-300/90">
+                    Ensure <code className="font-mono">agentregistry.googleapis.com</code> is enabled on <code className="font-mono">{config.projectId}</code> and your account holds <code className="font-mono">roles/agentregistry.admin</code>.
+                  </div>
+                </div>
+              ) : securityScanSummary ? (
+                <div className="space-y-3" data-testid="skill-security-scan-verdict">
+                  <div
+                    className={`p-4 rounded-lg border space-y-1 ${
+                      securityScanSummary.findings.length > 0
+                        ? 'bg-red-950/40 border-red-700 text-red-100'
+                        : 'bg-emerald-950/30 border-emerald-700 text-emerald-100'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-bold text-sm">
+                        {securityScanSummary.findings.length > 0
+                          ? `🚨 Security Risks Detected (${securityScanSummary.findings.length} Finding${securityScanSummary.findings.length === 1 ? '' : 's'}) — Do Not Promote`
+                          : '✅ Security Scan Passed (0 Findings) — Safe for Org Promotion'}
+                      </div>
+                      <span className="text-[10px] font-mono opacity-80">
+                        State: {securityScanSummary.scanResult.scanState || 'SUCCEEDED'}
+                      </span>
+                    </div>
+                    <div className="text-[11px] opacity-85 font-mono break-all">
+                      Audited Revision: {securityScanSummary.revisionName}
+                    </div>
+                  </div>
+
+                  {securityScanSummary.findings.map((finding) => (
+                    <div
+                      key={finding.name}
+                      className="p-3.5 bg-gray-900 border border-red-800/70 rounded-lg space-y-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-red-900/70 text-red-100 border border-red-600">
+                          {(finding.severity || 'SEVERITY_HIGH').replace('SEVERITY_', '')}
+                        </span>
+                        {finding.findingClass && (
+                          <span className="px-2 py-0.5 text-[10px] font-mono font-semibold bg-purple-950/60 text-purple-200 rounded border border-purple-700">
+                            {finding.findingClass}
+                          </span>
+                        )}
+                      </div>
+                      {finding.detail && (
+                        <p className="text-gray-200 leading-relaxed">{finding.detail}</p>
+                      )}
+                      {finding.files && finding.files.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {finding.files.map((fileRef, idx) => (
+                            <code
+                              key={`${fileRef.path}-${idx}`}
+                              className="px-2 py-0.5 bg-gray-950 border border-gray-700 rounded text-[11px] font-mono text-amber-300"
+                            >
+                              {fileRef.path}
+                              {fileRef.lineNumber !== undefined ? `:${fileRef.lineNumber}` : ''}
+                            </code>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-6 bg-gray-900/50 border border-gray-700 rounded-lg text-center text-gray-400">
+                  Click <strong>🛡️ Run Security Scan</strong> above to audit this skill&apos;s <code className="font-mono">SKILL.md</code> instructions via Google Cloud Agent Registry.
                 </div>
               )}
             </div>

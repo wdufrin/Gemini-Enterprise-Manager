@@ -702,12 +702,24 @@ export const requestAgentReview = async (name: string, config: Config) => {
   );
 };
 
-export const ensureSkillSharingOnEngine = async (config: Config) => {
+export interface EnsureSkillSharingOptions {
+  allowWithoutAdminApproval?: boolean;
+  suppressErrors?: boolean;
+}
+
+export const ensureSkillSharingOnEngine = async (
+  config: Config,
+  options?: EnsureSkillSharingOptions,
+): Promise<void> => {
   try {
     const { projectId, appLocation, collectionId = "default_collection", appId } = config;
-    if (!appId) return;
+    if (!appId) {
+      throw new Error("Engine appId is required to enable engine skill features.");
+    }
     const engine = await getEngine(appId, config);
-    if (!engine) return;
+    if (!engine) {
+      throw new Error(`Engine "${appId}" was not found when attempting to enable skill features.`);
+    }
     const features = { ...(engine.features || {}) };
     let needsUpdate = false;
     if (features["skills"] !== "FEATURE_STATE_ON") {
@@ -718,21 +730,30 @@ export const ensureSkillSharingOnEngine = async (config: Config) => {
       features["skill-sharing"] = "FEATURE_STATE_ON";
       needsUpdate = true;
     }
-    if (features["skill-sharing-without-admin-approval"] !== "FEATURE_STATE_ON") {
+    if (
+      options?.allowWithoutAdminApproval === true &&
+      features["skill-sharing-without-admin-approval"] !== "FEATURE_STATE_ON"
+    ) {
       features["skill-sharing-without-admin-approval"] = "FEATURE_STATE_ON";
       needsUpdate = true;
     }
     if (needsUpdate) {
-      const engineName = engine.name || `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}`;
+      const engineName =
+        engine.name ||
+        `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}`;
       await updateEngine(engineName, { features }, ["features"], config);
     }
-  } catch (err) {
-    console.warn("Could not auto-enable skill-sharing features on engine:", err);
+  } catch (err: unknown) {
+    if (options?.suppressErrors) {
+      console.warn("Could not auto-enable skill-sharing features on engine:", err);
+      return;
+    }
+    throw err;
   }
 };
 
 export const promoteSkillToOrg = async (agent: Agent, config: Config): Promise<Agent> => {
-  await ensureSkillSharingOnEngine(config);
+  await ensureSkillSharingOnEngine(config, { suppressErrors: true });
 
   if (agent.state === "PRIVATE" || !agent.state) {
     try {

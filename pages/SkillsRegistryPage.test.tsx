@@ -26,9 +26,13 @@ vi.mock('../services/apiService', () => ({
   listRegistrySkills: vi.fn(),
   createRegistrySkill: vi.fn(),
   updateRegistrySkill: vi.fn(),
+  updateRegistrySkillScanningPolicy: vi.fn(),
   deleteRegistrySkill: vi.fn(),
   listRegistrySkillRevisions: vi.fn(),
+  listRegistryFindings: vi.fn(),
   listResources: vi.fn(),
+  createAgent: vi.fn(),
+  promoteSkillToOrg: vi.fn(),
 }));
 
 const mockUserProfile: UserProfile = {
@@ -39,7 +43,7 @@ const mockUserProfile: UserProfile = {
 
 const mockRegistrySkills: RegistrySkill[] = [
   {
-    name: 'projects/test-project-123/locations/global/skills/company-brand-voice',
+    name: 'projects/test-project-123/locations/global/skills/private-company-brand-voice',
     displayName: 'Corporate Brand Voice',
     description: 'Enforces official company communication style and guidelines.',
     type: 'SIMPLE',
@@ -47,6 +51,7 @@ const mockRegistrySkills: RegistrySkill[] = [
     targetState: 'TARGET_STATE_ACTIVE',
     publisher: 'projects/test-project-123/locations/global/publishers/mycompany.com',
     skillId: 'urn:skill:mycompany.com:brand:corporate-brand-voice',
+    scanningConfig: { policy: 'ENABLED_BLOCKING' },
   },
   {
     name: 'projects/test-project-123/locations/global/skills/cloud.google.com-gke-storage',
@@ -59,17 +64,18 @@ const mockRegistrySkills: RegistrySkill[] = [
     skillId: 'urn:skill:cloud.google.com:container:gke-storage',
   },
   {
-    name: 'projects/test-project-123/locations/global/skills/draft-skill',
+    name: 'projects/test-project-123/locations/global/skills/private-draft-skill',
     displayName: 'Draft Skill',
     state: 'STATE_DRAFT',
+    scanningConfig: { policy: 'DISABLED' },
   },
   {
-    name: 'projects/test-project-123/locations/global/skills/deprecated-skill',
+    name: 'projects/test-project-123/locations/global/skills/private-deprecated-skill',
     displayName: 'Deprecated Skill',
     state: 'STATE_DEPRECATED',
   },
   {
-    name: 'projects/test-project-123/locations/global/skills/unknown-skill',
+    name: 'projects/test-project-123/locations/global/skills/private-unknown-skill',
     displayName: 'Unknown Skill',
     state: 'STATE_WEIRD',
   },
@@ -86,6 +92,7 @@ describe('SkillsRegistryPage Component', () => {
     vi.clearAllMocks();
     vi.mocked(api.listRegistrySkills).mockResolvedValue(mockRegistrySkills);
     vi.mocked(api.listRegistrySkillRevisions).mockResolvedValue([]);
+    vi.mocked(api.listRegistryFindings).mockResolvedValue([]);
     vi.mocked(api.listResources).mockResolvedValue({ engines: [] });
   });
 
@@ -93,7 +100,7 @@ describe('SkillsRegistryPage Component', () => {
     return render(<ToastProvider>{ui}</ToastProvider>);
   };
 
-  it('renders enterprise skills registry with statistics, skill list, and Data Connector MCP badge for private-admin-mcp-* skills', async () => {
+  it('renders enterprise skills registry with v1 GA badge, auto-scan badges, and Data Connector MCP badge', async () => {
     renderWithToast(
       <SkillsRegistryPage
         projectNumber="123456789012"
@@ -106,16 +113,18 @@ describe('SkillsRegistryPage Component', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Enterprise Skills Registry')).toBeInTheDocument();
+      expect(screen.getByText('agentregistry.googleapis.com (v1 GA)')).toBeInTheDocument();
       expect(screen.getByText('Corporate Brand Voice')).toBeInTheDocument();
       expect(screen.getByText('gke-storage')).toBeInTheDocument();
       expect(screen.getByText('Jira Custom MCP Skill')).toBeInTheDocument();
       expect(screen.getByText('Data Connector MCP')).toBeInTheDocument();
       expect(screen.getAllByText('mycompany.com').length).toBeGreaterThan(0);
       expect(screen.getAllByText('cloud.google.com').length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/🛡️ Blocking/i).length).toBeGreaterThan(0);
     });
   });
 
-  it('filters skills by search query', async () => {
+  it('filters skills by search query and auto-scan policy, and opens Org Scan Policy YAML guide', async () => {
     renderWithToast(
       <SkillsRegistryPage
         projectNumber="123456789012"
@@ -130,16 +139,33 @@ describe('SkillsRegistryPage Component', () => {
       expect(screen.getByText('Corporate Brand Voice')).toBeInTheDocument();
     });
 
+    // Filter by DISABLED scan policy
+    const scanFilter = screen.getByTestId('registry-scan-policy-filter');
+    fireEvent.change(scanFilter, { target: { value: 'DISABLED' } });
+    expect(screen.getByText('Draft Skill')).toBeInTheDocument();
+    expect(screen.queryByText('Corporate Brand Voice')).not.toBeInTheDocument();
+
+    // Reset scan filter and search by query
+    fireEvent.change(scanFilter, { target: { value: 'ALL' } });
     const searchInput = screen.getByPlaceholderText(/Search skills by name/i);
     fireEvent.change(searchInput, { target: { value: 'gke' } });
 
     expect(screen.queryByText('Corporate Brand Voice')).not.toBeInTheDocument();
     expect(screen.getByText('gke-storage')).toBeInTheDocument();
+
+    // Toggle Org Scan Policy constraint YAML panel
+    fireEvent.click(screen.getByTestId('toggle-org-scan-policy-btn'));
+    expect(screen.getByTestId('org-scan-policy-panel').textContent).toContain(
+      'custom.skillsScanningEnforcement'
+    );
   });
 
-  it('opens Publish Enterprise Skill modal and submits new skill', async () => {
-    vi.mocked(api.createRegistrySkill).mockResolvedValue({} as unknown as RegistrySkill);
-    vi.mocked(api.updateRegistrySkill).mockResolvedValue({} as unknown as RegistrySkill);
+  it('opens Publish Enterprise Skill modal and submits new skill with ENABLED_BLOCKING scanningConfig', async () => {
+    vi.mocked(api.createRegistrySkill).mockResolvedValue({
+      name: 'projects/test-project-123/locations/global/skills/private-company-brand-voice',
+      displayName: 'Company Brand Voice',
+      state: 'STATE_ACTIVE',
+    } as RegistrySkill);
 
     renderWithToast(
       <SkillsRegistryPage
@@ -165,12 +191,114 @@ describe('SkillsRegistryPage Component', () => {
       expect(api.createRegistrySkill).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'SIMPLE',
-          targetState: 'TARGET_STATE_DRAFT',
+          targetState: 'TARGET_STATE_ACTIVE',
+          scanningConfig: { policy: 'ENABLED_BLOCKING' },
         }),
         expect.objectContaining({ projectId: 'test-project-123' }),
         expect.any(String)
       );
     });
+  });
+
+  it('blocks activation in PublishSkillModal and displays alert when initial revision scan reports security findings', async () => {
+    vi.mocked(api.createRegistrySkill).mockResolvedValueOnce({
+      name: 'projects/test-project-123/locations/global/skills/private-company-brand-voice',
+      displayName: 'Company Brand Voice',
+      state: 'STATE_DRAFT',
+    } as RegistrySkill);
+    vi.mocked(api.listRegistrySkillRevisions).mockResolvedValueOnce([
+      {
+        name: 'projects/test-project-123/locations/global/skills/private-company-brand-voice/revisions/rev-1',
+        state: 'ACTIVE',
+        scanResult: {
+          scanState: 'SUCCEEDED',
+          findings: ['projects/test-project-123/locations/global/findings/f-1'],
+        },
+      },
+    ]);
+
+    renderWithToast(
+      <SkillsRegistryPage
+        projectNumber="123456789012"
+        projectId="test-project-123"
+        setProjectNumber={vi.fn()}
+        accessToken="mock-token"
+        userProfile={mockUserProfile}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Corporate Brand Voice')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /\+ Publish Enterprise Skill/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Publish Enterprise Skill$/i }));
+
+    const errBanner = await screen.findByTestId('publish-skill-error-banner');
+    expect(errBanner.textContent).toContain('activation was blocked by Agent Registry Security Scanning');
+    expect(errBanner.textContent).toContain('1 security finding');
+  });
+
+  it('updates per-skill scanningConfig.policy and renders Security Findings in RegistrySkillDetailModal', async () => {
+    vi.mocked(api.listRegistrySkillRevisions).mockResolvedValue([
+      {
+        name: 'projects/test-project-123/locations/global/skills/private-company-brand-voice/revisions/rev-99',
+        state: 'ACTIVE',
+        scanResult: {
+          scanState: 'SUCCEEDED',
+          findings: ['projects/test-project-123/locations/global/findings/finding-secret-1'],
+        },
+      },
+    ]);
+    vi.mocked(api.listRegistryFindings).mockResolvedValue([
+      {
+        name: 'projects/test-project-123/locations/global/findings/finding-secret-1',
+        resource:
+          'projects/test-project-123/locations/global/skills/private-company-brand-voice/revisions/rev-99',
+        severity: 'SEVERITY_CRITICAL',
+        findingClass: 'SECRET',
+        files: [{ path: 'scripts/upload.py', lineNumber: 14 }],
+        detail: 'Hardcoded OAuth bearer token detected in scripts/upload.py.',
+      },
+    ]);
+    vi.mocked(api.updateRegistrySkillScanningPolicy).mockResolvedValue({} as RegistrySkill);
+
+    renderWithToast(
+      <SkillsRegistryPage
+        projectNumber="123456789012"
+        projectId="test-project-123"
+        setProjectNumber={vi.fn()}
+        accessToken="mock-token"
+        userProfile={mockUserProfile}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Corporate Brand Voice')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByTitle('Inspect Skill & Revisions')[0]);
+
+    // Update scanning policy from ENABLED_BLOCKING to ENABLED_NONBLOCKING
+    const policySelect = await screen.findByTestId('registry-skill-scan-policy-select');
+    fireEvent.change(policySelect, { target: { value: 'ENABLED_NONBLOCKING' } });
+    fireEvent.click(screen.getByTestId('save-registry-scan-policy-btn'));
+
+    await waitFor(() => {
+      expect(api.updateRegistrySkillScanningPolicy).toHaveBeenCalledWith(
+        'projects/test-project-123/locations/global/skills/private-company-brand-voice',
+        'ENABLED_NONBLOCKING',
+        expect.objectContaining({ projectId: 'test-project-123' })
+      );
+    });
+
+    // Switch to Security Findings tab and verify critical secret finding is rendered
+    fireEvent.click(screen.getByTestId('registry-skill-findings-tab'));
+    const findingsList = await screen.findByTestId('registry-skill-findings-list');
+    expect(findingsList.textContent).toContain('CRITICAL');
+    expect(findingsList.textContent).toContain('SECRET');
+    expect(findingsList.textContent).toContain('scripts/upload.py:14');
+    expect(findingsList.textContent).toContain('Hardcoded OAuth bearer token detected');
   });
 
   it('renders skill states correctly including unknown states', async () => {
@@ -212,9 +340,10 @@ describe('SkillsRegistryPage Component', () => {
     expect(errorBanner.textContent).toMatch(/403|PERMISSION_DENIED|API/i);
     unmount();
 
-    // Now test RegistrySkillDetailModal warning surfacing when revisions/engines fail
     vi.mocked(api.listRegistrySkills).mockResolvedValue(mockRegistrySkills);
-    vi.mocked(api.listRegistrySkillRevisions).mockRejectedValueOnce(new Error('500 Revisions backend error'));
+    vi.mocked(api.listRegistrySkillRevisions).mockRejectedValueOnce(
+      new Error('500 Revisions backend error')
+    );
     vi.mocked(api.listResources).mockRejectedValueOnce(new Error('403 Engine list forbidden'));
 
     renderWithToast(
@@ -234,6 +363,8 @@ describe('SkillsRegistryPage Component', () => {
     fireEvent.click(screen.getAllByTitle('Inspect Skill & Revisions')[0]);
 
     expect(await screen.findByTestId('registry-skill-warnings-banner')).toBeInTheDocument();
-    expect(screen.getByTestId('registry-skill-warnings-banner').textContent).toMatch(/500 Revisions backend error/);
+    expect(screen.getByTestId('registry-skill-warnings-banner').textContent).toMatch(
+      /500 Revisions backend error/
+    );
   });
 });

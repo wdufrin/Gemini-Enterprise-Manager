@@ -119,8 +119,18 @@ class FakeGoogle:
     """Stateful fake of the Directory members API and the Discovery Engine license APIs."""
 
     def __init__(self, groups=None, licenses=None, configs=None, *, pollable=True, reject_filter=False,
-                 op_error_chunks=(), polls_until_done=1, hooks=None, config_json=None):
+                 op_error_chunks=(), polls_until_done=1, hooks=None, config_json=None, cloud_identity_groups=None):
         self.groups = {k.lower(): list(v) for k, v in (groups or {}).items()}
+        self.cloud_identity_groups = (
+            {k.lower(): list(v) for k, v in cloud_identity_groups.items()}
+            if cloud_identity_groups is not None
+            else None
+        )
+        self.ci_id_map = {
+            email: f"groups/ci-{idx}"
+            for idx, email in enumerate(sorted(self.cloud_identity_groups or {}))
+        }
+        self.ci_reverse_map = {gid: email for email, gid in self.ci_id_map.items()}
         self.licenses = {r["userPrincipal"].lower(): dict(r) for r in (licenses or [])}
         self.configs = configs if configs is not None else {TIER: {"licenseCount": "100000", "state": "ACTIVE"}}
         self.pollable = pollable
@@ -132,7 +142,21 @@ class FakeGoogle:
         self.ops = {}
         self.outstanding = set()
         self.max_outstanding_at_submit = 0
-        self.calls = {k: 0 for k in ("dir", "ul_list", "usage", "config_get", "batch", "op_poll", "gcs", "other")}
+        self.calls = {
+            k: 0
+            for k in (
+                "dir",
+                "ci_lookup",
+                "ci_memberships",
+                "ul_list",
+                "usage",
+                "config_get",
+                "batch",
+                "op_poll",
+                "gcs",
+                "other",
+            )
+        }
         self.urls = []
         self.payloads = []
         self.headers = {}
@@ -163,6 +187,40 @@ class FakeGoogle:
         if parsed.netloc == "storage.googleapis.com":
             self.calls["gcs"] += 1
             return Resp(200, self.config_json)
+        if parsed.netloc == "cloudidentity.googleapis.com":
+            if path == "/v1/groups:lookup":
+                self.calls["ci_lookup"] += 1
+                if self.cloud_identity_groups is None:
+                    return Resp(403, {"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "Cloud Identity API not enabled"}})
+                group_key = urllib.parse.unquote(query.get("groupKey.id", [""])[0]).lower()
+                gid = self.ci_id_map.get(group_key)
+                if not gid:
+                    return Resp(404, {"error": {"code": 404, "message": f"Group {group_key} not found"}})
+                return Resp(200, {"name": gid})
+            if path.startswith("/v1/groups/") and path.endswith("/memberships"):
+                self.calls["ci_memberships"] += 1
+                if self.cloud_identity_groups is None:
+                    return Resp(403, {"error": {"code": 403, "status": "PERMISSION_DENIED"}})
+                gid = path[len("/v1/"): -len("/memberships")]
+                group_email = self.ci_reverse_map.get(gid)
+                if not group_email:
+                    return Resp(404, {"error": {"code": 404, "message": "Group ID not found"}})
+                raw_items = self.cloud_identity_groups[group_email]
+                size = min(int(query.get("pageSize", ["500"])[0]), 500)
+                start = int(query.get("pageToken", ["0"])[0])
+                formatted = [
+                    m
+                    if isinstance(m, dict) and "preferredMemberKey" in m
+                    else {
+                        "preferredMemberKey": {"id": m["email"] if isinstance(m, dict) else m},
+                        "type": m.get("type", "USER") if isinstance(m, dict) else "USER",
+                    }
+                    for m in raw_items[start:start + size]
+                ]
+                body = {"memberships": formatted}
+                if start + size < len(raw_items):
+                    body["nextPageToken"] = str(start + size)
+                return Resp(200, body)
         if "/admin/directory/v1/groups/" in path and path.endswith("/members"):
             self.calls["dir"] += 1
             group = urllib.parse.unquote(path.split("/groups/")[1].rsplit("/members", 1)[0]).lower()
@@ -766,6 +824,42 @@ def t_handle_trigger():
     assert status == 500 and "Seat shortfall" in body["message"] and body["summary"]["seatShortfalls"][0]["skipped"] == 3
     err_report = json.loads([l for l in stdout.splitlines() if l.startswith("GROUP_LICENSING_REPORT_JSON: ")][0].split("GROUP_LICENSING_REPORT_JSON: ", 1)[1])
     assert err_report["status"] == "error" and err_report["httpStatus"] == 500
+
+
+@check("Cloud Identity Groups API fallback resolves direct + nested groups (with cycle guard) when Directory API returns 403")
+def t_cloud_identity_fallback():
+    ns = load_ns()
+
+    def directory_forbidden(method, url, fake, payload):
+        if method == "get" and "/admin/directory/v1/groups/" in url:
+            return Resp(403, {"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "Not a Workspace Admin"}})
+        return None
+
+    # Include a nested sub-group AND a cyclic group reference (eng -> subteam -> eng) + service accounts to filter out
+    ci_groups = {
+        GROUP: [
+            {"preferredMemberKey": {"id": "Alice@Example.com"}, "type": "USER"},
+            {"preferredMemberKey": {"id": "subteam@example.com"}, "type": "GROUP"},
+            {"preferredMemberKey": {"id": "license-grouper-sa@my-proj.iam.gserviceaccount.com"}, "type": "SERVICE_ACCOUNT"},
+            {"preferredMemberKey": {"id": "other-sa@my-proj.iam.gserviceaccount.com"}, "type": "USER"},
+        ],
+        "subteam@example.com": [
+            {"preferredMemberKey": {"id": "Bob@Example.com"}, "type": "USER"},
+            {"preferredMemberKey": {"id": "alice@example.com"}, "type": "USER"},
+            {"preferredMemberKey": {"id": GROUP}, "type": "GROUP"},  # cycle back to parent group
+        ],
+    }
+
+    fake = FakeGoogle(cloud_identity_groups=ci_groups, hooks=[directory_forbidden])
+    summary = ns["run_adder"](fake, BASE, PARENT, config_for([GROUP]))
+    assert fake.calls["ci_lookup"] == 2 and fake.calls["ci_memberships"] == 2, fake.calls
+    assert summary["entitledUsers"] == 2 and summary["plannedAssignments"] == 2, summary
+    assert fake.assigned_principals() == ["alice@example.com", "bob@example.com"]
+
+    # Negative check: when BOTH Directory API and Cloud Identity API return 403, raise clear PermissionError
+    fake_denied = FakeGoogle(cloud_identity_groups=None, hooks=[directory_forbidden])
+    err = expect_raises(PermissionError, ns["list_group_members"], fake_denied, GROUP)
+    assert "cloudidentity.googleapis.com" in str(err) and "no Workspace Admin required" in str(err), str(err)
 
 
 def main():

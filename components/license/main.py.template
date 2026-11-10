@@ -299,8 +299,69 @@ def resolve_entitlements(config):
     return resolved
 
 
+def _list_group_members_via_cloud_identity(session, group_email):
+    """Resolves USER members (including nested sub-groups via BFS) using Cloud Identity Groups API v1.
+
+    Does not require Google Workspace Admin Console roles: works whenever cloudidentity.googleapis.com
+    is enabled on the project and the Cloud Run service account is a member/viewer of the Google Group.
+    Returns (unique_emails, None) on success, or (None, failed_response) on HTTP error.
+    """
+    root_email = group_email.strip().lower()
+    queue = [root_email]
+    visited_groups = {root_email}
+    emails = []
+    total_entries = 0
+
+    while queue:
+        current_group = queue.pop(0)
+        encoded_key = urllib.parse.quote(current_group, safe='')
+        lookup_url = f"https://cloudidentity.googleapis.com/v1/groups:lookup?groupKey.id={encoded_key}"
+        lookup_resp = request_with_retry(session, "get", lookup_url)
+        if lookup_resp.status_code != 200:
+            return None, lookup_resp
+        lookup_data = _json_or_none(lookup_resp) or {}
+        group_name = (lookup_data.get("name") or "").strip().lstrip("/")
+        if not group_name.startswith("groups/"):
+            return None, lookup_resp
+
+        next_page_token = None
+        while True:
+            mem_url = f"https://cloudidentity.googleapis.com/v1/{group_name}/memberships?pageSize=500"
+            if next_page_token:
+                mem_url += f"&pageToken={urllib.parse.quote(next_page_token, safe='')}"
+            mem_resp = request_with_retry(session, "get", mem_url)
+            if mem_resp.status_code != 200:
+                return None, mem_resp
+            mem_data = _json_or_none(mem_resp) or {}
+            page_items = mem_data.get("memberships") or []
+            total_entries += len(page_items)
+            for item in page_items:
+                key_obj = item.get("preferredMemberKey") or item.get("memberKey") or {}
+                member_id = (key_obj.get("id") or "").strip().lower()
+                if not member_id:
+                    continue
+                member_type = (item.get("type") or "USER").upper()
+                if member_type == "GROUP":
+                    if member_id not in visited_groups:
+                        visited_groups.add(member_id)
+                        queue.append(member_id)
+                elif member_type == "USER" and not member_id.endswith(".gserviceaccount.com"):
+                    emails.append(member_id)
+            next_page_token = mem_data.get("nextPageToken")
+            if not next_page_token:
+                break
+
+    unique_emails = list(dict.fromkeys(emails))
+    print(f"Resolved {len(unique_emails)} user members for {group_email} (from {total_entries} Cloud Identity membership entries)")
+    return unique_emails, None
+
+
 def list_group_members(session, group_email):
-    """Returns lowercase emails of USER members (including members of nested groups), excluding service accounts."""
+    """Returns lowercase emails of USER members (including members of nested groups), excluding service accounts.
+
+    Tries Admin SDK Directory API first; on 401/403 (no Workspace Admin role), automatically falls back to
+    Cloud Identity Groups API (cloudidentity.googleapis.com/v1), which works without Workspace Admin Console access.
+    """
     encoded_group = urllib.parse.quote(group_email.strip(), safe='')
     url = (
         f"https://admin.googleapis.com/admin/directory/v1/groups/{encoded_group}/members"
@@ -314,14 +375,33 @@ def list_group_members(session, group_email):
             full_url += f"&pageToken={urllib.parse.quote(next_page_token, safe='')}"
         resp = request_with_retry(session, "get", full_url)
         if resp.status_code != 200:
-            print(f"Error listing members for {group_email}: {resp.text}")
             if _is_rate_limited(resp):
                 raise RuntimeError(
                     f"Directory API quota/rate limit still exceeded for {group_email} after {MAX_HTTP_RETRIES} retries "
                     f"({resp.status_code}): {resp.text[:300]}"
                 )
             if resp.status_code in (401, 403):
-                raise PermissionError(f"Directory API permission denied ({resp.status_code}): Ensure Cloud Run Service Account has Domain-Wide Delegation or Groups Reader role to query {group_email}.")
+                print(
+                    f"Note: Admin SDK Directory API returned HTTP {resp.status_code} for {group_email}; "
+                    "falling back to Cloud Identity Groups API (no Workspace Admin role required)."
+                )
+                ci_emails, ci_failed = _list_group_members_via_cloud_identity(session, group_email)
+                if ci_failed is None:
+                    return ci_emails
+                if _is_rate_limited(ci_failed):
+                    raise RuntimeError(
+                        f"Cloud Identity API quota/rate limit still exceeded for {group_email} after {MAX_HTTP_RETRIES} retries "
+                        f"({ci_failed.status_code}): {ci_failed.text[:300]}"
+                    )
+                raise PermissionError(
+                    f"Group membership lookup denied for {group_email} "
+                    f"(Directory HTTP {resp.status_code}; Cloud Identity HTTP {ci_failed.status_code}). "
+                    f"Recommended fix (no Workspace Admin required): enable cloudidentity.googleapis.com on project "
+                    f"{PROJECT_ID} and add the Cloud Run service account as a member/viewer of {group_email} in "
+                    "Google Groups (groups.google.com) or GCP IAM -> Groups. "
+                    "Alternative: assign Groups Reader to the service account in Google Workspace Admin Console."
+                )
+            print(f"Error listing members for {group_email}: {resp.text}")
             raise RuntimeError(f"Unexpected Directory API error for {group_email} ({resp.status_code}): {resp.text[:300]}")
         data = _json_or_none(resp) or {}
         members.extend(data.get("members") or [])
@@ -888,7 +968,8 @@ def handle_trigger(req=None):
         dry_run = _read_dry_run_flag(req)
         scopes = [
             'https://www.googleapis.com/auth/cloud-platform',
-            'https://www.googleapis.com/auth/admin.directory.group.member.readonly'
+            'https://www.googleapis.com/auth/cloud-identity.groups.readonly',
+            'https://www.googleapis.com/auth/admin.directory.group.member.readonly',
         ]
         credentials, project = google.auth.default(scopes=scopes)
         authed_session = AuthorizedSession(credentials)

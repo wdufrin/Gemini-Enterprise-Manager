@@ -15,12 +15,13 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Config, Page, RegistrySkill, UserProfile } from '../types';
+import { Config, Page, RegistrySkill, SkillScanningPolicy, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import PublishSkillModal from '../components/registry/PublishSkillModal';
 import RegistrySkillDetailModal from '../components/registry/RegistrySkillDetailModal';
 import ExportSkillsModal from '../components/assistants/ExportSkillsModal';
 import CurlInfoModal from '../components/CurlInfoModal';
+import { useToast } from '../context/ToastContext';
 import { normalizeRegistrySkillForExport } from '../utils/skillExportUtils';
 
 interface SkillsRegistryPageProps {
@@ -31,6 +32,24 @@ interface SkillsRegistryPageProps {
   userProfile: UserProfile | null;
 }
 
+const getSkillEffectiveScanPolicy = (
+  skill: RegistrySkill,
+): SkillScanningPolicy | 'GOOGLE_VERIFIED' => {
+  const explicit = skill.scanningConfig?.policy;
+  if (
+    explicit === 'ENABLED_BLOCKING' ||
+    explicit === 'ENABLED_NONBLOCKING' ||
+    explicit === 'DISABLED'
+  ) {
+    return explicit;
+  }
+  const pub = (skill.publisher || '').toLowerCase();
+  if (pub.includes('cloud.google.com') || pub.includes('discoveryengine.googleapis.com')) {
+    return 'GOOGLE_VERIFIED';
+  }
+  return 'ENABLED_BLOCKING';
+};
+
 const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   projectNumber,
   projectId = '',
@@ -38,26 +57,33 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   accessToken: _accessToken,
   userProfile: _userProfile,
 }) => {
+  const { toast } = useToast();
   const [selectedLocation, setSelectedLocation] = useState<string>('global');
   const [skills, setSkills] = useState<RegistrySkill[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isCurlModalOpen, setIsCurlModalOpen] = useState<boolean>(false);
+  const [isOrgPolicyOpen, setIsOrgPolicyOpen] = useState<boolean>(false);
+  const [orgPolicyStrictBlocking, setOrgPolicyStrictBlocking] = useState<boolean>(true);
   const [selectedPublisher, setSelectedPublisher] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
-  
+  const [selectedScanFilter, setSelectedScanFilter] = useState<string>('ALL');
+
   const [isPublishModalOpen, setIsPublishModalOpen] = useState<boolean>(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [inspectingSkill, setInspectingSkill] = useState<RegistrySkill | null>(null);
 
-  const currentConfig: Config = useMemo(() => ({
-    projectId: projectId || projectNumber,
-    appLocation: selectedLocation,
-    collectionId: 'default_collection',
-    appId: 'default_engine',
-    assistantId: 'default_assistant',
-  }), [projectId, projectNumber, selectedLocation]);
+  const currentConfig: Config = useMemo(
+    () => ({
+      projectId: projectId || projectNumber,
+      appLocation: selectedLocation,
+      collectionId: 'default_collection',
+      appId: 'default_engine',
+      assistantId: 'default_assistant',
+    }),
+    [projectId, projectNumber, selectedLocation],
+  );
 
   const fetchSkills = useCallback(async () => {
     setIsLoading(true);
@@ -67,7 +93,11 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
       setSkills(result);
     } catch (err: unknown) {
       console.error('Failed to list Agent Registry skills:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch enterprise skills from Google Cloud Agent Registry.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to fetch enterprise skills from Google Cloud Agent Registry.',
+      );
     } finally {
       setIsLoading(false);
     }
@@ -92,6 +122,10 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   const totalCount = skills.length;
   const activeCount = skills.filter((s) => s.state === 'STATE_ACTIVE').length;
   const draftCount = skills.filter((s) => s.state === 'STATE_DRAFT').length;
+  const blockingProtectedCount = skills.filter((s) => {
+    const p = getSkillEffectiveScanPolicy(s);
+    return p === 'ENABLED_BLOCKING' || p === 'GOOGLE_VERIFIED';
+  }).length;
   const publisherCount = publishers.length;
 
   // Filtered skills
@@ -107,6 +141,12 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
       if (selectedStatus === 'ACTIVE' && skill.state !== 'STATE_ACTIVE') return false;
       if (selectedStatus === 'DRAFT' && skill.state !== 'STATE_DRAFT') return false;
 
+      // Scan Policy filter
+      if (selectedScanFilter !== 'ALL') {
+        const effPolicy = getSkillEffectiveScanPolicy(skill);
+        if (effPolicy !== selectedScanFilter) return false;
+      }
+
       // Search query
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
@@ -116,12 +156,51 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
       const desc = (skill.description || '').toLowerCase();
       return name.includes(q) || id.includes(q) || urn.includes(q) || desc.includes(q);
     });
-  }, [skills, selectedPublisher, selectedStatus, searchQuery]);
+  }, [skills, selectedPublisher, selectedStatus, selectedScanFilter, searchQuery]);
 
   const exportRecords = useMemo(
     () => filteredSkills.map((s) => normalizeRegistrySkillForExport(s)),
-    [filteredSkills]
+    [filteredSkills],
   );
+
+  const activeInspectingSkill = useMemo(() => {
+    if (!inspectingSkill) return null;
+    return skills.find((s) => s.name === inspectingSkill.name) || inspectingSkill;
+  }, [inspectingSkill, skills]);
+
+  const orgConstraintYaml = useMemo(() => {
+    if (orgPolicyStrictBlocking) {
+      return [
+        'name: organizations/ORG_ID/customConstraints/custom.skillsScanningEnforcement',
+        'resourceTypes:',
+        '  - agentregistry.googleapis.com/Skill',
+        'methodTypes:',
+        '  - CREATE',
+        '  - UPDATE',
+        'condition: resource.scanningConfig.policy == "ENABLED_BLOCKING"',
+        'actionType: ALLOW',
+        'displayName: Enforce Blocking Security Scanning on Agent Registry Skills',
+        'description: Requires ENABLED_BLOCKING vulnerability & secret scanning on all organization skills.',
+      ].join('\n');
+    }
+    return [
+      'name: organizations/ORG_ID/customConstraints/custom.skillsScanningEnforcement',
+      'resourceTypes:',
+      '  - agentregistry.googleapis.com/Skill',
+      'methodTypes:',
+      '  - CREATE',
+      '  - UPDATE',
+      'condition: resource.scanningConfig.policy == "DISABLED"',
+      'actionType: DENY',
+      'displayName: Prevent Disabling Security Scanning on Agent Registry Skills',
+      'description: Prevents skill authors from setting scanningConfig.policy to DISABLED.',
+    ].join('\n');
+  }, [orgPolicyStrictBlocking]);
+
+  const handleCopyOrgPolicy = () => {
+    navigator.clipboard.writeText(orgConstraintYaml);
+    toast.success('Copied Custom Org Policy constraint YAML to clipboard.');
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -138,11 +217,11 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-xl font-bold text-gray-100">Enterprise Skills Registry</h2>
                 <span className="px-2 py-0.5 text-xs font-semibold bg-purple-900/60 text-purple-300 rounded border border-purple-700 font-mono">
-                  agentregistry.googleapis.com
+                  agentregistry.googleapis.com (v1 GA)
                 </span>
               </div>
               <p className="text-sm text-gray-400 mt-1 max-w-3xl leading-relaxed">
-                Central organization-wide catalog for 1st-class company skills. Skills published here automatically populate the Gemini Enterprise <strong>Skills Gallery</strong> for all employees under your company namespace.
+                Central organization-wide catalog with automated LLM security scanning. Active skills populate the Gemini Enterprise <strong>Browse skills</strong> gallery where employees click <strong>+ Install</strong> to add them to their workspace.
               </p>
             </div>
           </div>
@@ -152,6 +231,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
             <div className="flex items-center bg-gray-900 border border-gray-700 rounded-lg px-2 py-1 shrink-0">
               <span className="text-[11px] text-gray-400 font-semibold mr-1.5">Region:</span>
               <select
+                aria-label="Agent Registry location"
                 value={selectedLocation}
                 onChange={(e) => setSelectedLocation(e.target.value)}
                 className="bg-transparent text-xs text-blue-300 font-bold focus:outline-none cursor-pointer"
@@ -163,6 +243,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
             </div>
 
             <button
+              type="button"
               onClick={fetchSkills}
               disabled={isLoading}
               className="p-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors shrink-0"
@@ -173,6 +254,20 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
               </svg>
             </button>
             <button
+              type="button"
+              data-testid="toggle-org-scan-policy-btn"
+              onClick={() => setIsOrgPolicyOpen((prev) => !prev)}
+              className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-colors shrink-0 flex items-center gap-1.5 ${
+                isOrgPolicyOpen
+                  ? 'bg-emerald-800/70 text-emerald-100 border-emerald-500'
+                  : 'bg-gray-700 hover:bg-gray-600 text-emerald-300 border-emerald-500/40'
+              }`}
+              title="View Google Cloud Custom Org Policy constraint for enforcing skill auto-scanning"
+            >
+              <span>🛡️ Org Scan Policy</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setIsCurlModalOpen(true)}
               className="p-2 bg-gray-700 hover:bg-gray-600 text-purple-300 hover:text-purple-200 rounded-lg transition-colors border border-purple-500/30 shrink-0"
               title="View REST API (cURL) Reference for agentregistry.googleapis.com"
@@ -194,6 +289,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
               <span>Export Skills</span>
             </button>
             <button
+              type="button"
               onClick={() => setIsPublishModalOpen(true)}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow transition-colors whitespace-nowrap shrink-0"
             >
@@ -206,7 +302,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
         </div>
 
         {/* Stats Metrics */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-gray-700/60">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5 pt-4 border-t border-gray-700/60">
           <div className="p-3 bg-gray-900/60 rounded-lg border border-gray-700/50 flex items-center justify-between">
             <span className="text-xs text-gray-400 font-medium">Total Central Skills</span>
             <span className="text-base font-bold text-white">{totalCount}</span>
@@ -224,6 +320,12 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
             <span className="text-base font-bold text-yellow-300">{draftCount}</span>
           </div>
           <div className="p-3 bg-gray-900/60 rounded-lg border border-gray-700/50 flex items-center justify-between">
+            <span className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
+              🛡️ Blocking Scan
+            </span>
+            <span className="text-base font-bold text-emerald-300">{blockingProtectedCount}</span>
+          </div>
+          <div className="p-3 bg-gray-900/60 rounded-lg border border-gray-700/50 flex items-center justify-between col-span-2 lg:col-span-1">
             <span className="text-xs text-purple-400 font-medium flex items-center gap-1.5">
               🏷️ Publishers
             </span>
@@ -232,10 +334,71 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
         </div>
       </div>
 
+      {/* Expandable Org-Wide Scan Enforcement Constraint Guide */}
+      {isOrgPolicyOpen && (
+        <div
+          data-testid="org-scan-policy-panel"
+          className="bg-gray-850 rounded-lg p-5 border border-emerald-700/60 shadow-lg space-y-3"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
+                <span>🛡️ Organization-Wide Auto-Scanning Guardrail</span>
+                <code className="text-[11px] font-mono bg-gray-900 text-gray-200 px-2 py-0.5 rounded border border-gray-700">
+                  custom.skillsScanningEnforcement
+                </code>
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
+                Prevent developers across your Google Cloud organization or folder from disabling automated vulnerability and secret scanning on <code className="font-mono">agentregistry.googleapis.com/Skill</code> resources.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="inline-flex bg-gray-900 p-0.5 rounded-lg border border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setOrgPolicyStrictBlocking(true)}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
+                    orgPolicyStrictBlocking
+                      ? 'bg-emerald-700 text-white'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  Require Blocking
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrgPolicyStrictBlocking(false)}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
+                    !orgPolicyStrictBlocking
+                      ? 'bg-emerald-700 text-white'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  Deny Disabled Only
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyOrgPolicy}
+                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-lg text-xs font-semibold border border-gray-600 transition-colors"
+              >
+                Copy YAML
+              </button>
+            </div>
+          </div>
+          <pre className="p-3.5 bg-gray-950 border border-gray-800 rounded-lg text-[11px] font-mono text-emerald-200 overflow-x-auto">
+            {orgConstraintYaml}
+          </pre>
+          <div className="text-[11px] text-gray-400 font-mono">
+            Apply via CLI: <span className="text-gray-300">gcloud org-policies set-custom-constraint constraint.yaml</span>
+          </div>
+        </div>
+      )}
+
       {/* Filter and Search Bar */}
-      <div className="bg-gray-800 rounded-lg p-3.5 border border-gray-700 flex flex-col md:flex-row items-center justify-between gap-3 shadow-sm">
+      <div className="bg-gray-800 rounded-lg p-3.5 border border-gray-700 flex flex-col lg:flex-row items-center justify-between gap-3 shadow-sm">
         {/* Search */}
-        <div className="relative w-full md:w-80">
+        <div className="relative w-full lg:w-80">
           <input
             type="text"
             value={searchQuery}
@@ -249,19 +412,23 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
         </div>
 
         {/* Filter Dropdowns */}
-        <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+        <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
           <select
+            aria-label="Filter by publisher"
             value={selectedPublisher}
             onChange={(e) => setSelectedPublisher(e.target.value)}
             className="px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-xs text-gray-300 focus:outline-none focus:border-blue-500"
           >
             <option value="ALL">All Publishers</option>
             {publishers.map((p) => (
-              <option key={p} value={p}>{p}</option>
+              <option key={p} value={p}>
+                {p}
+              </option>
             ))}
           </select>
 
           <select
+            aria-label="Filter by status"
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
             className="px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-xs text-gray-300 focus:outline-none focus:border-blue-500"
@@ -270,48 +437,63 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
             <option value="ACTIVE">🟢 Active</option>
             <option value="DRAFT">🟡 Draft / Disabled</option>
           </select>
+
+          <select
+            aria-label="Filter by auto-scan policy"
+            data-testid="registry-scan-policy-filter"
+            value={selectedScanFilter}
+            onChange={(e) => setSelectedScanFilter(e.target.value)}
+            className="px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-lg text-xs text-gray-300 focus:outline-none focus:border-blue-500"
+          >
+            <option value="ALL">All Scan Policies</option>
+            <option value="ENABLED_BLOCKING">🛡️ Blocking Scan</option>
+            <option value="ENABLED_NONBLOCKING">👁️ Non-Blocking Audit</option>
+            <option value="DISABLED">⚪ Scan Disabled</option>
+            <option value="GOOGLE_VERIFIED">✨ Google 1P Verified</option>
+          </select>
         </div>
       </div>
 
       {/* Error Display */}
-      {error && (() => {
-        const isApiNotEnabledOrPerm =
-          /403|404|SERVICE_DISABLED|has not been used|PERMISSION_DENIED/i.test(error);
-        return (
-          <div
-            role="alert"
-            data-testid="skills-registry-error-banner"
-            className={`p-4 rounded-lg border text-xs space-y-2 ${
-              isApiNotEnabledOrPerm
-                ? 'bg-amber-950/40 border-amber-700/80 text-amber-200'
-                : 'bg-red-900/40 border-red-700 text-red-200'
-            }`}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="font-bold text-sm flex items-center gap-2">
-                <span>
-                  {isApiNotEnabledOrPerm
-                    ? '⚠️ Cloud Agent Registry API Prerequisite / Permission Notice'
-                    : '❌ Failed to Load Enterprise Skills from Cloud Agent Registry'}
-                </span>
+      {error &&
+        (() => {
+          const isApiNotEnabledOrPerm =
+            /403|404|SERVICE_DISABLED|has not been used|PERMISSION_DENIED/i.test(error);
+          return (
+            <div
+              role="alert"
+              data-testid="skills-registry-error-banner"
+              className={`p-4 rounded-lg border text-xs space-y-2 ${
+                isApiNotEnabledOrPerm
+                  ? 'bg-amber-950/40 border-amber-700/80 text-amber-200'
+                  : 'bg-red-900/40 border-red-700 text-red-200'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="font-bold text-sm flex items-center gap-2">
+                  <span>
+                    {isApiNotEnabledOrPerm
+                      ? '⚠️ Cloud Agent Registry API Prerequisite / Permission Notice'
+                      : '❌ Failed to Load Enterprise Skills from Cloud Agent Registry'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchSkills}
+                  className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 text-white font-semibold border border-gray-600 transition-colors"
+                >
+                  Retry
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={fetchSkills}
-                className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 text-white font-semibold border border-gray-600 transition-colors"
-              >
-                Retry
-              </button>
+              <p className="font-mono text-[11px] break-all opacity-90">{error}</p>
+              <p className="text-gray-300 leading-relaxed">
+                {isApiNotEnabledOrPerm
+                  ? `Ensure the Cloud Agent Registry API (agentregistry.googleapis.com/v1) is enabled in project "${currentConfig.projectId}" and your account holds roles/agentregistry.viewer or roles/agentregistry.admin. Run: gcloud services enable agentregistry.googleapis.com --project=${currentConfig.projectId}`
+                  : `The live request to agentregistry.googleapis.com/v1 in region "${selectedLocation}" returned an unexpected backend error. Verify network connectivity or switch regions (Global / US / EU) and click Retry.`}
+              </p>
             </div>
-            <p className="font-mono text-[11px] break-all opacity-90">{error}</p>
-            <p className="text-gray-300 leading-relaxed">
-              {isApiNotEnabledOrPerm
-                ? `Ensure the Cloud Agent Registry API (agentregistry.googleapis.com/v1alpha) is enabled in project "${currentConfig.projectId}" and your account holds roles/agentregistry.viewer or roles/agentregistry.admin. Run: gcloud services enable agentregistry.googleapis.com --project=${currentConfig.projectId}`
-                : `The live request to agentregistry.googleapis.com/v1alpha in region "${selectedLocation}" returned an unexpected backend error. Verify network connectivity or switch regions (Global / US / EU) and click Retry.`}
-            </p>
-          </div>
-        );
-      })()}
+          );
+        })()}
 
       {/* Skills Table */}
       {isLoading ? (
@@ -331,11 +513,12 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
           </div>
           <h4 className="text-sm font-bold text-gray-200">No Enterprise Skills Found</h4>
           <p className="text-xs text-gray-400 max-w-md mx-auto leading-relaxed">
-            {searchQuery
-              ? 'No skills matched your search filter. Try clearing filters.'
+            {searchQuery || selectedScanFilter !== 'ALL'
+              ? 'No skills matched your search or scan policy filter. Try clearing filters.'
               : 'Publish your first company-wide skill to Google Cloud Agent Registry to make it discoverable in Gemini Enterprise.'}
           </p>
           <button
+            type="button"
             onClick={() => setIsPublishModalOpen(true)}
             className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 transition-colors shadow"
           >
@@ -351,11 +534,24 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
             <table className="min-w-full divide-y divide-gray-700 text-left">
               <thead className="bg-gray-900/60 text-gray-400 text-[11px] uppercase tracking-wider font-semibold">
                 <tr>
-                  <th scope="col" className="px-6 py-3.5">Skill Name & URN</th>
-                  <th scope="col" className="px-6 py-3.5">Publisher</th>
-                  <th scope="col" className="px-6 py-3.5">Status</th>
-                  <th scope="col" className="px-6 py-3.5">Semantic Trigger & Description</th>
-                  <th scope="col" className="px-6 py-3.5 text-right">Actions</th>
+                  <th scope="col" className="px-6 py-3.5">
+                    Skill Name &amp; URN
+                  </th>
+                  <th scope="col" className="px-6 py-3.5">
+                    Publisher
+                  </th>
+                  <th scope="col" className="px-6 py-3.5">
+                    Status
+                  </th>
+                  <th scope="col" className="px-6 py-3.5">
+                    Auto-Scan Policy
+                  </th>
+                  <th scope="col" className="px-6 py-3.5">
+                    Semantic Trigger &amp; Description
+                  </th>
+                  <th scope="col" className="px-6 py-3.5 text-right">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700/60 bg-gray-800 text-xs">
@@ -363,6 +559,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                   const skillId = skill.name.split('/').pop() || '';
                   const publisher = skill.publisher ? skill.publisher.split('/').pop() : 'Default';
                   const isGoogle = publisher?.includes('google');
+                  const effScanPolicy = getSkillEffectiveScanPolicy(skill);
                   const isConnectorMcpSkill =
                     skillId.startsWith('private-admin-mcp-') ||
                     skillId.startsWith('private-byomcp-') ||
@@ -390,35 +587,71 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
 
                       {/* Publisher */}
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-0.5 text-[11px] font-semibold rounded border ${
-                          isGoogle
-                            ? 'bg-blue-900/40 text-blue-300 border-blue-700'
-                            : 'bg-purple-900/40 text-purple-300 border-purple-700'
-                        }`}>
+                        <span
+                          className={`px-2 py-0.5 text-[11px] font-semibold rounded border ${
+                            isGoogle
+                              ? 'bg-blue-900/40 text-blue-300 border-blue-700'
+                              : 'bg-purple-900/40 text-purple-300 border-purple-700'
+                          }`}
+                        >
                           {publisher}
                         </span>
                       </td>
 
+                      {/* Status */}
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${
-                          skill.state === 'STATE_ACTIVE'
-                            ? 'bg-green-900/40 text-green-300 border-green-700'
-                            : skill.state === 'STATE_DRAFT'
-                            ? 'bg-yellow-900/40 text-yellow-300 border-yellow-700'
-                            : skill.state === 'STATE_DISABLED'
-                            ? 'bg-gray-800 text-gray-400 border-gray-600'
-                            : skill.state === 'STATE_DEPRECATED' || skill.state === 'STATE_DECOMMISSIONED'
-                            ? 'bg-red-900/40 text-red-300 border-red-700'
-                            : 'bg-gray-700 text-gray-300 border-gray-600'
-                        }`}>
-                          <span className={`h-1.5 w-1.5 rounded-full ${
-                            skill.state === 'STATE_ACTIVE' ? 'bg-green-400' 
-                            : skill.state === 'STATE_DRAFT' ? 'bg-yellow-400'
-                            : skill.state === 'STATE_DISABLED' ? 'bg-gray-400'
-                            : skill.state === 'STATE_DEPRECATED' || skill.state === 'STATE_DECOMMISSIONED' ? 'bg-red-400'
-                            : 'bg-gray-400'
-                          }`} />
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${
+                            skill.state === 'STATE_ACTIVE'
+                              ? 'bg-green-900/40 text-green-300 border-green-700'
+                              : skill.state === 'STATE_DRAFT'
+                              ? 'bg-yellow-900/40 text-yellow-300 border-yellow-700'
+                              : skill.state === 'STATE_DISABLED'
+                              ? 'bg-gray-800 text-gray-400 border-gray-600'
+                              : skill.state === 'STATE_DEPRECATED' ||
+                                skill.state === 'STATE_DECOMMISSIONED'
+                              ? 'bg-red-900/40 text-red-300 border-red-700'
+                              : 'bg-gray-700 text-gray-300 border-gray-600'
+                          }`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              skill.state === 'STATE_ACTIVE'
+                                ? 'bg-green-400'
+                                : skill.state === 'STATE_DRAFT'
+                                ? 'bg-yellow-400'
+                                : skill.state === 'STATE_DISABLED'
+                                ? 'bg-gray-400'
+                                : skill.state === 'STATE_DEPRECATED' ||
+                                  skill.state === 'STATE_DECOMMISSIONED'
+                                ? 'bg-red-400'
+                                : 'bg-gray-400'
+                            }`}
+                          />
                           {skill.state ? skill.state.replace('STATE_', '') : 'UNKNOWN'}
+                        </span>
+                      </td>
+
+                      {/* Auto-Scan Policy */}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold border ${
+                            effScanPolicy === 'ENABLED_BLOCKING'
+                              ? 'bg-emerald-900/40 text-emerald-300 border-emerald-700'
+                              : effScanPolicy === 'ENABLED_NONBLOCKING'
+                              ? 'bg-cyan-900/40 text-cyan-300 border-cyan-700'
+                              : effScanPolicy === 'GOOGLE_VERIFIED'
+                              ? 'bg-blue-900/40 text-blue-300 border-blue-700'
+                              : 'bg-gray-800 text-gray-400 border-gray-600'
+                          }`}
+                        >
+                          {effScanPolicy === 'ENABLED_BLOCKING'
+                            ? '🛡️ Blocking'
+                            : effScanPolicy === 'ENABLED_NONBLOCKING'
+                            ? '👁️ Non-Blocking'
+                            : effScanPolicy === 'GOOGLE_VERIFIED'
+                            ? '✨ Google 1P'
+                            : '⚪ Disabled'}
                         </span>
                       </td>
 
@@ -431,6 +664,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                       <td className="px-6 py-4 whitespace-nowrap text-right font-medium">
                         <div className="flex items-center justify-end gap-2">
                           <button
+                            type="button"
                             onClick={() => setInspectingSkill(skill)}
                             className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 rounded transition-colors"
                             title="Inspect Skill & Revisions"
@@ -470,8 +704,8 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
 
       {/* Detail Inspector Modal */}
       <RegistrySkillDetailModal
-        skill={inspectingSkill}
-        isOpen={!!inspectingSkill}
+        skill={activeInspectingSkill}
+        isOpen={!!activeInspectingSkill}
         onClose={() => setInspectingSkill(null)}
         config={currentConfig}
         onSkillUpdated={fetchSkills}

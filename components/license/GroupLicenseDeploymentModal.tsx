@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { Config, GcsBucket, LicenseConfig, GroupLicensingEditConfig } from '../../types';
 import * as api from '../../services/apiService';
-import { toErrorMessage } from '../../utils/errors';
+import { formatActAsServiceAccountError, toErrorMessage } from '../../utils/errors';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import {
     assertValidBucketPath,
@@ -70,6 +70,9 @@ export const generateDeploySh = (
     content += "LOCATION=\"" + trimmedLocation + "\"\n";
     content += "USER_STORE_ID=\"" + trimmedUserStoreId + "\"\n";
     content += "SA_NAME=\"license-grouper-sa\"\n\n";
+
+    content += "echo \"Ensuring Cloud Identity, Cloud Run, and Cloud Scheduler APIs are enabled...\"\n";
+    content += "gcloud services enable cloudidentity.googleapis.com run.googleapis.com cloudscheduler.googleapis.com --project \"$PROJECT_ID\" || true\n\n";
     
     content += "echo \"Checking if Service Account $SA_NAME exists...\"\n";
     content += "FOUND_SA_EMAIL=$(gcloud iam service-accounts list --project \"$PROJECT_ID\" --filter=\"email:$SA_NAME@\" --format=\"value(email)\" | head -n 1)\n\n";
@@ -85,6 +88,17 @@ export const generateDeploySh = (
     content += "fi\n\n";
     
     content += "echo \"Using Service Account Email: $SA_EMAIL\"\n\n";
+
+    content += "# Ensure the active deployer (user or Cloud Build SA) holds roles/iam.serviceAccountUser (actAs) on $SA_EMAIL\n";
+    content += "ACTIVE_CALLER=\"$(gcloud config get-value account 2>/dev/null || true)\"\n";
+    content += "if [ -n \"$ACTIVE_CALLER\" ]; then\n";
+    content += "  if [[ \"$ACTIVE_CALLER\" == *.gserviceaccount.com ]]; then\n";
+    content += "    CALLER_MEMBER=\"serviceAccount:$ACTIVE_CALLER\"\n";
+    content += "  else\n";
+    content += "    CALLER_MEMBER=\"user:$ACTIVE_CALLER\"\n";
+    content += "  fi\n";
+    content += "  gcloud iam service-accounts add-iam-policy-binding \"$SA_EMAIL\" --member=\"$CALLER_MEMBER\" --role=\"roles/iam.serviceAccountUser\" --project \"$PROJECT_ID\" || true\n";
+    content += "fi\n\n";
     
     content += "echo \"Granting IAM permissions...\"\n";
     content += "# Grant Discovery Engine Editor permission (lists/updates user licenses, reads license configs and\n";
@@ -245,19 +259,22 @@ gcloud storage cp entitlements.json ${configGcsUri} --project="${projectId}"
 
 ---
 
-## Step 2: Create the Service Account & Grant IAM + Google Workspace Permissions
+## Step 2: Create the Service Account, Grant GCP IAM & Group Read Access (No Workspace Admin Required)
 
 ### 2A. Google Cloud IAM Setup
-Create a service account named \`license-grouper-sa\` (\`${saEmail}\`) and grant it minimum required roles:
+Create a service account named \`license-grouper-sa\` (\`${saEmail}\`), grant your admin user **Service Account User** (\`roles/iam.serviceAccountUser\`) on it (prevents \`caller does not have permission to act as service account\` when attaching to Cloud Run / Cloud Scheduler), and grant the service account its runtime roles:
 
 - **Google Cloud Console:**
-  1. Go to **IAM & Admin > Service Accounts > + Create Service Account**.
-  2. Set **Service account ID** to \`license-grouper-sa\` and click **Create and Continue**.
-  3. Grant the following **Project roles**:
+  1. Enable the **Cloud Identity API** (\`cloudidentity.googleapis.com\`) in **APIs & Services > Library**.
+  2. Go to **IAM & Admin > Service Accounts > + Create Service Account**, set **Service account ID** to \`license-grouper-sa\`, and click **Create and Continue**.
+  3. Grant \`${saEmail}\` the following **Project roles**:
      - \`Discovery Engine Editor\` (\`roles/discoveryengine.editor\`)
      - \`Logs Writer\` (\`roles/logging.logWriter\`)
      - \`Service Usage Consumer\` (\`roles/serviceusage.serviceUsageConsumer\`)
-  4. Go to **Cloud Storage > Buckets > \`${bucketName}\` > Permissions > + Grant Access**:
+  4. Open \`${saEmail}\` > **Permissions > + Grant Access**:
+     - Principal: **Your GCP admin email** (and your Cloud Build SA if using Cloud Build)
+     - Role: \`Service Account User\` (\`roles/iam.serviceAccountUser\`)
+  5. Go to **Cloud Storage > Buckets > \`${bucketName}\` > Permissions > + Grant Access**:
      - Principal: \`${saEmail}\`
      - Role: \`Storage Object Viewer\` (\`roles/storage.objectViewer\`)
 
@@ -265,10 +282,17 @@ Create a service account named \`license-grouper-sa\` (\`${saEmail}\`) and grant
 \`\`\`bash
 PROJECT_ID="${projectId}"
 SA_EMAIL="${saEmail}"
+ADMIN_EMAIL="$(gcloud config get-value account)"
+
+gcloud services enable cloudidentity.googleapis.com run.googleapis.com cloudscheduler.googleapis.com --project "$PROJECT_ID"
 
 gcloud iam service-accounts create license-grouper-sa \\
   --project "$PROJECT_ID" \\
   --display-name "License Grouper Service Account"
+
+# Required on non-Owner prod projects so you can attach $SA_EMAIL to Cloud Run & Cloud Scheduler
+gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \\
+  --member="user:$ADMIN_EMAIL" --role="roles/iam.serviceAccountUser" --project "$PROJECT_ID"
 
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \\
   --member="serviceAccount:$SA_EMAIL" --role="roles/discoveryengine.editor" --condition=None
@@ -280,11 +304,13 @@ gcloud storage buckets add-iam-policy-binding "gs://${bucketName}" \\
   --member="serviceAccount:$SA_EMAIL" --role="roles/storage.objectViewer"
 \`\`\`
 
-### 2B. Google Workspace Directory Reader Setup (Required to List Group Members)
-1. Open the **Google Workspace Admin Console** (\`admin.google.com\`) > **Directory > Groups**.
-2. Create an administrative group (e.g., \`license-automation@yourdomain.com\`) and enable **Allow external members** in Group Settings.
-3. Add \`${saEmail}\` as a **Member** of that group.
-4. Go to **Account > Admin roles > Groups Reader** and assign the **Groups Reader** role to the group created in Step 2.
+### 2B. Group Membership Read Access (Choose Option A — No Workspace Admin Required)
+- **Option A (Recommended — Zero Google Workspace Admin Console access needed):**
+  1. Open your target Google Group(s) in **Google Groups** (\`groups.google.com\`) or **Google Cloud Console > IAM & Admin > Groups**.
+  2. Add \`${saEmail}\` directly as a **Member** of the group (if the group blocks external service accounts, enable **Allow external members** in that group's settings).
+  3. At runtime, \`main.py\` automatically uses the **Cloud Identity Groups API** (\`cloudidentity.googleapis.com/v1\`) to resolve direct and nested members.
+- **Option B (Optional Org-Wide Alternative via Workspace Admin Console):**
+  - If you manage many groups and prefer not adding \`${saEmail}\` to each group individually, a Google Workspace Super Admin can open \`admin.google.com\` > **Account > Admin roles > Groups Reader** and assign \`Groups Reader\` to \`${saEmail}\` (or an external-enabled admin group containing it).
 
 ---
 
@@ -960,7 +986,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             onClose();
 
         } catch (err: unknown) {
-            setDeployError(toErrorMessage(err, "Failed to trigger Cloud Build."));
+            setDeployError(formatActAsServiceAccountError(err, "Failed to trigger Cloud Build.", config.projectId));
         } finally {
             setIsDeploying(false);
         }
@@ -1133,7 +1159,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                             <button onClick={() => setActiveTab('entitlements')} className={"px-3 py-2 text-xs font-medium whitespace-nowrap " + (activeTab === 'entitlements' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>entitlements.json</button>
                             <button onClick={() => setActiveTab('main')} className={"px-3 py-2 text-xs font-medium whitespace-nowrap " + (activeTab === 'main' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>main.py</button>
                             <button onClick={() => setActiveTab('requirements')} className={"px-3 py-2 text-xs font-medium whitespace-nowrap " + (activeTab === 'requirements' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>requirements.txt</button>
-                            <button onClick={() => setActiveTab('permissions')} className={"px-3 py-2 text-xs font-medium whitespace-nowrap " + (activeTab === 'permissions' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>Workspace Permissions</button>
+                            <button onClick={() => setActiveTab('permissions')} className={"px-3 py-2 text-xs font-medium whitespace-nowrap " + (activeTab === 'permissions' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white')}>Group &amp; IAM Access</button>
                             <div className="flex-1"></div>
                             <button 
                                 onClick={() => handleCopy(activePreviewContent)} 
@@ -1169,18 +1195,19 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
 
                                     {/* Step 2 */}
                                     <div className="bg-gray-800/70 border border-gray-700 rounded-lg p-3.5 space-y-2">
-                                        <h4 className="font-semibold text-blue-300">Step 2: Create Service Account &amp; Grant IAM + Workspace Roles</h4>
+                                        <h4 className="font-semibold text-blue-300">Step 2: Create Service Account, Grant GCP IAM (<code>actAs</code>), &amp; Add to Google Group</h4>
                                         <ol className="list-decimal list-inside text-xs space-y-1.5 text-gray-300">
-                                            <li>In <strong>IAM &amp; Admin &rarr; Service Accounts</strong>, create service account <code className="bg-gray-900 px-1.5 py-0.5 rounded text-emerald-300">{saEmailDisplay}</code>.</li>
-                                            <li>Grant it the following <strong>Project IAM roles</strong>:
+                                            <li>Enable APIs in project <code>{config.projectId || 'YOUR_PROJECT_ID'}</code>: <code>cloudidentity.googleapis.com</code>, <code>discoveryengine.googleapis.com</code>, <code>run.googleapis.com</code>, and <code>cloudscheduler.googleapis.com</code>.</li>
+                                            <li>In <strong>IAM &amp; Admin &rarr; Service Accounts</strong>, create service account <code className="bg-gray-900 px-1.5 py-0.5 rounded text-emerald-300">{saEmailDisplay}</code> and grant it these <strong>Project IAM roles</strong>:
                                                 <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-gray-400">
                                                     <li><code>Discovery Engine Editor</code> (<code>roles/discoveryengine.editor</code>)</li>
                                                     <li><code>Logs Writer</code> (<code>roles/logging.logWriter</code>)</li>
                                                     <li><code>Service Usage Consumer</code> (<code>roles/serviceusage.serviceUsageConsumer</code>)</li>
                                                 </ul>
                                             </li>
+                                            <li><strong>Important (<code>iam.serviceAccounts.actAs</code>):</strong> Open <code className="bg-gray-900 px-1 rounded text-emerald-300">{saEmailDisplay}</code> &rarr; <strong>Permissions</strong> &rarr; <strong>Grant Access</strong> and grant <strong>your own GCP user</strong> (and Cloud Build / deployment principals) <code>Service Account User</code> (<code>roles/iam.serviceAccountUser</code>) so Cloud Run and Cloud Scheduler can attach this service account without <code>permission_denied: caller does not have permission to act as service account</code>.</li>
                                             <li>On GCS bucket <code>{selectedBucket || 'YOUR_BUCKET'}</code>, grant <code>{saEmailDisplay}</code> the role <code>Storage Object Viewer</code> (<code>roles/storage.objectViewer</code>).</li>
-                                            <li>In <strong>Google Workspace Admin Console</strong> (<code>admin.google.com</code>), grant <code>{saEmailDisplay}</code> the <strong>Groups Reader</strong> admin role via an external-enabled security group (see the <button type="button" onClick={() => setActiveTab('permissions')} className="underline text-blue-400 hover:text-white">Workspace Permissions</button> tab).</li>
+                                            <li><strong>Grant Group Read Access (No Workspace Admin Console Required):</strong> Add <code className="bg-gray-900 px-1 rounded text-emerald-300">{saEmailDisplay}</code> directly as a <strong>Member</strong> of each target Google Group (at <code>groups.google.com</code> or <strong>Cloud Console &rarr; IAM &amp; Admin &rarr; Groups</strong>, with <em>Allow external members</em> enabled and <em>Who can view members</em> allowing group members). <code>main.py</code> automatically falls back to the <strong>Cloud Identity Groups API</strong> (including nested sub-groups). See <button type="button" onClick={() => setActiveTab('permissions')} className="underline text-blue-400 hover:text-white">Group &amp; IAM Access</button> for details or optional org-wide Workspace Admin setup.</li>
                                         </ol>
                                     </div>
 
@@ -1267,34 +1294,47 @@ gcloud run deploy "${cleanupServiceName}" --image="$IMAGE_URI" --project="${conf
                                     </div>
                                 </div>
                             ) : activeTab === 'permissions' ? (
-                                <div className="text-sm text-gray-300 space-y-4">
-                                    <h3 className="text-lg font-semibold text-white">Google Workspace Permissions Guide</h3>
-                                    <p>To allow this script to read your Google Groups, you must grant it access in Google Workspace. Follow these steps:</p>
-                                    
-                                    <div className="space-y-3">
-                                        <h4 className="font-medium text-blue-300">Step 1: Create a Google Group</h4>
-                                        <ul className="list-disc list-inside ml-4 space-y-1">
-                                            <li>Go to the **Google Workspace Admin Console** (admin.google.com).</li>
-                                            <li>Navigate to **Directory** -&gt; **Groups** and create a new group (e.g., <code>license-automation@yourdomain.com</code>).</li>
-                                            <li><strong>Important:</strong> In the group settings, make sure to enable <strong>Allow external members</strong>.</li>
-                                        </ul>
-
-                                        <h4 className="font-medium text-blue-300">Step 2: Add the Service Account to the Group</h4>
-                                        <ul className="list-disc list-inside ml-4 space-y-1">
-                                            <li>Add the following service account email as a member of your new group:</li>
-                                            <li className="list-none ml-4"><code className="bg-gray-700 px-1 rounded">{saEmailDisplay}</code></li>
-                                            <li>(Workspace will consider it an external member, which is why Step 1 is required).</li>
-                                        </ul>
-
-                                        <h4 className="font-medium text-blue-300">Step 3: Grant the Role to the Group</h4>
-                                        <ul className="list-disc list-inside ml-4 space-y-1">
-                                            <li>In the Workspace Admin Console, navigate to **Account** -&gt; **Admin roles**.</li>
-                                            <li>Find or create the **Groups Reader** role.</li>
-                                            <li>Assign that role to the **Group** you created in Step 1 (not the service account directly).</li>
-                                        </ul>
+                                <div className="text-sm text-gray-300 space-y-4" data-testid="group-licensing-permissions-guide">
+                                    <div>
+                                        <h3 className="text-base font-bold text-white">Google Group Read Access &amp; GCP IAM Guide</h3>
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            <code>main.py</code> supports reading group memberships via the <strong>Cloud Identity Groups API</strong> (no Workspace Admin required) as well as the <strong>Admin SDK Directory API</strong>.
+                                        </p>
                                     </div>
-                                    
-                                    <p className="text-xs text-gray-500 mt-4">This workaround allows the service account to inherit the necessary directory permissions without requiring Organization-level IAM changes or private key files.</p>
+
+                                    <div className="bg-emerald-950/30 border border-emerald-700/60 rounded-lg p-3.5 space-y-2">
+                                        <h4 className="font-semibold text-emerald-300">Option A (Recommended — No Google Workspace Admin Console Needed)</h4>
+                                        <ol className="list-decimal list-inside text-xs space-y-1.5 text-gray-300">
+                                            <li>Enable the <strong>Cloud Identity API</strong> (<code>cloudidentity.googleapis.com</code>) in project <code>{config.projectId || 'YOUR_PROJECT_ID'}</code> (included automatically in <code>deploy.sh</code>).</li>
+                                            <li>Open your target Google Group at <code>groups.google.com</code> (as a Group Owner/Manager) or <strong>Google Cloud Console &rarr; IAM &amp; Admin &rarr; Groups</strong>.</li>
+                                            <li>Ensure <strong>Allow external members</strong> is enabled on the group and <strong>Who can view members</strong> includes <em>Group members</em>, then add <code className="bg-gray-900 px-1.5 py-0.5 rounded text-emerald-300">{saEmailDisplay}</code> as a <strong>Member</strong> of the group (and any nested child groups if member visibility is restricted).</li>
+                                        </ol>
+                                    </div>
+
+                                    <div className="bg-gray-800/70 border border-gray-700 rounded-lg p-3.5 space-y-2">
+                                        <h4 className="font-semibold text-blue-300">Option B (Optional — Org-Wide Google Workspace Admin Role)</h4>
+                                        <p className="text-xs text-gray-400">
+                                            If you manage dozens of groups and prefer not to add the service account to each group individually:
+                                        </p>
+                                        <ol className="list-decimal list-inside text-xs space-y-1 text-gray-300">
+                                            <li>In <strong>Google Workspace Admin Console</strong> (<code>admin.google.com</code> &rarr; <strong>Directory &rarr; Groups</strong>), create an external-enabled security group (e.g. <code>license-automation@yourdomain.com</code>) and add <code>{saEmailDisplay}</code>.</li>
+                                            <li>Go to <strong>Account &rarr; Admin roles</strong> and assign the <strong>Groups Reader</strong> role to that group.</li>
+                                        </ol>
+                                    </div>
+
+                                    <div className="bg-amber-950/30 border border-amber-700/60 rounded-lg p-3.5 space-y-2">
+                                        <h4 className="font-semibold text-amber-300">Troubleshooting: <code>caller does not have permission to act as service account</code></h4>
+                                        <p className="text-xs text-gray-300">
+                                            This is a <strong>GCP IAM</strong> check (<code>iam.serviceAccounts.actAs</code>), <em>not</em> a Google Workspace Admin error. It occurs when deploying Cloud Run, creating/running a Cloud Scheduler OIDC job, or triggering Cloud Build without <code>roles/iam.serviceAccountUser</code> on the target service account (often shown by its numeric <code>uniqueId</code>).
+                                        </p>
+                                        <pre className="p-2 bg-gray-950 border border-gray-700 rounded text-[11px] text-gray-300 font-mono overflow-x-auto whitespace-pre">{`# 1. Identify which service account matches the numeric uniqueId in the error:
+gcloud iam service-accounts list --project="${config.projectId || 'YOUR_PROJECT_ID'}" \\
+  --filter="uniqueId=<NUMERIC_ID_FROM_ERROR>" --format="table(email,displayName,uniqueId)"
+
+# 2. Grant Service Account User (roles/iam.serviceAccountUser) to your GCP user:
+gcloud iam service-accounts add-iam-policy-binding "${saEmailDisplay}" \\
+  --member="user:<YOUR_EMAIL>" --role="roles/iam.serviceAccountUser" --project="${config.projectId || 'YOUR_PROJECT_ID'}"`}</pre>
+                                    </div>
                                 </div>
                             ) : (
                                 <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">

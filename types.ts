@@ -1163,6 +1163,49 @@ export interface RegistrySkillFrontmatter {
   [key: string]: unknown;
 }
 
+export type SkillScanningPolicy = 'ENABLED_BLOCKING' | 'ENABLED_NONBLOCKING' | 'DISABLED';
+
+export interface RegistrySkillScanningConfig {
+  policy?: SkillScanningPolicy | string;
+}
+
+export type RegistrySkillScanState =
+  | 'SUCCEEDED'
+  | 'RUNNING'
+  | 'DISABLED'
+  | 'UNSUPPORTED_FORMAT'
+  | 'FAILED';
+
+export interface RegistrySkillScanResult {
+  scanState?: RegistrySkillScanState | string;
+  scanTime?: string;
+  findings?: string[];
+  errorMessage?: string;
+}
+
+export interface RegistrySkillFindingFile {
+  path: string;
+  lineNumber?: string | number;
+}
+
+export interface RegistrySkillFinding {
+  name: string;
+  uid?: string;
+  createTime?: string;
+  updateTime?: string;
+  resource: string;
+  severity?:
+    | 'SEVERITY_CRITICAL'
+    | 'SEVERITY_HIGH'
+    | 'SEVERITY_MEDIUM'
+    | 'SEVERITY_LOW'
+    | 'SEVERITY_UNSPECIFIED'
+    | string;
+  findingClass?: 'VULNERABILITY' | 'SECRET' | string;
+  files?: RegistrySkillFindingFile[];
+  detail?: string;
+}
+
 export interface RegistrySkillRevision {
   name: string;
   state?: string;
@@ -1171,7 +1214,9 @@ export interface RegistrySkillRevision {
   createTime?: string;
   sizeBytes?: string;
   uid?: string;
+  scanResult?: RegistrySkillScanResult;
   archiveUploadSource?: { archiveContent?: string; [key: string]: unknown };
+  gcsSource?: { uri: string; [key: string]: unknown };
   [key: string]: unknown;
 }
 
@@ -1189,9 +1234,11 @@ export interface RegistrySkill {
   createTime?: string;
   updateTime?: string;
   frontmatter?: RegistrySkillFrontmatter;
+  scanningConfig?: RegistrySkillScanningConfig;
   initialRevision?: {
     frontmatter?: RegistrySkillFrontmatter;
     archiveUploadSource?: { archiveContent?: string; [key: string]: unknown };
+    gcsSource?: { uri: string; [key: string]: unknown };
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -1199,6 +1246,7 @@ export interface RegistrySkill {
 
 export interface ListRegistrySkillsResponse { skills?: RegistrySkill[]; nextPageToken?: string; }
 export interface ListRegistrySkillRevisionsResponse { skillRevisions?: RegistrySkillRevision[]; nextPageToken?: string; }
+export interface ListRegistryFindingsResponse { findings?: RegistrySkillFinding[]; nextPageToken?: string; }
 
 export interface ConfigAuditItem {
   id: string;
