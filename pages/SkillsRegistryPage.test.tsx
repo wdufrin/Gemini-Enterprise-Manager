@@ -32,7 +32,9 @@ vi.mock('../services/apiService', () => ({
   listRegistryFindings: vi.fn(),
   listResources: vi.fn(),
   createAgent: vi.fn(),
+  updateAgent: vi.fn(),
   promoteSkillToOrg: vi.fn(),
+  setSkillDefaultInstallForAllUsers: vi.fn(),
 }));
 
 const mockUserProfile: UserProfile = {
@@ -366,5 +368,85 @@ describe('SkillsRegistryPage Component', () => {
     expect(screen.getByTestId('registry-skill-warnings-banner').textContent).toMatch(
       /500 Revisions backend error/
     );
+  });
+
+  it('publishes Registry skill to GE Gallery with pre-install for all users and warns if pre-install fails', async () => {
+    vi.mocked(api.listResources).mockResolvedValue({
+      engines: [
+        {
+          name: 'projects/test-project-123/locations/global/collections/default_collection/engines/ge-app-1',
+          displayName: 'GE Flagship App',
+        },
+      ],
+    } as never);
+    vi.mocked(api.createAgent).mockResolvedValue({
+      name: 'projects/test-project-123/locations/global/collections/default_collection/engines/ge-app-1/assistants/default_assistant/agents/corporate-brand-voice',
+      displayName: 'Corporate Brand Voice',
+      state: 'PRIVATE',
+    } as never);
+    vi.mocked(api.promoteSkillToOrg).mockResolvedValue({
+      name: 'projects/test-project-123/locations/global/collections/default_collection/engines/ge-app-1/assistants/default_assistant/agents/corporate-brand-voice',
+      displayName: 'Corporate Brand Voice',
+      state: 'ENABLED',
+      sharingConfig: { scope: 'ALL_USERS' },
+    } as never);
+    vi.mocked(api.setSkillDefaultInstallForAllUsers).mockResolvedValueOnce({
+      name: 'projects/test-project-123/locations/global/collections/default_collection/engines/ge-app-1/assistants/default_assistant/agents/corporate-brand-voice',
+      displayName: 'Corporate Brand Voice',
+      state: 'ENABLED',
+      defaultAgentUserData: { installed: true, disabled: false },
+    } as never);
+
+    renderWithToast(
+      <SkillsRegistryPage
+        projectNumber="123456789012"
+        projectId="test-project-123"
+        setProjectNumber={vi.fn()}
+        accessToken="mock-token"
+        userProfile={mockUserProfile}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Corporate Brand Voice')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByTitle('Inspect Skill & Revisions')[0]);
+
+    const preinstallCheckbox = (await screen.findByTestId(
+      'ge-deploy-preinstall-checkbox'
+    )) as HTMLInputElement;
+    expect(preinstallCheckbox.checked).toBe(false);
+    fireEvent.click(preinstallCheckbox);
+    expect(preinstallCheckbox.checked).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: /Publish to GE Gallery/i }));
+
+    await waitFor(() => {
+      expect(api.promoteSkillToOrg).toHaveBeenCalledTimes(1);
+      expect(api.setSkillDefaultInstallForAllUsers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'projects/test-project-123/locations/global/collections/default_collection/engines/ge-app-1/assistants/default_assistant/agents/corporate-brand-voice',
+        }),
+        true,
+        expect.objectContaining({
+          projectId: 'test-project-123',
+          appId: 'ge-app-1',
+        })
+      );
+      expect(screen.getByText(/pre-installed it for all users/i)).toBeInTheDocument();
+    });
+
+    // Negative case: if pre-install fails after publishing, warn explicitly rather than reporting full pre-install success
+    vi.mocked(api.setSkillDefaultInstallForAllUsers).mockRejectedValueOnce(
+      new Error('403 PERMISSION_DENIED: cannot write default_agent_user_data')
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Published to Gallery!|Publish to GE Gallery/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/pre-install failed:.*403 PERMISSION_DENIED/i)
+      ).toBeInTheDocument();
+    });
   });
 });

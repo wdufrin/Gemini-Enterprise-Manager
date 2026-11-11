@@ -511,6 +511,15 @@ export const updateAgent = async (
   if (sanitizedPayload.dataStoreSpecs) updateMask.push("data_store_specs");
   if (sanitizedPayload.dataConnectors) updateMask.push("data_connectors");
   if (sanitizedPayload.sharingConfig) updateMask.push("sharing_config");
+  if (Object.prototype.hasOwnProperty.call(sanitizedPayload, "defaultAgentUserData")) {
+    updateMask.push("default_agent_user_data");
+    if (
+      sanitizedPayload.defaultAgentUserData === null ||
+      sanitizedPayload.defaultAgentUserData === undefined
+    ) {
+      delete sanitizedPayload.defaultAgentUserData;
+    }
+  }
   if (sanitizedPayload.authorizationConfig) updateMask.push("authorization_config");
   if (sanitizedPayload.observabilityConfig) updateMask.push("observabilityConfig");
 
@@ -782,13 +791,41 @@ export const demoteSkillToPersonal = async (agent: Agent, config: Config): Promi
   return getAgent(agent.name, config);
 };
 
+/**
+ * Configures whether an organization-wide skill is pre-installed and active by default
+ * for all users via Discovery Engine `Agent.default_agent_user_data`
+ * (`PATCH UpdateAgent` with `updateMask=default_agent_user_data`).
+ *
+ * Note: Discovery Engine `CreateAgent` rejects `default_agent_user_data`, so pre-install
+ * must always be applied via `UpdateAgent` after creation/promotion.
+ */
+export const setSkillDefaultInstallForAllUsers = async (
+  agent: Partial<Agent> & { name: string },
+  preinstall: boolean,
+  config: Config,
+): Promise<Agent> => {
+  if (!agent || !agent.name) {
+    throw new Error("Cannot update default user installation: missing agent resource name.");
+  }
+  return updateAgent(
+    agent,
+    {
+      defaultAgentUserData: preinstall ? { installed: true, disabled: false } : null,
+    },
+    config,
+  );
+};
+
 export const createSkillAgent = async (
   payload: Partial<Agent> | Record<string, unknown>,
   config: Config,
   agentId?: string,
   isOrganizational: boolean = true,
+  preinstallForAll: boolean = false,
 ) => {
-  const sanitizedPayload = { ...payload };
+  const sanitizedPayload: Record<string, unknown> = { ...payload };
+  // Discovery Engine CreateAgent rejects `default_agent_user_data`; apply it via UpdateAgent after promotion.
+  delete sanitizedPayload.defaultAgentUserData;
   if (typeof sanitizedPayload.displayName === "string") {
     sanitizedPayload.displayName = sanitizeSkillDisplayName(sanitizedPayload.displayName);
   }
@@ -826,7 +863,22 @@ export const createSkillAgent = async (
   const agent = await createAgent(sanitizedPayload, config, cleanAgentId);
   if (isOrganizational || sanitizedPayload.state === "ENABLED") {
     try {
-      return await promoteSkillToOrg(agent, config);
+      const promoted = await promoteSkillToOrg(agent, config);
+      if (preinstallForAll) {
+        try {
+          return await setSkillDefaultInstallForAllUsers(promoted, true, config);
+        } catch (preinstallErr) {
+          console.warn(
+            "Could not automatically pre-install skill for all users after promotion:",
+            preinstallErr,
+          );
+          (promoted as Agent & { promotionWarning?: string }).promotionWarning =
+            `Skill promoted org-wide, but pre-install failed: ${
+              preinstallErr instanceof Error ? preinstallErr.message : String(preinstallErr)
+            }`;
+        }
+      }
+      return promoted;
     } catch (e) {
       console.warn("Could not automatically promote skill to org-wide after creation:", e);
       (agent as Agent & { promotionWarning?: string }).promotionWarning =

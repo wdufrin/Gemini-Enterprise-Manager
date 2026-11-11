@@ -108,6 +108,18 @@ export function isSkillAgentResource(agent: Partial<Agent> | null | undefined): 
 }
 
 /**
+ * Returns true if the Discovery Engine `Agent` skill is configured with
+ * `defaultAgentUserData.installed === true` and `disabled !== true`, meaning it is
+ * pre-installed and enabled by default for all users of the assistant engine.
+ */
+export function isSkillPreinstalledForAll(skill: Partial<Agent> | null | undefined): boolean {
+  if (!skill || typeof skill !== 'object') return false;
+  const data = skill.defaultAgentUserData;
+  if (!data || typeof data !== 'object') return false;
+  return data.installed === true && data.disabled !== true;
+}
+
+/**
  * Classifies a Discovery Engine Skill (`Agent`) along two orthogonal axes:
  * 1. Origin (`GOOGLE_1P` vs `USER_CREATED` vs `ORG_ADMIN`)
  * 2. Sharing Scope (`ORG_WIDE` vs `PRIVATE_PERSONAL`)

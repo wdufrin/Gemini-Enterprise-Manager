@@ -25,6 +25,7 @@ import { ToastProvider } from '../../context/ToastContext';
 vi.mock('../../services/apiService', () => ({
   createSkillAgent: vi.fn(),
   updateAgent: vi.fn(),
+  setSkillDefaultInstallForAllUsers: vi.fn(),
   deleteSkillAgent: vi.fn(),
   ensureSkillSharingOnEngine: vi.fn(),
   updateEngine: vi.fn(),
@@ -453,5 +454,126 @@ describe('SkillsViewer Component', () => {
     expect(verdictPanel.textContent).toContain('VULNERABILITY');
     expect(verdictPanel.textContent).toContain('SKILL.md:3');
     expect(verdictPanel.textContent).toContain('exfiltrate financial table rows');
+  });
+
+  it('supports pre-install for all users in AddSkillModal and resets when switching to Personal scope', async () => {
+    vi.mocked(api.createSkillAgent).mockResolvedValue({
+      name: 'projects/test-project-123/locations/global/collections/default_collection/engines/test-engine-id/assistants/default_assistant/agents/preinstalled-skill',
+      displayName: 'Preinstalled Policy Helper',
+      state: 'ENABLED',
+      defaultAgentUserData: { installed: true, disabled: false },
+    } as Agent);
+    const onRefreshSkills = vi.fn();
+
+    renderWithToast(
+      <SkillsViewer
+        agents={mockAgents}
+        config={mockConfig}
+        userProfile={mockUserProfile}
+        onRefreshSkills={onRefreshSkills}
+      />
+    );
+
+    fireEvent.click(screen.getByText(/Add \/ Import Skill/i));
+
+    const preinstallCheckbox = screen.getByTestId('add-skill-preinstall-checkbox') as HTMLInputElement;
+    expect(preinstallCheckbox.checked).toBe(false);
+
+    // Switching to Personal scope hides the org pre-install checkbox
+    fireEvent.click(screen.getByDisplayValue('USER_CREATED'));
+    expect(screen.queryByTestId('add-skill-preinstall-checkbox')).not.toBeInTheDocument();
+
+    // Switching back to Organizational scope shows it unchecked and allows enabling
+    fireEvent.click(screen.getByDisplayValue('ORGANIZATIONAL'));
+    const restoredCheckbox = screen.getByTestId('add-skill-preinstall-checkbox') as HTMLInputElement;
+    expect(restoredCheckbox.checked).toBe(false);
+    fireEvent.click(restoredCheckbox);
+    expect(restoredCheckbox.checked).toBe(true);
+
+    const nameInput = screen.getByPlaceholderText(/e\.g\. Sales Pipeline Analyst/i);
+    fireEvent.change(nameInput, { target: { value: 'Preinstalled Policy Helper' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Skill' }));
+
+    await waitFor(() => {
+      expect(api.createSkillAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          displayName: 'Preinstalled Policy Helper',
+          state: 'ENABLED',
+        }),
+        mockConfig,
+        'preinstalled-policy-helper',
+        true,
+        true
+      );
+      expect(onRefreshSkills).toHaveBeenCalled();
+    });
+  });
+
+  it('renders Pre-installed badge in SkillsViewer and toggles pre-install inside SkillDetailModal (including error handling)', async () => {
+    const preinstalledOrgSkill: Agent = {
+      ...mockAgents[0],
+      defaultAgentUserData: { installed: true, disabled: false },
+    };
+    const onRefreshSkills = vi.fn();
+
+    vi.mocked(api.setSkillDefaultInstallForAllUsers).mockResolvedValueOnce({
+      ...mockAgents[0],
+      defaultAgentUserData: { installed: true, disabled: false },
+    });
+
+    const { rerender } = renderWithToast(
+      <SkillsViewer
+        agents={mockAgents}
+        config={mockConfig}
+        userProfile={mockUserProfile}
+        onRefreshSkills={onRefreshSkills}
+      />
+    );
+
+    // Initially mockAgents[0] is not pre-installed
+    expect(screen.queryByTestId('skill-row-preinstalled-badge')).not.toBeInTheDocument();
+
+    // Open SkillDetailModal and pre-install via footer action
+    fireEvent.click(screen.getByLabelText('Inspect Corporate Financial Forecaster'));
+    const preinstallBtn = await screen.findByTestId('footer-toggle-skill-preinstall-btn');
+    expect(preinstallBtn).toHaveTextContent(/Pre-install for All Users/i);
+    fireEvent.click(preinstallBtn);
+
+    await waitFor(() => {
+      expect(api.setSkillDefaultInstallForAllUsers).toHaveBeenCalledWith(
+        mockAgents[0],
+        true,
+        mockConfig
+      );
+      expect(onRefreshSkills).toHaveBeenCalledTimes(1);
+    });
+
+    expect(await screen.findByTestId('skill-detail-preinstalled-badge')).toBeInTheDocument();
+
+    // Negative test: API error when removing pre-install must show error toast and keep badge intact
+    vi.mocked(api.setSkillDefaultInstallForAllUsers).mockRejectedValueOnce(
+      new Error('403 PERMISSION_DENIED: UpdateAgent disallowed')
+    );
+    fireEvent.click(screen.getByTestId('footer-toggle-skill-preinstall-btn'));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Failed to update pre-install setting: 403 PERMISSION_DENIED/i)
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('skill-detail-preinstalled-badge')).toBeInTheDocument();
+
+    // Rerender with preinstalled skill in table and verify row badge appears
+    rerender(
+      <ToastProvider>
+        <SkillsViewer
+          agents={[preinstalledOrgSkill, mockAgents[1]]}
+          config={mockConfig}
+          userProfile={mockUserProfile}
+          onRefreshSkills={onRefreshSkills}
+        />
+      </ToastProvider>
+    );
+    expect(screen.getByTestId('skill-row-preinstalled-badge')).toBeInTheDocument();
   });
 });

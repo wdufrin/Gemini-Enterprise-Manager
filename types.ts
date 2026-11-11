@@ -265,12 +265,18 @@ export interface Agent {
   iamPolicy?: IamPolicy;
   state?: 'ENABLED' | 'DISABLED' | 'PRIVATE' | 'CONFIGURED' | 'DEPLOYING' | 'DEPLOYMENT_FAILED' | 'SUSPENDED' | 'CREATING' | 'CREATION_FAILED' | string;
   sharingConfig?: { scope?: 'PRIVATE' | 'RESTRICTED' | 'ALL_USERS' | string };
+  defaultAgentUserData?: AgentUserData | null;
   longRunningOperationsEnabled?: boolean;
   activeRevision?: string;
   createTime?: string;
   updateTime?: string;
   agentType?: string;
   agentOrigin?: string;
+}
+
+export interface AgentUserData {
+  installed?: boolean;
+  disabled?: boolean;
 }
 
 export type PreviousOwnerDisposition = 'KEEP_AS_AGENT_USER' | 'REMOVE';

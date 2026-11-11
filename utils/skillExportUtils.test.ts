@@ -18,6 +18,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseSkillOwnerPrincipal,
   isSkillAgentResource,
+  isSkillPreinstalledForAll,
   classifySkillAgent,
   normalizeAppSkillForExport,
   normalizeRegistrySkillForExport,
@@ -318,6 +319,38 @@ describe('skillExportUtils', () => {
       expect(Array.from(sanitized).length).toBeLessThanOrEqual(MAX_SKILL_DESCRIPTION_LENGTH);
       expect(sanitized.endsWith('.')).toBe(true);
       expect(validateSkillDescription(sanitized)).toBeNull();
+    });
+  });
+
+  describe('isSkillPreinstalledForAll', () => {
+    it('returns true only when defaultAgentUserData.installed is true and disabled is not true', () => {
+      expect(
+        isSkillPreinstalledForAll({
+          defaultAgentUserData: { installed: true, disabled: false },
+        })
+      ).toBe(true);
+      expect(
+        isSkillPreinstalledForAll({
+          defaultAgentUserData: { installed: true },
+        })
+      ).toBe(true);
+    });
+
+    it('returns false when disabled is true, installed is false, or data is missing (negative tests)', () => {
+      expect(
+        isSkillPreinstalledForAll({
+          defaultAgentUserData: { installed: true, disabled: true },
+        })
+      ).toBe(false);
+      expect(
+        isSkillPreinstalledForAll({
+          defaultAgentUserData: { installed: false, disabled: false },
+        })
+      ).toBe(false);
+      expect(isSkillPreinstalledForAll({ defaultAgentUserData: null })).toBe(false);
+      expect(isSkillPreinstalledForAll({})).toBe(false);
+      expect(isSkillPreinstalledForAll(null)).toBe(false);
+      expect(isSkillPreinstalledForAll(undefined)).toBe(false);
     });
   });
 });

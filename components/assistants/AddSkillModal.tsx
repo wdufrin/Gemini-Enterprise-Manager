@@ -17,6 +17,7 @@
 import React, { useState, useRef } from 'react';
 import { Config, UserProfile, SkillScope } from '../../types';
 import * as api from '../../services/apiService';
+import { useToast } from '../../context/ToastContext';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import {
   MAX_SKILL_DESCRIPTION_LENGTH,
@@ -43,6 +44,7 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
   onSkillCreated,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<ImportTab>('custom');
   const [displayName, setDisplayName] = useState('');
   const [skillId, setSkillId] = useState('');
@@ -51,6 +53,7 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
     '# Role & Capabilities\nYou are a specialized skill agent. Follow these guidelines:\n\n1. Analyze the user request carefully.\n2. Execute necessary domain operations with precision.\n3. Return formatted results clearly.'
   );
   const [scope, setScope] = useState<SkillScope>('ORGANIZATIONAL');
+  const [preinstallForAll, setPreinstallForAll] = useState(false);
   const [agentRegistrySkill, setAgentRegistrySkill] = useState('');
   const [gcsUri, setGcsUri] = useState('');
   const [uploadedFileName, setUploadedFileName] = useState('');
@@ -205,7 +208,17 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
           .replace(/^-+|-+$/g, '')
           .slice(0, 63)
           .replace(/^-+|-+$/g, '') || `skill-${Date.now()}`;
-      await api.createSkillAgent(payload, config, finalSkillId, scope === 'ORGANIZATIONAL');
+      const shouldPreinstall = scope === 'ORGANIZATIONAL' && preinstallForAll;
+      const created = shouldPreinstall
+        ? await api.createSkillAgent(payload, config, finalSkillId, true, true)
+        : await api.createSkillAgent(payload, config, finalSkillId, scope === 'ORGANIZATIONAL');
+
+      const promotionWarning = (created as { promotionWarning?: string } | undefined)?.promotionWarning;
+      if (promotionWarning) {
+        toast.warning(promotionWarning);
+      } else if (shouldPreinstall) {
+        toast.success(`Created "${safeDisplayName}" and pre-installed it for all users.`);
+      }
 
       onSkillCreated();
       onClose();
@@ -361,7 +374,10 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
                   name="scope"
                   value="USER_CREATED"
                   checked={scope === 'USER_CREATED'}
-                  onChange={() => setScope('USER_CREATED')}
+                  onChange={() => {
+                    setScope('USER_CREATED');
+                    setPreinstallForAll(false);
+                  }}
                   className="mt-1 text-purple-500 focus:ring-purple-500"
                 />
                 <div>
@@ -374,6 +390,31 @@ export const AddSkillModal: React.FC<AddSkillModalProps> = ({
                 </div>
               </label>
             </div>
+            {scope === 'ORGANIZATIONAL' && (
+              <label
+                className={`mt-2.5 flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                  preinstallForAll
+                    ? 'bg-emerald-950/35 border-emerald-600/70 text-emerald-100'
+                    : 'bg-gray-900/50 border-gray-700/80 text-gray-300 hover:bg-gray-800/70'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  data-testid="add-skill-preinstall-checkbox"
+                  checked={preinstallForAll}
+                  onChange={(e) => setPreinstallForAll(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-600 bg-gray-900 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                    ⚡ Pre-install for all users by default
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-0.5 leading-snug">
+                    Sets <code className="text-gray-300">defaultAgentUserData.installed = true</code> after publishing so users do not need to click <strong className="text-gray-300">+ Install</strong> in the Gemini Enterprise gallery.
+                  </p>
+                </div>
+              </label>
+            )}
           </div>
 
           {/* Basic Fields */}

@@ -30,6 +30,8 @@ import {
   parseAgentBulkFieldsCsv,
   generateAgentBulkFieldsTemplateCsv,
   extractAgentCurrentModelHint,
+  setSkillDefaultInstallForAllUsers,
+  createSkillAgent,
 } from './agents';
 import { Agent, Config } from '../../../types';
 
@@ -1679,6 +1681,170 @@ describe('agents API - shareAgent and Admin Publish & Share for User', () => {
       ),
     ).rejects.toThrow(/Agent ownership can only be transferred to a single user identity/i);
     expect(core.gapiRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('agents API - Skill Pre-install (default_agent_user_data)', () => {
+  const mockConfig: Config = {
+    projectId: 'test-project',
+    appLocation: 'global',
+    collectionId: 'default_collection',
+    appId: 'test-engine',
+    assistantId: 'default_assistant',
+  };
+
+  const skillAgent: Agent = {
+    name: 'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/fin-skill',
+    displayName: 'Finance Helper',
+    state: 'ENABLED',
+    sharingConfig: { scope: 'ALL_USERS' },
+    skillAgentDefinition: {
+      instruction: '# Finance Rules',
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('setSkillDefaultInstallForAllUsers sends PATCH with updateMask=default_agent_user_data and installed: true, disabled: false', async () => {
+    vi.mocked(core.gapiRequest).mockResolvedValueOnce({
+      ...skillAgent,
+      defaultAgentUserData: { installed: true, disabled: false },
+    });
+
+    const updated = await setSkillDefaultInstallForAllUsers(skillAgent, true, mockConfig);
+
+    expect(core.gapiRequest).toHaveBeenCalledTimes(1);
+    const [url, method, projectId, , payload] = vi.mocked(core.gapiRequest).mock.calls[0];
+    expect(method).toBe('PATCH');
+    expect(projectId).toBe('test-project');
+    expect(String(url)).toContain('updateMask=default_agent_user_data');
+    expect(payload).toEqual({
+      defaultAgentUserData: { installed: true, disabled: false },
+    });
+    expect(updated.defaultAgentUserData).toEqual({ installed: true, disabled: false });
+  });
+
+  it('setSkillDefaultInstallForAllUsers(false) preserves default_agent_user_data in updateMask while omitting field from body to clear defaults', async () => {
+    vi.mocked(core.gapiRequest).mockResolvedValueOnce({
+      ...skillAgent,
+      defaultAgentUserData: undefined,
+    });
+
+    await setSkillDefaultInstallForAllUsers(skillAgent, false, mockConfig);
+
+    expect(core.gapiRequest).toHaveBeenCalledTimes(1);
+    const [url, method, , , payload] = vi.mocked(core.gapiRequest).mock.calls[0];
+    expect(method).toBe('PATCH');
+    expect(String(url)).toContain('updateMask=default_agent_user_data');
+    expect(payload).toEqual({});
+  });
+
+  it('setSkillDefaultInstallForAllUsers rejects missing agent resource name before issuing RPC (negative test)', async () => {
+    await expect(
+      setSkillDefaultInstallForAllUsers({} as Agent, true, mockConfig),
+    ).rejects.toThrow(/missing agent resource name/i);
+    expect(core.gapiRequest).not.toHaveBeenCalled();
+  });
+
+  it('createSkillAgent strips defaultAgentUserData during CreateAgent and applies it via UpdateAgent after promotion', async () => {
+    vi.mocked(core.gapiRequest).mockImplementation(async (url, method, _projectId, _extra, body) => {
+      const urlStr = String(url);
+      if (method === 'POST' && urlStr.includes('/agents?')) {
+        expect((body as Record<string, unknown>).defaultAgentUserData).toBeUndefined();
+        return { ...skillAgent, sharingConfig: { scope: 'RESTRICTED' } };
+      }
+      if (method === 'GET' && urlStr.endsWith('/engines/test-engine')) {
+        return {
+          name: 'projects/test-project/locations/global/collections/default_collection/engines/test-engine',
+          features: {
+            skills: 'FEATURE_STATE_ON',
+            'skill-sharing': 'FEATURE_STATE_ON',
+            'skill-sharing-without-admin-approval': 'FEATURE_STATE_ON',
+          },
+        };
+      }
+      if (method === 'GET' && urlStr.endsWith('/agents/fin-skill')) {
+        return { ...skillAgent, state: 'ENABLED' };
+      }
+      if (method === 'PATCH' && urlStr.includes('updateMask=sharing_config')) {
+        return { ...skillAgent, sharingConfig: { scope: 'ALL_USERS' } };
+      }
+      if (method === 'PATCH' && urlStr.includes('updateMask=default_agent_user_data')) {
+        return {
+          ...skillAgent,
+          defaultAgentUserData: { installed: true, disabled: false },
+        };
+      }
+      throw new Error(`Unexpected gapiRequest call: ${method} ${urlStr}`);
+    });
+
+    const result = await createSkillAgent(
+      {
+        displayName: 'Finance Helper',
+        state: 'ENABLED',
+        defaultAgentUserData: { installed: true, disabled: false },
+        skillAgentDefinition: { instruction: '# Finance Rules' },
+      },
+      mockConfig,
+      'fin-skill',
+      true,
+      true,
+    );
+
+    expect(result.defaultAgentUserData).toEqual({ installed: true, disabled: false });
+    const patchCalls = vi
+      .mocked(core.gapiRequest)
+      .mock.calls.filter(([, m]) => m === 'PATCH')
+      .map(([u]) => String(u));
+    expect(patchCalls.some((u) => u.includes('updateMask=sharing_config'))).toBe(true);
+    expect(patchCalls.some((u) => u.includes('updateMask=default_agent_user_data'))).toBe(true);
+  });
+
+  it('createSkillAgent surfaces promotionWarning when pre-install PATCH fails after promotion (negative test)', async () => {
+    vi.mocked(core.gapiRequest).mockImplementation(async (url, method) => {
+      const urlStr = String(url);
+      if (method === 'POST' && urlStr.includes('/agents?')) {
+        return { ...skillAgent };
+      }
+      if (method === 'GET' && urlStr.endsWith('/engines/test-engine')) {
+        return {
+          name: 'projects/test-project/locations/global/collections/default_collection/engines/test-engine',
+          features: {
+            skills: 'FEATURE_STATE_ON',
+            'skill-sharing': 'FEATURE_STATE_ON',
+            'skill-sharing-without-admin-approval': 'FEATURE_STATE_ON',
+          },
+        };
+      }
+      if (method === 'GET' && urlStr.endsWith('/agents/fin-skill')) {
+        return { ...skillAgent, state: 'ENABLED' };
+      }
+      if (method === 'PATCH' && urlStr.includes('updateMask=sharing_config')) {
+        return { ...skillAgent, sharingConfig: { scope: 'ALL_USERS' } };
+      }
+      if (method === 'PATCH' && urlStr.includes('updateMask=default_agent_user_data')) {
+        throw new Error('403 PERMISSION_DENIED on UpdateAgent');
+      }
+      throw new Error(`Unexpected gapiRequest call: ${method} ${urlStr}`);
+    });
+
+    const result = await createSkillAgent(
+      {
+        displayName: 'Finance Helper',
+        state: 'ENABLED',
+        skillAgentDefinition: { instruction: '# Finance Rules' },
+      },
+      mockConfig,
+      'fin-skill',
+      true,
+      true,
+    );
+
+    expect((result as Agent & { promotionWarning?: string }).promotionWarning).toMatch(
+      /pre-install failed:.*403 PERMISSION_DENIED/i,
+    );
   });
 });
 

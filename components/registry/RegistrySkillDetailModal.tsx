@@ -99,6 +99,7 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
   const [availableEngines, setAvailableEngines] = useState<AppEngine[]>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string>('');
   const [deployMode, setDeployMode] = useState<'LINKED_REGISTRY' | 'INLINE_COPY'>('LINKED_REGISTRY');
+  const [preinstallOnGeDeploy, setPreinstallOnGeDeploy] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUpdatingScanPolicy, setIsUpdatingScanPolicy] = useState(false);
   const [selectedScanPolicy, setSelectedScanPolicy] = useState<SkillScanningPolicy>('ENABLED_BLOCKING');
@@ -547,19 +548,45 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
         }
       }
 
+      let targetAgent: Agent = deployedAgent?.name
+        ? deployedAgent
+        : { name: agentResourceName, displayName: skill.displayName || sanitizedAgentId };
+
       if (typeof api.promoteSkillToOrg === 'function') {
-        await api.promoteSkillToOrg(
-          deployedAgent?.name
-            ? deployedAgent
-            : { name: agentResourceName, displayName: skill.displayName || sanitizedAgentId },
-          targetConfig,
-        );
+        targetAgent = await api.promoteSkillToOrg(targetAgent, targetConfig);
+      }
+
+      let preinstallWarning: string | null = null;
+      if (preinstallOnGeDeploy) {
+        try {
+          if (typeof api.setSkillDefaultInstallForAllUsers === 'function') {
+            await api.setSkillDefaultInstallForAllUsers(targetAgent, true, targetConfig);
+          } else {
+            await api.updateAgent(
+              targetAgent,
+              { defaultAgentUserData: { installed: true, disabled: false } },
+              targetConfig,
+            );
+          }
+        } catch (preinstallErr: unknown) {
+          preinstallWarning = toErrorMessage(preinstallErr);
+        }
       }
 
       setDeploySuccess(true);
-      toast.success(
-        `Published "${safeSkillDisplayName}" to Gemini Enterprise Browse skills gallery (${deployMode === 'LINKED_REGISTRY' ? 'Linked Registry Skill' : 'Inline SKILL.md Copy'}). Employees can click "+ Install" in the web app.`,
-      );
+      if (preinstallWarning) {
+        toast.warning(
+          `Published "${safeSkillDisplayName}" to Gemini Enterprise gallery, but pre-install failed: ${preinstallWarning}`,
+        );
+      } else if (preinstallOnGeDeploy) {
+        toast.success(
+          `Published "${safeSkillDisplayName}" to Gemini Enterprise and pre-installed it for all users (${deployMode === 'LINKED_REGISTRY' ? 'Linked Registry Skill' : 'Inline SKILL.md Copy'}).`,
+        );
+      } else {
+        toast.success(
+          `Published "${safeSkillDisplayName}" to Gemini Enterprise Browse skills gallery (${deployMode === 'LINKED_REGISTRY' ? 'Linked Registry Skill' : 'Inline SKILL.md Copy'}). Employees can click "+ Install" in the web app.`,
+        );
+      }
       setTimeout(() => setDeploySuccess(false), 3500);
       onSkillUpdated();
     } catch (err: unknown) {
@@ -1388,6 +1415,24 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
               <option value="LINKED_REGISTRY">🔗 Link Registry Skill</option>
               <option value="INLINE_COPY">📄 Copy Inline SKILL.md</option>
             </select>
+
+            <label
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-xs cursor-pointer transition-colors ${
+                preinstallOnGeDeploy
+                  ? 'bg-emerald-950/50 border-emerald-600/80 text-emerald-200 font-semibold'
+                  : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
+              }`}
+              title="Automatically pre-install and enable this skill for all users after publishing (defaultAgentUserData.installed = true)"
+            >
+              <input
+                type="checkbox"
+                data-testid="ge-deploy-preinstall-checkbox"
+                checked={preinstallOnGeDeploy}
+                onChange={(e) => setPreinstallOnGeDeploy(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-900 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+              />
+              <span>⚡ Pre-install for all</span>
+            </label>
 
             <button
               type="button"

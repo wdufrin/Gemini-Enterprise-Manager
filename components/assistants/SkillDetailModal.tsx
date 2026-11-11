@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Agent, Config, RegistrySkillFinding, RegistrySkillScanResult } from '../../types';
+import { Agent, AgentUserData, Config, RegistrySkillFinding, RegistrySkillScanResult } from '../../types';
 import * as api from '../../services/apiService';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
@@ -24,6 +24,7 @@ import {
   MAX_SKILL_DESCRIPTION_LENGTH,
   buildSkillMarkdownDocument,
   classifySkillAgent,
+  isSkillPreinstalledForAll,
   normalizeAppSkillForExport,
   parseSkillMarkdown,
   sanitizeSkillDescription,
@@ -64,6 +65,9 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [defaultUserData, setDefaultUserData] = useState<AgentUserData | null | undefined>(
+    skill?.defaultAgentUserData
+  );
 
   // Agent Registry Security Audit State
   const [isScanningSecurity, setIsScanningSecurity] = useState(false);
@@ -113,6 +117,7 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
         setFullSkillMdText(rawInst);
       }
       setEditError(null);
+      setDefaultUserData(skill.defaultAgentUserData);
       setSecurityScanSummary(null);
       setSecurityScanError(null);
       setIsEditingInstructions(Boolean(initialEditMode));
@@ -139,6 +144,9 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   const isOrgWide = classification.sharingScope === 'ORG_WIDE';
   const owner = classification.ownerPrincipal || 'System / Default';
   const normalizedState = (skill.state || 'PRIVATE').toUpperCase();
+  const isPreinstalled = isSkillPreinstalledForAll({ defaultAgentUserData: defaultUserData });
+  const canConfigurePreinstall =
+    isOrgWide && classification.origin !== 'GOOGLE_1P' && normalizedState !== 'PRIVATE';
   const canEditSkillMd =
     classification.origin !== 'GOOGLE_1P' && !classification.isInstructionRedactedForAdmin;
   const canScanViaRegistry =
@@ -417,6 +425,40 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
     }
   };
 
+  const handleTogglePreinstallForAll = async () => {
+    const nextPreinstall = !isPreinstalled;
+    setIsUpdating(true);
+    try {
+      const updated =
+        typeof api.setSkillDefaultInstallForAllUsers === 'function'
+          ? await api.setSkillDefaultInstallForAllUsers(skill, nextPreinstall, config)
+          : await api.updateAgent(
+              skill,
+              {
+                defaultAgentUserData: nextPreinstall
+                  ? { installed: true, disabled: false }
+                  : null,
+              },
+              config
+            );
+      setDefaultUserData(
+        updated?.defaultAgentUserData ??
+          (nextPreinstall ? { installed: true, disabled: false } : null)
+      );
+      toast.success(
+        nextPreinstall
+          ? `"${skill.displayName}" is now pre-installed by default for all users.`
+          : `Removed default pre-installation for "${skill.displayName}".`
+      );
+      onSkillUpdated();
+    } catch (err) {
+      console.error('Failed to update skill default installation:', err);
+      toast.error('Failed to update pre-install setting: ' + toErrorMessage(err));
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleToggleActiveState = async () => {
     setIsUpdating(true);
     try {
@@ -532,6 +574,15 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
                 {normalizedState !== 'PRIVATE' && (
                   <span className="px-2 py-0.5 text-[11px] font-medium bg-gray-900/80 text-gray-300 rounded border border-gray-700">
                     {classification.sharingLabel}
+                  </span>
+                )}
+                {isPreinstalled && (
+                  <span
+                    data-testid="skill-detail-preinstalled-badge"
+                    className="px-2 py-0.5 text-[11px] font-semibold bg-emerald-950/70 text-emerald-300 rounded border border-emerald-700/70"
+                    title="Pre-installed and enabled by default for all users (defaultAgentUserData.installed = true)"
+                  >
+                    ⚡ Pre-installed (Default On)
                   </span>
                 )}
                 <span className={`px-2 py-0.5 text-xs font-semibold rounded border ${getStateBadgeClass(normalizedState)}`}>
@@ -1063,6 +1114,45 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
                 </div>
               </div>
 
+              <div
+                data-testid="skill-default-install-card"
+                className={`p-3.5 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                  isPreinstalled
+                    ? 'bg-emerald-950/25 border-emerald-700/70'
+                    : 'bg-gray-900/60 border-gray-700'
+                }`}
+              >
+                <div className="space-y-1">
+                  <span className="text-gray-300 font-semibold block">
+                    Default User Installation (<code className="text-gray-400">defaultAgentUserData</code>)
+                  </span>
+                  <p className="text-gray-400 text-[11px] leading-relaxed">
+                    {classification.origin === 'GOOGLE_1P'
+                      ? 'Managed automatically by Google (1P built-in skill).'
+                      : !isOrgWide || normalizedState === 'PRIVATE'
+                      ? 'Promote this skill to Organization-wide first before pre-installing it for all users.'
+                      : isPreinstalled
+                      ? 'Pre-installed and enabled by default for all users in the Gemini Enterprise app.'
+                      : 'Users can discover and manually click "+ Install" in the Gemini Enterprise gallery.'}
+                  </p>
+                </div>
+                {canConfigurePreinstall && (
+                  <button
+                    type="button"
+                    data-testid="metadata-toggle-skill-preinstall-btn"
+                    onClick={handleTogglePreinstallForAll}
+                    disabled={isUpdating}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors shrink-0 disabled:opacity-50 ${
+                      isPreinstalled
+                        ? 'bg-gray-800 hover:bg-gray-700 text-gray-200 border-gray-600'
+                        : 'bg-emerald-900/50 hover:bg-emerald-800/70 text-emerald-200 border-emerald-700'
+                    }`}
+                  >
+                    {isPreinstalled ? 'Remove Pre-install' : '⚡ Pre-install for All Users'}
+                  </button>
+                )}
+              </div>
+
               {skillDef.agentRegistrySkill && (
                 <div className="p-3.5 bg-gray-900/60 border border-gray-700 rounded-lg space-y-1.5">
                   <span className="text-blue-400 font-semibold block">Agent Registry Source</span>
@@ -1153,6 +1243,22 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
             >
               {isOrgWide ? '🔄 Restrict to Personal Scope' : '🚀 Promote to Organization-wide'}
             </button>
+            {canConfigurePreinstall && (
+              <button
+                type="button"
+                data-testid="footer-toggle-skill-preinstall-btn"
+                onClick={handleTogglePreinstallForAll}
+                disabled={isUpdating}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${
+                  isPreinstalled
+                    ? 'bg-emerald-950/70 text-emerald-200 border-emerald-700 hover:bg-emerald-900/70'
+                    : 'bg-gray-800 text-emerald-300 border-emerald-700/70 hover:bg-emerald-950/60'
+                }`}
+                title="Configure whether this skill is pre-installed and active by default for all users (defaultAgentUserData)"
+              >
+                {isPreinstalled ? '⚡ Pre-installed (Remove)' : '⚡ Pre-install for All Users'}
+              </button>
+            )}
             {normalizedState !== 'PRIVATE' && (
               <button
                 onClick={handleToggleActiveState}

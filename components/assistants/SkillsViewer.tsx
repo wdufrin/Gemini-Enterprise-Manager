@@ -26,6 +26,7 @@ import { toErrorMessage } from '../../utils/errors';
 import {
   classifySkillAgent,
   isSkillAgentResource,
+  isSkillPreinstalledForAll,
   normalizeAppSkillForExport,
 } from '../../utils/skillExportUtils';
 
@@ -145,10 +146,19 @@ const SkillTableRow = React.memo<SkillTableRowProps>(
                 <span>{classification.originLabel}</span>
               </div>
             )}
-            <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 flex-wrap">
               <span className="px-1.5 py-0.5 rounded bg-gray-900/70 border border-gray-700 text-gray-300 font-medium">
                 {classification.sharingLabel}
               </span>
+              {isSkillPreinstalledForAll(skill) && (
+                <span
+                  data-testid="skill-row-preinstalled-badge"
+                  className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-700/70 text-emerald-300 font-semibold"
+                  title="Pre-installed and enabled by default for all users (defaultAgentUserData.installed = true)"
+                >
+                  ⚡ Pre-installed
+                </span>
+              )}
               {ownerEmail && (
                 <span className="truncate max-w-[150px] font-mono text-gray-300" title={ownerEmail}>
                   {ownerEmail}
