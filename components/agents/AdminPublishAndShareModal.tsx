@@ -163,9 +163,24 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
 
       onSuccess(result);
     } catch (err: unknown) {
+      const formattedErr =
+        typeof api.isAgentExecutionConsentError === 'function' &&
+        api.isAgentExecutionConsentError(err) &&
+        !(err instanceof Error && err.message.includes('_agent_execution_grant_')) &&
+        typeof api.formatAgentExecutionConsentError === 'function'
+          ? api.formatAgentExecutionConsentError(err, {
+              appLocation: config.appLocation,
+              appId: config.appId,
+              isTransferring: !isPrivateOnly && ownerMode === 'user',
+              targetOwnerPrincipal:
+                !isPrivateOnly && ownerMode === 'user'
+                  ? targetOwnerInput.trim() || undefined
+                  : undefined,
+            })
+          : err;
       setError(
         toErrorMessage(
-          err,
+          formattedErr,
           'Failed to publish and share agent on behalf of user.',
         ),
       );
@@ -277,6 +292,21 @@ const AdminPublishAndShareModal: React.FC<AdminPublishAndShareModalProps> = ({
                 className="w-full bg-gray-900 border border-gray-600 rounded-md px-3 py-2 text-sm text-white placeholder-gray-500 focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
+
+            {typeof api.hasWorkflowExecutionConsentTriggers === 'function' &&
+              api.hasWorkflowExecutionConsentTriggers(agent) && (
+                <div className="p-3 bg-amber-950/35 border border-amber-600/60 rounded-lg text-xs text-amber-200 space-y-1">
+                  <div className="font-semibold text-amber-300">
+                    Workflow Scheduled / Event Trigger Notice
+                  </div>
+                  <p>
+                    This Workflow agent contains a schedule or connector-event trigger. Discovery Engine requires per-engine Web App OAuth consent (<code className="font-mono text-amber-300">_agent_execution_grant_</code>) on <code className="font-mono text-amber-300">{config.appId}</code> ({config.appLocation || 'global'}) to <code className="font-mono text-amber-300">:publish</code>, and <code className="font-mono text-amber-300">:transferAgentOwner</code> disables schedule/event triggers automatically.
+                  </p>
+                  <p className="text-amber-100/90">
+                    When assigning ownership to a user, if <code className="font-mono text-amber-300">:publish</code> fails with missing consent (common on 3P Entra ID / WIF apps), GEM will still share and transfer ownership cleanly so the new owner can publish and re-enable triggers in the Web App.
+                  </p>
+                </div>
+              )}
 
             {/* Target Owner */}
             <div className="space-y-3">

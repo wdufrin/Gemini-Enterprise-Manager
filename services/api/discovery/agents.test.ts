@@ -32,6 +32,9 @@ import {
   extractAgentCurrentModelHint,
   setSkillDefaultInstallForAllUsers,
   createSkillAgent,
+  isAgentExecutionConsentError,
+  hasWorkflowExecutionConsentTriggers,
+  formatAgentExecutionConsentError,
 } from './agents';
 import { Agent, Config } from '../../../types';
 
@@ -1847,6 +1850,371 @@ describe('agents API - Skill Pre-install (default_agent_user_data)', () => {
     );
   });
 });
+
+describe('Workflow execution consent & Entra ID ownership transfer handling', () => {
+  const euEntraConfig: Config = {
+    projectId: 'eu-project',
+    appLocation: 'eu',
+    collectionId: 'default_collection',
+    appId: 'EntraID-Test',
+    assistantId: 'default_assistant',
+  };
+
+  const privateWorkflowAgentName =
+    'projects/eu-project/locations/eu/collections/default_collection/engines/EntraID-Test/assistants/default_assistant/agents/wf-scheduled-1';
+
+  const consentRpcError = new Error(
+    'Agent execution consent not granted. Please grant consent to allow the agent to run on your behalf. ([ORIGINAL ERROR] generic::permission_denied: Agent execution consent not granted. Please grant consent to allow the agent to run on your behalf.)',
+  );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('detects Agent execution consent errors and distinguishes unrelated 403 errors', () => {
+    expect(isAgentExecutionConsentError(consentRpcError)).toBe(true);
+    expect(
+      isAgentExecutionConsentError(
+        new Error('403 PermissionDenied: Caller does not own this agent'),
+      ),
+    ).toBe(false);
+    expect(isAgentExecutionConsentError(null)).toBe(false);
+  });
+
+  it('detects workflow nodes that require _agent_execution_grant_ credentials', () => {
+    expect(
+      hasWorkflowExecutionConsentTriggers({
+        name: privateWorkflowAgentName,
+        displayName: 'Scheduled Bot',
+        workflowAgentDefinition: {
+          agentFlow: {
+            nodes: [{ id: 'trig', scheduleTrigger: { cron: '0 9 * * *' } }],
+          },
+        },
+      }),
+    ).toBe(true);
+
+    expect(
+      hasWorkflowExecutionConsentTriggers({
+        name: privateWorkflowAgentName,
+        displayName: 'Event Bot',
+        workflowAgentDefinition: {
+          agentFlow: {
+            nodes: [{ id: 'evt', connectorEventTrigger: { eventSubscription: 'sub-1' } }],
+          },
+        },
+      }),
+    ).toBe(true);
+
+    expect(
+      hasWorkflowExecutionConsentTriggers({
+        name: privateWorkflowAgentName,
+        displayName: 'Scheduled Chat Bot',
+        workflowAgentDefinition: {
+          agentFlow: {
+            nodes: [{ id: 'chat', chatTrigger: { schedules: [{ cron: '0 * * * *' }] } }],
+          },
+        },
+      }),
+    ).toBe(true);
+
+    expect(
+      hasWorkflowExecutionConsentTriggers({
+        name: privateWorkflowAgentName,
+        displayName: 'Manual Chat Only Bot',
+        workflowAgentDefinition: {
+          agentFlow: {
+            nodes: [
+              { id: 'chat', chatTrigger: { schedules: [] } },
+              { id: 'agent', agentNode: { model: 'gemini-2.5-flash' } },
+            ],
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('formats consent error with engine, region, Entra ID 3P context, and transfer guidance', () => {
+    const formatted = formatAgentExecutionConsentError(consentRpcError, {
+      appLocation: 'eu',
+      appId: 'EntraID-Test',
+      isTransferring: true,
+      targetOwnerPrincipal:
+        'principal://iam.googleapis.com/locations/global/workforcePools/entra-pool/subject/user-123',
+    });
+
+    expect(formatted.message).toMatch(/EntraID-Test.*region: eu/);
+    expect(formatted.message).toMatch(/_agent_execution_grant_/);
+    expect(formatted.message).toMatch(/Workforce Identity \/ Entra ID/i);
+    expect(formatted.message).toMatch(/:transferAgentOwner automatically disables/i);
+  });
+
+  it('publishNoCodeAgentOnly and shareAgent surface formatted consent error instead of misdiagnosing as owner != caller (negative test)', async () => {
+    const scheduledSharedWorkflow: Agent = {
+      name: privateWorkflowAgentName,
+      displayName: 'EU Scheduled Workflow',
+      state: 'PRIVATE',
+      workflowAgentDefinition: {
+        agentFlow: {
+          nodes: [{ id: 't1', scheduleTrigger: { disabled: true } }],
+        },
+      },
+    };
+
+    vi.mocked(core.gapiRequest).mockImplementation(async (url, method) => {
+      const urlStr = String(url);
+      if (method === 'GET' && urlStr.endsWith('/agents/wf-scheduled-1')) {
+        return scheduledSharedWorkflow;
+      }
+      if (method === 'POST' && urlStr.endsWith(':publish')) {
+        throw consentRpcError;
+      }
+      throw new Error(`Unexpected call: ${method} ${urlStr}`);
+    });
+
+    await expect(
+      publishNoCodeAgentOnly(privateWorkflowAgentName, euEntraConfig),
+    ).rejects.toThrow(/_agent_execution_grant_.*EntraID-Test/);
+
+    await expect(
+      shareAgent(privateWorkflowAgentName, euEntraConfig),
+    ).rejects.toThrow(/_agent_execution_grant_.*EntraID-Test/);
+  });
+
+  it('adminPublishAndShareForUser continues share & transfer to target owner when :publish hits consent error on EU EntraID app', async () => {
+    const sourceWorkflow: Agent = {
+      name: privateWorkflowAgentName,
+      displayName: 'EU Scheduled Workflow',
+      description: 'Runs scheduled sync',
+      state: 'PRIVATE',
+      workflowAgentDefinition: {
+        agentFlow: {
+          nodes: [{ id: 't1', scheduleTrigger: { cron: '0 8 * * *' } }],
+        },
+      },
+    };
+    const clonedName =
+      'projects/eu-project/locations/eu/collections/default_collection/engines/EntraID-Test/assistants/default_assistant/agents/wf-cloned-1';
+    const targetWifPrincipal =
+      'principal://iam.googleapis.com/locations/global/workforcePools/entra-pool/subject/User-ABC';
+
+    const callLog: Array<{ method: string; url: string; body?: unknown }> = [];
+
+    vi.mocked(core.gapiRequest).mockImplementation(
+      async (url, method, _project, _params, body) => {
+        const urlStr = String(url);
+        callLog.push({ method: String(method), url: urlStr, body });
+
+        if (method === 'GET' && urlStr.endsWith('/agents/wf-scheduled-1')) {
+          return sourceWorkflow;
+        }
+        if (method === 'POST' && urlStr.endsWith('/agents')) {
+          return { ...sourceWorkflow, name: clonedName, state: 'PRIVATE' };
+        }
+        if (method === 'POST' && urlStr.endsWith(`${clonedName}:publish`)) {
+          throw consentRpcError;
+        }
+        if (method === 'POST' && urlStr.endsWith(`${clonedName}:initIamPolicy`)) {
+          return {};
+        }
+        if (method === 'POST' && urlStr.endsWith(`${clonedName}:requestAgentReview`)) {
+          return { ...sourceWorkflow, name: clonedName, state: 'DISABLED' };
+        }
+        if (method === 'GET' && urlStr.endsWith('/agents/wf-cloned-1')) {
+          const wasEnabled = callLog.some((c) => c.url.endsWith(':enableAgent'));
+          return {
+            ...sourceWorkflow,
+            name: clonedName,
+            state: wasEnabled ? 'ENABLED' : 'DISABLED',
+            sharingConfig: { scope: 'RESTRICTED' },
+          };
+        }
+        if (method === 'POST' && urlStr.endsWith(`${clonedName}:enableAgent`)) {
+          return { ...sourceWorkflow, name: clonedName, state: 'ENABLED' };
+        }
+        if (method === 'POST' && urlStr.endsWith(`${clonedName}:transferAgentOwner`)) {
+          return {};
+        }
+        if (method === 'DELETE' && urlStr.endsWith('/agents/wf-scheduled-1')) {
+          return {};
+        }
+        throw new Error(`Unexpected call: ${method} ${urlStr}`);
+      },
+    );
+
+    const result = await adminPublishAndShareForUser(
+      sourceWorkflow,
+      {
+        displayName: 'EU Scheduled Workflow',
+        sharingScope: 'RESTRICTED',
+        keepAdminAsOwner: false,
+        targetOwnerPrincipal: targetWifPrincipal,
+        deleteOriginalPrivateAgent: true,
+      },
+      euEntraConfig,
+    );
+
+    expect(result.wasCloned).toBe(true);
+    expect(result.transferredTo).toBe(targetWifPrincipal);
+    expect(result.publishSkippedDueToConsent).toBe(true);
+    expect(result.deletedOriginal).toBe(true);
+    expect(result.warning).toMatch(/_agent_execution_grant_/);
+    expect(result.warning).toMatch(/EntraID-Test/);
+    expect(callLog.some((c) => c.url.endsWith(`${clonedName}:transferAgentOwner`))).toBe(true);
+    // Cloned draft was NOT deleted; only original private draft was cleaned up after transfer
+    expect(callLog.some((c) => c.method === 'DELETE' && c.url.endsWith('/agents/wf-cloned-1'))).toBe(false);
+  });
+
+  it('adminPublishAndShareForUser cleans up orphaned PRIVATE clone and throws actionable error when NOT transferring to another owner (negative test)', async () => {
+    const sourceWorkflow: Agent = {
+      name: privateWorkflowAgentName,
+      displayName: 'EU Scheduled Workflow',
+      description: 'Runs scheduled sync',
+      state: 'PRIVATE',
+      workflowAgentDefinition: {
+        agentFlow: {
+          nodes: [{ id: 't1', scheduleTrigger: { cron: '0 8 * * *' } }],
+        },
+      },
+    };
+    const clonedName =
+      'projects/eu-project/locations/eu/collections/default_collection/engines/EntraID-Test/assistants/default_assistant/agents/wf-orphaned-1';
+    const deletedUrls: string[] = [];
+
+    vi.mocked(core.gapiRequest).mockImplementation(async (url, method) => {
+      const urlStr = String(url);
+      if (method === 'GET' && urlStr.endsWith('/agents/wf-scheduled-1')) {
+        return sourceWorkflow;
+      }
+      if (method === 'POST' && urlStr.endsWith('/agents')) {
+        return { ...sourceWorkflow, name: clonedName, state: 'PRIVATE' };
+      }
+      if (method === 'POST' && urlStr.endsWith(`${clonedName}:publish`)) {
+        throw consentRpcError;
+      }
+      if (method === 'DELETE') {
+        deletedUrls.push(urlStr);
+        return {};
+      }
+      throw new Error(`Unexpected call: ${method} ${urlStr}`);
+    });
+
+    await expect(
+      adminPublishAndShareForUser(
+        sourceWorkflow,
+        {
+          displayName: 'EU Scheduled Workflow',
+          sharingScope: 'PRIVATE',
+          keepAdminAsOwner: true,
+        },
+        euEntraConfig,
+      ),
+    ).rejects.toThrow(/_agent_execution_grant_.*EntraID-Test/);
+
+    expect(deletedUrls.some((u) => u.endsWith('/agents/wf-orphaned-1'))).toBe(true);
+  });
+
+  it('bulkEditSharePublishAgents does NOT auto-claim ownership on consent error when no target owner is set (negative regression)', async () => {
+    const sharedWorkflow: Agent = {
+      name: 'projects/eu-project/locations/eu/collections/default_collection/engines/EntraID-Test/assistants/default_assistant/agents/wf-shared-1',
+      displayName: 'Shared EU Workflow',
+      state: 'ENABLED',
+      sharingConfig: { scope: 'RESTRICTED' },
+      workflowAgentDefinition: {
+        agentFlow: {
+          nodes: [{ id: 't1', scheduleTrigger: { disabled: true } }],
+        },
+      },
+    };
+    const transferCalls: string[] = [];
+
+    vi.mocked(core.gapiRequest).mockImplementation(async (url, method) => {
+      const urlStr = String(url);
+      if (method === 'GET' && urlStr.endsWith('/agents/wf-shared-1')) {
+        return sharedWorkflow;
+      }
+      if (method === 'POST' && urlStr.endsWith(':transferAgentOwner')) {
+        transferCalls.push(urlStr);
+        return {};
+      }
+      if (method === 'POST' && urlStr.endsWith(':publish')) {
+        throw consentRpcError;
+      }
+      throw new Error(`Unexpected call: ${method} ${urlStr}`);
+    });
+
+    const bulkRes = await bulkEditSharePublishAgents(
+      [sharedWorkflow],
+      {
+        publishDrafts: true,
+        autoClaimOwnershipOn403: true,
+      },
+      euEntraConfig,
+    );
+
+    expect(transferCalls).toHaveLength(0);
+    expect(bulkRes.failed).toBe(1);
+    expect(bulkRes.outcomes[0].status).toBe('failed');
+    expect(bulkRes.outcomes[0].error).toMatch(/_agent_execution_grant_.*EntraID-Test/);
+  });
+
+  it('bulkEditSharePublishAgents skips failed :publish with warning and completes :transferAgentOwner when transferring to an Entra ID WIF owner', async () => {
+    const sharedWorkflow: Agent = {
+      name: 'projects/eu-project/locations/eu/collections/default_collection/engines/EntraID-Test/assistants/default_assistant/agents/wf-shared-2',
+      displayName: 'Shared EU Workflow 2',
+      state: 'ENABLED',
+      sharingConfig: { scope: 'RESTRICTED' },
+      workflowAgentDefinition: {
+        agentFlow: {
+          nodes: [{ id: 't1', scheduleTrigger: { cron: '0 9 * * *' } }],
+        },
+      },
+    };
+    const targetWif =
+      'principal://iam.googleapis.com/locations/global/workforcePools/entra-pool/subject/Entra-Owner-1';
+    const transferPayloads: unknown[] = [];
+
+    vi.mocked(core.gapiRequest).mockImplementation(
+      async (url, method, _project, _params, body) => {
+        const urlStr = String(url);
+        if (method === 'GET' && urlStr.endsWith('/agents/wf-shared-2')) {
+          return sharedWorkflow;
+        }
+        if (method === 'POST' && urlStr.endsWith(':publish')) {
+          throw consentRpcError;
+        }
+        if (method === 'POST' && urlStr.endsWith(':transferAgentOwner')) {
+          transferPayloads.push(body);
+          return {};
+        }
+        throw new Error(`Unexpected call: ${method} ${urlStr}`);
+      },
+    );
+
+    const bulkRes = await bulkEditSharePublishAgents(
+      [sharedWorkflow],
+      {
+        publishDrafts: true,
+        sharingScope: 'UNCHANGED',
+        ownerRemapByAgent: {
+          [sharedWorkflow.name]: targetWif,
+        },
+      },
+      euEntraConfig,
+    );
+
+    expect(bulkRes.failed).toBe(0);
+    expect(bulkRes.updated).toBe(1);
+    expect(transferPayloads).toEqual([
+      {
+        targetPrincipal: { principal: targetWif },
+        previousOwnerDisposition: 'KEEP_AS_AGENT_USER',
+      },
+    ]);
+    expect(bulkRes.outcomes[0].warning).toMatch(/Skipped :publish.*Agent execution consent not granted/i);
+  });
+});
+
 
 
 

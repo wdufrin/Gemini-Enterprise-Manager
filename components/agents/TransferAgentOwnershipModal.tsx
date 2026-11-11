@@ -444,7 +444,16 @@ const TransferAgentOwnershipModal: React.FC<TransferAgentOwnershipModalProps> = 
                   <code className="font-mono text-amber-300">roles/discoveryengine.agentUser</code> (unless removed).
                 </li>
                 <li>
-                  <strong>Schedule &amp; Event Triggers Disabled:</strong> If this agent has a schedule trigger or event trigger, the transfer operation marks them as <strong>disabled</strong>. The new owner must re-enable them after transfer.
+                  <strong>Schedule &amp; Event Triggers Disabled:</strong> If this agent has a schedule trigger or event trigger, the transfer operation automatically disables triggers and deletes the prior owner&rsquo;s schedules.
+                  {typeof api.hasWorkflowExecutionConsentTriggers === 'function' &&
+                  api.hasWorkflowExecutionConsentTriggers(agent) ? (
+                    <span className="text-amber-300 font-medium">
+                      {' '}
+                      This workflow currently contains scheduled or event triggers — after transfer, the new owner must open it in the Gemini Enterprise Web App and click <strong>Publish</strong> (granting <code className="font-mono">_agent_execution_grant_</code> consent on this app) to re-enable triggers.
+                    </span>
+                  ) : (
+                    ' The new owner must re-enable them after transfer.'
+                  )}
                 </li>
               </ul>
             </div>

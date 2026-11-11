@@ -2146,8 +2146,292 @@ describe('assistantEvaluationService', () => {
         'Intent-First Source Selection',
       );
     });
+
+    it('separates direct ingested DataStores (internal videos, intranet, extranet) from 3P/BYOMCP connectors and avoids bloated matrices or conflicting Single-Hop rules', async () => {
+      const { validateSkillDisplayName, validateSkillDescription } = await import(
+        '../utils/skillExportUtils'
+      );
+
+      const directVideoDs: DataStore = {
+        name: 'projects/123456/locations/global/collections/default_collection/dataStores/internal_videos_rag',
+        displayName: 'Internal Training Videos Corpus',
+        industryVertical: 'GENERIC',
+        solutionTypes: ['SOLUTION_TYPE_SEARCH'],
+        contentConfig: 'CONTENT_REQUIRED',
+      };
+      const directIntranetDs: DataStore = {
+        name: 'projects/123456/locations/global/collections/default_collection/dataStores/intranet_sites_corpus',
+        displayName: 'Corporate Intranet Sites',
+        industryVertical: 'GENERIC',
+        solutionTypes: ['SOLUTION_TYPE_SEARCH'],
+        contentConfig: 'CONTENT_REQUIRED',
+      };
+      const directExtranetDs: DataStore = {
+        name: 'projects/123456/locations/global/collections/default_collection/dataStores/extranet_sites_corpus',
+        displayName: 'Partner Extranet Sites',
+        industryVertical: 'GENERIC',
+        solutionTypes: ['SOLUTION_TYPE_SEARCH'],
+        contentConfig: 'CONTENT_REQUIRED',
+      };
+      const onedriveEntityDs: DataStore = {
+        name: 'projects/123456/locations/global/collections/geinfra1108-onedrive/dataStores/geinfra1108-onedrive_file',
+        displayName: 'onedrive_file',
+        industryVertical: 'GENERIC',
+        solutionTypes: ['SOLUTION_TYPE_SEARCH'],
+        contentConfig: 'CONTENT_REQUIRED',
+      };
+
+      const byomcpDatabricks: DataConnector = {
+        name: 'projects/123456/locations/global/collections/databricks_genie_mcp/dataConnector',
+        connectorType: 'BYO_MCP',
+        state: 'ACTIVE',
+        actionConfig: {
+          actionParams: {
+            instance_uri: 'https://databricks.corp.internal/mcp',
+            mcp_server_description:
+              'Authoritative Databricks Genie MCP server for live finance lakehouse SQL queries.',
+            mcp_agent_instructions:
+              'Call genie_ask then poll genie_poll_response until complete, then retrieve rows with genie_get_query_result.',
+          },
+          dynamicTools: [
+            {
+              name: 'genie_ask',
+              displayName: 'Genie Ask',
+              description: 'Start an analytical query in Databricks Genie',
+              enabled: true,
+            },
+            {
+              name: 'genie_poll_response',
+              displayName: 'Genie Poll Response',
+              description: 'Poll async Genie query status',
+              enabled: true,
+            },
+          ],
+        },
+      };
+
+      const report = evaluateAssistantData({
+        engine: {
+          ...baseEngine,
+          dataStoreIds: [
+            'internal_videos_rag',
+            'intranet_sites_corpus',
+            'extranet_sites_corpus',
+            'geinfra1108-onedrive_file',
+            'databricks_genie_mcp',
+          ],
+        },
+        assistant: baseAssistant,
+        agents: [],
+        config: baseConfig,
+        dataStores: [directVideoDs, directIntranetDs, directExtranetDs, onedriveEntityDs],
+        connectorsByCollectionId: {
+          'geinfra1108-onedrive': {
+            name: 'projects/123456/locations/global/collections/geinfra1108-onedrive/dataConnector',
+            connectorType: 'THIRD_PARTY',
+            dataSource: 'onedrive',
+            state: 'ACTIVE',
+          },
+          databricks_genie_mcp: byomcpDatabricks,
+        },
+      });
+
+      const directIds = [
+        'skill-direct-internal_videos_rag',
+        'skill-direct-intranet_sites_corpus',
+        'skill-direct-extranet_sites_corpus',
+      ];
+      for (const expectedId of directIds) {
+        const skill = report.recommendedSkills.find((s) => s.id === expectedId);
+        expect(skill).toBeDefined();
+        expect(validateSkillDisplayName(skill!.displayName)).toBeNull();
+        expect(validateSkillDescription(skill!.description)).toBeNull();
+        expect(skill!.description).toContain('Trigger ONLY when');
+        expect(skill!.instruction).not.toMatch(/Direct Single-Hop Execution/i);
+        expect(skill!.instruction).not.toMatch(/execute at most ONE/i);
+        expect(skill!.instruction).not.toMatch(/stripped of conversational filler/i);
+      }
+
+      // Dedicated video skill must inject video/webinar vocabulary (not generic fallback)
+      const videoSkill = report.recommendedSkills.find(
+        (s) => s.id === 'skill-direct-internal_videos_rag',
+      );
+      expect(videoSkill?.description.toLowerCase()).toContain('video');
+      expect(videoSkill?.instruction).toContain('internal_videos_rag');
+
+      // Connector-backed entity store `geinfra1108-onedrive_file` must NOT be duplicated as a direct DataStore skill
+      expect(
+        report.recommendedSkills.some((s) => s.id === 'skill-direct-geinfra1108-onedrive_file'),
+      ).toBe(false);
+
+      // Sprawl router must focus on direct corpora & cross-system disambiguation WITHOUT BYOMCP tool lists or conflicting Single-Hop rules
+      const routerSkill = report.recommendedSkills.find((s) => s.id === 'skill-datastore-router');
+      expect(routerSkill).toBeDefined();
+      expect(routerSkill?.instruction).toContain('## Query Optimization & Routing Rules');
+      expect(routerSkill?.instruction).toContain('internal_videos_rag');
+      expect(routerSkill?.instruction).not.toContain('genie_ask');
+      expect(routerSkill?.instruction).not.toMatch(/stripped of conversational filler/i);
+      expect(routerSkill?.instruction).not.toMatch(/Direct Single-Hop Execution/i);
+      expect(routerSkill?.targetSources).not.toContain('databricks_genie_mcp');
+
+      // When direct stores are NOT covered by existing enabled skills, skills-direct-datastore-coverage INFO finding appears;
+      // once covered by dedicated skills, it clears cleanly with ZERO overlap or instruction conflicts.
+      const uncoveredReport = evaluateAssistantData({
+        engine: {
+          ...baseEngine,
+          dataStoreIds: [
+            'internal_videos_rag',
+            'intranet_sites_corpus',
+            'extranet_sites_corpus',
+            'databricks_genie_mcp',
+          ],
+        },
+        assistant: baseAssistant,
+        agents: [healthyOrgSkill],
+        config: baseConfig,
+        dataStores: [directVideoDs, directIntranetDs, directExtranetDs],
+        connectorsByCollectionId: { databricks_genie_mcp: byomcpDatabricks },
+      });
+      expect(
+        uncoveredReport.findings.some((f) => f.id === 'skills-direct-datastore-coverage'),
+      ).toBe(true);
+
+      const deployedDirectSkills: Agent[] = directIds.map((id) => {
+        const tpl = report.recommendedSkills.find((s) => s.id === id)!;
+        return {
+          name: `projects/123456/locations/global/collections/default_collection/engines/enterprise-app/assistants/default_assistant/agents/${tpl.skillIdSuggestion}`,
+          displayName: tpl.displayName,
+          description: tpl.description,
+          agentType: 'SKILL',
+          state: 'ENABLED',
+          sharingConfig: { scope: 'ALL_USERS' },
+          skillAgentDefinition: { instruction: tpl.instruction },
+        };
+      });
+
+      const coveredReport = evaluateAssistantData({
+        engine: {
+          ...baseEngine,
+          dataStoreIds: [
+            'internal_videos_rag',
+            'intranet_sites_corpus',
+            'extranet_sites_corpus',
+            'databricks_genie_mcp',
+          ],
+        },
+        assistant: baseAssistant,
+        agents: deployedDirectSkills,
+        config: baseConfig,
+        dataStores: [directVideoDs, directIntranetDs, directExtranetDs],
+        connectorsByCollectionId: { databricks_genie_mcp: byomcpDatabricks },
+      });
+      expect(coveredReport.findings.some((f) => f.id === 'skills-direct-datastore-coverage')).toBe(
+        false,
+      );
+      expect(
+        coveredReport.findings.some((f) => f.id === 'skills-overlapping-routing-conflict'),
+      ).toBe(false);
+
+      // Verify underscore-joined store names like `onedrive_file` match document hints accurately (no generic fallback)
+      const standaloneUnderscoreReport = evaluateAssistantData({
+        engine: {
+          ...baseEngine,
+          dataStoreIds: ['geinfra1108-onedrive_file'],
+        },
+        assistant: baseAssistant,
+        agents: [],
+        config: baseConfig,
+        dataStores: [onedriveEntityDs],
+        connectorsByCollectionId: {},
+      });
+      const underscoreRouter = standaloneUnderscoreReport.recommendedSkills.find(
+        (s) => s.id === 'skill-datastore-router',
+      );
+      expect(underscoreRouter?.instruction).toContain('shared enterprise documents');
+      expect(underscoreRouter?.instruction).not.toContain(
+        'matching this source name and document scope here',
+      );
+    });
+
+    it('flags conflicting filler-stripping / single-call cap rules and gives load_skill/trigger-narrowing remediation on latency regressions (negative regression test)', () => {
+      const legacyConflictingDraft = {
+        skillId: 'legacy-single-hop-skill',
+        displayName: 'Legacy Catch-All Skill',
+        description:
+          'Routes general enterprise questions across videos, intranet, and extranet corpora.',
+        instruction: [
+          'Intent-First Source Selection: prioritize internal_videos_rag over other corpora.',
+          'Rewrite prompts into keywords stripped of conversational filler.',
+          'Direct Single-Hop Execution Constraint: Execute at most ONE targeted retrieval/tool call before responding.',
+        ].join('\n'),
+        targetSources: ['internal_videos_rag'],
+      };
+
+      const queries = ['Find internal videos and training webinars from internal_videos_rag'];
+      const baseline = {
+        ranAt: new Date().toISOString(),
+        avgLatencyMs: 2000,
+        avgTtfbMs: 600,
+        skillTriggerRate: 0,
+        runs: [
+          {
+            query: queries[0],
+            totalLatencyMs: 2000,
+            ttfbMs: 600,
+            answerPreview: 'Here is the training video link.',
+            thoughtSteps: ['Searching internal_videos_rag'],
+            citationsCount: 1,
+            routedSources: ['internal_videos_rag'],
+            skillTriggered: false,
+          },
+        ],
+      };
+      // Simulate the 7% post-skill latency overhead from load_skill / catch-all trigger regression
+      const regressedPost = {
+        ranAt: new Date().toISOString(),
+        avgLatencyMs: 2140,
+        avgTtfbMs: 650,
+        skillTriggerRate: 100,
+        runs: [
+          {
+            query: queries[0],
+            totalLatencyMs: 2140,
+            ttfbMs: 650,
+            answerPreview: 'Here is the training video link.',
+            thoughtSteps: ['Selecting skill', 'Loading skill', 'Searching internal_videos_rag'],
+            citationsCount: 1,
+            routedSources: ['internal_videos_rag'],
+            skillTriggered: true,
+          },
+        ],
+      };
+
+      const diag = diagnoseSkillPerformanceAndMistakes(
+        legacyConflictingDraft,
+        queries,
+        baseline,
+        regressedPost,
+      );
+
+      const conflict = diag.mistakes.find((m) => m.code === 'SKILL_INSTRUCTION_CONFLICT');
+      expect(conflict).toBeDefined();
+      expect(conflict?.severity).toBe('WARNING');
+      expect(conflict?.explanation).toContain('strip conversational context');
+      expect(conflict?.explanation).toContain('at most ONE retrieval/tool call');
+
+      const latencyMistake = diag.mistakes.find((m) => m.code === 'LATENCY_REGRESSION_MULTI_HOP');
+      expect(latencyMistake).toBeDefined();
+      expect(latencyMistake?.explanation).toContain('load_skill');
+      expect(latencyMistake?.suggestedFix).toContain('Narrow the Skill Trigger Description');
+      expect(latencyMistake?.suggestedFix).not.toContain('Direct Single-Hop Execution');
+      expect(latencyMistake?.recommendedInstructionAppend).not.toContain(
+        'Direct Single-Hop Execution',
+      );
+      expect(latencyMistake?.recommendedInstructionAppend).not.toMatch(/execute at most ONE/i);
+    });
   });
 });
+
 
 
 

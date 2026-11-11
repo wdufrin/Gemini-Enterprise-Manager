@@ -312,6 +312,8 @@ export interface AdminPublishAndShareResult {
   wasCloned: boolean;
   deletedOriginal: boolean;
   transferredTo?: string;
+  publishSkippedDueToConsent?: boolean;
+  warning?: string;
   stepsCompleted: string[];
 }
 

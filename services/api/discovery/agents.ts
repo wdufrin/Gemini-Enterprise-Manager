@@ -418,6 +418,96 @@ export const isLegacyAuthorizationsDeprecationError = (err: unknown): boolean =>
   );
 };
 
+/**
+ * Returns true if an error from Discovery Engine `:publish` indicates that
+ * the agent owner (or caller) lacks per-engine `_agent_execution_grant_` consent
+ * required for Workflow schedule triggers, connector event triggers, or scheduled chat triggers.
+ */
+export const isAgentExecutionConsentError = (err: unknown): boolean => {
+  const msg = ((err as Error)?.message || String(err)).toLowerCase();
+  return (
+    msg.includes("agent execution consent not granted") ||
+    msg.includes("grant consent to allow the agent to run on your behalf")
+  );
+};
+
+/**
+ * Mirrors Discovery Engine `HasTriggersThatNeedCredentials` (`auth_utils.cc`):
+ * returns true if a Workflow / Long-Running agent contains a schedule trigger,
+ * connector event trigger, or chat trigger with schedules (even if currently disabled).
+ */
+export const hasWorkflowExecutionConsentTriggers = (
+  agent: Partial<Agent> | null | undefined,
+): boolean => {
+  if (!agent) return false;
+  const agentRec = agent as Record<string, unknown>;
+  if (
+    agentRec.longRunningAgentDefinition ||
+    agentRec.long_running_agent_definition
+  ) {
+    return true;
+  }
+  const wf = (agent.workflowAgentDefinition ||
+    agentRec.workflow_agent_definition) as Record<string, unknown> | undefined;
+  const flow = (wf?.agentFlow || wf?.agent_flow) as
+    | Record<string, unknown>
+    | undefined;
+  const nodes = Array.isArray(flow?.nodes)
+    ? (flow.nodes as Array<Record<string, unknown>>)
+    : [];
+
+  return nodes.some((node) => {
+    if (!node || typeof node !== "object") return false;
+    if (
+      node.scheduleTrigger ||
+      node.schedule_trigger ||
+      node.connectorEventTrigger ||
+      node.connector_event_trigger
+    ) {
+      return true;
+    }
+    const chatTrigger = (node.chatTrigger || node.chat_trigger) as
+      | Record<string, unknown>
+      | undefined;
+    const schedules = chatTrigger?.schedules;
+    return Array.isArray(schedules) && schedules.length > 0;
+  });
+};
+
+/**
+ * Wraps a raw `Agent execution consent not granted` error with actionable root-cause
+ * context (per-engine `_agent_execution_grant_` consent, 3P/Entra ID WIF limitations,
+ * and workflow ownership transfer behavior).
+ */
+export const formatAgentExecutionConsentError = (
+  err: unknown,
+  context?: {
+    appLocation?: string;
+    appId?: string;
+    isTransferring?: boolean;
+    targetOwnerPrincipal?: string;
+  },
+): Error => {
+  const appHint =
+    context?.appId || context?.appLocation
+      ? `app "${context.appId || "this engine"}" (region: ${context.appLocation || "global"})`
+      : "this specific Gemini Enterprise app and region";
+  const transferHint = context?.isTransferring
+    ? ` If you are transferring ownership${context.targetOwnerPrincipal ? ` to ${context.targetOwnerPrincipal}` : ""}, note that :transferAgentOwner automatically disables schedule/event triggers anyway so the new owner must open and re-publish the workflow in the Gemini Enterprise Web App.`
+    : "";
+
+  return Object.assign(
+    new Error(
+      `Agent execution consent not granted on ${appHint}. ` +
+        `Why: This Workflow agent includes a Schedule Trigger, Connector Event Trigger, or scheduled Chat Trigger (Discovery Engine checks trigger presence during :publish even when triggers are disabled). ` +
+        `For 1P Google owners, :publish requires Web App OAuth consent (_agent_execution_grant_) stored per-user and per-engine; on 3P Workforce Identity / Entra ID apps, users sign in to the Web App with Entra ID rather than Google 1P accounts, so a 1P Google Admin has no Google Web App consent on that engine.` +
+        `${transferHint} ` +
+        `How to resolve: Open the workflow agent in the Gemini Enterprise Web App for ${appHint} and click Publish there under your active Web App session (or remove the schedule/connector event trigger before publishing from GEM).`,
+    ),
+    { cause: err },
+  );
+};
+
 export const updateAgent = async (
   agent: Partial<Agent> & { name: string },
   payload: Partial<Agent> | Record<string, unknown>,
@@ -1149,6 +1239,12 @@ export const publishNoCodeAgentOnly = async (
       );
     }
   } catch (err: unknown) {
+    if (isAgentExecutionConsentError(err)) {
+      throw formatAgentExecutionConsentError(err, {
+        appLocation: config.appLocation,
+        appId: config.appId,
+      });
+    }
     if (isPermissionError(err)) {
       throw new Error(
         "Only the agent owner can directly publish/deploy a PRIVATE agent in-place (Discovery Engine checks owner == caller). Use 'Admin Publish / Share' and select 'Keep Private (Publish Only)' or transfer ownership.",
@@ -1203,6 +1299,12 @@ export const shareAgent = async (name: string, config: Config): Promise<Agent> =
       await requestAgentReview(agentName, config);
     }
   } catch (err: unknown) {
+    if (isAgentExecutionConsentError(err)) {
+      throw formatAgentExecutionConsentError(err, {
+        appLocation: config.appLocation,
+        appId: config.appId,
+      });
+    }
     if (isPermissionError(err)) {
       throw new Error(
         "Only the agent owner can directly share a PRIVATE agent in-place (Discovery Engine RequestAgentReview checks owner == caller). Use 'Admin Publish & Share for User' to clone, publish, share, and transfer ownership to the user.",
@@ -1713,6 +1815,9 @@ export const adminPublishAndShareForUser = async (
 
   const targetAgentName = resolveFullAgentResourceName(targetAgent.name, config);
 
+  let publishSkippedDueToConsent = false;
+  let publishWarning: string | undefined;
+
   if (targetAgent.lowCodeAgentDefinition || sourceAgent.lowCodeAgentDefinition) {
     reportStep("Deploying Low-Code agent (:deployLowCode)");
     if (wasCloned) {
@@ -1729,7 +1834,43 @@ export const adminPublishAndShareForUser = async (
     sourceAgent.skillAgentDefinition
   ) {
     reportStep("Publishing agent revision (:publish)");
-    await publishAgent(targetAgentName, config, { publishMode: "PUBLISH" });
+    try {
+      await publishAgent(targetAgentName, config, { publishMode: "PUBLISH" });
+    } catch (pubErr: unknown) {
+      if (isAgentExecutionConsentError(pubErr)) {
+        if (!keepPrivateUnshared && normalizedTargetOwner) {
+          // Discovery Engine requires per-engine Web App OAuth consent (_agent_execution_grant_)
+          // for workflow schedules/event triggers, AND :transferAgentOwner disables those triggers
+          // regardless. Complete sharing & ownership transfer so the target owner can publish in Web App.
+          publishSkippedDueToConsent = true;
+          publishWarning =
+            `Agent sharing & ownership transfer to ${normalizedTargetOwner} completed, but :publish was skipped because Admin lacks per-engine Web App execution consent (_agent_execution_grant_) on app "${config.appId || "this engine"}" (${config.appLocation || "global"}). ` +
+            `The new owner (${normalizedTargetOwner}) must open the workflow agent in the Gemini Enterprise Web App and click Publish (and re-enable any schedule/connector event triggers, which :transferAgentOwner automatically disables).`;
+          reportStep(
+            "Skipped :publish (missing Admin _agent_execution_grant_ consent; continuing share & ownership transfer)",
+          );
+        } else {
+          if (wasCloned) {
+            try {
+              await deleteResource(targetAgentName, config);
+            } catch (cleanupErr: unknown) {
+              console.warn(
+                `Failed to clean up orphaned clone "${targetAgentName}" after consent error:`,
+                cleanupErr,
+              );
+            }
+          }
+          throw formatAgentExecutionConsentError(pubErr, {
+            appLocation: config.appLocation,
+            appId: config.appId,
+            isTransferring: Boolean(normalizedTargetOwner),
+            targetOwnerPrincipal: normalizedTargetOwner,
+          });
+        }
+      } else {
+        throw pubErr;
+      }
+    }
   }
 
   if (keepPrivateUnshared) {
@@ -1825,6 +1966,8 @@ export const adminPublishAndShareForUser = async (
     wasCloned,
     deletedOriginal,
     transferredTo: normalizedTargetOwner,
+    ...(publishSkippedDueToConsent ? { publishSkippedDueToConsent: true } : {}),
+    ...(publishWarning ? { warning: publishWarning } : {}),
     stepsCompleted,
   };
 };
@@ -2439,6 +2582,9 @@ export const createPromptChip = async (
 };
 
 const isBulkPermissionError = (err: unknown): boolean => {
+  if (isAgentExecutionConsentError(err)) {
+    return false;
+  }
   const msg = ((err as Error)?.message || String(err)).toLowerCase();
   return (
     msg.includes("403") ||
@@ -3531,8 +3677,11 @@ export const bulkEditSharePublishAgents = async (
             if (adminShareRes.transferredTo) {
               ownerTransferred = true;
             }
+            if (adminShareRes.warning) {
+              warnings.push(adminShareRes.warning);
+            }
             actionsApplied.push(
-              `Admin cloned, published & shared (${desiredScope})${adminShareRes.transferredTo ? ` -> owner ${adminShareRes.transferredTo}` : ""}`,
+              `Admin cloned, ${adminShareRes.publishSkippedDueToConsent ? "shared (draft awaiting target owner publish)" : "published & shared"} (${desiredScope})${adminShareRes.transferredTo ? ` -> owner ${adminShareRes.transferredTo}` : ""}`,
             );
             sharedInPlace = false;
           } else {
@@ -3578,7 +3727,20 @@ export const bulkEditSharePublishAgents = async (
               actionsApplied.push("Published agent revision (:publish)");
             }
           } catch (pubErr: unknown) {
-            if (
+            if (isAgentExecutionConsentError(pubErr)) {
+              if (mappedTargetOwner && desiredScope !== "PRIVATE") {
+                warnings.push(
+                  `Skipped :publish (Agent execution consent not granted on app "${config.appId || "this engine"}" (${config.appLocation || "global"}); continuing ownership transfer to ${mappedTargetOwner} so the new owner can publish & re-enable triggers in the Web App).`,
+                );
+              } else {
+                throw formatAgentExecutionConsentError(pubErr, {
+                  appLocation: config.appLocation,
+                  appId: config.appId,
+                  isTransferring: Boolean(mappedTargetOwner),
+                  targetOwnerPrincipal: mappedTargetOwner,
+                });
+              }
+            } else if (
               isBulkPermissionError(pubErr) &&
               (await claimOwnershipIfAllowed())
             ) {
@@ -3616,9 +3778,12 @@ export const bulkEditSharePublishAgents = async (
               if (adminPrivRes.transferredTo) {
                 ownerTransferred = true;
               }
+              if (adminPrivRes.warning) {
+                warnings.push(adminPrivRes.warning);
+              }
               actionsApplied.push(
                 adminPrivRes.transferredTo
-                  ? `Admin cloned, published & transferred owner to ${adminPrivRes.transferredTo}`
+                  ? `Admin cloned, ${adminPrivRes.publishSkippedDueToConsent ? "shared (draft awaiting owner publish)" : "published"} & transferred owner to ${adminPrivRes.transferredTo}`
                   : "Admin cloned & published private draft (kept PRIVATE)",
               );
             } else {
@@ -3812,8 +3977,11 @@ export const bulkEditSharePublishAgents = async (
               );
               wasCloned = adminRes.wasCloned;
               ownerTransferred = true;
+              if (adminRes.warning) {
+                warnings.push(adminRes.warning);
+              }
               actionsApplied.push(
-                `Admin cloned, shared & transferred ownership to ${mappedTargetOwner}`,
+                `Admin cloned, ${adminRes.publishSkippedDueToConsent ? "shared (draft awaiting target owner publish)" : "published, shared"} & transferred ownership to ${mappedTargetOwner}`,
               );
             } else {
               throw privTransferErr;
@@ -3853,7 +4021,20 @@ export const bulkEditSharePublishAgents = async (
       result.outcomes.push(outcome);
       options.onProgress?.(i + 1, agents.length, outcome);
     } catch (err: unknown) {
-      const rawMsg = err instanceof Error ? err.message : String(err);
+      const effectiveErr =
+        isAgentExecutionConsentError(err) &&
+        !(err instanceof Error && err.message.includes("_agent_execution_grant_"))
+          ? formatAgentExecutionConsentError(err, {
+              appLocation: config.appLocation,
+              appId: config.appId,
+              isTransferring: Boolean(validatedOwnerByAgentName[item.name]),
+              targetOwnerPrincipal: validatedOwnerByAgentName[item.name],
+            })
+          : err;
+      const rawMsg =
+        effectiveErr instanceof Error
+          ? effectiveErr.message
+          : String(effectiveErr);
       const cleanMsg = rawMsg.includes("[ORIGINAL ERROR]")
         ? rawMsg
             .split("[ORIGINAL ERROR]")[0]

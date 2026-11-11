@@ -891,7 +891,7 @@ ${archetypeRules}
         ? `\n## Multi-Step Tool Chaining Workflow\n${workflowChainingSection}\n`
         : ''
     }\n## Enabled Tool Selection & JSON-Schema Parameter Contracts\n${toolBullets}\n\n## Latency, Quality & Core Instruction Harmony Rules\n${archetypeRules}\n- **Global Instruction Harmony**: Always respect the Assistant's global System and Style Instructions for persona, tone, output formatting, and organizational guardrails.`,
-    rationale: `Provides the Gemini Enterprise Assistant planner with domain-specific routing triggers, multi-step tool chaining rules, and JSON-Schema parameter contracts for the "${cleanName}" BYOMCP server.`,
+    rationale: `Supplements "${cleanName}" native mcp_server_description and mcp_agent_instructions (which handle standard routing without load_skill overhead) when multi-step tool chaining or cross-source workflows are needed.`,
     targetSources: [collectionId],
     sampleQueries: byomcpSampleQueries,
   };
@@ -1307,7 +1307,7 @@ ${entityBullets}
 ${actionSection}
 ## Connector-Specific Query & Filter Rules
 1. **Scoped Filtering**: ${filterGuidance}
-2. **Direct Single-Hop Execution**: Execute at most ONE targeted retrieval call against the primary entity store before synthesizing the answer. Only query secondary entity stores if the primary store returns zero matches.
+2. **Primary-Entity-First Lookup**: Target the single primary entity store matching the user's intent first, keeping qualifying user entities and timeframes intact; only expand to secondary entity stores if the primary lookup lacks sufficient evidence, avoiding speculative multi-connector sweeps.
 3. **Grounded Citations**: Always include clickable source links, record IDs/keys, and last-updated timestamps from ${displayName}.
 4. **Global Instruction Harmony**: Always respect the Assistant's global System and Style Instructions for persona, output formatting, and organizational guardrails.`,
     rationale: `Prevents intra-connector fan-out across ${entityStoreIds.length} entity store(s) (${entityStoreIds.slice(0, 4).join(', ')}) and optimizes query filtering for the "${displayName}" (${rawType}) 3rd-party connector.`,
@@ -1898,6 +1898,56 @@ export function evaluateAssistantData(
 
   const attachedByomcpCount = byomcpEvaluations.filter((b) => b.isAttachedToEngine).length;
 
+  const dsById = new Map<string, DataStore>();
+  dataStores.forEach((ds) => {
+    const dsId = ds.name.split('/').pop() || ds.name;
+    if (dsId) dsById.set(dsId, ds);
+  });
+
+  const connectorBackedStoreIds = new Set<string>();
+  for (const cid of Object.keys(connectorsByCollectionId)) {
+    if (!cid || cid === 'default_collection') continue;
+    connectorBackedStoreIds.add(cid);
+    const conn = connectorsByCollectionId[cid];
+    if (Array.isArray(conn?.entities)) {
+      conn.entities.forEach((ent: Record<string, unknown>) => {
+        if (typeof ent.dataStore === 'string') {
+          const shortId = ent.dataStore.split('/').pop() || ent.dataStore;
+          if (shortId) connectorBackedStoreIds.add(shortId);
+        }
+      });
+    }
+  }
+  const isConnectorBackedStore = (dsId: string, ds?: DataStore): boolean => {
+    if (connectorBackedStoreIds.has(dsId)) return true;
+    const dsParts = (ds?.name || '').split('/');
+    const collIdx = dsParts.indexOf('collections');
+    const dsColl = collIdx !== -1 && dsParts[collIdx + 1] ? dsParts[collIdx + 1] : '';
+    if (dsColl && dsColl !== 'default_collection' && dsColl in connectorsByCollectionId) {
+      return true;
+    }
+    for (const cid of Object.keys(connectorsByCollectionId)) {
+      if (cid && cid !== 'default_collection' && (dsId === cid || dsId.startsWith(`${cid}_`))) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const directDataStoreIds = Array.from(attachedIds).filter(
+    (dsId) => !isConnectorBackedStore(dsId, dsById.get(dsId)),
+  );
+
+  const coveredDirectStoreCount = directDataStoreIds.filter((dsId) => {
+    const label = (dsById.get(dsId)?.displayName || '').trim().toLowerCase();
+    return enabledSkills.some((sk) => {
+      const text = `${sk.name || ''} ${sk.displayName || ''} ${sk.description || ''} ${
+        sk.skillAgentDefinition?.instruction || ''
+      }`.toLowerCase();
+      return text.includes(dsId.toLowerCase()) || (label.length >= 4 && text.includes(label));
+    });
+  }).length;
+
   const routerSkillAlreadyDeployed =
     existingSkillKeys.has('enterprise-datastore-query-optimizer') ||
     existingSkillKeys.has(
@@ -1936,20 +1986,20 @@ export function evaluateAssistantData(
       category: 'LATENCY_AND_DATASTORES',
       severity: fanoutMitigatedBySkills ? 'INFO' : 'CRITICAL',
       title: fanoutMitigatedBySkills
-        ? `High DataStore Count (${connectedDataStoresCount} Stores — Mitigated by ${enabledSkills.length} Active Routing Skill${enabledSkills.length === 1 ? '' : 's'})`
+        ? `High DataStore Count (${connectedDataStoresCount} Stores — ${enabledSkills.length} Active Skill${enabledSkills.length === 1 ? '' : 's'} Configured)`
         : `Severe DataStore Fan-Out Latency Bottleneck (${connectedDataStoresCount} Connected Stores)`,
       summary: fanoutMitigatedBySkills
-        ? `This engine has ${connectedDataStoresCount} connected DataStores across ${attachedConnectorIds.size} connector(s), and ${enabledSkills.length} active organizational Skill(s) are deployed to guide source selection and reduce fan-out latency.`
-        : `Connecting ${connectedDataStoresCount} DataStores directly to the engine forces the retrieval planner to fan out across ${connectedDataStoresCount} indexes on unguided user prompts, causing high tail latency and diluted ranking relevance.`,
+        ? `This engine has ${connectedDataStoresCount} connected DataStores across ${attachedConnectorIds.size} connector(s) (${directDataStoreIds.length} direct/ingested). Note: search-tool queries still span attached DataStores unless isolated via Sub-Agents or trimmed; keep BYOMCP guidance native to mcp_server_description and reserve Skills for direct DataStores.`
+        : `Connecting ${connectedDataStoresCount} DataStores directly to the engine forces the retrieval tool to fan out across ${connectedDataStoresCount} indexes on search turns, causing high tail latency and diluted ranking relevance.`,
       currentValue: fanoutMitigatedBySkills
-        ? `${connectedDataStoresCount} Connected DataStores (${enabledSkills.length} Active Routing Skills)`
+        ? `${connectedDataStoresCount} Connected DataStores (${directDataStoreIds.length} Direct / ${enabledSkills.length} Skills)`
         : `${connectedDataStoresCount} Connected DataStores`,
-      recommendedValue: '≤ 5–8 Unscoped DataStores (or scoped via Skills & Sub-Agents)',
+      recommendedValue: '≤ 5–8 DataStores per Engine (or Sub-Agent Isolation)',
       impact:
-        'Significant P95/P99 response latency spikes, quota contention across federated/ingested stores, and noisy retrieval context if queries fan out across all stores simultaneously.',
+        'Significant P95/P99 response latency spikes, quota contention across federated/ingested stores, and noisy retrieval context. Overly broad catch-all Skills can add an extra load_skill turn (+5–15% latency) on routine queries without reducing search-tool fan-out.',
       remediation: fanoutMitigatedBySkills
-        ? 'Active query-routing Skills are already deployed. To further reduce retrieval fan-out, detach any unused connectors/entity stores in the Engines or Data Stores page, or scope vertexAiSearchToolConfig.'
-        : '1) Deploy a Query Routing & Source Selection Skill so the Assistant targets only the relevant DataStore(s) per query. 2) Consolidate fragmented entity stores or move specialized stores behind domain Sub-Agents. 3) Scope vertexAiSearchToolConfig.',
+        ? 'Skills help disambiguate direct ingested corpora and cross-system intents, but do not prune DataStores inside the search tool. For further speedup: 1) Keep BYOMCP routing inside mcp_server_description/mcp_agent_instructions; 2) Detach unused stores; 3) Isolate specialized store groups behind domain Sub-Agents.'
+        : '1) Tune BYOMCP mcp_server_description & mcp_agent_instructions (zero load_skill overhead). 2) Add narrow domain Skills ONLY for direct/ingested DataStores lacking connector metadata. 3) Detach unused stores or isolate groups behind domain Sub-Agents.',
       targetTab: 'skills',
       ...(routerSkillAlreadyDeployed ? {} : { recommendedSkillId: 'skill-datastore-router' }),
     });
@@ -1959,15 +2009,15 @@ export function evaluateAssistantData(
       category: 'LATENCY_AND_DATASTORES',
       severity: fanoutMitigatedBySkills ? 'INFO' : 'WARNING',
       title: fanoutMitigatedBySkills
-        ? `Multi-DataStore Fan-Out (${connectedDataStoresCount} Stores — Mitigated by ${enabledSkills.length} Active Skill${enabledSkills.length === 1 ? '' : 's'})`
+        ? `Multi-DataStore Fan-Out (${connectedDataStoresCount} Stores — ${enabledSkills.length} Active Skill${enabledSkills.length === 1 ? '' : 's'})`
         : `Elevated DataStore Fan-Out Risk (${connectedDataStoresCount} Connected Stores)`,
-      summary: `With ${connectedDataStoresCount} DataStores attached, broad user prompts can trigger parallel multi-store retrieval unless guided by routing Skills or tool configs.`,
+      summary: `With ${connectedDataStoresCount} DataStores attached (${directDataStoreIds.length} direct/ingested), unscoped searches scan multiple indexes unless guided by domain Skills (for direct stores), native BYOMCP metadata, or Sub-Agents.`,
       currentValue: `${connectedDataStoresCount} Connected DataStores`,
-      recommendedValue: 'Guided by Query Routing Skills or ≤ 5 DataStores',
+      recommendedValue: 'Narrow Direct-Store Skills + Tuned BYOMCP Descriptions + ≤ 5–8 Stores',
       impact:
-        'Increased response latency when queries fan out across multiple connectors simultaneously.',
+        'Increased response latency when queries fan out across multiple connectors or ingested corpora simultaneously.',
       remediation:
-        'Add an Organizational Query-Routing Skill that instructs the Assistant which DataStore to query for each topic domain, and verify unused entity DataStores are detached.',
+        'Deploy narrow-trigger Skills for direct ingested DataStores (without broad catch-all triggers), tune BYOMCP descriptions/instructions directly, and detach unused entity DataStores.',
       targetTab: 'skills',
       ...(routerSkillAlreadyDeployed ? {} : { recommendedSkillId: 'skill-datastore-router' }),
     });
@@ -2002,19 +2052,19 @@ export function evaluateAssistantData(
       category: 'LATENCY_AND_DATASTORES',
       severity: mitigatedBySkills ? 'INFO' : 'WARNING',
       title: mitigatedBySkills
-        ? `Unscoped Vertex AI Search Tool Config (Mitigated by ${enabledSkills.length} Enabled Skills)`
+        ? `Unscoped Vertex AI Search Tool Config (${enabledSkills.length} Enabled Skills Present)`
         : 'Unscoped Vertex AI Search Tool Configuration',
       summary: `assistant.vertexAiSearchToolConfig is empty ({}) while ${connectedDataStoresCount} DataStores are attached${
         mitigatedBySkills
-          ? `, though ${enabledSkills.length} active organizational Skills help guide query routing.`
+          ? `, though ${enabledSkills.length} active organizational Skills help guide query intent and direct-corpus terms.`
           : '.'
       }`,
       currentValue: 'Empty ({}) — Default Flat Fan-Out',
-      recommendedValue: 'Configured Search Tool Config or Routing Skills',
+      recommendedValue: 'Configured Search Tool Config, Direct-Store Skills, or Sub-Agents',
       impact:
-        'Without explicit search tool scoping or routing skills, the planner treats all connected DataStores with equal weight on general queries.',
+        'Without explicit search tool scoping, sub-agent isolation, or targeted direct-store Skills, the search tool treats all connected DataStores with equal weight.',
       remediation:
-        'Create a DataStore Query Optimization Skill to guide source selection, or configure vertexAiSearchToolConfig if enrolled in Trusted Tester.',
+        'Deploy narrow Skills for direct ingested DataStores, move specialized stores behind domain Sub-Agents, or configure vertexAiSearchToolConfig if enrolled.',
       targetTab: 'overview',
       recommendedSkillId: 'skill-datastore-router',
     });
@@ -2067,49 +2117,156 @@ export function evaluateAssistantData(
   // ============================================================================
   // 2. SKILLS & QUERY ROUTING OPTIMIZATION
   // ============================================================================
-  // Build recommended DataStore routing skill whenever DataStores or Connectors exist
-  if (connectedDataStoresCount > 0 || attachedConnectorIds.size > 0) {
-    const inferStoreRoutingHint = (name: string, id: string, rawSource?: string): string => {
-      const combined = `${name} ${id} ${rawSource || ''}`.toLowerCase();
-      if (/\b(jira|bug|ticket|sprint|backlog|linear)\b/.test(combined)) {
-        return 'Route engineering tickets, bugs, sprint status, and issue-tracking queries here.';
-      }
-      if (/\b(servicenow|incident|itsm|pagerduty|zendesk)\b/.test(combined)) {
-        return 'Route IT incidents, service requests, change tickets, and SLA inquiries here.';
-      }
-      if (/\b(confluence|wiki|runbook|handbook|notion)\b/.test(combined)) {
-        return 'Route internal wiki documentation, engineering runbooks, and architecture guides here.';
-      }
-      if (/\b(hr|benefit|workday|policy|policies|employee|onboarding|pto)\b/.test(combined)) {
-        return 'Route employee HR policies, benefits, PTO, and people-operations questions here.';
-      }
-      if (/\b(salesforce|crm|account|opportunity|customer|revenue|sap|erp)\b/.test(combined)) {
-        return 'Route customer account, sales opportunity, pipeline, and ERP order queries here.';
-      }
-      if (/\b(gdrive|drive|sharepoint|onedrive|box|gcs|document|contract)\b/.test(combined)) {
-        return 'Route shared enterprise documents, decks, spreadsheets, and formal policy files here.';
-      }
-      if (/\b(bigquery|sql|alloydb|spanner|snowflake|analytics|warehouse)\b/.test(combined)) {
-        return 'Route structured data tables, KPI metrics, and analytical SQL lookups here.';
-      }
-      return 'Route domain questions matching this source name and document scope here.';
+  const inferStoreDomainProfile = (
+    name: string,
+    id: string,
+    rawSource?: string,
+  ): { domainLabel: string; triggerKeywords: string[]; routingHint: string } => {
+    const combined = `${name} ${id} ${rawSource || ''}`.toLowerCase();
+    // Use non-alphanumeric boundaries so underscore-joined connector IDs (e.g., onedrive_file, internal_videos) match cleanly
+    const hasTerm = (pattern: string): boolean =>
+      new RegExp(`(?:^|[^a-z0-9])(?:${pattern})(?=$|[^a-z0-9])`, 'i').test(combined);
+
+    if (
+      hasTerm(
+        'video|videos|webinar|webinars|recording|recordings|screencast|multimedia|training_video|youtube',
+      )
+    ) {
+      return {
+        domainLabel: 'Internal Videos & Recordings',
+        triggerKeywords: ['video', 'videos', 'recording', 'webinar', 'training clip', 'demo'],
+        routingHint:
+          'Route internal video, webinar, training recording, and multimedia transcript questions here first.',
+      };
+    }
+    if (hasTerm('intranet|internal_site|internal-site|employee_portal|hub')) {
+      return {
+        domainLabel: 'Internal Intranet Portal',
+        triggerKeywords: ['intranet', 'internal site', 'employee portal', 'announcements'],
+        routingHint:
+          'Route internal intranet portal pages, company hubs, and employee site announcements here.',
+      };
+    }
+    if (
+      hasTerm(
+        'extranet|external_site|external-site|partner_portal|vendor_portal|public_docs|help_articles|help_center|gsites',
+      )
+    ) {
+      return {
+        domainLabel: 'Extranet & External Sites',
+        triggerKeywords: ['extranet', 'external site', 'partner portal', 'help articles'],
+        routingHint:
+          'Route extranet sites, partner/vendor portals, external documentation, and help-center articles here.',
+      };
+    }
+    if (hasTerm('jira|bug|ticket|sprint|backlog|linear')) {
+      return {
+        domainLabel: 'Issue Tracking & Tickets',
+        triggerKeywords: ['ticket', 'issue', 'bug', 'sprint', 'backlog'],
+        routingHint:
+          'Route engineering tickets, bugs, sprint status, and issue-tracking queries here.',
+      };
+    }
+    if (hasTerm('servicenow|incident|itsm|pagerduty|zendesk')) {
+      return {
+        domainLabel: 'IT Service & Incidents',
+        triggerKeywords: ['incident', 'itsm', 'service request', 'outage', 'sla'],
+        routingHint:
+          'Route IT incidents, service requests, change tickets, and SLA inquiries here.',
+      };
+    }
+    if (hasTerm('confluence|wiki|runbook|handbook|notion')) {
+      return {
+        domainLabel: 'Wiki & Engineering Runbooks',
+        triggerKeywords: ['wiki', 'runbook', 'handbook', 'sop', 'architecture'],
+        routingHint:
+          'Route internal wiki documentation, engineering runbooks, and architecture guides here.',
+      };
+    }
+    if (hasTerm('hr|benefit|workday|policy|policies|employee|onboarding|pto')) {
+      return {
+        domainLabel: 'HR Policies & Benefits',
+        triggerKeywords: ['benefits', 'pto', 'onboarding', 'policy', 'workday'],
+        routingHint:
+          'Route employee HR policies, benefits, PTO, and people-operations questions here.',
+      };
+    }
+    if (hasTerm('salesforce|crm|account|opportunity|customer|revenue|sap|erp')) {
+      return {
+        domainLabel: 'CRM Accounts & Revenue',
+        triggerKeywords: ['account', 'opportunity', 'crm', 'pipeline', 'revenue'],
+        routingHint:
+          'Route customer account, sales opportunity, pipeline, and ERP order queries here.',
+      };
+    }
+    if (hasTerm('gdrive|drive|sharepoint|onedrive|box|gcs|document|contract|files|file')) {
+      return {
+        domainLabel: 'Shared Enterprise Documents',
+        triggerKeywords: ['document', 'contract', 'deck', 'spreadsheet', 'shared file'],
+        routingHint:
+          'Route shared enterprise documents, decks, spreadsheets, and formal policy files here.',
+      };
+    }
+    if (
+      hasTerm(
+        'bigquery|sql|alloydb|spanner|snowflake|databricks|lakehouse|genie|analytics|warehouse',
+      )
+    ) {
+      return {
+        domainLabel: 'Structured Analytics & Data',
+        triggerKeywords: ['metrics', 'kpi', 'analytics', 'warehouse', 'table'],
+        routingHint:
+          'Route structured data tables, KPI metrics, and analytical SQL lookups here.',
+      };
+    }
+    if (hasTerm('figma|design|prototype|sketch|autodesk|cad|bim|plm|github|gitlab|bitbucket')) {
+      return {
+        domainLabel: 'Product Design & Engineering Specs',
+        triggerKeywords: ['design', 'spec', 'prototype', 'repository', 'engineering'],
+        routingHint:
+          'Route product design specs, prototypes, repositories, and technical engineering documentation here.',
+      };
+    }
+    if (hasTerm('gmail|email|outlook|mail|calendar|meet|chat|slack|teams')) {
+      return {
+        domainLabel: 'Messages & Collaboration',
+        triggerKeywords: ['email', 'calendar', 'meeting', 'message', 'thread'],
+        routingHint: 'Route emails, calendar events, and team discussion threads here.',
+      };
+    }
+
+    const derivedKeywords = Array.from(
+      new Set(
+        `${name} ${id}`
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, ' ')
+          .split(/\s+/)
+          .filter((t) => t.length >= 4 && !['store', 'data', 'datastore', 'default'].includes(t)),
+      ),
+    ).slice(0, 4);
+
+    return {
+      domainLabel: name || id,
+      triggerKeywords:
+        derivedKeywords.length >= 2 ? derivedKeywords : ['corpus', 'content', 'knowledge'],
+      routingHint: `Route domain questions specifically covering ${name || id} content and scope here.`,
     };
+  };
 
-    const dsById = new Map<string, DataStore>();
-    dataStores.forEach((ds) => {
-      const dsId = ds.name.split('/').pop() || ds.name;
-      if (dsId) dsById.set(dsId, ds);
-    });
+  let firstUncoveredDirectSkillId: string | undefined;
 
-    const routerTargetIds =
-      attachedIds.size > 0
-        ? Array.from(attachedIds).slice(0, 12)
-        : Array.from(attachedConnectorIds).slice(0, 12);
+  // Build recommended narrow cross-corpus router & dedicated direct-DataStore skills
+  if (connectedDataStoresCount > 0 || attachedConnectorIds.size > 0) {
+    // Prioritize direct/ingested DataStores first because they have no connector-level descriptions
+    const allAttachedPool =
+      attachedIds.size > 0 ? Array.from(attachedIds) : Array.from(attachedConnectorIds);
+    const routerTargetIds = (
+      directDataStoreIds.length > 0 ? directDataStoreIds : allAttachedPool
+    ).slice(0, 8);
+    const omittedDirectCount = Math.max(0, directDataStoreIds.length - routerTargetIds.length);
+    const attachedMcpServers = byomcpEvaluations.filter((m) => m.isAttachedToEngine);
 
-    const storeRoutingBullets: string[] = [];
-    const storeDisplayLabels: string[] = [];
-
-    routerTargetIds.forEach((dsId) => {
+    const resolveStoreMeta = (dsId: string) => {
       const ds = dsById.get(dsId);
       const dsParts = (ds?.name || '').split('/');
       const collIdx = dsParts.indexOf('collections');
@@ -2123,82 +2280,164 @@ export function evaluateAssistantData(
       const sourceType = typeof rawSource === 'string' ? rawSource : '';
       const collDisplay = matchedCid ? collectionMap.get(matchedCid)?.displayName : undefined;
       const label = ds?.displayName || collDisplay || dsId;
-      storeDisplayLabels.push(label);
-      const hint = inferStoreRoutingHint(label, dsId, sourceType);
-      storeRoutingBullets.push(`- **${label}** (\`${dsId}\`) — ${hint}`);
-    });
+      const profile = inferStoreDomainProfile(label, dsId, sourceType);
+      return { dsId, label, profile, matchedCid };
+    };
 
-    const attachedMcpServers = byomcpEvaluations.filter((m) => m.isAttachedToEngine);
-    attachedMcpServers.slice(0, 8).forEach((mcp) => {
-      if (routerTargetIds.includes(mcp.collectionId)) return;
-      const toolPreview =
-        mcp.tools
-          .filter((t) => t.enabled)
-          .slice(0, 4)
-          .map((t) => t.name)
-          .join(', ') || 'enabled MCP tools';
+    const resolvedRouterTargets = routerTargetIds.map(resolveStoreMeta);
+    const storeRoutingBullets = resolvedRouterTargets.map(
+      ({ dsId, label, profile }) => `- **${label}** (\`${dsId}\`) — ${profile.routingHint}`,
+    );
+    if (omittedDirectCount > 0) {
       storeRoutingBullets.push(
-        `- **${mcp.displayName}** (\`${mcp.collectionId}\` — BYOMCP: ${mcp.useCaseLabel}) — Route live ${mcp.useCaseLabel.toLowerCase()} lookups and tool actions (${toolPreview}) here.`,
+        `- *Note*: **${omittedDirectCount} additional direct DataStore(s)** are attached; prefer dedicated narrow Skills per domain rather than expanding one catch-all prompt.`,
       );
-    });
+    }
+    if (directDataStoreIds.length > 0 && (attachedMcpServers.length > 0 || thirdPartyEvaluations.some((t) => t.isAttachedToEngine))) {
+      storeRoutingBullets.push(
+        `- **Connectors & BYOMCP (${attachedConnectorIds.size} collection(s), ${attachedMcpServers.length} BYOMCP)**: Governed by native connector / \`mcp_server_description\` metadata—do NOT duplicate their tool lists here.`,
+      );
+    }
 
     const storeListText = storeRoutingBullets.join('\n');
-
+    const primaryTarget = resolvedRouterTargets[0];
+    const secondaryTarget = resolvedRouterTargets[1] || primaryTarget;
     const primaryStoreLabel =
-      storeDisplayLabels[0] ||
-      attachedDataStoreDisplayNames[0] ||
-      routerTargetIds[0] ||
-      'our primary knowledge base';
+      primaryTarget?.label || attachedDataStoreDisplayNames[0] || 'primary corpus';
     const secondaryStoreLabel =
-      storeDisplayLabels[1] ||
+      secondaryTarget?.label ||
       attachedDataStoreDisplayNames[1] ||
       attachedMcpServers[0]?.displayName ||
-      routerTargetIds[1] ||
       primaryStoreLabel;
+    const primaryKw = primaryTarget?.profile.triggerKeywords[0] || primaryStoreLabel;
+    const secondaryKw = secondaryTarget?.profile.triggerKeywords[0] || secondaryStoreLabel;
 
     const routerSampleQueries = [
-      `Search ${primaryStoreLabel} for the key architecture guidelines, policies, or standard operating procedures.`,
-      `Find troubleshooting steps, recent updates, or reference documentation in ${secondaryStoreLabel}.`,
+      `Disambiguate ${primaryKw} content in ${primaryStoreLabel} versus ${secondaryKw} content in ${secondaryStoreLabel}.`,
+      `Should a cross-system question check ${primaryStoreLabel} or ${secondaryStoreLabel} first?`,
     ];
+
+    const scopeSummary =
+      directDataStoreIds.length > 0
+        ? `This engine attaches **${directDataStoreIds.length} direct ingested DataStore(s)** (which lack connector-level metadata) alongside **${Math.max(0, connectedDataStoresCount - directDataStoreIds.length)} connector store(s)**${
+            attachedMcpServers.length > 0
+              ? ` and **${attachedMcpServers.length} BYOMCP server(s)**`
+              : ''
+          }. Use this Skill ONLY when a prompt spans multiple ingested corpora or needs cross-system disambiguation:`
+        : `Use this Skill ONLY to disambiguate ambiguous cross-system intents across connected sources; routine single-connector or BYOMCP queries should rely directly on connector / \`mcp_server_description\` metadata without loading a Skill:`;
 
     const routerSkillTemplate: RecommendedSkillTemplate = {
       id: 'skill-datastore-router',
       skillIdSuggestion: 'enterprise-datastore-query-optimizer',
       displayName: sanitizeSkillDisplayName('Enterprise DataStore Query Router and Optimizer'),
       description: sanitizeSkillDescription(
-        `Routes and optimizes enterprise search queries across ${primaryStoreLabel}${
-          secondaryStoreLabel !== primaryStoreLabel ? `, ${secondaryStoreLabel},` : ''
-        } and all ${connectedDataStoresCount} connected DataStore(s)${
-          attachedMcpServers.length > 0 ? ` and ${attachedMcpServers.length} BYOMCP server(s)` : ''
-        }. Trigger when the user searches for architecture guidelines, policies, standard operating procedures, troubleshooting steps, reference documentation, or domain records.`,
+        `Disambiguates ambiguous cross-system questions across ${primaryStoreLabel} (${primaryKw})${
+          secondaryStoreLabel !== primaryStoreLabel
+            ? `, ${secondaryStoreLabel} (${secondaryKw}),`
+            : ''
+        } and other enterprise content corpora vs live BYOMCP tools. Trigger ONLY when a cross-system prompt requires choosing which corpus should check first.`,
         900,
       ),
-      instruction: `# Enterprise DataStore Query Router & Retrieval Optimizer
+      instruction: `# Enterprise DataStore Query Router & Corpus Disambiguation
 
 ## Objective
-You are connected to **${connectedDataStoresCount} enterprise DataStore(s)**${
-        attachedMcpServers.length > 0
-          ? ` and **${attachedMcpServers.length} BYOMCP tool server(s)**`
-          : ''
-      }. To prevent high-latency fan-out and noisy search results, follow this Source Routing Matrix and query optimization workflow before executing searches:
+${scopeSummary}
 
-## Connected Enterprise Data Sources & Routing Matrix
+## Primary Ingested Corpora & Disambiguation Scope
 ${storeListText}
 
 ## Query Optimization & Routing Rules
-1. **Intent-First Source Selection**: Match the user's intent to the single most authoritative DataStore or BYOMCP server listed above before searching. Do NOT fan out across all connected DataStores simultaneously unless the user explicitly asks for a cross-system comparison.
-2. **Deconstruct Complex Prompts**: Rewrite conversational user prompts into concise, high-signal keyword/semantic queries stripped of conversational filler.
-3. **Apply Metadata & Recency Filters**: Whenever the user mentions a timeframe, project, author, status, or document type, apply explicit filter constraints rather than retrieving unbounded document sets.
-4. **Iterative Retrieval over Exhaustive Fan-Out**: Query the primary authoritative source first. Only expand to secondary DataStores if the primary source returns zero relevant passages.
+1. **Intent-First Source Selection**: Match the user's intent to the single most authoritative DataStore or BYOMCP server first. Do NOT fan out across all connected DataStores simultaneously unless the user explicitly asks for a cross-system comparison.
+2. **Direct Ingested DataStore Specialization**: For standalone ingested corpora (such as internal video sites, intranet portals, or extranet sites) that lack connector descriptions, include the target corpus's domain vocabulary so search ranks the right index first, and prefer dedicated per-corpus Skills when available.
+3. **Natural-Language Query Preservation**: Preserve key user entities, qualifying nouns, and temporal context rather than stripping helpful natural-language intent; only expand to secondary sources if the first lookup lacks sufficient evidence.
+4. **BYOMCP & Connector Separation**: Leave BYOMCP parameter selection and multi-step polling workflows to each connector's native \`mcp_server_description\` and \`mcp_agent_instructions\`; never impose arbitrary single-call caps that interrupt async tool chains.
 5. **Grounded Synthesis & Citations**: Cite the exact source document title and link for every claim, and clearly state if information was not found in the queried store.
 6. **Global Instruction Harmony**: Always respect the Assistant's global System and Style Instructions for persona, output formatting, and organizational guardrails.`,
-      rationale: `Directly addresses high retrieval latency and unguided query fan-out across ${connectedDataStoresCount} connected DataStore(s) by teaching the Assistant which specific source handles each domain.`,
-      targetSources: routerTargetIds.slice(0, 10),
+      rationale:
+        directDataStoreIds.length > 0
+          ? `Teaches the planner to disambiguate ${directDataStoreIds.length} direct ingested DataStore(s) on ambiguous cross-system turns without adding bloated routing tables or duplicating BYOMCP/3P connector metadata.`
+          : `Handles ambiguous cross-connector disambiguation without duplicating BYOMCP mcp_server_description metadata or triggering on routine single-source lookups.`,
+      targetSources: routerTargetIds,
       sampleQueries: routerSampleQueries,
     };
 
     if (!isSkillAlreadyDeployed(routerSkillTemplate)) {
       recommendedSkills.push(routerSkillTemplate);
+    }
+
+    // Generate dedicated narrow-trigger Skills for direct/ingested DataStores (non-connector RAG corpora, sites, videos)
+    // when multiple sources/connectors need disambiguation (skip redundant duplicate on single-store engines).
+    if (
+      directDataStoreIds.length > 0 &&
+      directDataStoreIds.length <= 6 &&
+      (directDataStoreIds.length >= 2 ||
+        connectedDataStoresCount >= 2 ||
+        attachedByomcpCount > 0 ||
+        thirdPartyEvaluations.some((t) => t.isAttachedToEngine))
+    ) {
+      const usedDisplayNames = new Set(
+        recommendedSkills.map((s) => sanitizeSkillDisplayName(s.displayName).toLowerCase()),
+      );
+      directDataStoreIds.forEach((dsId, idx) => {
+        const { label, profile } = resolveStoreMeta(dsId);
+        const slug =
+          dsId
+            .toLowerCase()
+            .replace(/[^a-z0-9-]+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 42) || `store-${idx + 1}`;
+        const baseName = sanitizeSkillDisplayName(`${label.slice(0, 38).trim()} Corpus Skill`);
+        let uniqueName = baseName;
+        if (usedDisplayNames.has(uniqueName.toLowerCase())) {
+          uniqueName = sanitizeSkillDisplayName(`${baseName.slice(0, 48)} ${idx + 1}`);
+        }
+        usedDisplayNames.add(uniqueName.toLowerCase());
+
+        const kw1 = profile.triggerKeywords[0] || 'corpus';
+        const kw2 = profile.triggerKeywords[1] || 'content';
+        const kwText = profile.triggerKeywords.slice(0, 4).join(', ');
+        const directSkillTpl: RecommendedSkillTemplate = {
+          id: `skill-direct-${dsId}`,
+          skillIdSuggestion: `datastore-${slug}-router`,
+          displayName: uniqueName,
+          description: sanitizeSkillDescription(
+            `Routes ${profile.domainLabel} lookups (${kwText}, ${kw1}, ${kw2}) to ${label} (${dsId}). Trigger ONLY when the user specifically asks about ${kwText} indexed in ${label}.`,
+            900,
+          ),
+          instruction: `# ${label} — Dedicated Direct DataStore Skill
+
+## When to Activate This Skill
+Activate this skill when the user specifically asks about **${profile.domainLabel}** (${kwText}) stored in the direct ingested DataStore **${label}** (\`${dsId}\`).
+
+## Query & Grounding Rules
+1. **Intent-First Source Selection**: Prioritize **${label}** (\`${dsId}\`) as the single most authoritative DataStore for **${profile.domainLabel}** requests first. Do NOT fan out across all connected DataStores simultaneously unless the user explicitly asks for a cross-system comparison.
+2. **Corpus Domain Alignment**: ${profile.routingHint} Anchor search queries with concrete domain terminology matching **${label}** (\`${dsId}\`) while preserving key entities and timeframes from the user's natural-language prompt.
+3. **Focused Expansion & Citations**: Only broaden to secondary DataStores if **${label}** returns insufficient evidence, and include source document titles and links for every claim.
+4. **Global Instruction Harmony**: Always respect the Assistant's global System and Style Instructions for persona, output formatting, and organizational guardrails.`,
+          rationale: `Direct ingested DataStore "${label}" (${dsId}) has no connector-level description or MCP instructions; this narrow Skill teaches the planner what content lives in ${dsId} without adding load_skill overhead to unrelated connector turns.`,
+          targetSources: [dsId],
+          sampleQueries: [
+            `Search ${label} (${dsId}) for ${kw1} and ${kw2} information.`,
+            `Find ${profile.domainLabel} content covering ${kw1} in ${label}.`,
+          ],
+        };
+
+        const alreadyCovered =
+          isSkillAlreadyDeployed(directSkillTpl) ||
+          enabledSkills.some((sk) => {
+            const text = `${sk.name || ''} ${sk.displayName || ''} ${sk.description || ''} ${
+              sk.skillAgentDefinition?.instruction || ''
+            }`.toLowerCase();
+            return text.includes(dsId.toLowerCase());
+          });
+        if (!alreadyCovered) {
+          if (!firstUncoveredDirectSkillId) {
+            firstUncoveredDirectSkillId = directSkillTpl.id;
+          }
+          recommendedSkills.push(directSkillTpl);
+        }
+      });
     }
   }
 
@@ -2207,32 +2446,41 @@ ${storeListText}
       id: 'skills-missing-for-datastores',
       category: 'SKILLS_AND_ROUTING',
       severity: connectedDataStoresCount >= 5 ? 'CRITICAL' : 'WARNING',
-      title: `No Active Skills to Guide Querying Across ${connectedDataStoresCount} DataStore(s)`,
-      summary: `This assistant has ${connectedDataStoresCount} connected DataStore(s) but 0 enabled Skills to guide query formulation, source routing, or domain-specific filtering.`,
-      currentValue: `0 Enabled Skills for ${connectedDataStoresCount} DataStore(s)`,
-      recommendedValue: 'At least 1 Organizational Query-Routing Skill (ENABLED)',
+      title: `No Active Skills for ${connectedDataStoresCount} DataStore(s) (${directDataStoreIds.length} Direct / Ingested)`,
+      summary:
+        directDataStoreIds.length > 0
+          ? `This assistant has ${directDataStoreIds.length} direct/ingested DataStore(s) and ${Math.max(
+              0,
+              connectedDataStoresCount - directDataStoreIds.length,
+            )} connector DataStore(s) with 0 enabled Skills. Direct ingested DataStores lack connector metadata, so the planner has no corpus hints without dedicated Skills.`
+          : `This assistant has ${connectedDataStoresCount} connected DataStore(s) and 0 enabled Skills to guide cross-system disambiguation.`,
+      currentValue: `0 Enabled Skills (${directDataStoreIds.length} Direct Stores)`,
+      recommendedValue:
+        directDataStoreIds.length > 0
+          ? 'Dedicated Narrow Skill per Direct DataStore + Tuned Connector/BYOMCP Metadata'
+          : 'Tuned Connector/BYOMCP Metadata + Narrow Cross-System Skill',
       impact:
-        'Without Skills to teach the planner how your ingested DataStores are organized and how to construct targeted queries, the Assistant defaults to broad, unguided retrieval—causing higher latency and lower answer accuracy.',
+        'Without dedicated narrow Skills describing direct ingested corpora (such as internal video indexes, intranet sites, or extranet sites), the Assistant has no visibility into which corpus covers which user intent.',
       remediation:
-        'Use the "1-Click Create Skill" action below (or go to the Skills tab) to deploy the recommended "Enterprise DataStore Query Router and Optimizer" skill.',
+        'Deploy dedicated domain-scoped Skills for your direct ingested DataStores in the Skills tab, and keep BYOMCP routing in native mcp_server_description/mcp_agent_instructions.',
       targetTab: 'skills',
-      recommendedSkillId: 'skill-datastore-router',
+      recommendedSkillId: firstUncoveredDirectSkillId || 'skill-datastore-router',
     });
   } else if (connectedDataStoresCount >= 6 && enabledSkills.length < 2) {
     findings.push({
       id: 'skills-low-coverage-ratio',
       category: 'SKILLS_AND_ROUTING',
       severity: 'WARNING',
-      title: `Low Skill-to-DataStore Coverage (${enabledSkills.length} Skill vs. ${connectedDataStoresCount} DataStores)`,
-      summary: `Only ${enabledSkills.length} enabled Skill is configured to cover ${connectedDataStoresCount} connected DataStores.`,
+      title: `Low Direct-Store Skill Coverage (${enabledSkills.length} Skill vs. ${directDataStoreIds.length} Direct / ${connectedDataStoresCount} Total Stores)`,
+      summary: `Only ${enabledSkills.length} enabled Skill is configured across ${connectedDataStoresCount} connected DataStores (${directDataStoreIds.length} direct/ingested). Avoid building one massive catch-all matrix across all connectors; cover each direct ingested corpus with a narrow Skill instead.`,
       currentValue: `${enabledSkills.length} Enabled Skill / ${connectedDataStoresCount} DataStores`,
-      recommendedValue: 'Domain-scoped Skills for major DataStore groups & BYOMCP servers',
+      recommendedValue: 'Dedicated Narrow Skills per Direct Ingested Store + Native BYOMCP Descriptions',
       impact:
-        'A single generic skill rarely covers specialized query syntax across diverse connectors (e.g., structured SQL/MCP vs. unstructured docs vs. ticketing systems).',
+        'A single generic mega-router either omits stores or triggers load_skill overhead (+5–15% latency) on unrelated connector queries while failing to explain specialized ingested corpora.',
       remediation:
-        'Add domain-specific Skills for your primary connector categories and BYOMCP servers so the planner routes queries with minimal latency.',
+        'Deploy separate narrow-trigger Skills for each direct ingested DataStore (e.g., internal videos vs intranet vs extranet) and keep BYOMCP tuning inside mcp_server_description.',
       targetTab: 'skills',
-      recommendedSkillId: 'skill-datastore-router',
+      recommendedSkillId: firstUncoveredDirectSkillId || 'skill-datastore-router',
     });
   } else if (enabledSkills.length > 0) {
     findings.push({
@@ -2240,12 +2488,48 @@ ${storeListText}
       category: 'SKILLS_AND_ROUTING',
       severity: 'PASS',
       title: `${enabledSkills.length} Organizational Skill(s) Enabled`,
-      summary: `The assistant has ${enabledSkills.length} active Skill(s) available for query routing and task execution.`,
+      summary: `The assistant has ${enabledSkills.length} active Skill(s) available for direct-corpus disambiguation and specialized workflows.`,
       currentValue: `${enabledSkills.length} Enabled Skill(s)`,
       recommendedValue: '≥ 1 Enabled Skill',
-      impact: 'Planner can leverage configured skills for specialized instructions.',
+      impact: 'Planner can leverage configured skills when matching domain intents.',
       remediation: 'No action required.',
       targetTab: 'skills',
+    });
+  }
+
+  if (
+    directDataStoreIds.length > 0 &&
+    enabledSkills.length > 0 &&
+    coveredDirectStoreCount < directDataStoreIds.length
+  ) {
+    const uncoveredNames = directDataStoreIds
+      .filter((dsId) => {
+        const label = (dsById.get(dsId)?.displayName || '').trim().toLowerCase();
+        return !enabledSkills.some((sk) => {
+          const text = `${sk.name || ''} ${sk.displayName || ''} ${sk.description || ''} ${
+            sk.skillAgentDefinition?.instruction || ''
+          }`.toLowerCase();
+          return text.includes(dsId.toLowerCase()) || (label.length >= 4 && text.includes(label));
+        });
+      })
+      .slice(0, 5);
+
+    findings.push({
+      id: 'skills-direct-datastore-coverage',
+      category: 'SKILLS_AND_ROUTING',
+      severity: 'INFO',
+      title: `${directDataStoreIds.length - coveredDirectStoreCount} Direct / Ingested DataStore(s) Lack Dedicated Routing Skills`,
+      summary: `Standalone ingested DataStores (${uncoveredNames.join(', ')}${
+        directDataStoreIds.length - coveredDirectStoreCount > uncoveredNames.length ? ', ...' : ''
+      }) do not have connector-level descriptions or dedicated Skills telling the planner what content they index.`,
+      currentValue: `${coveredDirectStoreCount}/${directDataStoreIds.length} Direct Stores Covered`,
+      recommendedValue: '1 Narrow Domain Skill per Direct Ingested DataStore',
+      impact:
+        'Without dedicated narrow Skills, the planner cannot distinguish separate ingested corpora (for example, internal video sites vs intranet sites vs extranet sites) before issuing search queries.',
+      remediation:
+        'Create one narrow-trigger Skill per direct ingested DataStore in the Recommended Skills tab so the Skill loads only when matching that corpus domain.',
+      targetTab: 'skills',
+      recommendedSkillId: firstUncoveredDirectSkillId || 'skill-datastore-router',
     });
   }
 
@@ -3805,16 +4089,17 @@ ${JSON.stringify(attachedMcpSummary, null, 2)}
 Baseline Skill Instructions:
 ${template.instruction}
 
-CRITICAL HARMONY RULES:
+CRITICAL HARMONY & SCALABILITY RULES:
 1. Never include "ignore previous instructions" or system-prompt override phrasing.
-2. Never contradict the Customer's Current Assistant System Instructions or Connector Instructions above.
-3. Only reference enabled tools and connected DataStores listed above.
+2. Never contradict the Customer's Current Assistant System Instructions or Connector Instructions above, or impose hard "execute at most ONE retrieval/tool call" caps or "strip conversational filler" rules (which break multi-step BYOMCP polling and natural-language hedging).
+3. Keep Skill triggers NARROW and domain-specific (focus on direct ingested DataStores or multi-step tool workflows; avoid catch-all triggers covering 3P/BYOMCP connectors that already have native descriptions).
+4. Only reference enabled tools and connected DataStores listed above.
 
 Return ONLY a valid JSON object matching this exact schema:
 {
   "displayName": "Alphanumeric skill display name (letters, numbers, spaces, hyphens ONLY, max 60 chars, no ampersands or special characters)",
-  "description": "Concise 1-2 sentence planner trigger description (100-400 chars, STRICT MAX 900 Unicode characters; Discovery Engine API rejects agent.description > 1024 chars) naming the specific domains, systems, and user intents that should activate this skill.",
-  "instruction": "Rich, well-structured Markdown skill instructions with an explicit Source Routing Matrix (mapping each DataStore/MCP server to its domain intents), multi-step tool chaining workflows, query decomposition rules, and citation standards."
+  "description": "Concise 1-2 sentence narrow planner trigger description (100-400 chars, STRICT MAX 900 Unicode characters; Discovery Engine API rejects agent.description > 1024 chars) naming ONLY the specific direct corpus or multi-step workflow intents that should activate this skill (avoid broad catch-all phrasing).",
+  "instruction": "Lean, well-structured Markdown skill instructions focusing on the target ingested DataStore(s) or multi-step BYOMCP workflow, preserving natural-language query clarity, avoiding giant redundant catalogs of unrelated connectors, and upholding citation standards."
 }`;
 
   const parsed = await callVertexGeminiJson<{
@@ -4270,8 +4555,17 @@ export function diagnoseSkillPerformanceAndMistakes(
     });
   }
 
-  // 5B. Check for Cross-Resource Instruction Conflicts (Assistant System Instructions, Connector Tools, or System-Override Phrasing)
+  // 5B. Check for Cross-Resource & Core-Planner Instruction Conflicts
   const combinedSkillText = `${skillDraft.description}\n${instText}`;
+  const hasFillerStripDirective =
+    /\b(strip(?:ped)?\s+of\s+conversational\s+filler|remove\s+conversational\s+filler)\b/i.test(
+      instText,
+    );
+  const hasStrictSingleCallCap =
+    /\b(execute\s+at\s+most\s+(?:one|1)\s+targeted\s+(?:retrieval|tool)|single-turn\s+retrieval:\s*execute\s+at\s+most\s+(?:one|1))\b/i.test(
+      instText,
+    );
+
   if (SYSTEM_OVERRIDE_ANTIPATTERN_REGEX.test(combinedSkillText)) {
     mistakes.push({
       code: 'SKILL_INSTRUCTION_CONFLICT',
@@ -4282,48 +4576,69 @@ export function diagnoseSkillPerformanceAndMistakes(
       suggestedFix:
         'Remove any "ignore previous/system instructions" phrasing and state domain routing rules as additive guidelines.',
     });
-  } else if (conflictContext) {
-    const sysInst = conflictContext.assistantSystemInstruction || '';
-    const disabledToolsInDraft: string[] = [];
-    for (const mcp of conflictContext.byomcpEvaluations || []) {
-      const mentionsMcp =
-        instLower.includes(mcp.collectionId.toLowerCase()) ||
-        skillDraft.targetSources.includes(mcp.collectionId);
-      if (mentionsMcp) {
-        mcp.tools.forEach((t) => {
-          if (!t.enabled && t.name.length >= 4 && instLower.includes(t.name.toLowerCase())) {
-            disabledToolsInDraft.push(`${t.name} (${mcp.displayName})`);
-          }
+  } else {
+    if (hasFillerStripDirective || hasStrictSingleCallCap) {
+      mistakes.push({
+        code: 'SKILL_INSTRUCTION_CONFLICT',
+        severity: 'WARNING',
+        title: 'Skill Contains Conflicting Query Rewrite or Single-Call Cap Rules',
+        explanation: `${
+          hasFillerStripDirective
+            ? 'Instructing the planner to strip conversational context conflicts with core Discovery Engine natural-language search rules. '
+            : ''
+        }${
+          hasStrictSingleCallCap
+            ? 'Imposing a hard "at most ONE retrieval/tool call" cap conflicts with multi-query hedging and breaks multi-step async BYOMCP workflows (for example, ask -> poll -> get_result).'
+            : ''
+        }`.trim(),
+        suggestedFix:
+          'Remove hard single-call caps and "strip conversational filler" phrasing; preserve user context and keep BYOMCP polling chains inside connector mcp_agent_instructions.',
+      });
+    }
+
+    if (conflictContext) {
+      const sysInst = conflictContext.assistantSystemInstruction || '';
+      const disabledToolsInDraft: string[] = [];
+      for (const mcp of conflictContext.byomcpEvaluations || []) {
+        const mentionsMcp =
+          instLower.includes(mcp.collectionId.toLowerCase()) ||
+          skillDraft.targetSources.includes(mcp.collectionId);
+        if (mentionsMcp) {
+          mcp.tools.forEach((t) => {
+            if (!t.enabled && t.name.length >= 4 && instLower.includes(t.name.toLowerCase())) {
+              disabledToolsInDraft.push(`${t.name} (${mcp.displayName})`);
+            }
+          });
+        }
+      }
+      if (disabledToolsInDraft.length > 0) {
+        mistakes.push({
+          code: 'SKILL_INSTRUCTION_CONFLICT',
+          severity: 'WARNING',
+          title: `Skill References Disabled Connector Tool(s) (${disabledToolsInDraft.slice(0, 3).join(', ')})`,
+          explanation: `Your Skill instructions explicitly reference tool(s) (${disabledToolsInDraft.join(', ')}) that are currently disabled on the connector. The planner will waste deliberation steps attempting to resolve unavailable tools.`,
+          suggestedFix:
+            'Either enable the referenced tool(s) on the connector or restrict the Skill instructions to currently enabled tools.',
+          recommendedInstructionAppend: `\n\n## Active Tool & Instruction Harmony Rule\n- Invoke ONLY currently enabled connector tools and respect the Assistant's global system persona and formatting constraints.`,
+        });
+      } else if (
+        sysInst &&
+        /\b(never\s+use\s+(?:markdown\s+)?tables?|plain\s+text\s+only|json\s+only)\b/i.test(
+          sysInst,
+        ) &&
+        /\b(markdown\s+tables?)\b/i.test(instText)
+      ) {
+        mistakes.push({
+          code: 'SKILL_INSTRUCTION_CONFLICT',
+          severity: 'WARNING',
+          title: 'Skill Output Formatting Conflicts with Assistant System Instructions',
+          explanation:
+            'Your Skill instructs rendering Markdown tables, while the Assistant’s global System Instructions specify plain-text/JSON-only or forbid tables.',
+          suggestedFix:
+            'Align the Skill output formatting rule with the Assistant’s global System Instructions.',
+          recommendedInstructionAppend: `\n\n## Assistant System Instruction Alignment\n- Follow the Assistant's global System & Style Instructions for response formatting whenever a formatting rule is specified globally.`,
         });
       }
-    }
-    if (disabledToolsInDraft.length > 0) {
-      mistakes.push({
-        code: 'SKILL_INSTRUCTION_CONFLICT',
-        severity: 'WARNING',
-        title: `Skill References Disabled Connector Tool(s) (${disabledToolsInDraft.slice(0, 3).join(', ')})`,
-        explanation: `Your Skill instructions explicitly reference tool(s) (${disabledToolsInDraft.join(', ')}) that are currently disabled on the connector. The planner will waste deliberation steps attempting to resolve unavailable tools.`,
-        suggestedFix:
-          'Either enable the referenced tool(s) on the connector or restrict the Skill instructions to currently enabled tools.',
-        recommendedInstructionAppend: `\n\n## Active Tool & Instruction Harmony Rule\n- Invoke ONLY currently enabled connector tools and respect the Assistant's global system persona and formatting constraints.`,
-      });
-    } else if (
-      sysInst &&
-      /\b(never\s+use\s+(?:markdown\s+)?tables?|plain\s+text\s+only|json\s+only)\b/i.test(
-        sysInst,
-      ) &&
-      /\b(markdown\s+tables?)\b/i.test(instText)
-    ) {
-      mistakes.push({
-        code: 'SKILL_INSTRUCTION_CONFLICT',
-        severity: 'WARNING',
-        title: 'Skill Output Formatting Conflicts with Assistant System Instructions',
-        explanation:
-          'Your Skill instructs rendering Markdown tables, while the Assistant’s global System Instructions specify plain-text/JSON-only or forbid tables.',
-        suggestedFix:
-          'Align the Skill output formatting rule with the Assistant’s global System Instructions.',
-        recommendedInstructionAppend: `\n\n## Assistant System Instruction Alignment\n- Follow the Assistant's global System & Style Instructions for response formatting whenever a formatting rule is specified globally.`,
-      });
     }
   }
 
@@ -4373,11 +4688,11 @@ export function diagnoseSkillPerformanceAndMistakes(
         title: `Post-Skill Latency Increased by +${latencyDeltaMs.toLocaleString()} ms (+${latencyDeltaPercent}%)`,
         explanation:
           postThoughts > baseThoughts
-            ? `After deploying the Skill, planner thought steps increased from ${baseThoughts} to ${postThoughts}, indicating the Skill instructions caused multi-hop deliberation or sequential tool chaining.`
-            : `Average query latency increased from ${baseline.avgLatencyMs.toLocaleString()} ms to ${postSkill.avgLatencyMs.toLocaleString()} ms. Complex multi-step rules or ambiguous source mapping can add extra planner turns.`,
+            ? `After deploying the Skill, planner thought steps increased from ${baseThoughts} to ${postThoughts}, indicating the Skill added load_skill selection turns, competing trigger overlap, or multi-step deliberation.`
+            : `Average query latency increased from ${baseline.avgLatencyMs.toLocaleString()} ms to ${postSkill.avgLatencyMs.toLocaleString()} ms. Broad catch-all Skill triggers force extra load_skill round-trips on routine queries and bypass Fast Search paths.`,
         suggestedFix:
-          'Add a "Direct Single-Hop Execution" constraint instructing the planner to execute at most 1 targeted retrieval call before synthesizing the final response.',
-        recommendedInstructionAppend: `\n\n## Direct Single-Hop Execution Constraint\n- **Single-Turn Retrieval**: Execute at most ONE targeted retrieval/tool call against the primary matching source and synthesize the answer immediately. Do not chain secondary verification searches when the first call returns relevant results.`,
+          'Narrow the Skill Trigger Description so it loads ONLY for direct ingested DataStore domains or multi-step workflows (avoid catch-all triggers), and move BYOMCP routing/parameter guidance into native mcp_server_description and mcp_agent_instructions.',
+        recommendedInstructionAppend: `\n\n## Lean Intent-Focused Scope\n- **Zero Redundant Connector Lists**: Rely on native connector descriptions and BYOMCP \`mcp_server_description\` / \`mcp_agent_instructions\` for routine connector lookups, keeping this Skill focused exclusively on disambiguating target direct DataStore(s) without speculative secondary checks.`,
       });
     }
 

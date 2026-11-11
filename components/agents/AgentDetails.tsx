@@ -144,6 +144,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     const [isMigratingLegacyAuth, setIsMigratingLegacyAuth] = useState(false);
     const [pendingMigrationScope, setPendingMigrationScope] = useState<'PRIVATE' | 'RESTRICTED' | 'ALL_USERS' | undefined>(undefined);
     const [shareError, setShareError] = useState<string | null>(null);
+    const [shareWarning, setShareWarning] = useState<string | null>(null);
     const [isUpdatingScope, setIsUpdatingScope] = useState(false);
     const [publishModalInitialScope, setPublishModalInitialScope] = useState<'PRIVATE' | 'RESTRICTED' | 'ALL_USERS'>('RESTRICTED');
 
@@ -712,15 +713,20 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     const handlePublishAndShareSuccess = (result: AdminPublishAndShareResult) => {
         setIsPublishAndShareModalOpen(false);
         setShareError(null);
+        setShareWarning(result.warning || null);
         const isResultPrivate = result.agent.state === 'PRIVATE' || !result.agent.state;
         const ownerNote = result.transferredTo
             ? ` and ownership transferred to ${result.transferredTo}`
             : '';
-        toast.success(
-            isResultPrivate
-                ? `Agent "${result.agent.displayName}" published out of draft (kept Private / unshared)!`
-                : `Agent "${result.agent.displayName}" published, shared${ownerNote}!`
-        );
+        if (result.warning) {
+            toast.info(result.warning);
+        } else {
+            toast.success(
+                isResultPrivate
+                    ? `Agent "${result.agent.displayName}" published out of draft (kept Private / unshared)!`
+                    : `Agent "${result.agent.displayName}" published, shared${ownerNote}!`
+            );
+        }
         if (onAgentUpdated) {
             setFullAgent(result.agent);
             setInstructionDrafts(extractInstructionDrafts(result.agent));
@@ -1050,6 +1056,21 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                             {isMigratingLegacyAuth ? 'Migrating...' : 'Migrate to authorization_config'}
                         </button>
                     </div>
+                </div>
+            )}
+            {shareWarning && (
+                <div
+                    role="status"
+                    className="mt-4 p-3.5 bg-amber-900/30 border border-amber-600/70 rounded-lg text-sm text-amber-200 flex items-start justify-between gap-3"
+                >
+                    <span>{shareWarning}</span>
+                    <button
+                        type="button"
+                        onClick={() => setShareWarning(null)}
+                        className="text-xs text-amber-300 hover:text-white shrink-0 font-semibold"
+                    >
+                        Dismiss
+                    </button>
                 </div>
             )}
             {shareError && (

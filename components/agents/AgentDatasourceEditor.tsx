@@ -199,7 +199,17 @@ const AgentDatasourceEditor: React.FC<AgentDatasourceEditorProps> = ({
         toast.success("Agent draft datasources updated!");
       }
     } catch (err: unknown) {
-      const msg = toErrorMessage(err) || "Failed to update agent datasources.";
+      const formattedErr =
+        typeof api.isAgentExecutionConsentError === "function" &&
+        api.isAgentExecutionConsentError(err) &&
+        !(err instanceof Error && err.message.includes("_agent_execution_grant_")) &&
+        typeof api.formatAgentExecutionConsentError === "function"
+          ? api.formatAgentExecutionConsentError(err, {
+              appLocation: config.appLocation,
+              appId: config.appId,
+            })
+          : err;
+      const msg = toErrorMessage(formattedErr) || "Failed to update agent datasources.";
       setActionError(msg);
       toast.error(msg);
     } finally {
@@ -329,7 +339,17 @@ const AgentDatasourceEditor: React.FC<AgentDatasourceEditorProps> = ({
         toast.success("Low-Code agent draft nodes deployed to live agent!");
       }
     } catch (err: unknown) {
-      setActionError(toErrorMessage(err) || "Failed to publish/deploy agent.");
+      const formattedErr =
+        typeof api.isAgentExecutionConsentError === "function" &&
+        api.isAgentExecutionConsentError(err) &&
+        !(err instanceof Error && err.message.includes("_agent_execution_grant_")) &&
+        typeof api.formatAgentExecutionConsentError === "function"
+          ? api.formatAgentExecutionConsentError(err, {
+              appLocation: config.appLocation,
+              appId: config.appId,
+            })
+          : err;
+      setActionError(toErrorMessage(formattedErr) || "Failed to publish/deploy agent.");
     } finally {
       setIsPublishingOnly(false);
     }
