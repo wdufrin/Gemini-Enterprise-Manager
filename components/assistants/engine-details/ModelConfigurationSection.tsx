@@ -28,7 +28,7 @@ interface ModelConfigurationSectionProps {
     onToggleShowLegacyModels: () => void;
 }
 
-const MODEL_CATEGORIES = ['All', 'Pro / Reasoning', 'Flash / Speed', 'Vision & Image', 'Preview Models'];
+const MODEL_CATEGORIES = ['All', 'Pro / Reasoning', 'Flash / Speed', 'Vision & Image', 'Partner (3P)', 'Preview Models'];
 
 export const ModelConfigurationSection: React.FC<ModelConfigurationSectionProps> = ({
     modelConfigs,
@@ -51,7 +51,8 @@ export const ModelConfigurationSection: React.FC<ModelConfigurationSectionProps>
         return dynamicModels.filter(m => {
             const matchesCategory =
                 modelCategory === 'All' ||
-                (modelCategory === 'Preview Models' && m.isPreview) ||
+                (modelCategory === 'Preview Models' && (m.isPreview || m.visibility === 'PREVIEW')) ||
+                (modelCategory === 'Partner (3P)' && Boolean(m.isPartner)) ||
                 m.category === modelCategory;
             const matchesSearch = !modelSearchQuery.trim() ||
                 m.displayName.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
@@ -81,7 +82,7 @@ export const ModelConfigurationSection: React.FC<ModelConfigurationSectionProps>
                             {activeModelCount} of {dynamicModels.length} Models Enabled
                         </span>
                         <span className="text-xs text-gray-400">
-                            Configure which Gemini foundation models end users can select in the assistant web chat interface.
+                            Configure which Gemini and partner foundation models end users can select in the assistant web chat interface.
                         </span>
                     </div>
                     {legacyModels.length > 0 && (
@@ -102,8 +103,10 @@ export const ModelConfigurationSection: React.FC<ModelConfigurationSectionProps>
                             const count = cat === 'All'
                                 ? dynamicModels.length
                                 : cat === 'Preview Models'
-                                    ? dynamicModels.filter(m => m.isPreview).length
-                                    : dynamicModels.filter(m => m.category === cat).length;
+                                    ? dynamicModels.filter(m => m.isPreview || m.visibility === 'PREVIEW').length
+                                    : cat === 'Partner (3P)'
+                                        ? dynamicModels.filter(m => Boolean(m.isPartner)).length
+                                        : dynamicModels.filter(m => m.category === cat).length;
                             return (
                                 <button
                                     key={cat}
@@ -142,7 +145,7 @@ export const ModelConfigurationSection: React.FC<ModelConfigurationSectionProps>
                     <div className="py-6 px-4 text-center bg-gray-950/50 rounded-lg border border-gray-800/80 text-xs text-gray-400 space-y-1.5">
                         <p className="text-gray-300 font-semibold">No active models categorized under &quot;{modelCategory}&quot;.</p>
                         <p className="text-[11px] text-gray-400 max-w-md mx-auto">
-                            All current Gemini 2.5 and 3.x models in the active catalog are natively multimodal (processing images, documents, and diagrams in chat).
+                            All current Gemini 2.5, 3.x, and 4 models in the active catalog are natively multimodal (processing images, documents, and diagrams in chat).
                         </p>
                         {legacyModels.some(m => modelCategory === 'All' || m.category === modelCategory) && !showLegacyModels && (
                             <button
@@ -156,40 +159,74 @@ export const ModelConfigurationSection: React.FC<ModelConfigurationSectionProps>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-                        {filteredModels.map(model => (
-                            <label
-                                key={model.id}
-                                className={`flex items-start space-x-2.5 p-3 rounded-lg border transition-all cursor-pointer ${
-                                    modelConfigs[model.id]
-                                        ? 'bg-gray-800/90 border-purple-600/40 shadow-sm'
-                                        : 'bg-gray-900/60 border-gray-800 hover:border-gray-700'
-                                }`}
-                            >
-                                <input
-                                    type="checkbox"
-                                    checked={modelConfigs[model.id] || false}
-                                    onChange={() => onModelChange(model.id)}
-                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-purple-600 focus:ring-purple-500 flex-shrink-0 mt-0.5"
-                                />
-                                <div className="flex-grow min-w-0">
-                                    <div className="flex items-center justify-between gap-1">
-                                        <span className="text-xs font-bold text-gray-200 truncate">{model.displayName}</span>
-                                        {model.isPreview && (
-                                            <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-900/80 text-purple-200 border border-purple-600 flex-shrink-0">
-                                                Preview
+                        {filteredModels.map(model => {
+                            const effectiveVisibility = model.visibility ?? (model.isPreview ? 'PREVIEW' : 'GA');
+                            return (
+                                <label
+                                    key={model.id}
+                                    className={`flex items-start space-x-2.5 p-3 rounded-lg border transition-all cursor-pointer ${
+                                        modelConfigs[model.id]
+                                            ? 'bg-gray-800/90 border-purple-600/40 shadow-sm'
+                                            : 'bg-gray-900/60 border-gray-800 hover:border-gray-700'
+                                    }`}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={modelConfigs[model.id] || false}
+                                        onChange={() => onModelChange(model.id)}
+                                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-purple-600 focus:ring-purple-500 flex-shrink-0 mt-0.5"
+                                    />
+                                    <div className="flex-grow min-w-0">
+                                        <div className="flex items-center justify-between gap-1">
+                                            <span className="text-xs font-bold text-gray-200 truncate">{model.displayName}</span>
+                                            <div className="flex items-center gap-1 flex-shrink-0">
+                                                {effectiveVisibility === 'GA' && (
+                                                    <span
+                                                        title={model.visibilityNote}
+                                                        className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-950/70 text-emerald-400 border border-emerald-800/50"
+                                                    >
+                                                        GA
+                                                    </span>
+                                                )}
+                                                {effectiveVisibility === 'PREVIEW' && (
+                                                    <span
+                                                        title={model.visibilityNote}
+                                                        className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-900/80 text-purple-200 border border-purple-600"
+                                                    >
+                                                        Preview
+                                                    </span>
+                                                )}
+                                                {effectiveVisibility === 'INTERNAL' && (
+                                                    <span
+                                                        title={model.visibilityNote}
+                                                        className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-950/70 text-rose-300 border border-rose-800/50"
+                                                    >
+                                                        Internal
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <span className="text-[10px] text-gray-500 font-mono block truncate mt-0.5">{model.id}</span>
+                                        <p className="text-[11px] text-gray-400 mt-1 line-clamp-2 leading-relaxed">
+                                            {model.description}
+                                        </p>
+                                        <div className="flex flex-wrap items-center gap-1 mt-1">
+                                            <span className="inline-block text-[9px] px-1.5 py-0.2 bg-gray-950/80 text-gray-400 rounded">
+                                                {model.category}
                                             </span>
-                                        )}
+                                            {model.isPartner && (
+                                                <span
+                                                    title={model.visibilityNote}
+                                                    className="inline-block text-[9px] px-1.5 py-0.2 bg-amber-950/70 text-amber-300 border border-amber-800/50 rounded"
+                                                >
+                                                    Partner (3P)
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
-                                    <span className="text-[10px] text-gray-500 font-mono block truncate mt-0.5">{model.id}</span>
-                                    <p className="text-[11px] text-gray-400 mt-1 line-clamp-2 leading-relaxed">
-                                        {model.description}
-                                    </p>
-                                    <span className="inline-block mt-1 text-[9px] px-1.5 py-0.2 bg-gray-950/80 text-gray-400 rounded">
-                                        {model.category}
-                                    </span>
-                                </div>
-                            </label>
-                        ))}
+                                </label>
+                            );
+                        })}
                     </div>
                 )}
 

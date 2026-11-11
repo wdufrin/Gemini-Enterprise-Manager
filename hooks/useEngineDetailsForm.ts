@@ -29,7 +29,8 @@ import {
     STANDARD_ENTERPRISE_MODELS,
     categorizeModel,
     formatModelDisplayName,
-    getModelDefaultDescription
+    getModelDefaultDescription,
+    inferModelVisibility
 } from '../components/assistants/engine-details/modelsCatalog';
 import {
     EngineControlsState,
@@ -142,13 +143,18 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 if (m.modelId) {
                     const isPreview = Boolean(m.isPreview || m.modelId.includes('preview') || m.modelId.includes('exp'));
                     const category = categorizeModel(m.modelId);
+                    const existing = activeMap.get(m.modelId);
+                    const inferred = inferModelVisibility(m.modelId, isPreview);
 
                     activeMap.set(m.modelId, {
                         id: m.modelId,
                         displayName: m.displayName || formatModelDisplayName(m.modelId),
                         description: m.description || getModelDefaultDescription(m.modelId),
                         isPreview,
-                        category
+                        category,
+                        visibility: existing?.visibility || inferred.visibility,
+                        visibilityNote: existing?.visibilityNote || inferred.visibilityNote,
+                        isPartner: existing?.isPartner ?? inferred.isPartner,
                     });
                 }
             });
@@ -169,8 +175,16 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         extraKeys.forEach(id => {
             const isPreview = id.includes('preview') || id.includes('exp');
             const category = categorizeModel(id);
+            const inferred = inferModelVisibility(id, isPreview);
 
-            const isKnownLegacy = ['gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3.1-pro', 'gemini-2.5-flash-image', 'gemini-3-flash'].includes(id);
+            const isKnownLegacy = [
+                'gemini-3-flash-preview',
+                'gemini-3-pro-preview',
+                'gemini-3.1-pro',
+                'gemini-3-flash',
+                'gemini-3-pro-image-preview',
+                'gemini-3.1-flash-image-preview',
+            ].includes(id);
 
             if (isKnownLegacy) {
                 legacyList.push({
@@ -178,7 +192,10 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                     displayName: `${formatModelDisplayName(id)} (Legacy)`,
                     description: `Legacy engine key (${id})`,
                     isPreview,
-                    category
+                    category,
+                    visibility: inferred.visibility,
+                    visibilityNote: inferred.visibilityNote,
+                    isPartner: inferred.isPartner,
                 });
             } else {
                 activeMap.set(id, {
@@ -186,7 +203,10 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                     displayName: formatModelDisplayName(id),
                     description: getModelDefaultDescription(id),
                     isPreview,
-                    category
+                    category,
+                    visibility: inferred.visibility,
+                    visibilityNote: inferred.visibilityNote,
+                    isPartner: inferred.isPartner,
                 });
             }
         });

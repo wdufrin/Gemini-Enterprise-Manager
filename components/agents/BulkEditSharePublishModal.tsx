@@ -28,7 +28,7 @@ import * as api from '../../services/apiService';
 import { toErrorMessage } from '../../utils/errors';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import {
-  STANDARD_ENTERPRISE_MODELS,
+  WORKFLOW_ENTERPRISE_MODELS,
   formatModelDisplayName,
 } from '../assistants/engine-details/modelsCatalog';
 
@@ -1770,7 +1770,7 @@ const BulkEditSharePublishModal: React.FC<BulkEditSharePublishModalProps> = ({
                         <option value="">
                           Auto (Gemini Enterprise Default Model)
                         </option>
-                        {STANDARD_ENTERPRISE_MODELS.map((m) => (
+                        {WORKFLOW_ENTERPRISE_MODELS.map((m) => (
                           <option key={m.id} value={m.id}>
                             {formatModelDisplayName(m.id)} ({m.id})
                           </option>
@@ -1830,7 +1830,7 @@ const BulkEditSharePublishModal: React.FC<BulkEditSharePublishModalProps> = ({
                                     <option value="__AUTO__">
                                       Auto (Engine Default)
                                     </option>
-                                    {STANDARD_ENTERPRISE_MODELS.map((m) => (
+                                    {WORKFLOW_ENTERPRISE_MODELS.map((m) => (
                                       <option key={m.id} value={m.id}>
                                         {formatModelDisplayName(m.id)} ({m.id})
                                       </option>

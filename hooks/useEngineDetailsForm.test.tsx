@@ -301,23 +301,39 @@ describe('useEngineDetailsForm hook — feature flags and custom flag management
     expect(featureKeys).toContain('projects');
     expect(featureKeys).toContain('skill-sharing');
     expect(featureKeys).toContain('skill-sharing-without-admin-approval');
+    expect(featureKeys).toContain('skill-security-scan');
+    expect(featureKeys).toContain('plugins');
     expect(featureKeys).toContain('canvas-workspace');
     expect(featureKeys).toContain('canvas-app-builder');
+    expect(featureKeys).toContain('canvas-app-sharing');
     expect(featureKeys).toContain('single-agent-orchestration');
     expect(featureKeys).toContain('multi-agent-orchestration');
     expect(featureKeys).toContain('code-extraction');
     expect(featureKeys).toContain('remote-vm');
     expect(featureKeys).toContain('license-tier-badge');
+    expect(featureKeys).toContain('in-app-notifications');
     expect(featureKeys).toContain('agent-marketplace');
     expect(featureKeys).toContain('agent-scheduling');
     expect(featureKeys).toContain('preview-agents');
+    expect(featureKeys).toContain('music-generation');
+    expect(featureKeys).toContain('speech-generation');
     expect(featureKeys).toContain('sobi');
 
-    // Every catalog feature must have an explicit visibility tier ('GA' | 'PREVIEW' | 'INTERNAL')
+    // Every catalog feature must have an explicit, accurate visibility tier ('GA' | 'PREVIEW' | 'INTERNAL')
     expect(result.current.allDynamicFeatures.find(f => f.key === 'agent-gallery')?.visibility).toBe('GA');
-    expect(result.current.allDynamicFeatures.find(f => f.key === 'speech-to-text')?.visibility).toBe('PREVIEW');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'speech-to-text')?.visibility).toBe('GA');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'license-tier-badge')?.visibility).toBe('GA');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'in-app-notifications')?.visibility).toBe('GA');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'canvas-app-builder')?.visibility).toBe('PREVIEW');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'preview-agents')?.visibility).toBe('PREVIEW');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'agent-marketplace')?.visibility).toBe('PREVIEW');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'agent-scheduling')?.visibility).toBe('PREVIEW');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'skill-security-scan')?.visibility).toBe('PREVIEW');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'canvas-workspace')?.visibility).toBe('INTERNAL');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'personalization-suggested-highlights')?.visibility).toBe('INTERNAL');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'single-agent-orchestration')?.visibility).toBe('INTERNAL');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'multi-agent-orchestration')?.visibility).toBe('INTERNAL');
     expect(result.current.allDynamicFeatures.find(f => f.key === 'sobi')?.visibility).toBe('INTERNAL');
-    expect(result.current.allDynamicFeatures.find(f => f.key === 'preview-agents')?.visibility).toBe('INTERNAL');
 
     // Duplicate/dead/invalid keys must NOT appear in Feature Management
     expect(featureKeys).not.toContain('disable-projects');
@@ -328,10 +344,58 @@ describe('useEngineDetailsForm hook — feature flags and custom flag management
     expect(featureKeys).not.toContain('enable-qr-code-widget');
 
     // speech-to-text is initialized as true because it was in mockEngine.features,
-    // and defaultOn features (code-extraction, license-tier-badge) default to true
+    // and defaultOn features default to true
     expect(result.current.features['speech-to-text']).toBe(true);
     expect(result.current.features['code-extraction']).toBe(true);
     expect(result.current.features['license-tier-badge']).toBe(true);
+    expect(result.current.features['in-app-notifications']).toBe(true);
+    expect(result.current.features['skill-security-scan']).toBe(true);
+  });
+
+  it('keeps GA image fallbacks active while isolating superseded -image-preview endpoints in legacyModels', async () => {
+    const engineWithLegacyImageKeys: AppEngine = {
+      ...mockEngine,
+      modelConfigs: {
+        'gemini-3-pro-image-preview': 'MODEL_ENABLED',
+        'gemini-3.1-flash-image-preview': 'MODEL_ENABLED',
+        'gemini-2.5-flash-image': 'MODEL_ENABLED',
+        'gemini-4-carbon': 'MODEL_ENABLED',
+      },
+    };
+
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: engineWithLegacyImageKeys,
+        config: mockConfig,
+        onUpdateSuccess,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoadingIdp).toBe(false);
+    });
+
+    const activeIds = result.current.dynamicModels.map(m => m.id);
+    const legacyIds = result.current.legacyModels.map(m => m.id);
+
+    expect(activeIds).toContain('gemini-4-carbon');
+    expect(activeIds).toContain('claude-opus-5-5');
+    expect(activeIds).toContain('claude-sonnet-5-5');
+    expect(activeIds).toContain('gemini-3-pro-image');
+    expect(activeIds).toContain('gemini-3.1-flash-image');
+    expect(activeIds).toContain('gemini-2.5-flash-image');
+
+    expect(activeIds).not.toContain('gemini-3-pro-image-preview');
+    expect(activeIds).not.toContain('gemini-3.1-flash-image-preview');
+    expect(legacyIds).toContain('gemini-3-pro-image-preview');
+    expect(legacyIds).toContain('gemini-3.1-flash-image-preview');
+    expect(legacyIds).not.toContain('gemini-2.5-flash-image');
+
+    act(() => {
+      result.current.setShowLegacyModels(true);
+    });
+    expect(result.current.dynamicModels.map(m => m.id)).toContain('gemini-3-pro-image-preview');
+    expect(result.current.dynamicModels.map(m => m.id)).toContain('gemini-3.1-flash-image-preview');
   });
 
   it('initializes canonical features from legacy disable-* keys without creating duplicate custom cards and synchronizes pairs on save', async () => {

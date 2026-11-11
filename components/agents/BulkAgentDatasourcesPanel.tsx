@@ -32,7 +32,7 @@ import {
     DiscoveredConnectorOption,
     DiscoveredDataStoreOption,
 } from '../../services/api/discovery/agentDatasources';
-import { STANDARD_ENTERPRISE_MODELS } from '../assistants/engine-details/modelsCatalog';
+import { WORKFLOW_ENTERPRISE_MODELS } from '../assistants/engine-details/modelsCatalog';
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
 import Spinner from '../Spinner';
@@ -1364,7 +1364,7 @@ const BulkAgentDatasourcesPanel: React.FC<BulkAgentDatasourcesPanelProps> = ({
                                         className="bg-gray-800 border border-gray-600 rounded-md px-3 py-1.5 text-xs text-gray-200 w-full font-mono"
                                     >
                                         <option value="UNCHANGED">Leave LLM Model Unchanged</option>
-                                        {STANDARD_ENTERPRISE_MODELS.map((m) => (
+                                        {WORKFLOW_ENTERPRISE_MODELS.map((m) => (
                                             <option key={m.id} value={m.id}>
                                                 {m.displayName} ({m.id})
                                             </option>
