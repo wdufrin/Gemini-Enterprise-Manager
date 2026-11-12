@@ -867,8 +867,14 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
       if (temporarilyDisabledForBaseline && existingAgentName) {
         try {
           await api.enableAgent(existingAgentName, config);
-        } catch {
-          // Best-effort restore so the skill is not left disabled if the benchmark fails mid-flight
+        } catch (restoreErr: unknown) {
+          setSkillStatusMsg((prev) => ({
+            ...prev,
+            [template.id]: {
+              type: 'err',
+              text: `CRITICAL: Failed to re-enable skill "${existingAgentName.split('/').pop() || existingAgentName}" after benchmark (${toErrorMessage(restoreErr)}). Please re-enable it manually in Agent Manager.`,
+            },
+          }));
         }
       }
       setRunningBenchmarkSkillId(null);
@@ -980,8 +986,15 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
       if (disabledSkillName) {
         try {
           await api.enableAgent(disabledSkillName, config);
-        } catch {
-          // Best-effort restore so the skill is never left disabled after a failed benchmark
+        } catch (restoreErr: unknown) {
+          const failedSkillName = disabledSkillName.split('/').pop() || disabledSkillName;
+          setSkillStatusMsg((prev) => ({
+            ...prev,
+            [template.id]: {
+              type: 'err',
+              text: `CRITICAL: Failed to re-enable skill "${failedSkillName}" after benchmark (${toErrorMessage(restoreErr)}). Please re-enable it manually in Agent Manager.`,
+            },
+          }));
         }
       }
       setRunningBenchmarkSkillId(null);
@@ -1143,8 +1156,14 @@ const AssistantEvaluationModal: React.FC<AssistantEvaluationModalProps> = ({
       if (skillCurrentlyDisabled) {
         try {
           await api.enableAgent(existingAgentName, config);
-        } catch {
-          // Best-effort restore so the skill is not left disabled if a network error occurs
+        } catch (restoreErr: unknown) {
+          setSkillStatusMsg((prev) => ({
+            ...prev,
+            [template.id]: {
+              type: 'err',
+              text: `CRITICAL: Failed to re-enable skill "${existingAgentName.split('/').pop() || existingAgentName}" after update/re-test (${toErrorMessage(restoreErr)}). Please re-enable it manually in Agent Manager.`,
+            },
+          }));
         }
       }
       setCreatingSkillId(null);

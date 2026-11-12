@@ -2475,6 +2475,237 @@ describe('assistantEvaluationService', () => {
       );
       expect(latencyMistake?.recommendedInstructionAppend).not.toMatch(/execute at most ONE/i);
     });
+
+    it('excludes BYOMCP servers from search fan-out counts and avoids unrealistic <= 5-8 DataStores per Engine recommendations', () => {
+      const searchIds = Array.from({ length: 7 }, (_, i) => `jira_entity_${i + 1}`);
+      const byomcpIds = Array.from({ length: 6 }, (_, i) => `mcp_srv_${i + 1}`);
+      const connectorsByCollectionId: Record<string, DataConnector> = {
+        jira_suite: {
+          name: 'projects/123456/locations/global/collections/jira_suite/dataConnector',
+          connectorType: 'THIRD_PARTY',
+          dataSource: 'jira',
+          state: 'ACTIVE',
+          entities: searchIds.map((id) => ({
+            entityName: id,
+            dataStore: `projects/123456/locations/global/collections/jira_suite/dataStores/${id}`,
+          })),
+        },
+      };
+      byomcpIds.forEach((id) => {
+        connectorsByCollectionId[id] = {
+          name: `projects/123456/locations/global/collections/${id}/dataConnector`,
+          connectorType: 'BYO_MCP',
+          state: 'ACTIVE',
+          actionConfig: {
+            actionParams: {
+              instance_uri: `https://${id}.corp.internal/mcp`,
+              mcp_server_description: `Authoritative ${id} MCP server for live domain queries.`,
+              mcp_agent_instructions: 'Pass explicit filters when querying records.',
+            },
+            dynamicTools: [
+              {
+                name: 'query_records',
+                displayName: 'Query Records',
+                description: 'Queries records by filter',
+                enabled: true,
+              },
+            ],
+          },
+        };
+      });
+
+      const report = evaluateAssistantData({
+        engine: {
+          ...baseEngine,
+          dataStoreIds: [...searchIds, ...byomcpIds],
+        },
+        assistant: baseAssistant,
+        agents: [],
+        config: baseConfig,
+        dataStores: searchIds.map((id) => ({
+          name: `projects/123456/locations/global/collections/jira_suite/dataStores/${id}`,
+          displayName: id,
+        })),
+        connectorsByCollectionId,
+      });
+
+      // 7 search stores + 6 BYOMCP = 13 total IDs, but only 7 are search DataStores (not >10 CRITICAL fan-out)
+      expect(report.findings.some((f) => f.id === 'datastore-critical-fanout-latency')).toBe(false);
+      const moderate = report.findings.find((f) => f.id === 'datastore-moderate-fanout-latency');
+      expect(moderate?.severity).toBe('INFO');
+      expect(moderate?.recommendedValue).not.toMatch(/≤\s*5–8/i);
+      expect(moderate?.title).toContain('7 Search Stores + 6 BYOMCP');
+    });
+  });
+
+  describe('Adversarial Audit Regression Guards', () => {
+    it('runSkillBenchmarkPhase includes failed/timed-out runs in avgLatencyMs so 1 fast success cannot mask slow failures', async () => {
+      let fakeNow = 0;
+      const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => fakeNow);
+
+      vi.mocked(api.streamChat).mockImplementation(async (_agent, _query, _session, _cfg, _tok, onChunk) => {
+        if (fakeNow === 0) {
+          // Query 1: fast 100ms success
+          fakeNow += 100;
+          onChunk({
+            answer: {
+              replies: [{ groundedContent: { content: { text: 'OK' } } }],
+            },
+          });
+        } else {
+          // Queries 2 & 3: slow 2,000ms timeouts/errors
+          fakeNow += 2000;
+          throw new Error('DEADLINE_EXCEEDED');
+        }
+      });
+
+      const phase = await runSkillBenchmarkPhase(
+        ['Query 1', 'Query 2', 'Query 3'],
+        baseConfig,
+        {
+          skillId: 'skill-direct-hr',
+          displayName: 'HR Skill',
+          description: 'Route HR questions',
+          instruction: 'Use HR datastore.',
+          targetSources: ['ds-hr-policies'],
+        },
+        [],
+      );
+      nowSpy.mockRestore();
+
+      // (100 + 2000 + 2000) / 3 = 1367ms — NOT 100ms
+      expect(phase.avgLatencyMs).toBeGreaterThanOrEqual(1300);
+
+      const baseline = {
+        ...phase,
+        avgLatencyMs: 1200,
+        runs: phase.runs.map((r) => ({ ...r, errorMessage: undefined, answerPreview: 'Baseline OK' })),
+      };
+      const report = diagnoseSkillPerformanceAndMistakes(
+        {
+          skillId: 'skill-direct-hr',
+          displayName: 'HR Skill',
+          description: 'Route HR questions',
+          instruction: 'Use HR datastore.',
+          targetSources: ['ds-hr-policies'],
+        },
+        ['Query 1', 'Query 2', 'Query 3'],
+        baseline,
+        phase,
+      );
+      expect(report.improved).toBe(false);
+    });
+
+    it('Model Armor emits unverified warning on fetch failure and UNKNOWN when failureMode is omitted', () => {
+      const reportUnverified = evaluateAssistantData({
+        engine: baseEngine,
+        assistant: baseAssistant,
+        agents: [],
+        config: baseConfig,
+        dataStores: sampleDataStores,
+        modelArmorTemplates: [],
+        probeWarnings: ['Could not fetch Model Armor templates: PermissionDenied'],
+      });
+      expect(
+        reportUnverified.findings.some((f) => f.id === 'security-model-armor-templates-unverified'),
+      ).toBe(true);
+
+      const reportOmittedMode = evaluateAssistantData({
+        engine: baseEngine,
+        assistant: {
+          ...baseAssistant,
+          customerPolicy: {
+            modelArmorConfig: {
+              userPromptTemplate: 'projects/123456/locations/global/templates/prompt-guard',
+              responseTemplate: 'projects/123456/locations/global/templates/response-guard',
+            },
+          },
+        },
+        agents: [],
+        config: baseConfig,
+        dataStores: sampleDataStores,
+      });
+      const partial = reportOmittedMode.findings.find((f) => f.id === 'security-model-armor-partial');
+      expect(partial?.currentValue).toContain('Mode: UNKNOWN');
+    });
+
+    it('BYOMCP_ADVISOR scales proportionally on degraded engines without BYOMCP instead of granting 15 free points', () => {
+      const degradedReport = evaluateAssistantData({
+        engine: { ...baseEngine, dataStoreIds: Array.from({ length: 14 }, (_, i) => `ds-${i}`) },
+        assistant: {
+          ...baseAssistant,
+          customerPolicy: undefined,
+          generationConfig: { systemInstruction: { additionalSystemInstruction: '' } },
+        },
+        agents: [],
+        config: baseConfig,
+        dataStores: Array.from({ length: 14 }, (_, i) => ({
+          name: `projects/123456/locations/global/collections/default_collection/dataStores/ds-${i}`,
+          displayName: `Store ${i}`,
+        })),
+        engineIamPolicy: {
+          bindings: [{ role: 'roles/discoveryengine.viewer', members: ['allUsers'] }],
+        },
+        dataStoreAccessControlEnabled: false,
+      });
+
+      expect(degradedReport.categoryScores.BYOMCP_ADVISOR.score).toBeLessThan(15);
+      expect(
+        Object.values(degradedReport.categoryScores).reduce((sum, p) => sum + p.score, 0),
+      ).toBe(degradedReport.overallScore);
+    });
+
+    it('Markdown export preserves PASS findings in Verified Controls section', () => {
+      const report = evaluateAssistantData({
+        engine: baseEngine,
+        assistant: baseAssistant,
+        agents: [],
+        config: baseConfig,
+        dataStores: sampleDataStores,
+      });
+      const md = generateAssistantEvaluationMarkdown(report);
+      expect(md).toContain('## Verified Controls (PASS)');
+      expect(md).toContain('[PASS]');
+    });
+
+    it('preserves 2-3 letter acronyms (HR, IT) in skill triggers and catches multi-target prohibitions', () => {
+      const report = evaluateAssistantData({
+        engine: { ...baseEngine, dataStoreIds: ['hr_docs', 'it_kb'] },
+        assistant: {
+          ...baseAssistant,
+          generationConfig: {
+            systemInstruction: {
+              additionalSystemInstruction: 'Never search the Jira or Confluence datastores.',
+            },
+          },
+        },
+        agents: [
+          {
+            name: 'projects/123456/locations/global/collections/default_collection/engines/eng/assistants/default_assistant/agents/sk-conf',
+            displayName: 'Confluence Helper',
+            description: 'Use Confluence for wiki pages.',
+            state: 'ENABLED',
+            skillAgentDefinition: {
+              instruction: 'Always search Confluence first for wiki pages.',
+            },
+          },
+        ],
+        config: baseConfig,
+        dataStores: [
+          { name: 'projects/123456/locations/global/collections/default_collection/dataStores/hr_docs', displayName: 'HR' },
+          { name: 'projects/123456/locations/global/collections/default_collection/dataStores/it_kb', displayName: 'IT' },
+        ],
+      });
+
+      const hrSkill = report.recommendedSkills.find((s) => s.targetSources.includes('hr_docs'));
+      expect(hrSkill?.description.toLowerCase()).toContain('hr');
+      expect(hrSkill?.description).not.toContain('corpus, content, knowledge');
+
+      const conflict = report.findings.find(
+        (f) => f.id === 'skills-conflict-with-assistant-instructions',
+      );
+      expect(conflict?.summary).toContain('confluence');
+    });
   });
 });
 

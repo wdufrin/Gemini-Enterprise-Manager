@@ -27,7 +27,7 @@ export interface ChecklistProbeConfig {
   expectedState?: string;
 }
 
-export type ChecklistBadge = 'Required' | 'Optional' | 'Recommended' | 'Automated' | 'Live KB Verified';
+export type ChecklistBadge = 'Required' | 'Optional' | 'Recommended' | 'Automated' | 'Live KB Verified' | 'AI Suggested';
 
 export interface ChecklistItemDefinition {
   id: string;

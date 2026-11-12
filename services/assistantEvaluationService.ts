@@ -1366,13 +1366,21 @@ export function detectSkillAndInstructionConflicts(params: {
   // Extract explicit source/tool prohibitions from Assistant System Instructions:
   // e.g. "never query jira", "do not use servicenow", "avoid searching confluence"
   const prohibitedSourcesInSys = new Set<string>();
+  const prohibitionStopwords = new Set([
+    'all', 'any', 'every', 'other', 'multiple', 'unrelated', 'external', 'the', 'or', 'and',
+    'nor', 'datastore', 'datastores', 'connector', 'connectors', 'source', 'sources', 'tool', 'tools',
+  ]);
   const prohibitionRegex =
-    /\b(?:never|do\s+not|don't|must\s+not|prohibit(?:ed)?\s+from)\s+(?:use|using|query|querying|search|searching|call|calling|route\s+to|invoke|invoking)\s+(?:the\s+)?([a-z0-9_-]{3,35})\b/gi;
+    /\b(?:never|do\s+not|don't|must\s+not|prohibit(?:ed)?\s+from)\s+(?:use|using|query|querying|search|searching|call|calling|route\s+to|invoke|invoking)\s+([^.\n;]{3,120})/gi;
   let match: RegExpExecArray | null;
   while ((match = prohibitionRegex.exec(sysLower)) !== null) {
-    const token = match[1].trim();
-    if (!['all', 'any', 'every', 'other', 'multiple', 'unrelated', 'external'].includes(token)) {
-      prohibitedSourcesInSys.add(token);
+    const clause = match[1];
+    const tokens = clause.match(/[a-z0-9_-]{3,35}/g) || [];
+    for (const rawToken of tokens) {
+      const token = rawToken.trim();
+      if (!prohibitionStopwords.has(token)) {
+        prohibitedSourcesInSys.add(token);
+      }
     }
   }
 
@@ -1434,7 +1442,7 @@ export function detectSkillAndInstructionConflicts(params: {
       if (!mentionsThisMcp) continue;
 
       // 3a. Skill references a BYOMCP connector that is NOT attached to this Engine
-      if (!mcp.isAttachedToEngine && attachedDataStoreIds.size > 0) {
+      if (!mcp.isAttachedToEngine) {
         connectorConflictDetails.push(
           `Skill "${skillName}" routes queries to BYOMCP connector "${mcp.displayName}" (${mcp.collectionId}), which is currently detached from this Engine.`,
         );
@@ -1906,8 +1914,10 @@ export function evaluateAssistantData(
 
   const connectorBackedStoreIds = new Set<string>();
   for (const cid of Object.keys(connectorsByCollectionId)) {
-    if (!cid || cid === 'default_collection') continue;
-    connectorBackedStoreIds.add(cid);
+    if (!cid) continue;
+    if (cid !== 'default_collection') {
+      connectorBackedStoreIds.add(cid);
+    }
     const conn = connectorsByCollectionId[cid];
     if (Array.isArray(conn?.entities)) {
       conn.entities.forEach((ent: Record<string, unknown>) => {
@@ -1948,12 +1958,24 @@ export function evaluateAssistantData(
     });
   }).length;
 
+  const byomcpCollectionIds = new Set(byomcpEvaluations.map((b) => b.collectionId));
+  const byomcpAttachedStoreCount = Array.from(attachedIds).filter((dsId) => {
+    if (byomcpCollectionIds.has(dsId)) return true;
+    const ds = dsById.get(dsId);
+    const dsParts = (ds?.name || '').split('/');
+    const collIdx = dsParts.indexOf('collections');
+    const dsColl = collIdx !== -1 && dsParts[collIdx + 1] ? dsParts[collIdx + 1] : '';
+    return Boolean(dsColl && byomcpCollectionIds.has(dsColl));
+  }).length;
+  const searchDataStoresCount = Math.max(0, connectedDataStoresCount - byomcpAttachedStoreCount);
+
   const routerSkillAlreadyDeployed =
     existingSkillKeys.has('enterprise-datastore-query-optimizer') ||
     existingSkillKeys.has(
       sanitizeSkillDisplayName('Enterprise DataStore Query Router and Optimizer').toLowerCase(),
     );
   const fanoutMitigatedBySkills = enabledSkills.length >= 2 || routerSkillAlreadyDeployed;
+  const shouldLinkRouterSkill = !routerSkillAlreadyDeployed && directDataStoreIds.length > 0;
 
   // ============================================================================
   // 1. LATENCY & DATASTORE FAN-OUT EVALUATION
@@ -1980,63 +2002,70 @@ export function evaluateAssistantData(
         'Enable Enterprise Web Search in Overview > Assistant Editor, or attach enterprise DataStores/Connectors from the Data Stores or Engines page.',
       targetTab: 'overview',
     });
-  } else if (connectedDataStoresCount > 10) {
+  } else if (searchDataStoresCount > 10) {
     findings.push({
       id: 'datastore-critical-fanout-latency',
       category: 'LATENCY_AND_DATASTORES',
       severity: fanoutMitigatedBySkills ? 'INFO' : 'CRITICAL',
       title: fanoutMitigatedBySkills
-        ? `High DataStore Count (${connectedDataStoresCount} Stores — ${enabledSkills.length} Active Skill${enabledSkills.length === 1 ? '' : 's'} Configured)`
-        : `Severe DataStore Fan-Out Latency Bottleneck (${connectedDataStoresCount} Connected Stores)`,
+        ? `Enterprise Search Scale (${searchDataStoresCount} Search Store(s)${
+            byomcpAttachedStoreCount > 0 ? ` + ${byomcpAttachedStoreCount} BYOMCP` : ''
+          } — ${enabledSkills.length} Active Skill${enabledSkills.length === 1 ? '' : 's'})`
+        : `High Search DataStore Fan-Out (${searchDataStoresCount} Search Stores Connected)`,
       summary: fanoutMitigatedBySkills
-        ? `This engine has ${connectedDataStoresCount} connected DataStores across ${attachedConnectorIds.size} connector(s) (${directDataStoreIds.length} direct/ingested). Note: search-tool queries still span attached DataStores unless isolated via Sub-Agents or trimmed; keep BYOMCP guidance native to mcp_server_description and reserve Skills for direct DataStores.`
-        : `Connecting ${connectedDataStoresCount} DataStores directly to the engine forces the retrieval tool to fan out across ${connectedDataStoresCount} indexes on search turns, causing high tail latency and diluted ranking relevance.`,
+        ? `This engine attaches ${searchDataStoresCount} search DataStores across ${attachedConnectorIds.size} connector(s) (${directDataStoreIds.length} direct/ingested${
+            byomcpAttachedStoreCount > 0 ? `, ${byomcpAttachedStoreCount} BYOMCP excluded from search sweep` : ''
+          }). Multi-connector GE apps commonly span dozens of stores; watch for unused entity stores and federated tail latency.`
+        : `Attaching ${searchDataStoresCount} search DataStores directly causes the search tool to sweep across those indexes on retrieval turns, increasing tail latency if unused entity stores or slow federated connectors are included.`,
       currentValue: fanoutMitigatedBySkills
-        ? `${connectedDataStoresCount} Connected DataStores (${directDataStoreIds.length} Direct / ${enabledSkills.length} Skills)`
-        : `${connectedDataStoresCount} Connected DataStores`,
-      recommendedValue: '≤ 5–8 DataStores per Engine (or Sub-Agent Isolation)',
+        ? `${searchDataStoresCount} Search Stores (${directDataStoreIds.length} Direct / ${enabledSkills.length} Skills)`
+        : `${searchDataStoresCount} Search Stores (${directDataStoreIds.length} Direct)`,
+      recommendedValue:
+        'Prune Unused Entity Stores + Native BYOMCP/Connector Metadata + Domain Sub-Agents if P95 Spikes',
       impact:
-        'Significant P95/P99 response latency spikes, quota contention across federated/ingested stores, and noisy retrieval context. Overly broad catch-all Skills can add an extra load_skill turn (+5–15% latency) on routine queries without reducing search-tool fan-out.',
+        'P95/P99 latency spikes and quota contention when slow federated connectors or unused 3P entity stores sit in the default search sweep. Avoid catch-all router Skills that add extra load_skill turns (+5–15% latency) on routine queries.',
       remediation: fanoutMitigatedBySkills
-        ? 'Skills help disambiguate direct ingested corpora and cross-system intents, but do not prune DataStores inside the search tool. For further speedup: 1) Keep BYOMCP routing inside mcp_server_description/mcp_agent_instructions; 2) Detach unused stores; 3) Isolate specialized store groups behind domain Sub-Agents.'
-        : '1) Tune BYOMCP mcp_server_description & mcp_agent_instructions (zero load_skill overhead). 2) Add narrow domain Skills ONLY for direct/ingested DataStores lacking connector metadata. 3) Detach unused stores or isolate groups behind domain Sub-Agents.',
+        ? 'Multi-connector enterprise apps routinely attach 15–50+ DataStores. To keep tail latency low: 1) Detach unused 3P entity stores (e.g. worklogs/comments if unneeded); 2) Keep BYOMCP routing in mcp_server_description/mcp_agent_instructions; 3) Isolate high-latency federated groups behind domain Sub-Agents if P95 spikes.'
+        : '1) Detach unused 3P entity DataStores from the Engine. 2) Tune BYOMCP mcp_server_description & mcp_agent_instructions (zero load_skill overhead). 3) Add narrow domain Skills ONLY for direct/ingested DataStores. 4) Isolate specialized store groups behind domain Sub-Agents if P95 latency spikes.',
       targetTab: 'skills',
-      ...(routerSkillAlreadyDeployed ? {} : { recommendedSkillId: 'skill-datastore-router' }),
+      ...(shouldLinkRouterSkill ? { recommendedSkillId: 'skill-datastore-router' } : {}),
     });
-  } else if (connectedDataStoresCount >= 6) {
+  } else if (searchDataStoresCount >= 6) {
     findings.push({
       id: 'datastore-moderate-fanout-latency',
       category: 'LATENCY_AND_DATASTORES',
-      severity: fanoutMitigatedBySkills ? 'INFO' : 'WARNING',
-      title: fanoutMitigatedBySkills
-        ? `Multi-DataStore Fan-Out (${connectedDataStoresCount} Stores — ${enabledSkills.length} Active Skill${enabledSkills.length === 1 ? '' : 's'})`
-        : `Elevated DataStore Fan-Out Risk (${connectedDataStoresCount} Connected Stores)`,
-      summary: `With ${connectedDataStoresCount} DataStores attached (${directDataStoreIds.length} direct/ingested), unscoped searches scan multiple indexes unless guided by domain Skills (for direct stores), native BYOMCP metadata, or Sub-Agents.`,
-      currentValue: `${connectedDataStoresCount} Connected DataStores`,
-      recommendedValue: 'Narrow Direct-Store Skills + Tuned BYOMCP Descriptions + ≤ 5–8 Stores',
+      severity: 'INFO',
+      title: `Multi-Store Enterprise Configuration (${searchDataStoresCount} Search Stores${
+        byomcpAttachedStoreCount > 0 ? ` + ${byomcpAttachedStoreCount} BYOMCP` : ''
+      })`,
+      summary: `This engine attaches ${searchDataStoresCount} search DataStores (${directDataStoreIds.length} direct/ingested). This is typical for multi-connector enterprise apps; keep unused entity stores detached and use narrow Skills only for direct ingested corpora.`,
+      currentValue: `${searchDataStoresCount} Search DataStores`,
+      recommendedValue: 'Prune Unused Entity Stores + Narrow Direct-Store Skills',
       impact:
-        'Increased response latency when queries fan out across multiple connectors or ingested corpora simultaneously.',
+        'Unneeded entity stores or unguided direct corpora can add minor retrieval noise on broad queries.',
       remediation:
-        'Deploy narrow-trigger Skills for direct ingested DataStores (without broad catch-all triggers), tune BYOMCP descriptions/instructions directly, and detach unused entity DataStores.',
+        'Verify all attached entity DataStores are actively needed, tune BYOMCP descriptions/instructions directly, and use narrow-trigger Skills for direct ingested DataStores.',
       targetTab: 'skills',
-      ...(routerSkillAlreadyDeployed ? {} : { recommendedSkillId: 'skill-datastore-router' }),
+      ...(shouldLinkRouterSkill ? { recommendedSkillId: 'skill-datastore-router' } : {}),
     });
   } else if (connectedDataStoresCount >= 1) {
     findings.push({
       id: 'datastore-fanout-optimal',
       category: 'LATENCY_AND_DATASTORES',
       severity: 'PASS',
-      title: `Healthy DataStore Fan-Out Count (${connectedDataStoresCount} Store${connectedDataStoresCount === 1 ? '' : 's'})`,
-      summary: `The engine has ${connectedDataStoresCount} connected DataStore(s), keeping parallel retrieval fan-out within low-latency bounds.`,
-      currentValue: `${connectedDataStoresCount} Connected DataStore(s)`,
-      recommendedValue: '1–5 Connected DataStores',
+      title: `Healthy Search DataStore Count (${searchDataStoresCount} Search Store${
+        searchDataStoresCount === 1 ? '' : 's'
+      }${byomcpAttachedStoreCount > 0 ? ` + ${byomcpAttachedStoreCount} BYOMCP` : ''})`,
+      summary: `The engine has ${searchDataStoresCount} search DataStore(s), keeping parallel retrieval overhead low.`,
+      currentValue: `${connectedDataStoresCount} Connected Source(s)`,
+      recommendedValue: 'Scoped Search Stores (Prune Unused Entity Stores)',
       impact: 'Low retrieval fan-out overhead.',
       remediation: 'No action required.',
       targetTab: 'datastores',
     });
   }
 
-  // Check vertexAiSearchToolConfig scoping when multiple datastores are attached
+  // Check vertexAiSearchToolConfig scoping when high search-store count is attached
   const searchToolCfg = assistant.vertexAiSearchToolConfig as
     | Record<string, unknown>
     | undefined;
@@ -2045,7 +2074,7 @@ export function evaluateAssistantData(
     Object.values(searchToolCfg || {}).some((val) =>
       Array.isArray(val) ? val.length > 0 : Boolean(val),
     );
-  if (connectedDataStoresCount >= 6 && !hasSearchToolCfg) {
+  if (searchDataStoresCount > 10 && !hasSearchToolCfg) {
     const mitigatedBySkills = enabledSkills.length >= 2;
     findings.push({
       id: 'datastore-unscoped-search-tool-config',
@@ -2054,19 +2083,19 @@ export function evaluateAssistantData(
       title: mitigatedBySkills
         ? `Unscoped Vertex AI Search Tool Config (${enabledSkills.length} Enabled Skills Present)`
         : 'Unscoped Vertex AI Search Tool Configuration',
-      summary: `assistant.vertexAiSearchToolConfig is empty ({}) while ${connectedDataStoresCount} DataStores are attached${
+      summary: `assistant.vertexAiSearchToolConfig is empty ({}) while ${searchDataStoresCount} search DataStores are attached${
         mitigatedBySkills
           ? `, though ${enabledSkills.length} active organizational Skills help guide query intent and direct-corpus terms.`
           : '.'
       }`,
-      currentValue: 'Empty ({}) — Default Flat Fan-Out',
-      recommendedValue: 'Configured Search Tool Config, Direct-Store Skills, or Sub-Agents',
+      currentValue: 'Empty ({}) — Default Engine-Wide Search',
+      recommendedValue: 'Pruned Entity Stores, Direct-Store Skills, Sub-Agents, or Search Tool Config',
       impact:
-        'Without explicit search tool scoping, sub-agent isolation, or targeted direct-store Skills, the search tool treats all connected DataStores with equal weight.',
+        'Without explicit search tool scoping, sub-agent isolation, or targeted direct-store Skills, the search tool treats all connected search DataStores with equal weight.',
       remediation:
-        'Deploy narrow Skills for direct ingested DataStores, move specialized stores behind domain Sub-Agents, or configure vertexAiSearchToolConfig if enrolled.',
+        'Detach unused entity stores, use narrow Skills for direct ingested DataStores, move isolated domains behind Sub-Agents, or configure vertexAiSearchToolConfig if enrolled.',
       targetTab: 'overview',
-      recommendedSkillId: 'skill-datastore-router',
+      ...(shouldLinkRouterSkill ? { recommendedSkillId: 'skill-datastore-router' } : {}),
     });
   }
 
@@ -2235,13 +2264,17 @@ export function evaluateAssistantData(
       };
     }
 
+    const genericStopwords = new Set([
+      'store', 'data', 'datastore', 'default', 'in', 'on', 'at', 'to', 'of', 'or', 'an', 'as',
+      'is', 'it', 'by', 'for', 'the', 'and', 'my', 'all', 'new', 'v1', 'v2',
+    ]);
     const derivedKeywords = Array.from(
       new Set(
         `${name} ${id}`
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, ' ')
           .split(/\s+/)
-          .filter((t) => t.length >= 4 && !['store', 'data', 'datastore', 'default'].includes(t)),
+          .filter((t) => t.length >= 2 && !genericStopwords.has(t)),
       ),
     ).slice(0, 4);
 
@@ -2902,7 +2935,7 @@ Activate this skill when the user specifically asks about **${profile.domainLabe
     | undefined;
   const hasInputArmor = Boolean(armorCfg?.userPromptTemplate?.trim());
   const hasOutputArmor = Boolean(armorCfg?.responseTemplate?.trim());
-  const armorFailureMode = armorCfg?.failureMode || 'FAIL_CLOSED';
+  const armorFailureMode = armorCfg?.failureMode?.trim() || 'UNKNOWN';
 
   if (!hasInputArmor && !hasOutputArmor) {
     findings.push({
@@ -2956,7 +2989,25 @@ Activate this skill when the user specifically asks about **${profile.domainLabe
   }
 
   // Model Armor Exclusion Rules (Preview) & Streaming Sanitization Evaluation
-  if ((hasInputArmor || hasOutputArmor) && modelArmorTemplates.length > 0) {
+  const modelArmorFetchWarning = probeWarnings.find((w) =>
+    w.startsWith('Could not fetch Model Armor templates:'),
+  );
+  if ((hasInputArmor || hasOutputArmor) && modelArmorTemplates.length === 0 && modelArmorFetchWarning) {
+    findings.push({
+      id: 'security-model-armor-templates-unverified',
+      category: 'SECURITY_AND_GOVERNANCE',
+      severity: 'WARNING',
+      title: 'Model Armor Templates Could Not Be Verified',
+      summary: `Model Armor templates are referenced on this Assistant, but live template inspection failed (${modelArmorFetchWarning}). Exclusion rules and template existence were not verified.`,
+      currentValue: 'Templates Unverified (API Fetch Failed)',
+      recommendedValue: 'Verified Model Armor Templates with Active Filters',
+      impact:
+        'A missing template, empty filter configuration, or overly broad exclusion regex (.*) could leave prompt/response traffic unscreened.',
+      remediation:
+        'Ensure your account has Model Armor viewer permissions (roles/modelarmor.viewer) and re-run the evaluation to inspect active template filters and exclusion rules.',
+      targetTab: 'overview',
+    });
+  } else if ((hasInputArmor || hasOutputArmor) && modelArmorTemplates.length > 0) {
     const attachedTemplateRefs = Array.from(
       new Set(
         [armorCfg?.userPromptTemplate?.trim(), armorCfg?.responseTemplate?.trim()].filter(
@@ -3254,7 +3305,10 @@ Activate this skill when the user specifically asks about **${profile.domainLabe
     };
   };
 
-  const computeByomcpPillarScore = (): EvaluationCategoryScore => {
+  const computeByomcpPillarScore = (
+    standardEarned: number,
+    standardMax: number,
+  ): EvaluationCategoryScore => {
     const budget = pillarBudgets.BYOMCP_ADVISOR;
     const catFindings = findings.filter((f) => f.category === 'BYOMCP_ADVISOR');
     const criticalCount = catFindings.filter((f) => f.severity === 'CRITICAL').length;
@@ -3262,12 +3316,16 @@ Activate this skill when the user specifically asks about **${profile.domainLabe
     const passCount = catFindings.filter((f) => f.severity === 'PASS').length;
 
     const attachedConnectors = byomcpEvaluations.filter((b) => b.isAttachedToEngine);
-    // Do not penalize an engine's score for unattached BYOMCP connectors belonging to other apps in the project
+    // When BYOMCP is not used on this engine, scale the N/A pillar proportionally to the other 4 pillars
+    // so broken engines do not receive 15 free points while preserving the 100-point scale.
     if (attachedConnectors.length === 0) {
+      const proportionalScore = Math.round(
+        (standardEarned / Math.max(1, standardMax)) * budget.maxScore,
+      );
       return {
         category: 'BYOMCP_ADVISOR',
         label: budget.label,
-        score: budget.maxScore,
+        score: Math.max(0, Math.min(budget.maxScore, proportionalScore)),
         maxScore: budget.maxScore,
         criticalCount: 0,
         warningCount: 0,
@@ -3320,12 +3378,21 @@ Activate this skill when the user specifically asks about **${profile.domainLabe
     };
   };
 
+  const latencyPillar = computeStandardPillarScore('LATENCY_AND_DATASTORES');
+  const skillsPillar = computeStandardPillarScore('SKILLS_AND_ROUTING');
+  const configPillar = computeStandardPillarScore('ASSISTANT_AND_ENGINE_CONFIG');
+  const securityPillar = computeStandardPillarScore('SECURITY_AND_GOVERNANCE');
+  const standardEarned =
+    latencyPillar.score + skillsPillar.score + configPillar.score + securityPillar.score;
+  const standardMax =
+    latencyPillar.maxScore + skillsPillar.maxScore + configPillar.maxScore + securityPillar.maxScore;
+
   const categoryScores: Record<EvaluationCategory, EvaluationCategoryScore> = {
-    LATENCY_AND_DATASTORES: computeStandardPillarScore('LATENCY_AND_DATASTORES'),
-    SKILLS_AND_ROUTING: computeStandardPillarScore('SKILLS_AND_ROUTING'),
-    ASSISTANT_AND_ENGINE_CONFIG: computeStandardPillarScore('ASSISTANT_AND_ENGINE_CONFIG'),
-    SECURITY_AND_GOVERNANCE: computeStandardPillarScore('SECURITY_AND_GOVERNANCE'),
-    BYOMCP_ADVISOR: computeByomcpPillarScore(),
+    LATENCY_AND_DATASTORES: latencyPillar,
+    SKILLS_AND_ROUTING: skillsPillar,
+    ASSISTANT_AND_ENGINE_CONFIG: configPillar,
+    SECURITY_AND_GOVERNANCE: securityPillar,
+    BYOMCP_ADVISOR: computeByomcpPillarScore(standardEarned, standardMax),
   };
 
   const overallScore = Math.max(
@@ -3377,7 +3444,6 @@ Activate this skill when the user specifically asks about **${profile.domainLabe
   };
   findings.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
-  const byomcpCollectionIds = new Set(byomcpEvaluations.map((m) => m.collectionId));
   const dsLookupByName = new Map<string, DataStore>();
   dataStores.forEach((ds) => {
     dsLookupByName.set(ds.name, ds);
@@ -3681,6 +3747,7 @@ export function generateAssistantEvaluationMarkdown(
   lines.push(``);
 
   const actionableFindings = report.findings.filter((f) => f.severity !== 'PASS');
+  const passedFindings = report.findings.filter((f) => f.severity === 'PASS');
   lines.push(`## Diagnostic Findings (${actionableFindings.length})`);
   lines.push(``);
   if (actionableFindings.length === 0) {
@@ -3697,6 +3764,15 @@ export function generateAssistantEvaluationMarkdown(
       lines.push(`- **Remediation**: ${f.remediation}`);
       lines.push(``);
     });
+  }
+
+  if (passedFindings.length > 0) {
+    lines.push(`## Verified Controls (PASS) (${passedFindings.length})`);
+    lines.push(``);
+    passedFindings.forEach((f) => {
+      lines.push(`- **[PASS] ${f.title}** (\`${f.category}\`): ${f.summary} (*${f.currentValue}*)`);
+    });
+    lines.push(``);
   }
 
   const actionableByomcp = report.byomcpEvaluations.filter((m) => m.status === 'NEEDS_ATTENTION');
@@ -4312,23 +4388,19 @@ export async function runSkillBenchmarkPhase(
     });
   }
 
-  const successfulRuns = runs.filter(
-    (r) => !r.errorMessage && !r.skippedReason && r.answerPreview.trim().length > 0,
-  );
-  const metricRuns = successfulRuns.length > 0 ? successfulRuns : runs;
-
+  // Include all executed runs in latency averages so failed/timed-out queries cannot be masked by a single fast success.
   const avgLatencyMs = Math.round(
-    metricRuns.reduce((sum, r) => sum + r.totalLatencyMs, 0) / Math.max(1, metricRuns.length),
+    runs.reduce((sum, r) => sum + r.totalLatencyMs, 0) / Math.max(1, runs.length),
   );
   const avgTtfbMs = Math.round(
-    metricRuns.reduce((sum, r) => sum + r.ttfbMs, 0) / Math.max(1, metricRuns.length),
+    runs.reduce((sum, r) => sum + r.ttfbMs, 0) / Math.max(1, runs.length),
   );
   const avgTtftMs = Math.round(
-    metricRuns.reduce((sum, r) => sum + (r.ttftMs ?? r.ttfbMs), 0) / Math.max(1, metricRuns.length),
+    runs.reduce((sum, r) => sum + (r.ttftMs ?? r.ttfbMs), 0) / Math.max(1, runs.length),
   );
   const avgTtfaMs = Math.round(
-    metricRuns.reduce((sum, r) => sum + (r.ttfaMs ?? r.totalLatencyMs), 0) /
-      Math.max(1, metricRuns.length),
+    runs.reduce((sum, r) => sum + (r.ttfaMs ?? r.totalLatencyMs), 0) /
+      Math.max(1, runs.length),
   );
   const avgPlannerRetrievalMs = Math.max(0, avgTtfaMs - avgTtftMs);
   const triggeredCount = runs.filter((r) => r.skillTriggered).length;
@@ -4399,6 +4471,11 @@ export function diagnoseSkillPerformanceAndMistakes(
 
   // 2. Check Trigger Description vocabulary coverage against test queries
   const descLower = skillDraft.description.toLowerCase();
+  const shortStopwords = new Set([
+    'in', 'on', 'at', 'to', 'of', 'or', 'an', 'as', 'is', 'it', 'by', 'be', 'do', 'go', 'if',
+    'my', 'no', 'so', 'up', 'us', 'we', 'for', 'the', 'and', 'not', 'are', 'was', 'has', 'had',
+    'can', 'all', 'any', 'how', 'who', 'why', 'get', 'use', 'new', 'you', 'our', 'out', 'per',
+  ]);
   const queryTokens = Array.from(
     new Set(
       queries
@@ -4406,7 +4483,7 @@ export function diagnoseSkillPerformanceAndMistakes(
         .toLowerCase()
         .replace(/[^a-z0-9_-]+/g, ' ')
         .split(/\s+/)
-        .filter((tok) => tok.length >= 4 && !BENCHMARK_QUERY_STOPWORDS.has(tok)),
+        .filter((tok) => tok.length >= 2 && !BENCHMARK_QUERY_STOPWORDS.has(tok) && !shortStopwords.has(tok)),
     ),
   );
   const missingQueryTokens = queryTokens.filter((tok) => !descLower.includes(tok));
@@ -4650,6 +4727,7 @@ export function diagnoseSkillPerformanceAndMistakes(
     );
     improved =
       postValidRuns.length > 0 &&
+      postValidRuns.length === postSkill.runs.length &&
       latencyDeltaMs < 0 &&
       mistakes.filter((m) => m.severity === 'CRITICAL').length === 0;
 

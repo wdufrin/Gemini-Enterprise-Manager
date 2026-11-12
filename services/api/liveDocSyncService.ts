@@ -199,42 +199,66 @@ export function mergeLiveSectionsWithBaseline(
   baseline: ConnectorChecklistDefinition,
   liveSections: ChecklistSectionDefinition[]
 ): ConnectorChecklistDefinition {
-  const existingProbesById = new Map<string, ChecklistItemDefinition['automatedProbe']>();
+  const baselineItemIds = new Set<string>();
+  const baselineItemLabels = new Set<string>();
   baseline.sections.forEach((sec) => {
     sec.items.forEach((it) => {
-      if (it.automatedProbe) {
-        existingProbesById.set(it.id, it.automatedProbe);
-      }
+      baselineItemIds.add(it.id);
+      baselineItemLabels.add(it.label.trim().toLowerCase());
     });
   });
 
-  const mergedSections: ChecklistSectionDefinition[] = liveSections.map((sec, sIdx) => ({
-    id: sec.id || `live_sec_${sIdx + 1}`,
-    title: sec.title || `Setup Step ${sIdx + 1}`,
-    stepNumber: sec.stepNumber || sIdx + 1,
-    description: sec.description || '',
-    items: (sec.items || []).map((it, iIdx) => {
-      const itemId = it.id || `live_item_${sIdx + 1}_${iIdx + 1}`;
-      const existingProbe = existingProbesById.get(itemId);
-      const isNewItem = !baseline.sections.some((s) => s.items.some((bItem) => bItem.id === itemId));
-
-      return {
-        id: itemId,
-        label: it.label || 'Configuration Step',
-        subLabel: it.subLabel,
-        description: it.description,
-        badge: it.badge || (isNewItem ? 'Live KB Verified' : 'Required'),
-        appliesToMode: it.appliesToMode || 'ALL',
-        codeSnippet: it.codeSnippet || undefined,
-        automatedProbe: existingProbe,
-        isLiveDocUpdate: isNewItem,
-      };
-    }),
+  // Start from a deep copy of all baseline sections so no automatedProbe or baseline step can ever be dropped
+  const mergedSections: ChecklistSectionDefinition[] = baseline.sections.map((sec) => ({
+    ...sec,
+    items: sec.items.map((it) => ({ ...it })),
   }));
+
+  const extraSections: ChecklistSectionDefinition[] = [];
+
+  liveSections.forEach((sec, sIdx) => {
+    const targetSec =
+      mergedSections.find((b) => sec.id && b.id === sec.id) ||
+      mergedSections.find((b) => sec.stepNumber && b.stepNumber === sec.stepNumber);
+
+    const newItems: ChecklistItemDefinition[] = (sec.items || [])
+      .filter((it) => {
+        const idExists = Boolean(it.id && baselineItemIds.has(it.id));
+        const labelExists = Boolean(it.label && baselineItemLabels.has(it.label.trim().toLowerCase()));
+        return !idExists && !labelExists;
+      })
+      .map((it, iIdx) => {
+        const itemId = it.id || `live_item_${sIdx + 1}_${iIdx + 1}`;
+        baselineItemIds.add(itemId);
+        if (it.label) baselineItemLabels.add(it.label.trim().toLowerCase());
+        return {
+          id: itemId,
+          label: it.label || 'Configuration Step',
+          subLabel: it.subLabel,
+          description: it.description,
+          badge: it.badge || 'AI Suggested',
+          appliesToMode: it.appliesToMode || 'ALL',
+          codeSnippet: it.codeSnippet || undefined,
+          isLiveDocUpdate: true,
+        };
+      });
+
+    if (targetSec) {
+      targetSec.items.push(...newItems);
+    } else if (newItems.length > 0) {
+      extraSections.push({
+        id: sec.id || `live_sec_${sIdx + 1}`,
+        title: sec.title || `AI Suggested Step ${sIdx + 1}`,
+        stepNumber: sec.stepNumber || mergedSections.length + extraSections.length + 1,
+        description: sec.description || '',
+        items: newItems,
+      });
+    }
+  });
 
   return {
     ...baseline,
-    sections: mergedSections.length > 0 ? mergedSections : baseline.sections,
+    sections: [...mergedSections, ...extraSections],
     syncSource: 'LIVE_KB',
     lastSyncedAt: new Date().toISOString(),
   };

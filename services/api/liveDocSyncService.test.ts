@@ -202,7 +202,22 @@ describe('Live KB Documentation Synchronization Service', () => {
 
     const brandNew = merged.sections[0].items.find((i) => i.id === 'brand_new_item');
     expect(brandNew?.isLiveDocUpdate).toBe(true);
-    expect(brandNew?.badge).toBe('Live KB Verified');
+    expect(brandNew?.badge).toBe('AI Suggested');
+
+    // Adversarial: completely mismatched LLM section/item IDs must never drop baseline automatedProbes
+    const mismatchedMerge = mergeLiveSectionsWithBaseline(mockBaseline, [
+      {
+        id: 'hallucinated_sec_99',
+        title: 'Hallucinated Section',
+        stepNumber: 99,
+        items: [{ id: 'hallucinated_item_1', label: 'Hallucinated Step' }],
+      },
+    ]);
+    const preservedProbe = mismatchedMerge.sections[0].items.find(
+      (i) => i.id === 'jira_service_agent_probe'
+    );
+    expect(preservedProbe?.automatedProbe?.type).toBe('IAM_PERMISSION_CHECK');
+    expect(mismatchedMerge.sections.length).toBe(2);
   });
 
   it('falls back gracefully to bundled baseline if Vertex AI fails or returns error', async () => {
