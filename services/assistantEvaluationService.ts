@@ -2256,13 +2256,10 @@ export function evaluateAssistantData(
   let firstUncoveredDirectSkillId: string | undefined;
 
   // Build recommended narrow cross-corpus router & dedicated direct-DataStore skills
-  if (connectedDataStoresCount > 0 || attachedConnectorIds.size > 0) {
+  // ONLY when direct/ingested DataStores exist (1P/3P connectors and BYOMCP use native connector/MCP metadata).
+  if (directDataStoreIds.length > 0) {
     // Prioritize direct/ingested DataStores first because they have no connector-level descriptions
-    const allAttachedPool =
-      attachedIds.size > 0 ? Array.from(attachedIds) : Array.from(attachedConnectorIds);
-    const routerTargetIds = (
-      directDataStoreIds.length > 0 ? directDataStoreIds : allAttachedPool
-    ).slice(0, 8);
+    const routerTargetIds = directDataStoreIds.slice(0, 8);
     const omittedDirectCount = Math.max(0, directDataStoreIds.length - routerTargetIds.length);
     const attachedMcpServers = byomcpEvaluations.filter((m) => m.isAttachedToEngine);
 
@@ -2317,14 +2314,11 @@ export function evaluateAssistantData(
       `Should a cross-system question check ${primaryStoreLabel} or ${secondaryStoreLabel} first?`,
     ];
 
-    const scopeSummary =
-      directDataStoreIds.length > 0
-        ? `This engine attaches **${directDataStoreIds.length} direct ingested DataStore(s)** (which lack connector-level metadata) alongside **${Math.max(0, connectedDataStoresCount - directDataStoreIds.length)} connector store(s)**${
-            attachedMcpServers.length > 0
-              ? ` and **${attachedMcpServers.length} BYOMCP server(s)**`
-              : ''
-          }. Use this Skill ONLY when a prompt spans multiple ingested corpora or needs cross-system disambiguation:`
-        : `Use this Skill ONLY to disambiguate ambiguous cross-system intents across connected sources; routine single-connector or BYOMCP queries should rely directly on connector / \`mcp_server_description\` metadata without loading a Skill:`;
+    const scopeSummary = `This engine attaches **${directDataStoreIds.length} direct ingested DataStore(s)** (which lack connector-level metadata) alongside **${Math.max(0, connectedDataStoresCount - directDataStoreIds.length)} connector store(s)**${
+      attachedMcpServers.length > 0
+        ? ` and **${attachedMcpServers.length} BYOMCP server(s)**`
+        : ''
+    }. Use this Skill ONLY when a prompt spans multiple ingested corpora or needs cross-system disambiguation:`;
 
     const routerSkillTemplate: RecommendedSkillTemplate = {
       id: 'skill-datastore-router',
@@ -2353,10 +2347,7 @@ ${storeListText}
 4. **BYOMCP & Connector Separation**: Leave BYOMCP parameter selection and multi-step polling workflows to each connector's native \`mcp_server_description\` and \`mcp_agent_instructions\`; never impose arbitrary single-call caps that interrupt async tool chains.
 5. **Grounded Synthesis & Citations**: Cite the exact source document title and link for every claim, and clearly state if information was not found in the queried store.
 6. **Global Instruction Harmony**: Always respect the Assistant's global System and Style Instructions for persona, output formatting, and organizational guardrails.`,
-      rationale:
-        directDataStoreIds.length > 0
-          ? `Teaches the planner to disambiguate ${directDataStoreIds.length} direct ingested DataStore(s) on ambiguous cross-system turns without adding bloated routing tables or duplicating BYOMCP/3P connector metadata.`
-          : `Handles ambiguous cross-connector disambiguation without duplicating BYOMCP mcp_server_description metadata or triggering on routine single-source lookups.`,
+      rationale: `Teaches the planner to disambiguate ${directDataStoreIds.length} direct ingested DataStore(s) on ambiguous cross-system turns without adding bloated routing tables or duplicating BYOMCP/3P connector metadata.`,
       targetSources: routerTargetIds,
       sampleQueries: routerSampleQueries,
     };
@@ -2441,24 +2432,15 @@ Activate this skill when the user specifically asks about **${profile.domainLabe
     }
   }
 
-  if (connectedDataStoresCount > 0 && enabledSkills.length === 0) {
+  if (directDataStoreIds.length > 0 && enabledSkills.length === 0) {
     findings.push({
       id: 'skills-missing-for-datastores',
       category: 'SKILLS_AND_ROUTING',
-      severity: connectedDataStoresCount >= 5 ? 'CRITICAL' : 'WARNING',
-      title: `No Active Skills for ${connectedDataStoresCount} DataStore(s) (${directDataStoreIds.length} Direct / Ingested)`,
-      summary:
-        directDataStoreIds.length > 0
-          ? `This assistant has ${directDataStoreIds.length} direct/ingested DataStore(s) and ${Math.max(
-              0,
-              connectedDataStoresCount - directDataStoreIds.length,
-            )} connector DataStore(s) with 0 enabled Skills. Direct ingested DataStores lack connector metadata, so the planner has no corpus hints without dedicated Skills.`
-          : `This assistant has ${connectedDataStoresCount} connected DataStore(s) and 0 enabled Skills to guide cross-system disambiguation.`,
+      severity: directDataStoreIds.length >= 5 ? 'CRITICAL' : 'WARNING',
+      title: `No Active Skills for ${directDataStoreIds.length} Direct / Ingested DataStore(s)`,
+      summary: `This assistant has ${directDataStoreIds.length} direct/ingested DataStore(s) with 0 enabled Skills. Direct ingested DataStores lack connector metadata, so the planner has no corpus hints without dedicated Skills.`,
       currentValue: `0 Enabled Skills (${directDataStoreIds.length} Direct Stores)`,
-      recommendedValue:
-        directDataStoreIds.length > 0
-          ? 'Dedicated Narrow Skill per Direct DataStore + Tuned Connector/BYOMCP Metadata'
-          : 'Tuned Connector/BYOMCP Metadata + Narrow Cross-System Skill',
+      recommendedValue: 'Dedicated Narrow Skill per Direct DataStore',
       impact:
         'Without dedicated narrow Skills describing direct ingested corpora (such as internal video indexes, intranet sites, or extranet sites), the Assistant has no visibility into which corpus covers which user intent.',
       remediation:
@@ -2466,15 +2448,15 @@ Activate this skill when the user specifically asks about **${profile.domainLabe
       targetTab: 'skills',
       recommendedSkillId: firstUncoveredDirectSkillId || 'skill-datastore-router',
     });
-  } else if (connectedDataStoresCount >= 6 && enabledSkills.length < 2) {
+  } else if (directDataStoreIds.length >= 6 && enabledSkills.length < 2) {
     findings.push({
       id: 'skills-low-coverage-ratio',
       category: 'SKILLS_AND_ROUTING',
       severity: 'WARNING',
-      title: `Low Direct-Store Skill Coverage (${enabledSkills.length} Skill vs. ${directDataStoreIds.length} Direct / ${connectedDataStoresCount} Total Stores)`,
-      summary: `Only ${enabledSkills.length} enabled Skill is configured across ${connectedDataStoresCount} connected DataStores (${directDataStoreIds.length} direct/ingested). Avoid building one massive catch-all matrix across all connectors; cover each direct ingested corpus with a narrow Skill instead.`,
-      currentValue: `${enabledSkills.length} Enabled Skill / ${connectedDataStoresCount} DataStores`,
-      recommendedValue: 'Dedicated Narrow Skills per Direct Ingested Store + Native BYOMCP Descriptions',
+      title: `Low Direct-Store Skill Coverage (${enabledSkills.length} Skill vs. ${directDataStoreIds.length} Direct Stores)`,
+      summary: `Only ${enabledSkills.length} enabled Skill is configured across ${directDataStoreIds.length} direct/ingested DataStores. Cover each direct ingested corpus with a narrow Skill rather than one catch-all matrix.`,
+      currentValue: `${enabledSkills.length} Enabled Skill / ${directDataStoreIds.length} Direct DataStores`,
+      recommendedValue: 'Dedicated Narrow Skills per Direct Ingested Store',
       impact:
         'A single generic mega-router either omits stores or triggers load_skill overhead (+5–15% latency) on unrelated connector queries while failing to explain specialized ingested corpora.',
       remediation:
@@ -2711,41 +2693,8 @@ Activate this skill when the user specifically asks about **${profile.domainLabe
     }
   });
 
-  // ============================================================================
-  // 3B. 3RD-PARTY CONNECTOR SKILL EVALUATION (Entity Disambiguation & Actions)
-  // ============================================================================
-  thirdPartyEvaluations.forEach((tpEval) => {
-    const isUnattachedInProject =
-      !tpEval.isAttachedToEngine && connectedDataStoresCount > 0;
-    if (!isUnattachedInProject && !isSkillAlreadyDeployed(tpEval.recommendedSkill)) {
-      recommendedSkills.push(tpEval.recommendedSkill);
-    }
-
-    if (
-      !isUnattachedInProject &&
-      !tpEval.hasCoveringSkill &&
-      (tpEval.entityStoreIds.length >= 2 || tpEval.enabledActions.length > 0)
-    ) {
-      findings.push({
-        id: `connector-skill-recommendation-${tpEval.collectionId}`,
-        category: 'SKILLS_AND_ROUTING',
-        severity: 'INFO',
-        title: `3rd-Party Connector "${tpEval.displayName}" (${tpEval.useCaseLabel}): Dedicated Routing Skill Recommended`,
-        summary: `Connector "${tpEval.displayName}" (${tpEval.collectionId}) exposes ${tpEval.entityStoreIds.length} entity DataStore(s) (${tpEval.entityStoreIds.slice(0, 4).join(', ')})${
-          tpEval.enabledActions.length > 0
-            ? ` and ${tpEval.enabledActions.length} live action(s)`
-            : ''
-        }, but no active organizational Skill explicitly disambiguates its entity stores.`,
-        currentValue: `${tpEval.entityStoreIds.length} Entity Store(s) / No Dedicated Connector Skill`,
-        recommendedValue: `Deploy "${tpEval.recommendedSkill.displayName}"`,
-        impact:
-          'Without entity-store routing instructions, queries targeting this 3rd-party connector can fan out across all of its entity DataStores simultaneously, increasing retrieval latency.',
-        remediation: `Click "Review & Create Skill" to deploy the tailored "${tpEval.recommendedSkill.displayName}" skill for ${tpEval.displayName}.`,
-        targetTab: 'skills',
-        recommendedSkillId: tpEval.recommendedSkill.id,
-      });
-    }
-  });
+  // 1P/3P connectors use Google's built-in connector metadata and Manta connector skills;
+  // do NOT recommend or flag 1P/3P connectors for custom optimization skills in evaluateAssistantData.
 
   // ============================================================================
   // 4. ASSISTANT & ENGINE CONFIGURATION HYGIENE + CROSS-INSTRUCTION HARMONY

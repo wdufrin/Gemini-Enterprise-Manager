@@ -1582,7 +1582,8 @@ describe('assistantEvaluationService', () => {
         ),
       ).toBe(false);
 
-      // Positive test via evaluateAssistantData: attached 3rd-party connector generates a connector-specific skill recommendation
+      // Attached 1P/3P connectors already use Google's built-in connector metadata/Manta skills, so evaluateAssistantData
+      // must NOT emit connector-level optimization skills or INFO findings for them (only direct DataStores get optimization skills).
       const reportWithAttachedJira = evaluateAssistantData({
         engine: {
           ...baseEngine,
@@ -1600,6 +1601,14 @@ describe('assistantEvaluationService', () => {
         reportWithAttachedJira.recommendedSkills.some(
           (sk) => sk.id === 'skill-connector-jira-cloud-col',
         ),
+      ).toBe(false);
+      expect(
+        reportWithAttachedJira.findings.some(
+          (f) => f.id === 'connector-skill-recommendation-jira-cloud-col',
+        ),
+      ).toBe(false);
+      expect(
+        reportWithAttachedJira.recommendedSkills.some((sk) => sk.id === 'skill-direct-ds-1'),
       ).toBe(true);
       expect(reportWithAttachedJira.connectedDataStoreResourceNames).toEqual([
         'projects/123456/locations/global/collections/default_collection/dataStores/ds-1',
@@ -2260,8 +2269,45 @@ describe('assistantEvaluationService', () => {
       expect(videoSkill?.instruction).toContain('internal_videos_rag');
 
       // Connector-backed entity store `geinfra1108-onedrive_file` must NOT be duplicated as a direct DataStore skill
+      // or flagged with connector-skill-recommendation-*
       expect(
         report.recommendedSkills.some((s) => s.id === 'skill-direct-geinfra1108-onedrive_file'),
+      ).toBe(false);
+      expect(
+        report.recommendedSkills.some((s) => s.id.startsWith('skill-connector-')),
+      ).toBe(false);
+      expect(
+        report.findings.some((f) => f.id.startsWith('connector-skill-recommendation-')),
+      ).toBe(false);
+
+      // Engine with ONLY 1P/3P connectors + BYOMCP (0 direct DataStores) must NOT flag skills-missing-for-datastores or skills-direct-datastore-coverage
+      const connectorsOnlyReport = evaluateAssistantData({
+        engine: {
+          ...baseEngine,
+          dataStoreIds: ['geinfra1108-onedrive_file', 'databricks_genie_mcp'],
+        },
+        assistant: baseAssistant,
+        agents: [],
+        config: baseConfig,
+        dataStores: [onedriveEntityDs],
+        connectorsByCollectionId: {
+          'geinfra1108-onedrive': {
+            name: 'projects/123456/locations/global/collections/geinfra1108-onedrive/dataConnector',
+            connectorType: 'THIRD_PARTY',
+            dataSource: 'onedrive',
+            state: 'ACTIVE',
+          },
+          databricks_genie_mcp: byomcpDatabricks,
+        },
+      });
+      expect(
+        connectorsOnlyReport.findings.some((f) => f.id === 'skills-missing-for-datastores'),
+      ).toBe(false);
+      expect(
+        connectorsOnlyReport.findings.some((f) => f.id === 'skills-direct-datastore-coverage'),
+      ).toBe(false);
+      expect(
+        connectorsOnlyReport.recommendedSkills.some((s) => s.id === 'skill-datastore-router'),
       ).toBe(false);
 
       // Sprawl router must focus on direct corpora & cross-system disambiguation WITHOUT BYOMCP tool lists or conflicting Single-Hop rules
