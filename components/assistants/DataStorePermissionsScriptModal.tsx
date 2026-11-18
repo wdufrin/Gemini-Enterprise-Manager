@@ -18,6 +18,10 @@ import React, { useState, useRef } from 'react';
 import { Config, AppEngine } from '../../types';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import { formatMember } from '../../hooks/useDataStorePermissions';
+import {
+  CUSTOM_RESTRICTED_END_USER_PERMISSIONS,
+  CUSTOM_RESTRICTED_END_USER_ROLE_ID,
+} from './datastore-permissions/types';
 
 interface DataStorePermissionsScriptModalProps {
   isOpen: boolean;
@@ -62,7 +66,7 @@ const DataStorePermissionsScriptModal: React.FC<DataStorePermissionsScriptModalP
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  // 1. Generate Python Script (mirroring setup_ge_permissions.py)
+  // 1. Generate Python Script (GA Custom Restricted Role + v3 Policy + ETag Retry)
   const connectorArgs = connectedConnectors
     .map(c => (c.entities.length > 0 ? `${c.id}:${c.entities.join(',')}` : c.id))
     .join(' ');
@@ -70,23 +74,36 @@ const DataStorePermissionsScriptModal: React.FC<DataStorePermissionsScriptModalP
 
   const pythonScript = `#!/usr/bin/env python3
 """
-Gemini Enterprise (GE) End-User DataStore/DataConnector Permission Control Setup Script
-Automates Resource Access Control Enablement, Predefined Project Baseline Role Bindings, and Resource-Level IAM Bindings (v1 GA).
+Gemini Enterprise (GE) Granular App, DataStore & DataConnector IAM Setup Script (GA)
+Automates:
+  0. Resource Access Control Enablement (per multi-region)
+  1. GA Custom Restricted End-User Role creation/verification (zero collections.get / dataStores.get bypasses)
+  2. Project-level bindings (customRestrictedEndUser + notebookLmUser) with Policy v3 & ETag 409 backoff retry
+  3. Resource-level v1 GA IAM bindings on App Engine, DataConnector Collections + ALL child Entities, and DataStores
 """
 
-import subprocess
 import json
-import urllib.request
+import subprocess
+import time
 import urllib.error
-import sys
+import urllib.request
 
 PROJECT_ID = "${projectId}"
 LOCATION = "${location}"
 ENDPOINT_HOST = "discoveryengine.googleapis.com" if LOCATION == "global" else f"{LOCATION}-discoveryengine.googleapis.com"
 APP_ID = "${appId}"
 MEMBER = "${member}"
+
+CUSTOM_ROLE_ID = "${CUSTOM_RESTRICTED_END_USER_ROLE_ID}"
+CUSTOM_ROLE_NAME = f"projects/{PROJECT_ID}/roles/{CUSTOM_ROLE_ID}"
+CUSTOM_ROLE_PERMISSIONS = ${JSON.stringify([...CUSTOM_RESTRICTED_END_USER_PERMISSIONS], null, 4)}
+FORBIDDEN_BYPASS_PERMISSIONS = {
+    "discoveryengine.collections.get",
+    "discoveryengine.dataStores.get",
+}
+
 PROJECT_BASELINE_ROLES = [
-    "roles/discoveryengine.agentspaceRestrictedUser",
+    CUSTOM_ROLE_NAME,
     "roles/discoveryengine.notebookLmUser",
 ]
 ROLE_RESOURCE = "roles/discoveryengine.agentspaceUser"
@@ -104,16 +121,35 @@ def http_request(method, url, data=None):
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
-        "X-Goog-User-Project": PROJECT_ID
+        "X-Goog-User-Project": PROJECT_ID,
     }
-    body_bytes = json.dumps(data).encode("utf-8") if data else None
+    body_bytes = json.dumps(data).encode("utf-8") if data is not None else None
     req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
     with urllib.request.urlopen(req) as resp:
         res_text = resp.read().decode("utf-8")
         return json.loads(res_text) if res_text else {}
 
+def retry_rmw(get_fn, modify_fn, set_fn, max_attempts=5):
+    for attempt in range(1, max_attempts + 1):
+        policy = get_fn()
+        updated_policy, changed = modify_fn(policy)
+        if not changed:
+            return policy
+        try:
+            return set_fn(updated_policy)
+        except urllib.error.HTTPError as err:
+            body = err.read().decode("utf-8", errors="replace")
+            if err.code == 409 or "ABORTED" in body or "concurrent policy changes" in body.lower():
+                if attempt == max_attempts:
+                    raise
+                delay = 0.25 * (2 ** (attempt - 1))
+                print(f"  [RETRY {attempt}/{max_attempts}] ETag conflict detected; retrying in {delay:.2f}s...")
+                time.sleep(delay)
+                continue
+            raise
+
 def enable_project_datastore_access_control():
-    print(f"\\n[Step 0] Enabling Resource Access Control in Gemini Enterprise Settings on '{PROJECT_ID}'...")
+    print(f"\\n[Step 0] Enabling Resource Access Control in multi-region '{LOCATION}' on '{PROJECT_ID}'...")
     url = f"https://{ENDPOINT_HOST}/v1alpha/projects/{PROJECT_ID}?updateMask=customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled"
     payload = {
         "customerProvidedConfig": {
@@ -123,90 +159,137 @@ def enable_project_datastore_access_control():
         }
     }
     http_request("PATCH", url, data=payload)
-    print(f"[VERIFIED ✓] Resource Access Control ('dataStoreAccessControlEnabled=true') is active.")
+    print(f"[VERIFIED ✓] dataStoreAccessControlEnabled=true in '{LOCATION}' (~5m propagation; repeat per multi-region if needed).")
+
+def ensure_custom_restricted_end_user_role():
+    print(f"\\n[Step A0] Ensuring GA custom role '{CUSTOM_ROLE_NAME}' exists with zero DataStore bypasses...")
+    role_url = f"https://iam.googleapis.com/v1/projects/{PROJECT_ID}/roles/{CUSTOM_ROLE_ID}"
+    try:
+        existing = http_request("GET", role_url)
+        if existing.get("deleted"):
+            existing = http_request("POST", f"{role_url}:undelete", data={})
+        current_perms = [p for p in existing.get("includedPermissions", []) if p not in FORBIDDEN_BYPASS_PERMISSIONS]
+        merged = sorted(set(current_perms) | set(CUSTOM_ROLE_PERMISSIONS))
+        if set(merged) != set(existing.get("includedPermissions", [])):
+            http_request("PATCH", f"{role_url}?updateMask=includedPermissions,stage", data={
+                "includedPermissions": merged,
+                "stage": "GA",
+            })
+            print(f"[VERIFIED ✓] Updated custom role '{CUSTOM_ROLE_NAME}'.")
+        else:
+            print(f"[VERIFIED ✓] Custom role '{CUSTOM_ROLE_NAME}' is already compliant.")
+    except urllib.error.HTTPError as err:
+        if err.code != 404:
+            raise
+        create_url = f"https://iam.googleapis.com/v1/projects/{PROJECT_ID}/roles"
+        http_request("POST", create_url, data={
+            "roleId": CUSTOM_ROLE_ID,
+            "role": {
+                "title": "Gemini Enterprise Custom Restricted End User",
+                "description": "GA least-privilege location-level role for granular App & DataStore access controls.",
+                "includedPermissions": CUSTOM_ROLE_PERMISSIONS,
+                "stage": "GA",
+            },
+        })
+        print(f"[VERIFIED ✓] Created custom role '{CUSTOM_ROLE_NAME}'.")
 
 def grant_project_baseline_roles(member_str):
     if member_str in ("allUsers", "allAuthenticatedUsers"):
-        print(f"\\n[SKIP] GCP Project IAM policies do not allow '{member_str}'; skipping project-level baseline roles.")
+        print(f"\\n[SKIP] GCP Project IAM policies do not allow '{member_str}'; skipping project-level roles.")
         return
-    print(f"\\n[Step A1] Granting predefined project baseline roles to '{member_str}'...")
+    print(f"\\n[Step A1] Granting GA project baseline roles {PROJECT_BASELINE_ROLES} to '{member_str}'...")
     get_url = f"https://cloudresourcemanager.googleapis.com/v1/projects/{PROJECT_ID}:getIamPolicy"
     set_url = f"https://cloudresourcemanager.googleapis.com/v1/projects/{PROJECT_ID}:setIamPolicy"
-    
-    policy = http_request("POST", get_url, data={})
-    bindings = policy.get("bindings", [])
-    etag = policy.get("etag", "")
-    
-    for role in PROJECT_BASELINE_ROLES:
-        target_b = next((b for b in bindings if b.get("role") == role), None)
-        if target_b:
-            if member_str not in target_b.setdefault("members", []):
-                target_b["members"].append(member_str)
-        else:
-            bindings.append({"role": role, "members": [member_str]})
-            
-    http_request("POST", set_url, data={"policy": {"etag": etag, "bindings": bindings}})
-    print(f"[VERIFIED ✓] Granted project roles {PROJECT_BASELINE_ROLES} to '{member_str}'.")
+
+    def modify(policy):
+        bindings = list(policy.get("bindings", []))
+        changed = False
+        for role in PROJECT_BASELINE_ROLES:
+            target_b = next((b for b in bindings if b.get("role") == role and not b.get("condition")), None)
+            if target_b:
+                if member_str not in target_b.setdefault("members", []):
+                    target_b["members"].append(member_str)
+                    changed = True
+            else:
+                bindings.append({"role": role, "members": [member_str]})
+                changed = True
+        has_conditions = any(b.get("condition") for b in bindings)
+        out = dict(policy)
+        out["bindings"] = bindings
+        if has_conditions and out.get("version", 1) < 3:
+            out["version"] = 3
+        return out, changed
+
+    retry_rmw(
+        lambda: http_request("POST", get_url, data={"options": {"requestedPolicyVersion": 3}}),
+        modify,
+        lambda p: http_request("POST", set_url, data={"policy": p}),
+    )
+    print(f"[VERIFIED ✓] Granted project baseline roles to '{member_str}'.")
 
 def update_iam_policy_rmw(resource_name, base_url, member_str, role=ROLE_RESOURCE):
     print(f"[RMW] Updating policy for {resource_name}...")
     get_url = f"{base_url}:getIamPolicy"
     set_url = f"{base_url}:setIamPolicy"
-    
-    policy = http_request("GET", get_url)
-    etag = policy.get("etag", "")
-    bindings = policy.get("bindings", [])
-    
-    target_b = next((b for b in bindings if b.get("role") == role), None)
-    if target_b:
-        if member_str in target_b.setdefault("members", []):
-            print(f"[SKIP] '{member_str}' already has '{role}' on {resource_name}.")
-            return
-        target_b["members"].append(member_str)
-    else:
-        bindings.append({"role": role, "members": [member_str]})
-        
-    http_request("POST", set_url, data={"policy": {"etag": etag, "bindings": bindings}})
+
+    def modify(policy):
+        bindings = list(policy.get("bindings", []))
+        target_b = next((b for b in bindings if b.get("role") == role and not b.get("condition")), None)
+        if target_b:
+            if member_str in target_b.setdefault("members", []):
+                print(f"[SKIP] '{member_str}' already has '{role}' on {resource_name}.")
+                return policy, False
+            target_b["members"].append(member_str)
+        else:
+            bindings.append({"role": role, "members": [member_str]})
+        out = dict(policy)
+        out["bindings"] = bindings
+        return out, True
+
+    retry_rmw(
+        lambda: http_request("GET", get_url),
+        modify,
+        lambda p: http_request("POST", set_url, data={"policy": p}),
+    )
     print(f"[VERIFIED ✓] Granted '{role}' on {resource_name}.")
 
 def main():
-    print(f"=== Gemini Enterprise Datastore-Level Access Control Setup (v1 GA) ===")
+    print("=== Gemini Enterprise Granular App & DataStore Access Control Setup (v1 GA) ===")
     print(f"Project: {PROJECT_ID} | Location: {LOCATION} | App: {APP_ID}")
     print(f"Target Member: {MEMBER}\\n")
-    
-    # Step 0: Enable Resource Access Control in GE Settings
-    enable_project_datastore_access_control()
 
-    # Step A1: Project-level baseline bindings
+    enable_project_datastore_access_control()
+    ensure_custom_restricted_end_user_role()
     grant_project_baseline_roles(MEMBER)
-    
+
     # Step A2: App (Engine) binding
     app_url = f"https://{ENDPOINT_HOST}/v1/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/engines/{APP_ID}"
     update_iam_policy_rmw(f"App Engine '{APP_ID}'", app_url, MEMBER)
-    
-    # Step A3: DataConnectors & Entities
+
+    # Step A3: DataConnectors & ALL Child Entities (atomic GA requirement)
     for conn in CONNECTORS:
         conn_id = conn["id"]
         conn_url = f"https://{ENDPOINT_HOST}/v1/projects/{PROJECT_ID}/locations/{LOCATION}/collections/{conn_id}"
         update_iam_policy_rmw(f"DataConnector Collection '{conn_id}'", conn_url, MEMBER)
-        
+
         for entity_id in conn.get("entities", []):
             ent_url = f"https://{ENDPOINT_HOST}/v1/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/dataStores/{entity_id}"
             update_iam_policy_rmw(f"Connector Entity '{entity_id}'", ent_url, MEMBER)
-            
-    # Step A4: Legacy DataStores
+
+    # Step A4: Standalone DataStores
     for ds_id in DATASTORES:
         ds_url = f"https://{ENDPOINT_HOST}/v1/projects/{PROJECT_ID}/locations/{LOCATION}/collections/default_collection/dataStores/{ds_id}"
-        update_iam_policy_rmw(f"Legacy DataStore '{ds_id}'", ds_url, MEMBER)
-        
-    print(f"\\n[COMPLETE] Successfully configured all datastore ACLs for '{MEMBER}'!")
+        update_iam_policy_rmw(f"Standalone DataStore '{ds_id}'", ds_url, MEMBER)
+
+    print(f"\\n[COMPLETE] Successfully configured GA granular ACLs for '{MEMBER}'!")
 
 if __name__ == "__main__":
     main()
 `;
 
-  // 2. Generate cURL commands
-  const curlProjectOptIn = `curl -X PATCH \\
+  // 2. Generate cURL / gcloud commands
+  const curlProjectOptIn = `# Applies to multi-region '${location}'. Repeat for global/us/eu if needed.
+curl -X PATCH \\
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
   -H "Content-Type: application/json" \\
   -H "X-Goog-User-Project: ${projectId}" \\
@@ -219,9 +302,18 @@ if __name__ == "__main__":
   }' \\
   "https://${endpointPrefix}discoveryengine.googleapis.com/v1alpha/projects/${projectId}?updateMask=customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled"`;
 
-  const curlStepA1 = `gcloud projects add-iam-policy-binding ${projectId} \\
+  const curlStepA1 = `# 1. Create GA customRestrictedEndUser role (zero collections.get / dataStores.get bypasses)
+gcloud iam roles create ${CUSTOM_RESTRICTED_END_USER_ROLE_ID} \\
+  --project="${projectId}" \\
+  --title="Gemini Enterprise Custom Restricted End User" \\
+  --description="GA least-privilege location-level role for granular App & DataStore access controls" \\
+  --stage="GA" \\
+  --permissions="${CUSTOM_RESTRICTED_END_USER_PERMISSIONS.join(',')}"
+
+# 2. Bind customRestrictedEndUser + notebookLmUser on Project (DO NOT bind roles/discoveryengine.agentspaceRestrictedUser)
+gcloud projects add-iam-policy-binding ${projectId} \\
   --member="${member}" \\
-  --role="roles/discoveryengine.agentspaceRestrictedUser"
+  --role="projects/${projectId}/roles/${CUSTOM_RESTRICTED_END_USER_ROLE_ID}"
 
 gcloud projects add-iam-policy-binding ${projectId} \\
   --member="${member}" \\
@@ -273,7 +365,8 @@ gcloud projects add-iam-policy-binding ${projectId} \\
             </h2>
             <p className="text-xs text-gray-400 mt-1">
               App: <span className="text-white font-mono">{appId}</span> | Project:{' '}
-              <span className="text-white font-mono">{projectId}</span>
+              <span className="text-white font-mono">{projectId}</span> | Multi-Region:{' '}
+              <span className="text-white font-mono">{location}</span>
             </p>
           </div>
           <button
@@ -336,12 +429,13 @@ gcloud projects add-iam-policy-binding ${projectId} \\
             <div className="space-y-6 text-sm text-gray-300">
               <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-700/50 rounded-xl p-5 shadow-inner">
                 <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
-                  <span>How Datastore Restriction Works in Gemini Enterprise</span>
+                  <span>How Granular App &amp; DataStore Restriction Works in Gemini Enterprise</span>
                   <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-900/60 text-green-300 border border-green-600">GA</span>
                 </h3>
                 <p className="text-xs text-gray-300 leading-relaxed">
-                  By default, Gemini Enterprise users require project-level IAM roles which grant access to all datastores. 
-                  Datastore-Level Access Control (GA) replaces this with a <strong>least-privilege 2-tier model</strong>: predefined project-level baseline roles (<code className="text-blue-300">roles/discoveryengine.agentspaceRestrictedUser</code> &amp; <code className="text-blue-300">roles/discoveryengine.notebookLmUser</code>) combined with explicit resource-level bindings on only the specific App Engine and DataStores they are allowed to query.
+                  Gemini Enterprise supports two distinct GA IAM models depending on <code className="text-purple-300">dataStoreAccessControlEnabled</code>:
+                  when <strong>false</strong> (App-Only mode), users receive predefined <code className="text-amber-300">roles/discoveryengine.agentspaceRestrictedUser</code> on the project;
+                  when <strong>true</strong> (Granular DataStore &amp; Connector mode), users <strong>must instead</strong> receive the custom project role <code className="text-blue-300">projects/{projectId}/roles/{CUSTOM_RESTRICTED_END_USER_ROLE_ID}</code> + <code className="text-purple-300">roles/discoveryengine.notebookLmUser</code> (because <code className="text-amber-300">agentspaceRestrictedUser</code> includes project-wide <code>collections.get</code> / <code>dataStores.get</code> that bypass DataStore isolation).
                 </p>
               </div>
 
@@ -351,14 +445,14 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                 <div className="bg-gray-800/90 border border-gray-700 rounded-lg p-4">
                   <div className="flex items-center gap-2.5 mb-2">
                     <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">0</span>
-                    <h4 className="text-sm font-semibold text-white">Prerequisites: Enable Resource Access Control &amp; User Isolation</h4>
+                    <h4 className="text-sm font-semibold text-white">Prerequisites: Enable Resource Access Control &amp; Strip Bypass Roles</h4>
                   </div>
                   <ul className="list-disc pl-9 space-y-1.5 text-xs text-gray-300">
                     <li>
-                      <strong>Resource Access Control</strong>: Enable <code className="text-purple-300">customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled = true</code> in <strong>Gemini Enterprise → Settings → Resource access control</strong> (or via <code className="text-blue-300">PATCH /v1alpha/projects/{projectId}</code>).
+                      <strong>Resource Access Control</strong>: Enable <code className="text-purple-300">customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled = true</code> in <strong>Gemini Enterprise → Settings → Resource access control</strong> (applies to all multi-regions) or via REST <code className="text-blue-300">PATCH /v1alpha/projects/{projectId}</code> per multi-region (<code>{location}</code>). Allow ~5 minutes to propagate (up to 2 hours for active user sessions—test in Incognito).
                     </li>
                     <li>
-                      <strong>Remove Broad IAM Roles</strong>: Ensure target end users or groups do <em>not</em> possess broad project-wide search roles like <code className="text-red-300">roles/viewer</code>, <code className="text-red-300">roles/editor</code>, <code className="text-red-300">roles/discoveryengine.admin</code>, <code className="text-red-300">roles/discoveryengine.user</code>, or <code className="text-red-300">roles/discoveryengine.agentspaceUser</code> at the project level.
+                      <strong>Remove Project Bypass Roles</strong>: Strip project-level roles that grant DataStore read access—including <code className="text-red-300">roles/discoveryengine.agentspaceRestrictedUser</code>, <code className="text-red-300">roles/discoveryengine.agentspaceUser</code>, <code className="text-red-300">roles/discoveryengine.viewer</code>, <code className="text-red-300">roles/viewer</code>, and <code className="text-red-300">roles/editor</code>.
                     </li>
                   </ul>
                 </div>
@@ -367,13 +461,13 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                 <div className="bg-gray-800/90 border border-gray-700 rounded-lg p-4">
                   <div className="flex items-center gap-2.5 mb-2">
                     <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">1</span>
-                    <h4 className="text-sm font-semibold text-white">Grant Predefined Baseline Roles at Project Level (Step A1)</h4>
+                    <h4 className="text-sm font-semibold text-white">Create &amp; Bind GA Custom Restricted Role at Project Level (Step A0 &amp; A1)</h4>
                   </div>
                   <p className="text-xs text-gray-300 pl-8 mb-2">
-                    Bind <code className="text-blue-300">roles/discoveryengine.agentspaceRestrictedUser</code> and <code className="text-blue-300">roles/discoveryengine.notebookLmUser</code> at the project level to the target user or group (<code className="text-yellow-300">user:alice@example.com</code> or <code className="text-yellow-300">group:finance-team@example.com</code>).
+                    Bind <code className="text-blue-300">projects/{projectId}/roles/{CUSTOM_RESTRICTED_END_USER_ROLE_ID}</code> and <code className="text-purple-300">roles/discoveryengine.notebookLmUser</code> at the project level to the target user or group (<code className="text-yellow-300">user:alice@example.com</code> or <code className="text-yellow-300">group:finance-team@example.com</code>). For delegated admins/viewers, bind <code className="text-indigo-300">projects/{projectId}/roles/customRestrictedAdmin</code>.
                   </p>
                   <div className="pl-8 text-xs text-gray-400">
-                    This allows the user to open the Gemini Enterprise web application interface, authorize OAuth connectors, and use NotebookLM without granting project-wide search/serving permissions.
+                    Authorizes OAuth flows, user events, agent cards, and NotebookLM Enterprise without granting project-wide <code>collections.get</code> or <code>dataStores.get</code>.
                   </div>
                 </div>
 
@@ -384,18 +478,15 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                     <h4 className="text-sm font-semibold text-white">Grant App Engine Access (Step A2)</h4>
                   </div>
                   <p className="text-xs text-gray-300 pl-8 mb-2">
-                    Grant <code className="text-blue-300">roles/discoveryengine.agentspaceUser</code> on the specific App Engine (<code className="text-purple-300">{appId}</code>) using the Read-Modify-Write pattern to preserve existing etags and member bindings.
+                    Grant <code className="text-blue-300">roles/discoveryengine.agentspaceUser</code> (or <code>agentspaceAdmin</code> / <code>agentspaceViewer</code>) on the specific App Engine (<code className="text-purple-300">{appId}</code>) using ETag Read-Modify-Write with retry on HTTP <code>409</code>.
                   </p>
-                  <div className="pl-8 text-xs text-gray-400">
-                    This authorizes the user to chat with this specific assistant/engine.
-                  </div>
                 </div>
 
                 {/* Step 3 */}
                 <div className="bg-gray-800/90 border border-gray-700 rounded-lg p-4">
                   <div className="flex items-center gap-2.5 mb-2">
                     <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">3</span>
-                    <h4 className="text-sm font-semibold text-white">Grant Access ONLY to the Allowed DataStores (Steps A3 &amp; A4 — GA v1 API)</h4>
+                    <h4 className="text-sm font-semibold text-white">Grant Access ONLY to Allowed DataStores &amp; Connectors (Steps A3 &amp; A4 — GA v1 API)</h4>
                   </div>
                   <div className="pl-8 space-y-2 text-xs text-gray-300">
                     <p>
@@ -403,14 +494,14 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                     </p>
                     <div className="space-y-1.5 pl-2">
                       <div>
-                        <strong>• For DataConnectors</strong>: Grant on <em>both</em> the connector collection (<code className="text-purple-300">/v1/.../collections/{'{CONNECTOR_ID}'}:setIamPolicy</code>) and each authorized sub-entity datastore (<code className="text-purple-300">/v1/.../collections/default_collection/dataStores/{'{ENTITY_ID}'}:setIamPolicy</code>).
+                        <strong>• Multi-Entity DataConnectors</strong>: Grant on <em>both</em> the connector collection (<code className="text-purple-300">/v1/.../collections/{'{CONNECTOR_ID}'}:setIamPolicy</code>) and <strong>all</strong> child entity datastores (<code className="text-purple-300">/v1/.../collections/default_collection/dataStores/{'{ENTITY_ID}'}:setIamPolicy</code>) together.
                       </div>
                       <div>
-                        <strong>• For Legacy DataStores</strong>: Grant on the datastore resource (<code className="text-purple-300">/v1/.../collections/default_collection/dataStores/{'{DATASTORE_ID}'}:setIamPolicy</code>).
+                        <strong>• Standalone DataStores</strong>: Grant on the datastore resource (<code className="text-purple-300">/v1/.../collections/default_collection/dataStores/{'{DATASTORE_ID}'}:setIamPolicy</code>).
                       </div>
                     </div>
                     <div className="bg-yellow-950/40 border border-yellow-800/60 p-3 rounded text-yellow-300 mt-2">
-                      🔒 <strong>Crucial Rule</strong>: Any DataStore or Connector where the user is <em>not</em> explicitly granted <code className="text-yellow-200">roles/discoveryengine.agentspaceUser</code> will remain completely hidden and restricted.
+                      🔒 <strong>Crucial Rule</strong>: Any DataStore or Connector where the user is <em>not</em> explicitly granted a resource role remains completely hidden and unsearchable.
                     </div>
                   </div>
                 </div>
@@ -422,7 +513,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                     <h4 className="text-sm font-semibold text-white">Audit &amp; Verification</h4>
                   </div>
                   <p className="text-xs text-gray-300 pl-8 mb-2">
-                    Confirm bindings in the <strong>Permissions Matrix &amp; Audit Table</strong> in the Manager UI, or test by logging in as the restricted user to verify that only authorized data sources return grounded responses.
+                    Confirm bindings in the <strong>Permissions Matrix &amp; Audit Table</strong>, wait ~5 minutes, and test in a fresh <strong>Incognito / Private</strong> browser session to bypass cached session ACLs.
                   </p>
                 </div>
               </div>
@@ -433,7 +524,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <p className="text-xs text-gray-400">
-                  Pre-configured Python script containing your app ID, connected DataConnectors, and Legacy DataStores:
+                  Pre-configured GA Python script (provisions <code>{CUSTOM_RESTRICTED_END_USER_ROLE_ID}</code>, preserves Policy v3 conditions, and retries ETag 409 conflicts):
                 </p>
                 <button
                   onClick={() => copyToClipboard(pythonScript, 'python-all')}
@@ -483,7 +574,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
               {/* Step A1 */}
               <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700">
                 <div className="flex justify-between items-center mb-2">
-                  <h4 className="text-sm font-semibold text-white">Step A1 — Grant Predefined Baseline Roles at Project Level</h4>
+                  <h4 className="text-sm font-semibold text-white">Step A1 — Create &amp; Bind GA Custom Restricted Role at Project Level</h4>
                   <button
                     onClick={() => copyToClipboard(curlStepA1, 'stepA1')}
                     className="text-xs text-blue-400 hover:text-blue-300 font-medium"

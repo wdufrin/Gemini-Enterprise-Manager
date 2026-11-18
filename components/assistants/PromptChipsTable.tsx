@@ -22,21 +22,21 @@ interface PromptChipRowProps {
 
 const PromptChipRow = React.memo<PromptChipRowProps>(({ chip, onEdit, onDelete }) => (
     <tr className="hover:bg-gray-750">
-        <td className="px-4 py-3 font-mono text-xs">{chip.name}</td>
-        <td className="px-4 py-3">
+        <td className="gem-col-xl px-3 xl:px-4 py-3 font-mono text-xs whitespace-nowrap max-w-[180px] truncate" title={chip.name}>{chip.name}</td>
+        <td className="px-3 xl:px-4 py-3 whitespace-nowrap">
             <span className="flex items-center">
-                <span className={`w-2 h-2 rounded-full mr-1.5 ${chip.status === 'Enabled' ? 'bg-green-500' : 'bg-gray-500'}`}></span>
+                <span className={`w-2 h-2 rounded-full mr-1.5 shrink-0 ${chip.status === 'Enabled' ? 'bg-green-500' : 'bg-gray-500'}`}></span>
                 {chip.status}
             </span>
         </td>
-        <td className="px-4 py-3 text-gray-400">{chip.displayName}</td>
-        <td className="px-4 py-3">{chip.title}</td>
-        <td className="px-4 py-3">
-            <div className="flex space-x-2">
+        <td className="gem-col-md px-3 xl:px-4 py-3 text-gray-400 whitespace-nowrap max-w-[200px] truncate" title={chip.displayName}>{chip.displayName}</td>
+        <td className="px-3 xl:px-4 py-3 max-w-[240px] xl:max-w-md truncate" title={chip.title}>{chip.title}</td>
+        <td className="gem-sticky-action-td px-3 xl:px-4 py-3 whitespace-nowrap text-right">
+            <div className="flex items-center justify-end space-x-2">
                 <button 
                     type="button"
                     onClick={() => onEdit(chip.raw)}
-                    className="text-gray-400 hover:text-white" 
+                    className="text-gray-400 hover:text-white p-1 rounded hover:bg-gray-700 transition-colors" 
                     title="Edit"
                     aria-label={`Edit ${chip.title || chip.name}`}
                 >
@@ -45,7 +45,7 @@ const PromptChipRow = React.memo<PromptChipRowProps>(({ chip, onEdit, onDelete }
                 <button 
                     type="button"
                     onClick={() => onDelete(chip)}
-                    className="text-gray-400 hover:text-red-400" 
+                    className="text-gray-400 hover:text-red-400 p-1 rounded hover:bg-gray-700 transition-colors" 
                     title="Delete"
                     aria-label={`Delete ${chip.title || chip.name}`}
                 >
@@ -120,7 +120,7 @@ const PromptChipsTable: React.FC<PromptChipsTableProps> = ({ engineName }) => {
 
     return (
         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-wrap justify-between items-center gap-3">
                 <h3 className="text-xl font-bold text-white">Prompt chips</h3>
                 <div className="flex space-x-2">
                     <button 
@@ -168,18 +168,18 @@ const PromptChipsTable: React.FC<PromptChipsTableProps> = ({ engineName }) => {
                 />
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="gem-table-container" role="region" aria-label="Prompt chips table" tabIndex={0}>
                 <table className="min-w-full divide-y divide-gray-700">
-                    <thead>
+                    <thead className="bg-gray-900/40">
                         <tr className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                            <th className="px-4 py-3">Name</th>
-                            <th className="px-4 py-3">Status</th>
-                            <th className="px-4 py-3">Display name</th>
-                            <th className="px-4 py-3">Title</th>
-                            <th className="px-4 py-3">Actions</th>
+                            <th className="gem-col-xl px-3 xl:px-4 py-3 whitespace-nowrap">Name</th>
+                            <th className="px-3 xl:px-4 py-3 whitespace-nowrap">Status</th>
+                            <th className="gem-col-md px-3 xl:px-4 py-3 whitespace-nowrap">Display name</th>
+                            <th className="px-3 xl:px-4 py-3 whitespace-nowrap">Title</th>
+                            <th className="gem-sticky-action-th px-3 xl:px-4 py-3 text-right whitespace-nowrap">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-700 text-sm text-gray-200">
+                    <tbody className="divide-y divide-gray-700 text-sm text-gray-200 bg-gray-800">
                         {isLoading ? (
                             <tr><td colSpan={5} className="text-center py-4 text-gray-400">Loading chips...</td></tr>
                         ) : filteredChips.length === 0 ? (

@@ -22,12 +22,26 @@ import {
   ReasoningEngine,
   AppEngine,
   IamPolicy,
-  IamBinding,
 } from '../types';
 import * as api from '../services/apiService';
 import { ModelArmorTemplate } from '../services/apiService';
 import { AssistantFormData } from '../components/assistants/form/types';
 import { toErrorMessage } from '../utils/errors';
+import {
+  addMemberToRoles,
+  buildCustomRestrictedRoleName,
+  cloneIamPolicy,
+  ensureCustomRestrictedProjectRole,
+  extractDataStoreAccessControlEnabled,
+  removeMemberFromRoles,
+  retryIamReadModifyWrite,
+} from '../utils/iamPolicy';
+
+const isAppLevelIamRole = (role: string): boolean =>
+  role === 'roles/discoveryengine.agentspaceUser' ||
+  role === 'roles/discoveryengine.agentspaceAdmin' ||
+  role === 'roles/discoveryengine.agentspaceViewer' ||
+  role === 'roles/discoveryengine.user';
 
 export function useAssistantDetailsForm(
   assistant: Assistant,
@@ -58,8 +72,10 @@ export function useAssistantDetailsForm(
 
   const [currentEngine, setCurrentEngine] = useState<AppEngine | null>(null);
   const [iamPolicy, setIamPolicyLocal] = useState<IamPolicy | null>(null);
+  const [pendingRemovedIamMembers, setPendingRemovedIamMembers] = useState<Set<string>>(new Set());
   const [newMember, setNewMember] = useState('');
   const [memberType, setMemberType] = useState('user:');
+  const [appRole, setAppRole] = useState<string>('roles/discoveryengine.agentspaceUser');
   const [isLoadingIam, setIsLoadingIam] = useState(false);
   const [iamError, setIamError] = useState<string | null>(null);
   const [isIamDirty, setIsIamDirty] = useState(false);
@@ -215,13 +231,14 @@ export function useAssistantDetailsForm(
       try {
         const policy = await api.getEngineIamPolicy(config.appId, config);
         setIamPolicyLocal(policy);
+        setPendingRemovedIamMembers(new Set());
         if (config.projectId && typeof api.getDiscoveryProjectConfig === 'function') {
           try {
             const projConfig = await api.getDiscoveryProjectConfig(
               config.projectId,
               config.appLocation || 'global'
             );
-            setDataStoreAccessControlEnabled(Boolean(projConfig?.dataStoreAccessControlEnabled));
+            setDataStoreAccessControlEnabled(extractDataStoreAccessControlEnabled(projConfig));
           } catch {
             // Keep default false if project config cannot be fetched
           }
@@ -254,68 +271,137 @@ export function useAssistantDetailsForm(
   };
 
   const handleAddIamMember = async () => {
-    if (!newMember || !iamPolicy) return;
-    let memberString = newMember;
+    const trimmedMember = newMember.trim();
+    if (!trimmedMember || !iamPolicy) return;
+    let memberString = trimmedMember;
 
     if (!memberString.includes(':') && !memberString.startsWith('principal://') && !memberString.startsWith('principalSet://')) {
       memberString = `${memberType}${memberString}`;
     }
 
-    const updatedPolicy: IamPolicy = { ...iamPolicy };
-    if (!updatedPolicy.bindings) updatedPolicy.bindings = [];
+    const isDelegatedAdminOrViewer =
+      appRole === 'roles/discoveryengine.agentspaceAdmin' ||
+      appRole === 'roles/discoveryengine.agentspaceViewer';
+    const customPersona = isDelegatedAdminOrViewer ? 'admin' : 'endUser';
 
-    let binding = updatedPolicy.bindings.find((b: IamBinding) => b.role === 'roles/discoveryengine.agentspaceUser');
-    if (!binding) {
-      binding = { role: 'roles/discoveryengine.agentspaceUser', members: [] };
-      updatedPolicy.bindings.push(binding);
-    }
+    // Align project-level baseline roles with Google Cloud GA standards:
+    // - Model A (App-Only mode, dataStoreAccessControlEnabled = false):
+    //   Predefined `roles/discoveryengine.agentspaceRestrictedUser` (includes NotebookLM, OAuth,
+    //   and dataStores.get/collections.get for all DataStores attached to allowed Apps).
+    //   (If delegating Admin/Viewer, uses `projects/{id}/roles/customRestrictedAdmin`).
+    // - Model B (App + DataStore Granular mode, dataStoreAccessControlEnabled = true):
+    //   Custom role `projects/{id}/roles/customRestrictedEndUser` + `roles/discoveryengine.notebookLmUser`
+    //   (or `customRestrictedAdmin` for delegated Admin/Viewer), strictly avoiding
+    //   `roles/discoveryengine.agentspaceRestrictedUser` so DataStore isolation is preserved.
+    const targetProjectRoles = dataStoreAccessControlEnabled
+      ? isDelegatedAdminOrViewer
+        ? [buildCustomRestrictedRoleName(config.projectId, 'admin')]
+        : [
+            buildCustomRestrictedRoleName(config.projectId, 'endUser'),
+            'roles/discoveryengine.notebookLmUser',
+          ]
+      : isDelegatedAdminOrViewer
+        ? [buildCustomRestrictedRoleName(config.projectId, 'admin')]
+        : ['roles/discoveryengine.agentspaceRestrictedUser'];
 
-    if (!binding.members) binding.members = [];
-
-    if (!binding.members.includes(memberString)) {
-      binding.members.push(memberString);
-    }
-
-    setIamPolicyLocal({ ...updatedPolicy });
-    setIsIamDirty(true);
-    setNewMember('');
-
-    const targetProjectRoles = [
-      'roles/discoveryengine.agentspaceRestrictedUser',
-      'roles/discoveryengine.notebookLmUser',
-    ];
+    const needsCustomProjectRole = dataStoreAccessControlEnabled || isDelegatedAdminOrViewer;
+    let engineStepCompleted = !config.appId;
 
     try {
       setIamError(null);
       setIsLoadingIam(true);
-      const projectPolicy = await api.getProjectIamPolicy(config.projectId);
-      projectPolicy.bindings = projectPolicy.bindings || [];
 
-      for (const role of targetProjectRoles) {
-        let projectBinding = projectPolicy.bindings.find((b: IamBinding) => b.role === role);
-        if (!projectBinding) {
-          projectBinding = { role, members: [] };
-          projectPolicy.bindings.push(projectBinding);
-        }
-        if (!projectBinding.members) projectBinding.members = [];
-        if (!projectBinding.members.includes(memberString)) {
-          projectBinding.members.push(memberString);
-        }
-      }
-
+      // Step 1: Grant app-level Engine IAM role FIRST via full Read-Modify-Write with backoff.
+      // Discovery Engine `engines:setIamPolicy` can trigger backend updates to the GCP project's
+      // IAM policy (advancing the project ETag). Completing the Engine write *before* reading the
+      // Project IAM policy eliminates self-inflicted project ETag conflicts.
       if (config.appId) {
-        await api.setEngineIamPolicy(config.appId, updatedPolicy, config);
+        const removalsToApply = Array.from(pendingRemovedIamMembers).filter(
+          (m) => m !== memberString,
+        );
+        const savedEnginePolicy = await retryIamReadModifyWrite({
+          getPolicy: () => api.getEngineIamPolicy(config.appId, config),
+          setPolicy: (p) => api.setEngineIamPolicy(config.appId, p, config),
+          modify: (currentEnginePolicy) => {
+            let working = currentEnginePolicy;
+            let changed = false;
+            for (const removed of removalsToApply) {
+              const remRes = removeMemberFromRoles(
+                working,
+                isAppLevelIamRole,
+                removed,
+              );
+              working = remRes.policy;
+              if (remRes.changed) changed = true;
+            }
+            const addRes = addMemberToRoles(
+              working,
+              [appRole],
+              memberString,
+            );
+            return {
+              policy: addRes.policy,
+              changed: changed || addRes.changed,
+            };
+          },
+        });
+        setIamPolicyLocal(savedEnginePolicy);
+        setPendingRemovedIamMembers(new Set());
         setIsIamDirty(false);
+        engineStepCompleted = true;
+      } else {
+        const { policy: updatedLocalPolicy } = addMemberToRoles(
+          cloneIamPolicy(iamPolicy),
+          [appRole],
+          memberString,
+        );
+        setIamPolicyLocal(updatedLocalPolicy);
+        setIsIamDirty(true);
       }
-      await api.setProjectIamPolicy(config.projectId, projectPolicy);
+
+      // Step 2a: Ensure custom project role exists when required by GA DataStore / Delegated Admin standards
+      if (
+        needsCustomProjectRole &&
+        config.projectId &&
+        typeof api.getCustomRole === 'function' &&
+        typeof api.createCustomRole === 'function'
+      ) {
+        await ensureCustomRestrictedProjectRole({
+          projectId: config.projectId,
+          persona: customPersona,
+          getCustomRole: api.getCustomRole,
+          createCustomRole: api.createCustomRole,
+          updateCustomRole: api.updateCustomRole,
+          undeleteCustomRole: api.undeleteCustomRole,
+        });
+      }
+
+      // Step 2b: Grant mandatory project-level baseline roles using full Read-Modify-Write
+      // with exponential backoff so concurrent project IAM changes automatically retry cleanly.
+      await retryIamReadModifyWrite({
+        getPolicy: () => api.getProjectIamPolicy(config.projectId),
+        setPolicy: (p) => api.setProjectIamPolicy(config.projectId, p),
+        modify: (currentProjectPolicy) =>
+          addMemberToRoles(currentProjectPolicy, targetProjectRoles, memberString),
+      });
+
+      setNewMember('');
       setSuccess(
         dataStoreAccessControlEnabled
-          ? `Granted app-level agentspaceUser and project-level agentspaceRestrictedUser + notebookLmUser access (DataStore Access Control active).`
-          : `Granted app-level agentspaceUser and mandatory project-level agentspaceRestrictedUser + notebookLmUser access.`
+          ? `Granted ${appRole.replace('roles/discoveryengine.', '')} on this App and ${targetProjectRoles.join(' + ')} at the project level (Granular DataStore Access Control active — grant DataStore access in DataStore Permissions).`
+          : `Granted ${appRole.replace('roles/discoveryengine.', '')} on this App and ${targetProjectRoles.join(' + ')} at the project level (App-Only Access Control).`
       );
-      setTimeout(() => setSuccess(null), 3000);
+      setTimeout(() => setSuccess(null), 4000);
     } catch (e: unknown) {
-      setIamError(`Failed to grant mandatory project-level access (${targetProjectRoles.join(', ')}): ${toErrorMessage(e)}`);
+      if (!engineStepCompleted) {
+        setIamError(
+          `Failed to grant app-level access (${appRole}): ${toErrorMessage(e)}`
+        );
+      } else {
+        setIamError(
+          `Failed to grant mandatory project-level access (${targetProjectRoles.join(', ')}): ${toErrorMessage(e)}`
+        );
+      }
     } finally {
       setIsLoadingIam(false);
     }
@@ -323,19 +409,19 @@ export function useAssistantDetailsForm(
 
   const handleRemoveIamMember = (member: string) => {
     if (!iamPolicy) return;
-    const updatedPolicy: IamPolicy = { ...iamPolicy };
-    if (!updatedPolicy.bindings) return;
+    const { policy: updatedPolicy, changed } = removeMemberFromRoles(
+      iamPolicy,
+      isAppLevelIamRole,
+      member,
+    );
+    if (!changed) return;
 
-    updatedPolicy.bindings.forEach((b: IamBinding) => {
-      if (
-        (b.role === 'roles/discoveryengine.agentspaceUser' || b.role === 'roles/discoveryengine.user') &&
-        b.members
-      ) {
-        b.members = b.members.filter((m: string) => m !== member);
-      }
+    setPendingRemovedIamMembers((prev) => {
+      const next = new Set(prev);
+      next.add(member);
+      return next;
     });
-
-    setIamPolicyLocal({ ...updatedPolicy });
+    setIamPolicyLocal(updatedPolicy);
     setIsIamDirty(true);
   };
 
@@ -451,7 +537,34 @@ export function useAssistantDetailsForm(
       }
 
       if (isIamDirty && iamPolicy && config.appId) {
-        await api.setEngineIamPolicy(config.appId, iamPolicy, config);
+        const removalsToApply = Array.from(pendingRemovedIamMembers);
+        if (removalsToApply.length > 0) {
+          const savedEnginePolicy = await retryIamReadModifyWrite({
+            getPolicy: () => api.getEngineIamPolicy(config.appId, config),
+            setPolicy: (p) => api.setEngineIamPolicy(config.appId, p, config),
+            modify: (currentEnginePolicy) => {
+              let working = currentEnginePolicy;
+              let changed = false;
+              for (const removed of removalsToApply) {
+                const remRes = removeMemberFromRoles(
+                  working,
+                  isAppLevelIamRole,
+                  removed,
+                );
+                working = remRes.policy;
+                if (remRes.changed) changed = true;
+              }
+              return { policy: working, changed };
+            },
+          });
+          setIamPolicyLocal(savedEnginePolicy);
+          setPendingRemovedIamMembers(new Set());
+        } else {
+          const saved = await api.setEngineIamPolicy(config.appId, iamPolicy, config);
+          if (saved && typeof saved === 'object') {
+            setIamPolicyLocal(saved);
+          }
+        }
         setIsIamDirty(false);
         iamUpdated = true;
       }
@@ -630,6 +743,8 @@ export function useAssistantDetailsForm(
     setNewMember,
     memberType,
     setMemberType,
+    appRole,
+    setAppRole,
     isLoadingIam,
     iamError,
     dataStoreAccessControlEnabled,

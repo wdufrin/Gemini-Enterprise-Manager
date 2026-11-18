@@ -63,8 +63,10 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
 
     const headers = [
       'Member',
-      'Project Restricted User Role',
+      'Project Custom Restricted Role',
       'Project NotebookLM Role',
+      'Project AI Dev Tools Roles',
+      'App-Only Restricted Role Bypass',
       'App Engine Access',
       ...connectors.map(c => `Connector: ${c.id}`),
       ...connectors.flatMap(c => c.entities.map(e => `Entity: ${e.id}`)),
@@ -74,10 +76,18 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
     const rows = [headers.join(',')];
 
     filteredMatrix.forEach(p => {
+      const customRoleSummary = [
+        p.hasCustomEndUserRole ? 'customRestrictedEndUser' : '',
+        p.hasCustomAdminRole ? 'customRestrictedAdmin' : '',
+      ]
+        .filter(Boolean)
+        .join('+') || 'Missing';
       const row = [
         `"${p.member}"`,
-        p.hasProjectRole ? 'Granted' : 'Missing',
+        customRoleSummary,
         p.hasNotebookLmRole ? 'Granted' : 'Missing',
+        p.hasAiDevToolsRoles ? 'Granted' : 'None',
+        p.hasAppOnlyRestrictedRole ? 'BYPASS_PRESENT' : 'Clean',
         p.hasEngineAccess ? 'Granted' : 'Missing',
         ...connectors.map(c => (p.resourceAccess[`connector:${c.id}`] ? 'Granted' : 'None')),
         ...connectors.flatMap(c =>
@@ -249,7 +259,7 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
                 <div>
                   <div className="flex justify-between items-start mb-2">
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950 text-blue-300 border border-blue-800">
-                      Legacy DataStore
+                      Standalone DataStore
                     </span>
                     {ds.isAttached ? (
                       <span className="text-[10px] font-semibold text-green-400">Attached ✓</span>
@@ -331,15 +341,15 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="gem-table-container" role="region" aria-label="Connected resources access matrix table" tabIndex={0}>
           <table className="min-w-full divide-y divide-gray-700 text-left">
             <thead className="bg-gray-900/60 text-xs uppercase tracking-wider text-gray-400 font-semibold">
               <tr>
-                <th className="px-6 py-3.5">Principal / Member</th>
-                <th className="px-6 py-3.5">Project Baseline Roles</th>
-                <th className="px-6 py-3.5">App Engine ({appId})</th>
-                <th className="px-6 py-3.5">Connected DataStores & Connectors</th>
-                <th className="px-6 py-3.5 text-right">Actions</th>
+                <th className="px-3 xl:px-5 py-3.5 whitespace-nowrap">Principal / Member</th>
+                <th className="gem-col-lg px-3 xl:px-5 py-3.5 whitespace-nowrap">Project Baseline Roles</th>
+                <th className="px-3 xl:px-5 py-3.5 whitespace-nowrap">App Engine ({appId})</th>
+                <th className="gem-col-md px-3 xl:px-5 py-3.5 whitespace-nowrap">Connected DataStores &amp; Connectors</th>
+                <th className="gem-sticky-action-th px-3 xl:px-5 py-3.5 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700 bg-gray-800/40 text-xs">
@@ -361,10 +371,10 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
                   return (
                     <tr key={p.member} className="hover:bg-gray-700/40 transition-colors">
                       {/* Principal */}
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
                               memberType === 'Group'
                                 ? 'bg-purple-900/50 text-purple-300 border border-purple-700'
                                 : memberType === 'SA'
@@ -374,32 +384,51 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
                           >
                             {memberType}
                           </span>
-                          <span className="font-mono text-white text-xs">{displayMember}</span>
+                          <span className="font-mono text-white text-xs truncate max-w-[180px] xl:max-w-[260px]" title={displayMember}>{displayMember}</span>
                         </div>
                       </td>
 
                       {/* Project Baseline Roles */}
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="gem-col-lg px-3 xl:px-5 py-3.5 whitespace-nowrap">
                         <div className="flex flex-wrap gap-1">
-                          {p.hasProjectRole ? (
+                          {p.hasCustomEndUserRole && (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-green-900/40 text-green-300 border border-green-700">
-                              ✓ agentspaceRestrictedUser
+                              ✓ customRestrictedEndUser
                             </span>
-                          ) : (
+                          )}
+                          {p.hasCustomAdminRole && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-900/40 text-indigo-300 border border-indigo-700">
+                              ✓ customRestrictedAdmin
+                            </span>
+                          )}
+                          {!p.hasProjectRole && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] text-gray-500 bg-gray-900 border border-gray-700">
-                              Missing
+                              Missing Custom Role
+                            </span>
+                          )}
+                          {p.hasAppOnlyRestrictedRole && (
+                            <span
+                              title="App-Only mode role — includes collections.get & dataStores.get which bypass DataStore isolation. Use Isolate above to replace."
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-red-900/40 text-red-300 border border-red-700"
+                            >
+                              ⚠️ agentspaceRestrictedUser (Bypass)
                             </span>
                           )}
                           {p.hasNotebookLmRole && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-900/40 text-purple-300 border border-purple-700">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-900/40 text-purple-300 border border-purple-700">
                               + notebookLmUser
+                            </span>
+                          )}
+                          {p.hasAiDevToolsRoles && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-900/40 text-cyan-300 border border-cyan-700">
+                              + AI Dev Tools
                             </span>
                           )}
                         </div>
                       </td>
 
                       {/* App Engine Access */}
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap">
                         {p.hasEngineAccess ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-900/40 text-blue-300 border border-blue-700">
                             ✓ agentspaceUser
@@ -412,7 +441,7 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
                       </td>
 
                       {/* DataStores Breakdown */}
-                      <td className="px-6 py-4">
+                      <td className="gem-col-md px-3 xl:px-5 py-3.5">
                         <div className="flex flex-wrap gap-1.5 max-w-md">
                           {/* Connectors */}
                           {connectors.map(c => {
@@ -473,7 +502,7 @@ export const ConnectedResourcesMatrix: React.FC<ConnectedResourcesMatrixProps> =
                       </td>
 
                       {/* Actions */}
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
+                      <td className="gem-sticky-action-td px-3 xl:px-5 py-3.5 whitespace-nowrap text-right text-xs">
                         <button
                           onClick={() => onRevokeApp(p.member)}
                           className="text-red-400 hover:text-red-300 font-medium px-2 py-1 rounded hover:bg-red-900/30 transition-colors"

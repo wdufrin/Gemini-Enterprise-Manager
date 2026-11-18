@@ -2,6 +2,93 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Responsive Data Table Container Queries & Sticky Actions */
+.gem-table-container {
+  container-type: inline-size;
+  overflow-x: auto;
+  max-inline-size: 100%;
+}
+
+@container (max-width: 679px) {
+  .gem-col-md {
+    display: none;
+  }
+}
+
+@container (max-width: 899px) {
+  .gem-col-lg {
+    display: none;
+  }
+}
+
+@container (max-width: 1119px) {
+  .gem-col-xl {
+    display: none;
+  }
+}
+
+@container (max-width: 1319px) {
+  .gem-col-2xl {
+    display: none;
+  }
+}
+
+@container (min-width: 680px) {
+  .gem-hide-md {
+    display: none;
+  }
+}
+
+@container (min-width: 900px) {
+  .gem-hide-lg {
+    display: none;
+  }
+}
+
+@container (min-width: 1120px) {
+  .gem-hide-xl {
+    display: none;
+  }
+}
+
+@container (min-width: 1320px) {
+  .gem-hide-2xl {
+    display: none;
+  }
+}
+
+/* Sticky right-pinned action column so primary View/Edit controls never scroll out of reach */
+.gem-sticky-action-th {
+  position: sticky;
+  inset-inline-end: 0;
+  z-index: 20;
+  background-color: #1f2937; /* gray-800 */
+  border-inline-start: 1px solid rgba(55, 65, 81, 0.75);
+  box-shadow: -6px 0 12px -6px rgba(0, 0, 0, 0.55);
+}
+
+.gem-sticky-action-td {
+  position: sticky;
+  inset-inline-end: 0;
+  z-index: 10;
+  background-color: #1f2937; /* gray-800 */
+  border-inline-start: 1px solid rgba(55, 65, 81, 0.65);
+  box-shadow: -6px 0 12px -6px rgba(0, 0, 0, 0.45);
+  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+tr:hover > .gem-sticky-action-td {
+  background-color: #2b3544; /* gray-750 */
+}
+
+tr.gem-row-selected > .gem-sticky-action-td {
+  background-color: #172554; /* blue-950 */
+}
+
+tr.gem-row-selected:hover > .gem-sticky-action-td {
+  background-color: #1e3a8a; /* blue-900 */
+}
+
 /* WCAG 2.1.1 / 2.3.3: Motion Sensitivity Guard */
 @media (prefers-reduced-motion: reduce) {
   *,

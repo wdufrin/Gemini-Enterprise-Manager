@@ -207,5 +207,87 @@ describe('AssistantPage (F4: Playground, Engine/Assistant Management & R2/R3)', 
     expect(createSkillSpy.mock.calls[0][2]).toBe('enterprise-datastore-query-optimizer');
     expect(createSkillSpy.mock.calls[0][3]).toBe(true);
   });
+
+  it('keeps View / Edit pinned in sticky right Actions column, supports responsive column customization, maintains cell parity for unconfigured assistants, and blocks hiding the final column', async () => {
+    const engineWithoutAssistant = {
+      name: 'projects/123456/locations/global/collections/default_collection/engines/orphan-search-app',
+      displayName: 'Orphan Search Engine',
+      solutionType: 'SOLUTION_TYPE_SEARCH' as const,
+    };
+
+    vi.mocked(api.listResources).mockImplementation(async (resourceType: string) => {
+      if (resourceType === 'engines') {
+        return { engines: [sampleEngine, engineWithoutAssistant] };
+      }
+      if (resourceType === 'assistants') {
+        return { assistants: [sampleAssistant] };
+      }
+      return {};
+    });
+
+    renderPage();
+
+    const tableRegion = await screen.findByRole('region', {
+      name: /Gemini Enterprise Engines table/i,
+    });
+    expect(tableRegion).toHaveClass('gem-table-container');
+
+    // Actions header and action cells must carry sticky right positioning classes
+    const headerCells = tableRegion.querySelectorAll('thead th');
+    expect(headerCells.length).toBe(8);
+    expect(headerCells[headerCells.length - 1]).toHaveClass('gem-sticky-action-th');
+
+    // Secondary headers carry container-query responsive classes by default
+    const engineIdTh = screen.getByRole('button', { name: /Sort by Engine ID/i }).closest('th')!;
+    const vertexAgentsTh = screen.getByRole('button', { name: /Sort by Vertex Agents/i }).closest('th')!;
+    expect(engineIdTh).toHaveClass('gem-col-xl');
+    expect(vertexAgentsTh).toHaveClass('gem-col-2xl');
+
+    // Both configured and unconfigured assistant rows must have exact column count parity with thead (no broken colSpan)
+    const bodyRows = tableRegion.querySelectorAll('tbody tr');
+    expect(bodyRows.length).toBe(2);
+    bodyRows.forEach((row) => {
+      const cells = row.querySelectorAll('td');
+      expect(cells.length).toBe(headerCells.length);
+      expect(cells[cells.length - 1]).toHaveClass('gem-sticky-action-td');
+    });
+
+    // Open Columns customizer and click "Show All" to pin responsive columns open
+    fireEvent.click(screen.getByRole('button', { name: /Customize engine table columns/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Show All/i }));
+    expect(engineIdTh).not.toHaveClass('gem-col-xl');
+    expect(vertexAgentsTh).not.toHaveClass('gem-col-2xl');
+
+    // Reset Auto restores container-query responsive classes
+    fireEvent.click(screen.getByRole('button', { name: /Reset Auto/i }));
+    expect(engineIdTh).toHaveClass('gem-col-xl');
+    expect(vertexAgentsTh).toHaveClass('gem-col-2xl');
+
+    // Adversarial check: attempt to uncheck all 7 data columns; the last remaining column must refuse to uncheck
+    const checkboxes = tableRegion.parentElement!.querySelectorAll(
+      'input[type="checkbox"]',
+    ) as NodeListOf<HTMLInputElement>;
+    expect(checkboxes.length).toBe(7);
+    checkboxes.forEach((cb) => fireEvent.click(cb));
+
+    const remainingHeaders = tableRegion.querySelectorAll('thead th');
+    // 1 surviving data column + 1 sticky Actions column = 2 columns
+    expect(remainingHeaders.length).toBe(2);
+    tableRegion.querySelectorAll('tbody tr').forEach((row) => {
+      expect(row.querySelectorAll('td').length).toBe(2);
+    });
+
+    // View / Edit remains accessible and clickable for every row even in minimal 2-column layout
+    const viewEditBtns = screen.getAllByRole('button', { name: /View \/ Edit/i });
+    expect(viewEditBtns.length).toBe(2);
+    viewEditBtns.forEach((btn) => {
+      expect(btn.closest('td')).toHaveClass('gem-sticky-action-td');
+    });
+    fireEvent.click(viewEditBtns[0]);
+    expect(await screen.findByRole('button', { name: /Evaluate Config/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Enterprise Search & Assistant App' }),
+    ).toBeInTheDocument();
+  });
 });
 

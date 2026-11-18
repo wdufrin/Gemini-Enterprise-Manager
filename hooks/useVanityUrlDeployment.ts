@@ -15,8 +15,9 @@
  */
 
 import { useState, useEffect } from 'react';
-import { AppEngine, Config } from '../types';
+import { AppEngine, Config, IamBinding } from '../types';
 import * as api from '../services/apiService';
+import { retryIamReadModifyWrite } from '../utils/iamPolicy';
 import {
   assertValidHostname,
   assertValidGcpResourceName,
@@ -588,19 +589,13 @@ export function useVanityUrlDeployment(
       ? requiredRoles.filter((r) => r !== 'roles/dns.admin')
       : requiredRoles;
 
-    const policy = await api.getProjectIamPolicy(targetProjectId);
-    const bindings = [...(policy?.bindings || [])];
-
-    let modified = false;
-    const rolesGranted = new Set<string>();
-
     const ensureBindingOnList = (
-      bindingList: any[],
+      bindingList: IamBinding[],
       role: string,
       member: string,
       grantedSet: Set<string>,
     ): boolean => {
-      const existing = bindingList.find((b) => b.role === role);
+      const existing = bindingList.find((b) => b.role === role && !b.condition);
       if (existing) {
         if (!existing.members) existing.members = [];
         if (!existing.members.some((m: string) => m.toLowerCase() === member.toLowerCase())) {
@@ -615,57 +610,75 @@ export function useVanityUrlDeployment(
       return true;
     };
 
-    for (const role of localRoles) {
-      if (!hasRoleOrEquivalent(bindings, cloudBuildSa, role)) {
-        if (ensureBindingOnList(bindings, role, cloudBuildMember, rolesGranted)) {
-          modified = true;
-        }
-      }
-      if (!hasRoleOrEquivalent(bindings, computeSa, role)) {
-        if (ensureBindingOnList(bindings, role, computeMember, rolesGranted)) {
-          modified = true;
-        }
-      }
-    }
+    let localDidGrant = false;
+    await retryIamReadModifyWrite({
+      getPolicy: () => api.getProjectIamPolicy(targetProjectId),
+      setPolicy: (nextPolicy) => api.setProjectIamPolicy(targetProjectId, nextPolicy),
+      modify: (policy) => {
+        const bindings = policy.bindings || [];
+        let modified = false;
+        const rolesGranted = new Set<string>();
 
-    if (modified) {
-      logFn(
-        `Granting Cloud Build & Compute Service Account IAM roles (${Array.from(rolesGranted).join(', ')}) on ${targetProjectId} to ${computeSa} and ${cloudBuildSa}...`,
-      );
-      await api.setProjectIamPolicy(targetProjectId, {
-        ...policy,
-        bindings,
-      });
+        for (const role of localRoles) {
+          if (!hasRoleOrEquivalent(bindings, cloudBuildSa, role)) {
+            if (ensureBindingOnList(bindings, role, cloudBuildMember, rolesGranted)) {
+              modified = true;
+            }
+          }
+          if (!hasRoleOrEquivalent(bindings, computeSa, role)) {
+            if (ensureBindingOnList(bindings, role, computeMember, rolesGranted)) {
+              modified = true;
+            }
+          }
+        }
+
+        if (modified && !localDidGrant) {
+          logFn(
+            `Granting Cloud Build & Compute Service Account IAM roles (${Array.from(rolesGranted).join(', ')}) on ${targetProjectId} to ${computeSa} and ${cloudBuildSa}...`,
+          );
+        }
+        localDidGrant = modified;
+        return { policy: { ...policy, bindings }, changed: modified };
+      },
+    });
+    if (localDidGrant) {
       logFn(`Successfully granted Cloud Build networking & load balancer IAM roles on ${targetProjectId}.`);
     }
 
     // Cross-project Cloud DNS host project IAM grant
     if (isCrossProjectDns && requiredRoles.includes('roles/dns.admin')) {
       assertValidGcpResourceName(trimmedDnsProjectId, 'Cloud DNS Project ID');
-      const dnsPolicy = await api.getProjectIamPolicy(trimmedDnsProjectId);
-      const dnsBindings = [...(dnsPolicy?.bindings || [])];
-      const dnsGranted = new Set<string>();
-      let dnsModified = false;
+      let dnsDidGrant = false;
+      await retryIamReadModifyWrite({
+        getPolicy: () => api.getProjectIamPolicy(trimmedDnsProjectId),
+        setPolicy: (nextDnsPolicy) =>
+          api.setProjectIamPolicy(trimmedDnsProjectId, nextDnsPolicy),
+        modify: (dnsPolicy) => {
+          const dnsBindings = dnsPolicy.bindings || [];
+          const dnsGranted = new Set<string>();
+          let dnsModified = false;
 
-      if (!hasRoleOrEquivalent(dnsBindings, cloudBuildSa, 'roles/dns.admin')) {
-        if (ensureBindingOnList(dnsBindings, 'roles/dns.admin', cloudBuildMember, dnsGranted)) {
-          dnsModified = true;
-        }
-      }
-      if (!hasRoleOrEquivalent(dnsBindings, computeSa, 'roles/dns.admin')) {
-        if (ensureBindingOnList(dnsBindings, 'roles/dns.admin', computeMember, dnsGranted)) {
-          dnsModified = true;
-        }
-      }
+          if (!hasRoleOrEquivalent(dnsBindings, cloudBuildSa, 'roles/dns.admin')) {
+            if (ensureBindingOnList(dnsBindings, 'roles/dns.admin', cloudBuildMember, dnsGranted)) {
+              dnsModified = true;
+            }
+          }
+          if (!hasRoleOrEquivalent(dnsBindings, computeSa, 'roles/dns.admin')) {
+            if (ensureBindingOnList(dnsBindings, 'roles/dns.admin', computeMember, dnsGranted)) {
+              dnsModified = true;
+            }
+          }
 
-      if (dnsModified) {
-        logFn(
-          `Granting cross-project roles/dns.admin on DNS host project ${trimmedDnsProjectId} to ${computeSa} and ${cloudBuildSa}...`,
-        );
-        await api.setProjectIamPolicy(trimmedDnsProjectId, {
-          ...dnsPolicy,
-          bindings: dnsBindings,
-        });
+          if (dnsModified && !dnsDidGrant) {
+            logFn(
+              `Granting cross-project roles/dns.admin on DNS host project ${trimmedDnsProjectId} to ${computeSa} and ${cloudBuildSa}...`,
+            );
+          }
+          dnsDidGrant = dnsModified;
+          return { policy: { ...dnsPolicy, bindings: dnsBindings }, changed: dnsModified };
+        },
+      });
+      if (dnsDidGrant) {
         logFn(`Successfully granted roles/dns.admin on DNS host project ${trimmedDnsProjectId}.`);
       }
     }

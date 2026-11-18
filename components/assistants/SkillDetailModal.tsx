@@ -1232,65 +1232,76 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
         {/* Modal Footer with Actions */}
         <div className="p-4 border-t border-gray-700 bg-gray-900/50 flex items-center justify-between gap-3 flex-wrap rounded-b-xl">
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={handleToggleScope}
-              disabled={isUpdating}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${
-                isOrgWide
-                  ? 'bg-purple-900/40 text-purple-300 border-purple-700 hover:bg-purple-900/60'
-                  : 'bg-blue-900/40 text-blue-300 border-blue-700 hover:bg-blue-900/60'
-              }`}
-            >
-              {isOrgWide ? '🔄 Restrict to Personal Scope' : '🚀 Promote to Organization-wide'}
-            </button>
-            {canConfigurePreinstall && (
-              <button
-                type="button"
-                data-testid="footer-toggle-skill-preinstall-btn"
-                onClick={handleTogglePreinstallForAll}
-                disabled={isUpdating}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${
-                  isPreinstalled
-                    ? 'bg-emerald-950/70 text-emerald-200 border-emerald-700 hover:bg-emerald-900/70'
-                    : 'bg-gray-800 text-emerald-300 border-emerald-700/70 hover:bg-emerald-950/60'
-                }`}
-                title="Configure whether this skill is pre-installed and active by default for all users (defaultAgentUserData)"
+            {classification.origin === 'GOOGLE_1P' ? (
+              <div
+                data-testid="google-1p-skill-readonly-notice"
+                className="px-3 py-1.5 text-xs bg-emerald-950/50 border border-emerald-700/70 rounded-lg text-emerald-200 max-w-2xl"
               >
-                {isPreinstalled ? '⚡ Pre-installed (Remove)' : '⚡ Pre-install for All Users'}
-              </button>
-            )}
-            {normalizedState !== 'PRIVATE' && (
-              <button
-                onClick={handleToggleActiveState}
-                disabled={isUpdating}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                  normalizedState === 'DISABLED' || normalizedState === 'SUSPENDED'
-                    ? 'bg-green-900/40 text-green-300 border-green-700 hover:bg-green-900/60'
-                    : 'bg-yellow-900/40 text-yellow-300 border-yellow-700 hover:bg-yellow-900/60'
-                }`}
-              >
-                {normalizedState === 'DISABLED' || normalizedState === 'SUSPENDED' ? 'Enable Skill' : 'Disable Skill'}
-              </button>
-            )}
-            {normalizedState === 'ENABLED' && (
-              <button
-                onClick={handleSuspendSkill}
-                disabled={isUpdating}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg border bg-amber-900/40 text-amber-300 border-amber-700 hover:bg-amber-900/60 transition-colors"
-                title="Temporarily suspend this shared skill (:suspendAgent)"
-              >
-                ⏸️ Suspend Skill
-              </button>
-            )}
-            {(normalizedState === 'DISABLED' || normalizedState === 'SUSPENDED') && (
-              <button
-                onClick={handleRejectToPrivate}
-                disabled={isUpdating}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg border bg-red-900/40 text-red-300 border-red-700 hover:bg-red-900/60 transition-colors"
-                title="Reject shared skill and return it to PRIVATE state (:rejectAgent)"
-              >
-                ↩️ Reject to Private
-              </button>
+                ✨ <strong>Google (1P) Default Skill:</strong> Service-managed by Google and cannot be disabled, suspended, or deleted per-skill via the Discovery Engine API. End users can toggle individual default skills off in the Gemini Enterprise web app, or admins can turn off the entire <code>skills</code> engine feature.
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={handleToggleScope}
+                  disabled={isUpdating}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${
+                    isOrgWide
+                      ? 'bg-purple-900/40 text-purple-300 border-purple-700 hover:bg-purple-900/60'
+                      : 'bg-blue-900/40 text-blue-300 border-blue-700 hover:bg-blue-900/60'
+                  }`}
+                >
+                  {isOrgWide ? '🔄 Restrict to Personal Scope' : '🚀 Promote to Organization-wide'}
+                </button>
+                {canConfigurePreinstall && (
+                  <button
+                    type="button"
+                    data-testid="footer-toggle-skill-preinstall-btn"
+                    onClick={handleTogglePreinstallForAll}
+                    disabled={isUpdating}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${
+                      isPreinstalled
+                        ? 'bg-emerald-950/70 text-emerald-200 border-emerald-700 hover:bg-emerald-900/70'
+                        : 'bg-gray-800 text-emerald-300 border-emerald-700/70 hover:bg-emerald-950/60'
+                    }`}
+                    title="Configure whether this skill is pre-installed and active by default for all users (defaultAgentUserData)"
+                  >
+                    {isPreinstalled ? '⚡ Pre-installed (Remove)' : '⚡ Pre-install for All Users'}
+                  </button>
+                )}
+                {normalizedState !== 'PRIVATE' && (
+                  <button
+                    onClick={handleToggleActiveState}
+                    disabled={isUpdating}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                      normalizedState === 'DISABLED' || normalizedState === 'SUSPENDED'
+                        ? 'bg-green-900/40 text-green-300 border-green-700 hover:bg-green-900/60'
+                        : 'bg-yellow-900/40 text-yellow-300 border-yellow-700 hover:bg-yellow-900/60'
+                    }`}
+                  >
+                    {normalizedState === 'DISABLED' || normalizedState === 'SUSPENDED' ? 'Enable Skill' : 'Disable Skill'}
+                  </button>
+                )}
+                {normalizedState === 'ENABLED' && (
+                  <button
+                    onClick={handleSuspendSkill}
+                    disabled={isUpdating}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg border bg-amber-900/40 text-amber-300 border-amber-700 hover:bg-amber-900/60 transition-colors"
+                    title="Temporarily suspend this shared skill (:suspendAgent)"
+                  >
+                    ⏸️ Suspend Skill
+                  </button>
+                )}
+                {(normalizedState === 'DISABLED' || normalizedState === 'SUSPENDED') && (
+                  <button
+                    onClick={handleRejectToPrivate}
+                    disabled={isUpdating}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg border bg-red-900/40 text-red-300 border-red-700 hover:bg-red-900/60 transition-colors"
+                    title="Reject shared skill and return it to PRIVATE state (:rejectAgent)"
+                  >
+                    ↩️ Reject to Private
+                  </button>
+                )}
+              </>
             )}
           </div>
 

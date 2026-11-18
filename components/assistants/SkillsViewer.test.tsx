@@ -576,4 +576,58 @@ describe('SkillsViewer Component', () => {
     );
     expect(screen.getByTestId('skill-row-preinstalled-badge')).toBeInTheDocument();
   });
+
+  it('guards Google (1P) default skills against unsupported admin delete/disable/suspend/scope mutations and supports the Google (1P) filter tab', async () => {
+    const googleDefaultSlidesSkill: Agent = {
+      name: 'projects/123/locations/global/collections/default_collection/engines/engine/assistants/assistant/agents/google-slides-skill',
+      displayName: 'Google Slides Deck Creator',
+      description: 'Default Google-managed skill for generating presentation decks.',
+      state: 'ENABLED',
+      agentType: 'SKILL',
+      skillAgentDefinition: {
+        geminiEnterpriseSkillConfig: {
+          skillType: 'SLIDES',
+        },
+      },
+    } as unknown as Agent;
+
+    const onRefreshSkills = vi.fn();
+    renderWithToast(
+      <SkillsViewer
+        agents={[...mockAgents, googleDefaultSlidesSkill]}
+        config={mockConfig}
+        userProfile={mockUserProfile}
+        onRefreshSkills={onRefreshSkills}
+      />
+    );
+
+    // 1. Filter to Google (1P) tab
+    fireEvent.click(screen.getByRole('button', { name: /Google \(1P\) \(1\)/i }));
+    expect(screen.getByText('Google Slides Deck Creator')).toBeInTheDocument();
+    expect(screen.queryByText('Corporate Financial Forecaster')).not.toBeInTheDocument();
+
+    // Header select-all checkbox and row checkbox must be disabled when only Google 1P skills are visible
+    expect(screen.getByLabelText('Select all visible skills')).toBeDisabled();
+    expect(screen.getByLabelText('Select Google Slides Deck Creator')).toBeDisabled();
+    expect(
+      screen.queryByLabelText('Delete Google Slides Deck Creator')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('Edit SKILL.md for Google Slides Deck Creator')
+    ).not.toBeInTheDocument();
+
+    // 2. Switch back to All and verify "Select all visible skills" selects ONLY the 2 customer skills, never the Google 1P skill
+    fireEvent.click(screen.getByRole('button', { name: /^All \(3\)/i }));
+    fireEvent.click(screen.getByLabelText('Select all visible skills'));
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+
+    // 3. Inspect Google 1P skill and verify unsupported mutation buttons are hidden in favor of the service-managed notice
+    fireEvent.click(screen.getByLabelText('Inspect Google Slides Deck Creator'));
+    expect(await screen.findByTestId('google-1p-skill-readonly-notice')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Disable Skill/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Suspend Skill/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Restrict to Personal Scope|Promote to Organization-wide/i })
+    ).not.toBeInTheDocument();
+  });
 });

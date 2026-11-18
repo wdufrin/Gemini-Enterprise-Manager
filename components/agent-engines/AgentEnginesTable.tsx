@@ -124,11 +124,11 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
         </p>
       )}
       {resources.length > 0 && (
-        <div className="overflow-x-auto">
+        <div className="gem-table-container" role="region" aria-label="Agent engines table" tabIndex={0}>
           <table className="min-w-full divide-y divide-gray-700">
             <thead className="bg-gray-700/50">
               <tr>
-                <th scope="col" className="px-6 py-3 w-10">
+                <th scope="col" className="px-3 xl:px-5 py-3 w-10">
                   <input
                     type="checkbox"
                     checked={isAllSelected}
@@ -138,7 +138,7 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                 </th>
                 <th
                   scope="col"
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors"
+                  className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors whitespace-nowrap"
                   onClick={() => onSort("displayName")}
                 >
                   <div className="flex items-center gap-1">
@@ -152,7 +152,7 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                 </th>
                 <th
                   scope="col"
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors"
+                  className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors whitespace-nowrap"
                   onClick={() => onSort("type")}
                 >
                   <div className="flex items-center gap-1">
@@ -166,7 +166,7 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                 </th>
                 <th
                   scope="col"
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors"
+                  className="gem-col-xl px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors whitespace-nowrap"
                   onClick={() => onSort("shortId")}
                 >
                   <div className="flex items-center gap-1">
@@ -180,7 +180,7 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                 </th>
                 <th
                   scope="col"
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors"
+                  className="gem-col-lg px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors whitespace-nowrap"
                   onClick={() => onSort("usedByAgents")}
                 >
                   <div className="flex items-center gap-1">
@@ -194,7 +194,7 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                 </th>
                 <th
                   scope="col"
-                  className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider"
+                  className="gem-sticky-action-th px-3 xl:px-5 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
                 >
                   Actions
                 </th>
@@ -212,9 +212,9 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                 return (
                   <tr
                     key={res.id}
-                    className={`${isSelected ? "bg-blue-900/50" : "hover:bg-gray-700/50"} transition-colors`}
+                    className={`${isSelected ? "bg-blue-900/50 gem-row-selected" : "hover:bg-gray-700/50"} transition-colors`}
                   >
-                    <td className="px-6 py-4">
+                    <td className="px-3 xl:px-5 py-3">
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -222,20 +222,30 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                         className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
                       />
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
-                      {res.displayName}
+                    <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm font-medium text-white">
+                      <button
+                        type="button"
+                        onClick={() => onViewResource(res)}
+                        className="text-left hover:text-blue-400 transition-colors block max-w-[190px] xl:max-w-[280px] truncate"
+                        title={res.displayName}
+                      >
+                        {res.displayName}
+                      </button>
+                      <div className="gem-hide-xl text-[11px] text-gray-400 font-mono truncate max-w-[190px] mt-0.5" title={res.shortId}>
+                        {res.shortId}
+                      </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm">
                       <span
                         className={`px-2 py-1 rounded text-xs font-semibold ${badgeClass}`}
                       >
                         {res.type}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">
+                    <td className="gem-col-xl px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400 font-mono max-w-[180px] truncate" title={res.shortId}>
                       {res.shortId}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                    <td className="gem-col-lg px-3 xl:px-5 py-3 whitespace-nowrap text-sm text-gray-300">
                       {usingAgents.length > 0 ? (
                         <ul className="space-y-1">
                           {usingAgents.map((agent) => (
@@ -265,8 +275,8 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end items-center gap-4">
+                    <td className="gem-sticky-action-td px-3 xl:px-5 py-3 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end items-center gap-2.5 xl:gap-4">
                         {isRE ? (
                           <div className="flex items-center gap-2">
                             {typeof res.sessionCount === "number" && (
@@ -290,7 +300,7 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                               onClick={() =>
                                 onDirectQuery(res.data as ReasoningEngine)
                               }
-                              className="font-semibold text-green-400 hover:text-green-300"
+                              className="font-semibold text-green-400 hover:text-green-300 text-xs xl:text-sm"
                             >
                               Direct Query
                             </button>
@@ -298,7 +308,7 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                               onClick={() =>
                                 onAgentCard(res.data as ReasoningEngine)
                               }
-                              className="font-semibold text-indigo-400 hover:text-indigo-300"
+                              className="font-semibold text-indigo-400 hover:text-indigo-300 text-xs xl:text-sm"
                             >
                               Agent Card
                             </button>
@@ -308,21 +318,21 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                             onClick={() =>
                               onCloudRunQuery(res.data as CloudRunService)
                             }
-                            className="font-semibold text-green-400 hover:text-green-300"
+                            className="font-semibold text-green-400 hover:text-green-300 text-xs xl:text-sm"
                           >
                             Direct Query
                           </button>
                         )}
                         <button
                           onClick={() => onViewResource(res)}
-                          className="font-semibold text-blue-400 hover:text-blue-300"
+                          className="font-semibold text-blue-400 hover:text-blue-300 text-xs xl:text-sm"
                         >
                           Details
                         </button>
                         <button
                           onClick={() => onOpenDeleteModal(res)}
                           disabled={isDeleting}
-                          className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500"
+                          className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500 text-xs xl:text-sm"
                         >
                           Delete
                         </button>

@@ -18,6 +18,10 @@ import React, { useState } from 'react';
 import {
   AGENTSPACE_RESTRICTED_USER_ROLE,
   ConnectorInconsistency,
+  CUSTOM_RESTRICTED_ADMIN_PERMISSIONS,
+  CUSTOM_RESTRICTED_ADMIN_ROLE_ID,
+  CUSTOM_RESTRICTED_END_USER_PERMISSIONS,
+  CUSTOM_RESTRICTED_END_USER_ROLE_ID,
   EnvironmentReadinessState,
   NOTEBOOK_LM_USER_ROLE,
   UserAccessDetails,
@@ -69,10 +73,14 @@ export const EnvironmentReadinessWizard: React.FC<EnvironmentReadinessWizardProp
 
   const isFullyReady =
     readiness.dataStoreAccessControlEnabled === true &&
+    readiness.endUserCustomRoleReady === true &&
     readiness.v1IamApiSupported === true;
 
+  const needsCustomRoles =
+    readiness.endUserCustomRoleReady !== true || readiness.adminCustomRoleReady !== true;
+
   const needsAutomatedSetup =
-    readiness.dataStoreAccessControlEnabled !== true;
+    readiness.dataStoreAccessControlEnabled !== true || needsCustomRoles;
 
   const endpointPrefix =
     location === 'global'
@@ -80,7 +88,8 @@ export const EnvironmentReadinessWizard: React.FC<EnvironmentReadinessWizardProp
       : `https://${location}-discoveryengine.googleapis.com`;
 
   // Manual CLI / cURL commands
-  const cmdEnableProjectOptIn = `curl -X PATCH \\
+  const cmdEnableProjectOptIn = `# Note: REST PATCH applies to multi-region '${location}'. Repeat for global/us/eu if needed.
+curl -X PATCH \\
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
   -H "Content-Type: application/json" \\
   -H "X-Goog-User-Project: ${projectId}" \\
@@ -98,9 +107,26 @@ export const EnvironmentReadinessWizard: React.FC<EnvironmentReadinessWizardProp
   -H "X-Goog-User-Project: ${projectId}" \\
   "${endpointPrefix}/v1alpha/projects/${projectId}"`;
 
-  const cmdGrantBaselineProjectRoles = `gcloud projects add-iam-policy-binding ${projectId} \\
+  const cmdCreateAndGrantCustomRoles = `# 1. Create GA Custom Restricted End-User Role (zero collections.get / dataStores.get bypasses)
+gcloud iam roles create ${CUSTOM_RESTRICTED_END_USER_ROLE_ID} \\
+  --project="${projectId}" \\
+  --title="Gemini Enterprise Custom Restricted End User" \\
+  --description="Least-privilege location-level access for granular DataStore & Connector ACLs" \\
+  --stage="GA" \\
+  --permissions="${CUSTOM_RESTRICTED_END_USER_PERMISSIONS.join(',')}"
+
+# 2. (Optional) Create GA Custom Restricted Delegated Admin/Viewer Role
+gcloud iam roles create ${CUSTOM_RESTRICTED_ADMIN_ROLE_ID} \\
+  --project="${projectId}" \\
+  --title="Gemini Enterprise Custom Restricted Admin" \\
+  --description="Console listing permissions for delegated app/datastore admins and viewers" \\
+  --stage="GA" \\
+  --permissions="${CUSTOM_RESTRICTED_ADMIN_PERMISSIONS.join(',')}"
+
+# 3. Bind customRestrictedEndUser + notebookLmUser on Project (DO NOT bind ${AGENTSPACE_RESTRICTED_USER_ROLE})
+gcloud projects add-iam-policy-binding ${projectId} \\
   --member="user:userA@example.com" \\
-  --role="${AGENTSPACE_RESTRICTED_USER_ROLE}"
+  --role="projects/${projectId}/roles/${CUSTOM_RESTRICTED_END_USER_ROLE_ID}"
 
 gcloud projects add-iam-policy-binding ${projectId} \\
   --member="user:userA@example.com" \\
@@ -141,7 +167,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
             )}
           </div>
           <p className="text-xs text-gray-400 max-w-3xl leading-relaxed">
-            Evaluates whether Gemini Enterprise <strong>Resource Access Control</strong> (<code className="text-purple-300">dataStoreAccessControlEnabled</code>) is enabled in GE Settings for <code className="text-gray-200">{projectId}</code>, predefined project baseline roles (<code className="text-blue-300">{AGENTSPACE_RESTRICTED_USER_ROLE}</code> + <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code>), <code className="text-green-300">v1</code> IAM API availability, and user role isolation.
+            Evaluates Gemini Enterprise <strong>Resource Access Control</strong> (<code className="text-purple-300">dataStoreAccessControlEnabled</code>) in multi-region <code className="text-gray-200">{location}</code>, GA custom project roles (<code className="text-blue-300">{CUSTOM_RESTRICTED_END_USER_ROLE_ID}</code> & <code className="text-indigo-300">{CUSTOM_RESTRICTED_ADMIN_ROLE_ID}</code>), <code className="text-green-300">v1</code> IAM API availability, and project-role bypass hygiene.
           </p>
         </div>
 
@@ -164,7 +190,11 @@ gcloud projects add-iam-policy-binding ${projectId} \\
               ) : (
                 <>
                   <span>⚡</span>
-                  <span>Enable Resource Access Control</span>
+                  <span>
+                    {readiness.dataStoreAccessControlEnabled !== true
+                      ? 'Enable Resource Access Control'
+                      : 'Provision GA Custom Roles'}
+                  </span>
                 </>
               )}
             </button>
@@ -210,7 +240,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
         <div className="p-5 bg-gray-900/80 border-b border-gray-700 space-y-4 text-xs text-gray-300">
           <div className="flex justify-between items-start">
             <h4 className="text-sm font-bold text-white">
-              Architectural Requirements for Direct DataStore & DataConnector IAM Entitlements
+              GA Architectural Requirements for Granular App, DataStore & DataConnector IAM
             </h4>
             <button
               type="button"
@@ -224,48 +254,48 @@ gcloud projects add-iam-policy-binding ${projectId} \\
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-gray-800/90 p-3.5 rounded-lg border border-gray-700 space-y-1.5">
               <div className="font-bold text-white flex items-center gap-1.5">
-                <span className="text-blue-400">1.</span> Enable Resource Access Control in GE Settings (<code className="text-purple-300">dataStoreAccessControlEnabled</code>)
+                <span className="text-blue-400">1.</span> Enable Resource Access Control per Multi-Region (<code className="text-purple-300">dataStoreAccessControlEnabled</code>)
               </div>
               <p className="text-gray-300 leading-relaxed">
-                In the Cloud Console under <strong>Gemini Enterprise → Settings → Resource access control</strong>, turn on the <strong>Resource access control</strong> toggle (or enable it here via <code className="text-purple-300">customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled = true</code>). When enabled, Gemini Enterprise filters apps, DataStores, and DataConnectors by each user&apos;s resource-level IAM permissions (~5 minutes to propagate).
+                Enabling in Cloud Console (<strong>Gemini Enterprise → Settings → Resource access control</strong>) applies across all multi-regions, whereas REST <code className="text-purple-300">PATCH /v1alpha/projects/{projectId}</code> applies to the called multi-region (<code>{location}</code>). Changes take ~5 minutes to propagate; active user sessions can cache old ACLs for up to 2 hours (test in an Incognito window).
               </p>
             </div>
 
             <div className="bg-gray-800/90 p-3.5 rounded-lg border border-gray-700 space-y-1.5">
               <div className="font-bold text-white flex items-center gap-1.5">
-                <span className="text-green-400">2.</span> Predefined Project Baseline Roles
+                <span className="text-green-400">2.</span> GA Custom Project Roles (Why Not <code className="text-amber-300">agentspaceRestrictedUser</code>?)
               </div>
               <p className="text-gray-300 leading-relaxed">
-                Avoid granting broad project roles like <code className="text-red-300">roles/discoveryengine.agentspaceUser</code> or <code className="text-red-300">roles/discoveryengine.viewer</code> at the project level, which grant search across all DataStores. Instead, grant the predefined <code className="text-blue-300">{AGENTSPACE_RESTRICTED_USER_ROLE}</code> and <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> roles at the project level.
+                Predefined <code className="text-amber-300">{AGENTSPACE_RESTRICTED_USER_ROLE}</code> includes <code className="text-red-300">discoveryengine.collections.get</code> and <code className="text-red-300">discoveryengine.dataStores.get</code>, which are for <strong>App-Only</strong> mode and bypass DataStore isolation! Granular mode requires <code className="text-blue-300">projects/{projectId}/roles/{CUSTOM_RESTRICTED_END_USER_ROLE_ID}</code> + <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> (or <code className="text-indigo-300">{CUSTOM_RESTRICTED_ADMIN_ROLE_ID}</code> for delegated admins/viewers).
               </p>
             </div>
 
             <div className="bg-gray-800/90 p-3.5 rounded-lg border border-gray-700 space-y-1.5">
               <div className="font-bold text-white flex items-center gap-1.5">
-                <span className="text-purple-400">3.</span> Single DataStores vs. DataConnector Entity Fan-Out
+                <span className="text-purple-400">3.</span> Standalone DataStores vs. Atomic DataConnector Fan-Out
               </div>
               <ul className="list-disc pl-5 space-y-1 text-gray-300">
                 <li>
-                  <strong>Single / Legacy DataStores:</strong> Bind <code className="text-blue-300">roles/discoveryengine.agentspaceUser</code> on <code className="text-gray-200">collections/default_collection/dataStores/{'{DS_ID}'}</code>.
+                  <strong>Standalone DataStores:</strong> Bind <code className="text-blue-300">roles/discoveryengine.agentspaceUser</code> (or <code>Admin</code> / <code>Viewer</code>) on <code className="text-gray-200">collections/default_collection/dataStores/{'{DS_ID}'}</code>.
                 </li>
                 <li>
-                  <strong>DataConnectors (1P & 3P):</strong> Must bind <code className="text-blue-300">roles/discoveryengine.agentspaceUser</code> on <strong>both</strong> the connector Collection (<code className="text-gray-200">collections/{'{CONNECTOR_ID}'}</code>) <strong>and every child Entity DataStore</strong> (<code className="text-gray-200">collections/default_collection/dataStores/{'{ENTITY_ID}'}</code>). Missing any entity causes the connector to be dropped or marked <em>Access inconsistent</em>.
+                  <strong>Multi-Entity DataConnectors:</strong> Must bind the role on <strong>both</strong> the parent Collection (<code className="text-gray-200">collections/{'{CONNECTOR_ID}'}</code>) <strong>and all child Entity DataStores</strong> together—selecting a partial subset of entities is unsupported.
                 </li>
               </ul>
             </div>
 
             <div className="bg-gray-800/90 p-3.5 rounded-lg border border-gray-700 space-y-1.5">
               <div className="font-bold text-white flex items-center gap-1.5">
-                <span className="text-blue-400">4.</span> What Predefined Project Roles Include
+                <span className="text-blue-400">4.</span> Permissions in <code className="text-blue-300">{CUSTOM_RESTRICTED_END_USER_ROLE_ID}</code>
               </div>
               <p className="text-gray-300 leading-relaxed">
-                <code className="text-blue-300">{AGENTSPACE_RESTRICTED_USER_ROLE}</code> + <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> provide baseline project capabilities without broad serving access:
+                Provides location-level OAuth, user profile, agent card, and analytics permissions with zero DataStore/Collection read grants:
               </p>
               <ul className="list-disc pl-5 space-y-0.5 text-green-300 font-mono text-[11px]">
-                <li>discoveryengine.locations.buildAuthorizationUrl</li>
-                <li>discoveryengine.devToolsConfigs.get</li>
-                <li>discoveryengine.dataConnectors.acquireAndStoreRefreshToken</li>
-                <li>discoveryengine.notebooks.* (NotebookLM Enterprise)</li>
+                <li>discoveryengine.locations.buildAuthorizationUrl &amp; fetchAgentCards</li>
+                <li>discoveryengine.authorizations.storeUserAuthorization</li>
+                <li>discoveryengine.devToolsConfigs.get &amp; userEvents.create</li>
+                <li>discoveryengine.users.get, users.update &amp; resourcemanager.projects.get</li>
               </ul>
             </div>
           </div>
@@ -279,7 +309,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
           <div>
             <div className="flex items-center justify-between gap-2 mb-1.5">
               <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                1. GE App Settings
+                1. GE Settings ({location})
               </span>
               {readiness.dataStoreAccessControlEnabled === true ? (
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300 border border-green-700">
@@ -304,8 +334,8 @@ gcloud projects add-iam-policy-binding ${projectId} \\
             </p>
             <p className="text-[11px] text-gray-400 mt-1">
               {readiness.dataStoreAccessControlEnabled === true
-                ? 'Active: Gemini Enterprise filters apps, DataStores & Connectors by per-user resource IAM permissions.'
-                : 'Enable in Gemini Enterprise Settings (or click below) to enforce resource-level IAM bindings (~5 min propagation).'}
+                ? `Active in '${location}': filters apps, DataStores & Connectors by resource IAM (~5m propagation; test in Incognito).`
+                : `Enable for '${location}' (or all multi-regions in Cloud Console) to enforce resource-level IAM (~5 min propagation).`}
             </p>
           </div>
 
@@ -332,42 +362,82 @@ gcloud projects add-iam-policy-binding ${projectId} \\
           </div>
         </div>
 
-        {/* Check 2: Predefined Project Roles */}
+        {/* Check 2: GA Custom Project Roles */}
         <div className="bg-gray-800/90 p-4 rounded-xl border border-gray-700 flex flex-col justify-between space-y-3">
           <div>
             <div className="flex items-center justify-between gap-2 mb-1.5">
               <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                2. Baseline Roles
+                2. GA Custom Roles
               </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300 border border-green-700">
-                ✓ Predefined GA
-              </span>
+              {readiness.endUserCustomRoleReady === true && readiness.adminCustomRoleReady === true ? (
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300 border border-green-700">
+                  ✓ Ready
+                </span>
+              ) : readiness.endUserCustomRoleReady === null ? (
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-700 text-gray-300">
+                  Probing...
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-yellow-900/50 text-yellow-300 border border-yellow-700">
+                  Needs Setup
+                </span>
+              )}
             </div>
             <h4 className="text-xs font-bold text-white">
-              Predefined Project Roles
+              Custom Restricted Roles
             </h4>
             <div className="mt-1.5 space-y-1">
               <div
-                className="text-[10px] font-mono flex items-center gap-1 text-green-400"
-                title={AGENTSPACE_RESTRICTED_USER_ROLE}
+                className={`text-[10px] font-mono flex items-center gap-1 ${
+                  readiness.endUserCustomRoleReady === true ? 'text-green-400' : 'text-yellow-300'
+                }`}
+                title={`projects/${projectId}/roles/${CUSTOM_RESTRICTED_END_USER_ROLE_ID}`}
               >
-                <span>✓</span>
-                <span className="truncate">agentspaceRestrictedUser</span>
+                <span>{readiness.endUserCustomRoleReady === true ? '✓' : '⚠'}</span>
+                <span className="truncate">{CUSTOM_RESTRICTED_END_USER_ROLE_ID}</span>
+              </div>
+              <div
+                className={`text-[10px] font-mono flex items-center gap-1 ${
+                  readiness.adminCustomRoleReady === true ? 'text-green-400' : 'text-yellow-300'
+                }`}
+                title={`projects/${projectId}/roles/${CUSTOM_RESTRICTED_ADMIN_ROLE_ID}`}
+              >
+                <span>{readiness.adminCustomRoleReady === true ? '✓' : '⚠'}</span>
+                <span className="truncate">{CUSTOM_RESTRICTED_ADMIN_ROLE_ID}</span>
               </div>
               <div
                 className="text-[10px] font-mono flex items-center gap-1 text-purple-300"
                 title={NOTEBOOK_LM_USER_ROLE}
               >
                 <span>✓</span>
-                <span className="truncate">notebookLmUser</span>
+                <span className="truncate">notebookLmUser (Predefined)</span>
               </div>
             </div>
+            {readiness.customRoleError && (
+              <p className="text-[10px] text-amber-300 mt-1 line-clamp-2" title={readiness.customRoleError}>
+                {readiness.customRoleError}
+              </p>
+            )}
           </div>
 
           <div className="pt-2 border-t border-gray-700/80">
-            <span className="text-[11px] text-green-400 font-medium block text-center py-1">
-              ✓ Standard Google Cloud IAM Roles
-            </span>
+            {needsCustomRoles ? (
+              <button
+                type="button"
+                disabled={isAutoEnablingEnvironment || readiness.isEvaluating}
+                onClick={() => {
+                  setAutoEnableLogs([]);
+                  onAutoEnableEnvironment((msg) => setAutoEnableLogs(prev => [...prev, msg]));
+                }}
+                className="w-full px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded shadow-sm transition-colors disabled:opacity-50"
+              >
+                {isAutoEnablingEnvironment ? 'Provisioning...' : '⚡ Provision Custom Roles'}
+              </button>
+            ) : (
+              <span className="text-[11px] text-green-400 font-medium block text-center py-1">
+                ✓ Zero Bypass Perms Verified
+              </span>
+            )}
           </div>
         </div>
 
@@ -438,9 +508,9 @@ gcloud projects add-iam-policy-binding ${projectId} \\
             </h4>
             <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
               {!readiness.adminPermissionsTested
-                ? 'Requires Discovery Engine Admin + Project IAM Admin to modify policies.'
+                ? 'Requires Discovery Engine Admin + Role Admin + Project IAM Admin to modify policies.'
                 : readiness.missingAdminPermissions.length === 0
-                ? 'Your account has all required permissions to enable resource access control and set project & DataStore ACLs.'
+                ? 'Your account has all required permissions to provision custom roles, enable resource access control, and set ACLs.'
                 : `Missing: ${readiness.missingAdminPermissions.slice(0, 2).join(', ')}${
                     readiness.missingAdminPermissions.length > 2
                       ? ` (+${readiness.missingAdminPermissions.length - 2} more)`
@@ -482,7 +552,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
             </h4>
             <div className="mt-1 space-y-1 text-[11px] text-gray-400">
               <div>
-                • Broad Role Bypasses:{' '}
+                • Project Role Bypasses:{' '}
                 <strong className={broadRoleUsers.length > 0 ? 'text-yellow-300' : 'text-green-400'}>
                   {broadRoleUsers.length} principal(s)
                 </strong>
@@ -595,29 +665,29 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                 {cmdEnableProjectOptIn}
               </pre>
               <p className="text-[11px] text-gray-400">
-                Or in Cloud Console: <strong>Gemini Enterprise → Settings → Resource access control</strong> and toggle on.
+                Or in Cloud Console: <strong>Gemini Enterprise → Settings → Resource access control</strong> (toggles all multi-regions at once).
               </p>
             </div>
 
-            {/* Command 2: Grant Predefined Project Baseline Roles */}
+            {/* Command 2: Create & Bind GA Custom Restricted Roles */}
             <div className="bg-gray-800/80 p-3.5 rounded-lg border border-gray-700 space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-white">
-                  Step 1b: Grant Predefined Baseline Roles on Project (gcloud)
+                  Step 1b: Create &amp; Bind GA Custom Project Roles (gcloud)
                 </span>
                 <button
                   type="button"
-                  onClick={() => copyToClipboard(cmdGrantBaselineProjectRoles, 'cmd-grant-roles')}
+                  onClick={() => copyToClipboard(cmdCreateAndGrantCustomRoles, 'cmd-grant-roles')}
                   className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
                 >
                   {copiedKey === 'cmd-grant-roles' ? 'Copied ✓' : 'Copy'}
                 </button>
               </div>
               <pre className="p-2.5 bg-gray-950 rounded text-[11px] font-mono text-blue-200 overflow-x-auto select-all">
-                {cmdGrantBaselineProjectRoles}
+                {cmdCreateAndGrantCustomRoles}
               </pre>
               <p className="text-[11px] text-gray-400">
-                Grants <code className="text-blue-300">{AGENTSPACE_RESTRICTED_USER_ROLE}</code> and <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> at the project level.
+                Creates &amp; binds <code className="text-blue-300">projects/{projectId}/roles/{CUSTOM_RESTRICTED_END_USER_ROLE_ID}</code> + <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code>.
               </p>
             </div>
 

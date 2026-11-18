@@ -309,19 +309,19 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
         </div>
       )}
 
-      <div className="overflow-x-auto">
+      <div className="gem-table-container" role="region" aria-label="Provisioned redirect URLs table" tabIndex={0}>
         <table className="min-w-full divide-y divide-gray-700">
           <caption className="sr-only">
             Redirect URL infrastructure provisioned in project {projectId}
           </caption>
           <thead className="bg-gray-900/50">
             <tr>
-              <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Service</th>
-              <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Mode</th>
-              <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Domain(s)</th>
-              <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">IP</th>
-              <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-              <th scope="col" className="relative px-4 py-2.5"><span className="sr-only">Actions</span></th>
+              <th scope="col" className="px-3 xl:px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">Service</th>
+              <th scope="col" className="gem-col-lg px-3 xl:px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">Mode</th>
+              <th scope="col" className="px-3 xl:px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">Domain(s)</th>
+              <th scope="col" className="gem-col-xl px-3 xl:px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">IP</th>
+              <th scope="col" className="px-3 xl:px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">Status</th>
+              <th scope="col" className="gem-sticky-action-th relative px-3 xl:px-4 py-2.5 text-right text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody className="bg-gray-800 divide-y divide-gray-700 text-sm">
@@ -341,13 +341,13 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
                   redirect.belongsToThisAssistant ? '' : 'opacity-60'
                 }`}
               >
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <div className="font-medium text-white">{redirect.serviceName}</div>
+                <td className="px-3 xl:px-4 py-3 whitespace-nowrap">
+                  <div className="font-medium text-white max-w-[200px] xl:max-w-[280px] truncate" title={redirect.serviceName}>{redirect.serviceName}</div>
                   {!redirect.belongsToThisAssistant && (
                     <div className="text-xs text-amber-400 mt-0.5">Other assistant</div>
                   )}
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap">
+                <td className="gem-col-lg px-3 xl:px-4 py-3 whitespace-nowrap">
                   <span
                     className={`px-2 py-0.5 inline-flex text-xs font-bold rounded-md border ${
                       redirect.routingMode === 'private'
@@ -358,19 +358,19 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
                     {redirect.routingMode === 'private' ? 'Private (PSC)' : 'Public (GLB)'}
                   </span>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-3 xl:px-4 py-3">
                   {redirect.domains.length > 0 ? (
                     redirect.domains.map((domain) => (
-                      <div key={domain} className="text-blue-400">{domain}</div>
+                      <div key={domain} className="text-blue-400 truncate max-w-[200px] xl:max-w-[280px]" title={domain}>{domain}</div>
                     ))
                   ) : (
                     <span className="text-gray-500 italic">None</span>
                   )}
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap text-gray-300 font-mono select-all">
+                <td className="gem-col-xl px-3 xl:px-4 py-3 whitespace-nowrap text-gray-300 font-mono select-all">
                   {redirect.ipAddress}
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap">
+                <td className="px-3 xl:px-4 py-3 whitespace-nowrap">
                   {dismantling.has(redirect.serviceName) ? (
                     <span className="px-2 py-0.5 inline-flex items-center gap-1.5 text-xs font-semibold rounded-md border bg-amber-900/40 text-amber-300 border-amber-800">
                       <span className="animate-spin rounded-full h-2.5 w-2.5 border border-amber-300/30 border-t-amber-300" />
@@ -380,7 +380,7 @@ export const ProvisionedRedirectList: React.FC<ProvisionedRedirectListProps> = (
                     <span className="text-xs text-gray-400">{redirect.certStatus}</span>
                   )}
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap text-right">
+                <td className="gem-sticky-action-td px-3 xl:px-4 py-3 whitespace-nowrap text-right">
                   <button
                     type="button"
                     onClick={() => setRedirectToDelete(redirect)}

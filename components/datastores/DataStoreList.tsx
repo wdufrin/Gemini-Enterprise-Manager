@@ -133,11 +133,11 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
       {dataStores.length === 0 ? (
         <p className="text-gray-400 p-6 text-center">No data stores found for the provided configuration.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="gem-table-container" role="region" aria-label="Data stores table" tabIndex={0}>
           <table className="min-w-full divide-y divide-gray-700">
             <thead className="bg-gray-700/50">
               <tr>
-                <th scope="col" className="px-4 py-3 w-10">
+                <th scope="col" className="px-3 xl:px-4 py-3 w-10">
                   <input
                       type="checkbox"
                       checked={isAllSelected}
@@ -147,9 +147,9 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
                   />
                 </th>
                 <SortableHeader label="Display Name" sortKey="displayName" />
-                <SortableHeader label="Data Store ID" sortKey="name" />
-                <SortableHeader label="Solution Types" sortKey="solutionTypes" />
-                <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Actions</th>
+                <SortableHeader label="Data Store ID" sortKey="name" className="gem-col-xl" />
+                <SortableHeader label="Solution Types" sortKey="solutionTypes" className="gem-col-lg" />
+                <th scope="col" className="gem-sticky-action-th px-3 xl:px-4 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-gray-800 divide-y divide-gray-700">
@@ -159,8 +159,8 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
                 const storeId = store.name.split('/').pop() || '';
 
                 return (
-                  <tr key={store.name} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
-                    <td className="px-4 py-3">
+                  <tr key={store.name} className={`${isSelected ? 'bg-blue-900/50 gem-row-selected' : 'hover:bg-gray-700/50'} transition-colors`}>
+                    <td className="px-3 xl:px-4 py-3">
                         <input
                             type="checkbox"
                             checked={isSelected}
@@ -169,10 +169,22 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
                             className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
                         />
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-white max-w-[200px] xl:max-w-[280px] truncate" title={store.displayName}>{store.displayName}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-400 font-mono max-w-[180px] xl:max-w-[240px] truncate" title={storeId}>{storeId}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{store.solutionTypes?.join(', ')}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium space-x-3">
+                    <td className="px-3 xl:px-4 py-3 whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => onSelectDataStore(store)}
+                        className="text-left text-sm font-medium text-white hover:text-blue-400 transition-colors block max-w-[200px] xl:max-w-[280px] truncate"
+                        title={store.displayName}
+                      >
+                        {store.displayName}
+                      </button>
+                      <div className="gem-hide-xl text-[11px] text-gray-400 font-mono truncate max-w-[200px] mt-0.5" title={storeId}>
+                        {storeId}
+                      </div>
+                    </td>
+                    <td className="gem-col-xl px-3 xl:px-4 py-3 whitespace-nowrap text-xs text-gray-400 font-mono max-w-[180px] xl:max-w-[240px] truncate" title={storeId}>{storeId}</td>
+                    <td className="gem-col-lg px-3 xl:px-4 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-300">{store.solutionTypes?.join(', ')}</td>
+                    <td className="gem-sticky-action-td px-3 xl:px-4 py-3 whitespace-nowrap text-right text-sm font-medium space-x-2.5 xl:space-x-3">
                         <button
                             onClick={() => onSelectDataStore(store)}
                             className="font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500"

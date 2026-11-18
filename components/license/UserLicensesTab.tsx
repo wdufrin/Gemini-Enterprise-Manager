@@ -290,11 +290,11 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
 
         {userLicenses.length > 0 ? (
           <>
-            <div className="overflow-x-auto">
+            <div className="gem-table-container" role="region" aria-label="User licenses table" tabIndex={0}>
               <table className="min-w-full divide-y divide-gray-700 bg-gray-900">
                 <thead className="bg-gray-700/50">
                   <tr>
-                    <th scope="col" className="px-6 py-3 border-b border-gray-700 bg-gray-700 w-10 text-center">
+                    <th scope="col" className="px-3 xl:px-5 py-3 border-b border-gray-700 bg-gray-700 w-10 text-center">
                       <input
                         type="checkbox"
                         aria-label="Select all users"
@@ -309,7 +309,7 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                     <th
                       scope="col"
                       aria-sort={sortConfig.key === 'userPrincipal' ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider"
+                      className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
                     >
                       <button
                         type="button"
@@ -324,7 +324,7 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                     <th
                       scope="col"
                       aria-sort={sortConfig.key === 'licenseAssignmentState' ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider"
+                      className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
                     >
                       <button
                         type="button"
@@ -339,7 +339,7 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                     <th
                       scope="col"
                       aria-sort={sortConfig.key === 'licenseConfig' ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider"
+                      className="gem-col-lg px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
                     >
                       <button
                         type="button"
@@ -353,14 +353,14 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                     </th>
                     <th
                       scope="col"
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider"
+                      className="gem-col-2xl px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
                     >
                       License ID
                     </th>
                     <th
                       scope="col"
                       aria-sort={sortConfig.key === 'lastLoginTime' ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider"
+                      className="gem-col-xl px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
                     >
                       <button
                         type="button"
@@ -372,14 +372,14 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                         <SortIcon active={sortConfig.key === 'lastLoginTime'} direction={sortConfig.direction} />
                       </button>
                     </th>
-                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="gem-sticky-action-th px-3 xl:px-5 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       Actions
                     </th>
                   </tr>
                   {/* Filter Row */}
                   <tr>
-                    <th className="px-6 py-2 bg-gray-800 border-b border-gray-700"></th>
-                    <th className="px-6 py-2 bg-gray-800 border-b border-gray-700">
+                    <th className="px-3 xl:px-5 py-2 bg-gray-800 border-b border-gray-700"></th>
+                    <th className="px-3 xl:px-5 py-2 bg-gray-800 border-b border-gray-700">
                       <input
                         type="text"
                         placeholder="Filter Principal..."
@@ -393,7 +393,7 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                         className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-white"
                       />
                     </th>
-                    <th className="px-6 py-2 bg-gray-800 border-b border-gray-700">
+                    <th className="px-3 xl:px-5 py-2 bg-gray-800 border-b border-gray-700">
                       <select
                         value={filterStatus}
                         aria-label="Filter Status"
@@ -405,7 +405,7 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                         <option value="UNASSIGNED">UNASSIGNED</option>
                       </select>
                     </th>
-                    <th className="px-6 py-2 bg-gray-800 border-b border-gray-700">
+                    <th className="gem-col-lg px-3 xl:px-5 py-2 bg-gray-800 border-b border-gray-700">
                       <input
                         type="text"
                         placeholder="Filter Config..."
@@ -419,8 +419,8 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                         className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-white"
                       />
                     </th>
-                    <th className="px-6 py-2 bg-gray-800 border-b border-gray-700"></th>
-                    <th className="px-6 py-2 bg-gray-800 border-b border-gray-700">
+                    <th className="gem-col-2xl px-3 xl:px-5 py-2 bg-gray-800 border-b border-gray-700"></th>
+                    <th className="gem-col-xl px-3 xl:px-5 py-2 bg-gray-800 border-b border-gray-700">
                       <div className="flex space-x-1">
                         <select
                           title="Date Operator"
@@ -460,7 +460,7 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                         )}
                       </div>
                     </th>
-                    <th className="px-6 py-2 bg-gray-800 border-b border-gray-700 text-right">
+                    <th className="gem-sticky-action-th px-3 xl:px-5 py-2 bg-gray-800 border-b border-gray-700 text-right">
                       {(filterPrincipal ||
                         inputPrincipal ||
                         filterStatus ||
@@ -478,7 +478,7 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                             setFilterDateValue('');
                             setInputDateValue('');
                           }}
-                          className="text-xs text-blue-400 hover:text-blue-300 underline"
+                          className="text-xs text-blue-400 hover:text-blue-300 underline whitespace-nowrap"
                         >
                           Clear All
                         </button>
@@ -503,10 +503,10 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                       <tr
                         key={license.name || `${license.userPrincipal}-${idx}`}
                         className={`hover:bg-gray-700/50 transition-colors ${
-                          selectedUsers.has(license.userPrincipal) ? 'bg-blue-900/20' : ''
+                          selectedUsers.has(license.userPrincipal) ? 'bg-blue-900/20 gem-row-selected' : ''
                         }`}
                       >
-                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                        <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap text-center">
                           {license.userPrincipal && (
                             <input
                               type="checkbox"
@@ -517,10 +517,13 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                             />
                           )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
-                          {license.userPrincipal || 'Unknown User'}
+                        <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap text-sm font-medium text-white max-w-[220px] xl:max-w-[300px] truncate" title={license.userPrincipal || 'Unknown User'}>
+                          <div>{license.userPrincipal || 'Unknown User'}</div>
+                          <div className="gem-hide-lg text-[11px] text-gray-400 font-normal truncate mt-0.5" title={friendlyName}>
+                            {friendlyName}
+                          </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap text-sm">
                           <span
                             className={`px-2 py-1 rounded-full text-xs font-semibold ${
                               isAssigned
@@ -531,17 +534,17 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                             {license.licenseAssignmentState}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300" title={resourceName}>
+                        <td className="gem-col-lg px-3 xl:px-5 py-3.5 whitespace-nowrap text-xs xl:text-sm text-gray-300" title={resourceName}>
                           {friendlyName}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-mono">
+                        <td className="gem-col-2xl px-3 xl:px-5 py-3.5 whitespace-nowrap text-xs text-gray-300 font-mono max-w-[180px] truncate">
                           {licenseId}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                        <td className="gem-col-xl px-3 xl:px-5 py-3.5 whitespace-nowrap text-xs xl:text-sm text-gray-300">
                           {license.lastLoginTime ? new Date(license.lastLoginTime).toLocaleString() : 'Never'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <div className="flex items-center justify-end gap-3">
+                        <td className="gem-sticky-action-td px-3 xl:px-5 py-3.5 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex items-center justify-end gap-2.5">
                             <button
                               onClick={() => setJsonModalData(license)}
                               className="text-blue-400 hover:text-blue-300 flex items-center"
@@ -564,7 +567,7 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                               aria-label={`Revoke license for ${license.userPrincipal}`}
                             >
                               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 000-2H7z" clipRule="evenodd" />
                               </svg>
                             </button>
                             <button

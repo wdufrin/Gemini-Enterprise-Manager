@@ -170,37 +170,37 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
           </select>
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="gem-table-container" role="region" aria-label="Connector collections table" tabIndex={0}>
         <table className="min-w-full divide-y divide-gray-700">
           <thead className="bg-gray-700/50">
             <tr>
               <th
                 scope="col"
-                className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                className="px-3 xl:px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
               >
                 Display Name
               </th>
               <th
                 scope="col"
-                className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                className="gem-col-xl px-3 xl:px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
               >
                 Collection ID
               </th>
               <th
                 scope="col"
-                className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                className="px-3 xl:px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
               >
                 Status
               </th>
               <th
                 scope="col"
-                className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                className="gem-col-lg px-3 xl:px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
               >
                 Associated App
               </th>
               <th
                 scope="col"
-                className="px-4 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                className="gem-sticky-action-th px-3 xl:px-4 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
               >
                 Action
               </th>
@@ -223,7 +223,7 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                     key={collection.name}
                     className="hover:bg-gray-700/50 transition-colors"
                   >
-                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-white">
+                    <td className="px-3 xl:px-4 py-3 whitespace-nowrap text-sm font-medium text-white">
                       {editingId === collection.name ? (
                         <form
                           onSubmit={(e) => {
@@ -255,40 +255,47 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                           </button>
                         </form>
                       ) : (
-                        <div className="flex items-center gap-2 group">
-                          <span className="truncate max-w-[200px] xl:max-w-[280px]" title={collection.displayName || collectionId}>
-                            {collection.displayName || collectionId}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingId(collection.name);
-                              setEditName(
-                                collection.displayName || collectionId
-                              );
-                            }}
-                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity shrink-0"
-                            title="Edit Name"
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              className="h-4 w-4"
-                              viewBox="0 0 20 20"
-                              fill="currentColor"
+                        <div>
+                          <div className="flex items-center gap-2 group">
+                            <span className="truncate max-w-[190px] xl:max-w-[280px]" title={collection.displayName || collectionId}>
+                              {collection.displayName || collectionId}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingId(collection.name);
+                                setEditName(
+                                  collection.displayName || collectionId
+                                );
+                              }}
+                              className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity shrink-0"
+                              title="Edit Name"
                             >
-                              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                            </svg>
-                          </button>
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-4 w-4"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                              >
+                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                              </svg>
+                            </button>
+                          </div>
+                          {collection.displayName && collection.displayName !== collectionId && (
+                            <div className="gem-hide-xl text-[11px] text-gray-400 font-mono truncate max-w-[190px] mt-0.5" title={collectionId}>
+                              {collectionId}
+                            </div>
+                          )}
                         </div>
                       )}
                     </td>
                     <td
-                      className="px-4 py-3 whitespace-nowrap text-xs text-gray-400 font-mono max-w-[180px] xl:max-w-[240px] truncate"
+                      className="gem-col-xl px-3 xl:px-4 py-3 whitespace-nowrap text-xs text-gray-400 font-mono max-w-[180px] xl:max-w-[240px] truncate"
                       title={collectionId}
                     >
                       {collectionId}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm">
+                    <td className="px-3 xl:px-4 py-3 whitespace-nowrap text-sm">
                       {result ? (
                         <button
                           type="button"
@@ -360,7 +367,7 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 whitespace-normal text-sm">
+                    <td className="gem-col-lg px-3 xl:px-4 py-3 whitespace-normal text-sm">
                       {(() => {
                         const apps = getAssociatedApps(collection.name);
                         if (apps.length === 0) {
@@ -395,7 +402,7 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                         );
                       })()}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
+                    <td className="gem-sticky-action-td px-3 xl:px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
                       <button
                         type="button"
                         onClick={() => onCheckDataConnector(collection)}

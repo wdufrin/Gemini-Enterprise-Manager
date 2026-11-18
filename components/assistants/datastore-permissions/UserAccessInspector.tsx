@@ -249,6 +249,11 @@ export const UserAccessInspector: React.FC<UserAccessInspectorProps> = ({
                               {u.broadRoles.map(r => (
                                 <span
                                   key={r}
+                                  title={
+                                    r === 'roles/discoveryengine.agentspaceRestrictedUser'
+                                      ? 'App-Only mode role — includes collections.get & dataStores.get which bypass DataStore ACLs. Click Isolate to replace with customRestrictedEndUser.'
+                                      : 'Project-wide role that bypasses DataStore-level IAM restrictions.'
+                                  }
                                   className="px-1.5 py-0.5 bg-gray-900 text-red-400 font-mono text-[10px] rounded border border-red-800/60"
                                 >
                                   {r.replace('roles/', '')}
@@ -258,17 +263,29 @@ export const UserAccessInspector: React.FC<UserAccessInspectorProps> = ({
                           </div>
                         ) : u.hasRestrictedUserRole ? (
                           <div className="flex flex-wrap gap-1">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-green-900/50 text-green-400 border border-green-700">
-                              🟢 agentspaceRestrictedUser
-                            </span>
+                            {u.hasCustomEndUserRole && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-green-900/50 text-green-400 border border-green-700">
+                                🟢 customRestrictedEndUser
+                              </span>
+                            )}
+                            {u.hasCustomAdminRole && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-900/50 text-indigo-300 border border-indigo-700">
+                                🟢 customRestrictedAdmin
+                              </span>
+                            )}
                             {u.hasNotebookLmRole && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-900/50 text-purple-300 border border-purple-700">
                                 + notebookLmUser
                               </span>
                             )}
+                            {u.hasAiDevToolsRoles && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-900/50 text-cyan-300 border border-cyan-700">
+                                + AI Dev Tools
+                              </span>
+                            )}
                           </div>
                         ) : (
-                          <span className="text-[11px] text-gray-500 italic">No Restricted User Role</span>
+                          <span className="text-[11px] text-gray-500 italic">No Custom Restricted Role</span>
                         )}
                       </div>
                     </td>

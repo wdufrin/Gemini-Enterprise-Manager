@@ -17,16 +17,19 @@
 import React, { useState } from 'react';
 import {
   AGENTSPACE_ADMIN_ROLE,
-  AGENTSPACE_RESTRICTED_USER_ROLE,
   AGENTSPACE_USER_ROLE,
   AGENTSPACE_VIEWER_ROLE,
+  BUSINESS_AI_CODE_USER_ROLE,
+  CLOUD_AI_COMPANION_USER_ROLE,
   ConnectorResource,
+  buildCustomRestrictedRoleName,
   LegacyDataStoreResource,
   NOTEBOOK_LM_USER_ROLE,
   ResourceLevelRole,
 } from './types';
 
 interface AccessGrantWizardProps {
+  projectId?: string;
   isWizardOpen: boolean;
   onToggleOpen: () => void;
   targetMembersInput: string;
@@ -40,6 +43,8 @@ interface AccessGrantWizardProps {
   onChangeResourceRole?: (role: ResourceLevelRole) => void;
   wizardGrantNotebookLmRole?: boolean;
   onChangeGrantNotebookLmRole?: (val: boolean) => void;
+  wizardGrantAiDevToolsRoles?: boolean;
+  onChangeGrantAiDevToolsRoles?: (val: boolean) => void;
   selectedResourcesForGrant: Record<string, boolean>;
   onChangeSelectedResources: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   connectors: ConnectorResource[];
@@ -56,6 +61,7 @@ interface AccessGrantWizardProps {
 }
 
 export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
+  projectId = 'PROJECT_ID',
   isWizardOpen,
   onToggleOpen,
   targetMembersInput,
@@ -69,6 +75,8 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
   onChangeResourceRole,
   wizardGrantNotebookLmRole = true,
   onChangeGrantNotebookLmRole,
+  wizardGrantAiDevToolsRoles = false,
+  onChangeGrantAiDevToolsRoles,
   selectedResourcesForGrant,
   onChangeSelectedResources,
   connectors,
@@ -85,6 +93,9 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
 }) => {
   const [showUnattachedSection, setShowUnattachedSection] = useState(false);
 
+  const persona = wizardResourceRole === AGENTSPACE_USER_ROLE ? 'endUser' : 'admin';
+  const targetCustomProjectRole = buildCustomRestrictedRoleName(projectId, persona);
+
   const hasAnyAttached =
     connectors.some(c => c.isAttached) || legacyDataStores.some(ds => ds.isAttached);
 
@@ -95,73 +106,67 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
   const unattachedDataStores = hasAnyAttached ? legacyDataStores.filter(ds => !ds.isAttached) : [];
   const totalUnattachedCount = unattachedConnectors.length + unattachedDataStores.length;
 
-  const renderConnectorItem = (conn: ConnectorResource) => (
-    <div key={conn.id} className="bg-gray-800/80 p-3 rounded-lg border border-gray-700/80">
-      <label className="flex items-center gap-2.5 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={!!selectedResourcesForGrant[`connector:${conn.id}`]}
-          onChange={(e) => {
-            const val = e.target.checked;
-            onChangeSelectedResources(prev => {
-              const updated = { ...prev, [`connector:${conn.id}`]: val };
-              conn.entities.forEach(ent => {
-                updated[`entity:${ent.id}`] = val;
+  const renderConnectorItem = (conn: ConnectorResource) => {
+    const isConnectorSelected = !!selectedResourcesForGrant[`connector:${conn.id}`];
+    return (
+      <div key={conn.id} className="bg-gray-800/80 p-3 rounded-lg border border-gray-700/80">
+        <label className="flex items-center gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isConnectorSelected}
+            onChange={(e) => {
+              const val = e.target.checked;
+              onChangeSelectedResources(prev => {
+                const updated = { ...prev, [`connector:${conn.id}`]: val };
+                conn.entities.forEach(ent => {
+                  updated[`entity:${ent.id}`] = val;
+                });
+                return updated;
               });
-              return updated;
-            });
-          }}
-          className="rounded bg-gray-700 border-gray-600 text-purple-600 focus:ring-purple-500"
-        />
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-bold text-purple-300 font-mono">{conn.id}</span>
-          <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-950 text-purple-300 border border-purple-800">
-            DataConnector
-          </span>
-          {conn.isAttached ? (
-            <span className="px-1.5 py-0.5 rounded text-[10px] bg-green-950 text-green-300 border border-green-800">
-              Attached to App
+            }}
+            className="rounded bg-gray-700 border-gray-600 text-purple-600 focus:ring-purple-500"
+          />
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-purple-300 font-mono">{conn.id}</span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-950 text-purple-300 border border-purple-800">
+              DataConnector
             </span>
-          ) : (
-            <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-900 text-gray-400 border border-gray-700">
-              Unlinked Project Resource
-            </span>
-          )}
-        </div>
-      </label>
+            {conn.isAttached ? (
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-green-950 text-green-300 border border-green-800">
+                Attached to App
+              </span>
+            ) : (
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-900 text-gray-400 border border-gray-700">
+                Unlinked Project Resource
+              </span>
+            )}
+          </div>
+        </label>
 
-      {/* Connector Entities */}
-      {conn.entities.length > 0 && (
-        <div className="mt-2 pl-6 space-y-1.5 border-l-2 border-purple-900/50 ml-2">
-          {conn.entities.map(ent => (
-            <label key={ent.id} className="flex items-center gap-2 cursor-pointer text-xs">
-              <input
-                type="checkbox"
-                checked={!!selectedResourcesForGrant[`entity:${ent.id}`]}
-                onChange={(e) => {
-                  const val = e.target.checked;
-                  onChangeSelectedResources(prev => {
-                    const updated = {
-                      ...prev,
-                      [`entity:${ent.id}`]: val,
-                    };
-                    const anyEntityChecked = conn.entities.some(child =>
-                      child.id === ent.id ? val : !!updated[`entity:${child.id}`]
-                    );
-                    updated[`connector:${conn.id}`] = anyEntityChecked;
-                    return updated;
-                  });
-                }}
-                className="rounded bg-gray-700 border-gray-600 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-gray-300 font-mono text-[11px]">{ent.id}</span>
-              <span className="text-[10px] text-gray-500">(Entity DataStore)</span>
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+        {/* Connector Entities (Locked atomically to parent DataConnector per GA requirements) */}
+        {conn.entities.length > 0 && (
+          <div className="mt-2 pl-6 space-y-1.5 border-l-2 border-purple-900/50 ml-2">
+            <div className="text-[10px] text-purple-300/80">
+              GA rule: Collection &amp; all {conn.entities.length} child Entity DataStore(s) are granted/revoked together:
+            </div>
+            {conn.entities.map(ent => (
+              <div key={ent.id} className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={isConnectorSelected}
+                  disabled
+                  aria-label={`Entity ${ent.id} (synced with ${conn.id})`}
+                  className="rounded bg-gray-800 border-gray-600 text-purple-500 opacity-75 cursor-not-allowed"
+                />
+                <span className="text-gray-300 font-mono text-[11px]">{ent.id}</span>
+                <span className="text-[10px] text-gray-500">(Entity DataStore — synced with connector)</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderDataStoreItem = (ds: LegacyDataStoreResource) => (
     <div key={ds.id} className="bg-gray-800/80 p-3 rounded-lg border border-gray-700/80">
@@ -180,7 +185,7 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-bold text-gray-200 font-mono">{ds.id}</span>
           <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-950 text-blue-300 border border-blue-800">
-            Legacy DataStore
+            Standalone DataStore
           </span>
           {ds.isAttached ? (
             <span className="px-1.5 py-0.5 rounded text-[10px] bg-green-950 text-green-300 border border-green-800">
@@ -207,8 +212,8 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
             ⚡
           </div>
           <div>
-            <h3 className="text-base font-bold text-white">Interactive End-User Permission Provisioner</h3>
-            <p className="text-xs text-gray-400">Automates Steps 1 - 4 in 1-Click with live post-audit verification</p>
+            <h3 className="text-base font-bold text-white">Interactive End-User &amp; Delegated Admin Provisioner</h3>
+            <p className="text-xs text-gray-400">Automates GA Steps 1 - 4 in 1-Click with custom role verification &amp; ETag retry</p>
           </div>
         </div>
         <svg
@@ -303,7 +308,7 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
           </div>
 
           {/* Workflow Step Options */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Step 1a Checkbox */}
             <div className="bg-gray-900/60 p-3.5 rounded-lg border border-gray-700/80 space-y-2">
               <label className="flex items-start gap-2.5 cursor-pointer">
@@ -314,9 +319,9 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
                   className="mt-1 rounded bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500"
                 />
                 <div>
-                  <span className="text-xs font-bold text-white block">Step 1a: Grant Restricted User Role</span>
+                  <span className="text-xs font-bold text-white block">Step 1a: GA Custom Project Role</span>
                   <span className="text-[11px] text-gray-400 block mt-0.5">
-                    {wizardGrantProjectRole ? 'Grant' : 'Revoke'} <code className="text-blue-300">{AGENTSPACE_RESTRICTED_USER_ROLE}</code> at project level.
+                    {wizardGrantProjectRole ? 'Grant' : 'Revoke'} <code className="text-blue-300 break-all">{targetCustomProjectRole}</code> (auto-created if missing).
                   </span>
                 </div>
               </label>
@@ -334,7 +339,25 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
                 <div>
                   <span className="text-xs font-bold text-white block">Step 1b: Grant NotebookLM Role</span>
                   <span className="text-[11px] text-gray-400 block mt-0.5">
-                    Also grant <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> at project level for NotebookLM Enterprise.
+                    Grant <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> at project level for NotebookLM Enterprise.
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            {/* Step 1c Checkbox: AI Developer Tools */}
+            <div className="bg-gray-900/60 p-3.5 rounded-lg border border-gray-700/80 space-y-2">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={wizardGrantAiDevToolsRoles}
+                  onChange={(e) => onChangeGrantAiDevToolsRoles?.(e.target.checked)}
+                  className="mt-1 rounded bg-gray-800 border-gray-600 text-cyan-600 focus:ring-cyan-500"
+                />
+                <div>
+                  <span className="text-xs font-bold text-white block">Step 1c: AI Dev Tools (Optional)</span>
+                  <span className="text-[11px] text-gray-400 block mt-0.5">
+                    Grant <code className="text-cyan-300">{CLOUD_AI_COMPANION_USER_ROLE}</code> + <code className="text-cyan-300">{BUSINESS_AI_CODE_USER_ROLE}</code>.
                   </span>
                 </div>
               </label>
@@ -358,7 +381,7 @@ export const AccessGrantWizard: React.FC<AccessGrantWizardProps> = ({
               </label>
               {onChangeResourceRole && (
                 <div className="pl-6">
-                  <label className="block text-[10px] text-gray-400 mb-1">Resource Role (App & DataStores):</label>
+                  <label className="block text-[10px] text-gray-400 mb-1">Resource Role (App &amp; DataStores):</label>
                   <select
                     aria-label="Resource Role (App & DataStores)"
                     value={wizardResourceRole}

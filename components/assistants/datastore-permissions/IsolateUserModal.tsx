@@ -16,8 +16,8 @@
 
 import React, { useRef, useState } from 'react';
 import {
-  AGENTSPACE_RESTRICTED_USER_ROLE,
   BROAD_PROJECT_ROLES,
+  buildCustomRestrictedRoleName,
   IsolateTarget,
   NOTEBOOK_LM_USER_ROLE,
 } from './types';
@@ -33,6 +33,7 @@ interface IsolateUserModalProps {
 
 export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
   isolateModalTarget,
+  projectId,
   isIsolating,
   onClose,
   onConfirm,
@@ -49,6 +50,7 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
 
   if (!isolateModalTarget) return null;
 
+  const customEndUserRoleName = buildCustomRestrictedRoleName(projectId, 'endUser');
   const rolesToDisplay =
     isolateModalTarget.broadRoles && isolateModalTarget.broadRoles.length > 0
       ? isolateModalTarget.broadRoles
@@ -76,7 +78,7 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
           </div>
           <div>
             <h3 id="isolate-user-modal-title" className="text-base font-bold text-white">Isolate User(s) for DataStore Control</h3>
-            <p className="text-xs text-gray-400">Convert {isolateModalTarget.members.length} user(s) to the restricted access model</p>
+            <p className="text-xs text-gray-400">Convert {isolateModalTarget.members.length} user(s) to the GA custom restricted access model</p>
           </div>
         </div>
 
@@ -97,7 +99,7 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
               <span>🔻 Roles to be REMOVED from Project Level:</span>
             </div>
             <div className="text-gray-400 pl-4 space-y-1">
-              <p>Broad roles that bypass DataStore-level ACLs:</p>
+              <p>Project-wide roles (including App-Only <code>agentspaceRestrictedUser</code>) that bypass DataStore ACLs:</p>
               <p className="font-mono text-[11px] text-red-400">
                 {rolesToDisplay.join(', ')}
               </p>
@@ -106,13 +108,13 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
 
           <div className="pt-2 border-t border-gray-800 space-y-1.5">
             <div className="text-green-300 flex items-center gap-1.5 font-medium">
-              <span>🟢 Predefined Roles to be GRANTED at Project Level:</span>
+              <span>🟢 GA Custom &amp; NotebookLM Roles to be GRANTED at Project Level:</span>
             </div>
             <p className="text-green-400 font-mono pl-4 text-[11px] break-all">
-              {AGENTSPACE_RESTRICTED_USER_ROLE}
+              {customEndUserRoleName}
             </p>
             <p className="text-[11px] text-gray-400 pl-4">
-              Predefined Gemini Enterprise Restricted User role for least-privilege access.
+              Automatically created/verified on project <code>{projectId}</code> with location-level OAuth &amp; user permissions and zero <code>collections.get</code> / <code>dataStores.get</code> bypasses.
             </p>
             <div className="pl-4 pt-1">
               <label className="flex items-start gap-2 cursor-pointer text-[11px] text-gray-300">
@@ -123,14 +125,14 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
                   className="mt-0.5 rounded bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500"
                 />
                 <span>
-                  Also grant <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> at project level (preserves Gemini Notebook Enterprise access)
+                  Also grant <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code> at project level (preserves NotebookLM Enterprise access)
                 </span>
               </label>
             </div>
           </div>
 
           <div className="pt-2 border-t border-gray-800 text-[11px] text-blue-300 bg-blue-950/30 p-2.5 rounded border border-blue-900/50">
-            👉 <strong>Next Step:</strong> After clearing broad roles and applying the predefined baseline roles, the provisioner wizard below will open automatically so you can grant access to the App Engine and pick specific DataStores!
+            👉 <strong>Next Step:</strong> After stripping bypass roles and granting <code>customRestrictedEndUser</code>, the provisioner wizard below will open automatically so you can grant access to the App Engine and specific DataStores/Connectors!
           </div>
         </div>
 

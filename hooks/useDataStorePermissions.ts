@@ -21,8 +21,12 @@ import {
   AGENTSPACE_RESTRICTED_USER_ROLE,
   AGENTSPACE_USER_ROLE,
   BROAD_PROJECT_ROLES,
+  BUSINESS_AI_CODE_USER_ROLE,
+  CLOUD_AI_COMPANION_USER_ROLE,
   ConnectorInconsistency,
   ConnectorResource,
+  CUSTOM_RESTRICTED_ADMIN_ROLE_ID,
+  CUSTOM_RESTRICTED_END_USER_ROLE_ID,
   EnvironmentReadinessState,
   IamPolicy,
   LegacyDataStoreResource,
@@ -30,11 +34,31 @@ import {
   PrincipalAccess,
   REQUIRED_ADMIN_PERMISSIONS,
   RESOURCE_LEVEL_ROLES,
+  ResourceLevelRole,
   UserAccessDetails,
 } from '../components/assistants/datastore-permissions/types';
+import { toErrorMessage } from '../utils/errors';
+import {
+  addMemberToRoles,
+  buildCustomRestrictedRoleName,
+  ensureCustomRestrictedProjectRole,
+  extractDataStoreAccessControlEnabled,
+  inspectCustomRestrictedRole,
+  removeMemberFromRoles,
+  RestrictedRolePersona,
+  retryIamReadModifyWrite,
+} from '../utils/iamPolicy';
 
 const isResourceLevelRole = (role?: string): boolean =>
   !!role && (RESOURCE_LEVEL_ROLES as readonly string[]).includes(role);
+
+const isCustomEndUserProjectRole = (role: string, projectId: string): boolean =>
+  role === buildCustomRestrictedRoleName(projectId, 'endUser') ||
+  role.endsWith(`/roles/${CUSTOM_RESTRICTED_END_USER_ROLE_ID}`);
+
+const isCustomAdminProjectRole = (role: string, projectId: string): boolean =>
+  role === buildCustomRestrictedRoleName(projectId, 'admin') ||
+  role.endsWith(`/roles/${CUSTOM_RESTRICTED_ADMIN_ROLE_ID}`);
 
 export const isPublicIamPrincipal = (m: string): boolean => {
   const normalized = m.trim().replace(/^user:/i, '').toLowerCase();
@@ -84,6 +108,9 @@ export function useDataStorePermissions(
     lastEvaluatedAt: null,
     dataStoreAccessControlEnabled: null,
     projectConfigError: null,
+    endUserCustomRoleReady: null,
+    adminCustomRoleReady: null,
+    customRoleError: null,
     v1IamApiSupported: null,
     v1IamApiError: null,
     adminPermissionsTested: false,
@@ -112,17 +139,62 @@ export function useDataStorePermissions(
       let projCfgErr: string | null = null;
       if (typeof api.getDiscoveryProjectConfig === 'function') {
         try {
-          const projCfg = (await api.getDiscoveryProjectConfig(
+          const projCfg = await api.getDiscoveryProjectConfig(
             projectId,
             config.appLocation || 'global'
-          )) as Record<string, any> | undefined;
-          const camelFlag =
-            projCfg?.customerProvidedConfig?.resourceAccessControlConfig?.dataStoreAccessControlEnabled;
-          const snakeFlag =
-            projCfg?.customer_provided_config?.resource_access_control_config?.data_store_access_control_enabled;
-          optInEnabled = (camelFlag ?? snakeFlag) === true;
+          );
+          optInEnabled = extractDataStoreAccessControlEnabled(projCfg);
         } catch (e: unknown) {
           projCfgErr = e instanceof Error ? e.message : String(e);
+        }
+      }
+
+      // 1.0a Check GA Custom Project Roles (`customRestrictedEndUser` & `customRestrictedAdmin`)
+      let endUserRoleReady: boolean | null = null;
+      let adminRoleReady: boolean | null = null;
+      let customRoleErr: string | null = null;
+      if (typeof api.getCustomRole === 'function') {
+        try {
+          const endUserRole = await api.getCustomRole(
+            projectId,
+            CUSTOM_RESTRICTED_END_USER_ROLE_ID
+          );
+          const endUserInspection = inspectCustomRestrictedRole(endUserRole, 'endUser');
+          endUserRoleReady = endUserInspection.valid;
+          if (!endUserInspection.valid) {
+            if (endUserInspection.reason === 'HAS_BYPASS_PERMISSIONS') {
+              customRoleErr = `customRestrictedEndUser contains DataStore-bypass permission(s): ${endUserInspection.forbiddenPermissions.join(', ')}`;
+            } else if (endUserInspection.reason === 'DELETED') {
+              customRoleErr = 'customRestrictedEndUser is currently in DELETED state.';
+            } else if (endUserInspection.missingRequiredPermissions.length > 0) {
+              customRoleErr = `customRestrictedEndUser is missing: ${endUserInspection.missingRequiredPermissions.join(', ')}`;
+            }
+          }
+        } catch (e: unknown) {
+          const msg = toErrorMessage(e, '');
+          if (/\b(404|NOT_FOUND|does not exist|was not found)\b/i.test(msg)) {
+            endUserRoleReady = false;
+          } else {
+            endUserRoleReady = false;
+            customRoleErr = msg;
+          }
+        }
+
+        try {
+          const adminRole = await api.getCustomRole(
+            projectId,
+            CUSTOM_RESTRICTED_ADMIN_ROLE_ID
+          );
+          const adminInspection = inspectCustomRestrictedRole(adminRole, 'admin');
+          adminRoleReady = adminInspection.valid;
+        } catch (e: unknown) {
+          const msg = toErrorMessage(e, '');
+          if (/\b(404|NOT_FOUND|does not exist|was not found)\b/i.test(msg)) {
+            adminRoleReady = false;
+          } else {
+            adminRoleReady = false;
+            if (!customRoleErr) customRoleErr = msg;
+          }
         }
       }
 
@@ -163,12 +235,15 @@ export function useDataStorePermissions(
         v1IamError = e instanceof Error ? e.message : String(e);
       }
 
-      // Update Card 1 (Resource Access Control), Card 3 (v1 IAM probe), and Card 4 (Admin Perms) immediately
+      // Update Card 1 (Resource Access Control), Card 2 (Custom Roles), Card 3 (v1 IAM probe), and Card 4 (Admin Perms) immediately
       // so the UI doesn't stay on 'Unverified' while fetching 20+ connector/datastore policies.
       setReadiness(prev => ({
         ...prev,
         dataStoreAccessControlEnabled: optInEnabled,
         projectConfigError: projCfgErr,
+        endUserCustomRoleReady: endUserRoleReady,
+        adminCustomRoleReady: adminRoleReady,
+        customRoleError: customRoleErr,
         v1IamApiSupported: v1IamSupported ?? prev.v1IamApiSupported,
         v1IamApiError: v1IamSupported ? null : v1IamError,
         adminPermissionsTested: adminPermsTested,
@@ -303,6 +378,9 @@ export function useDataStorePermissions(
         lastEvaluatedAt: new Date().toLocaleTimeString(),
         dataStoreAccessControlEnabled: optInEnabled,
         projectConfigError: projCfgErr,
+        endUserCustomRoleReady: endUserRoleReady,
+        adminCustomRoleReady: adminRoleReady,
+        customRoleError: customRoleErr,
         v1IamApiSupported: v1IamSupported ?? false,
         v1IamApiError: v1IamSupported ? null : v1IamError,
         adminPermissionsTested: adminPermsTested,
@@ -350,14 +428,38 @@ export function useDataStorePermissions(
     refreshAll();
   }, [refreshAll]);
 
+  const ensurePersonaCustomRole = useCallback(
+    async (persona: RestrictedRolePersona, onLog?: (msg: string) => void): Promise<string> => {
+      const roleName = buildCustomRestrictedRoleName(projectId, persona);
+      if (
+        typeof api.getCustomRole === 'function' &&
+        typeof api.createCustomRole === 'function'
+      ) {
+        const res = await ensureCustomRestrictedProjectRole({
+          projectId,
+          persona,
+          getCustomRole: api.getCustomRole,
+          createCustomRole: api.createCustomRole,
+          updateCustomRole: api.updateCustomRole,
+          undeleteCustomRole: api.undeleteCustomRole,
+          onLog,
+        });
+        return res.roleName;
+      }
+      return roleName;
+    },
+    [projectId]
+  );
+
   // Handle 1-Click Resource Access Control Toggle in Gemini Enterprise Settings
   const handleToggleProjectAccessControl = async (enabled: boolean) => {
     if (typeof api.updateDataStoreAccessControlConfig !== 'function') return;
     setIsTogglingProjectOptIn(true);
     setError(null);
     setSuccessMessage(null);
+    const loc = config.appLocation || 'global';
     try {
-      await api.updateDataStoreAccessControlConfig(projectId, enabled, config.appLocation || 'global');
+      await api.updateDataStoreAccessControlConfig(projectId, enabled, loc);
       setReadiness(prev => ({
         ...prev,
         dataStoreAccessControlEnabled: enabled,
@@ -365,8 +467,8 @@ export function useDataStorePermissions(
       }));
       setSuccessMessage(
         enabled
-          ? `Enabled Resource Access Control (dataStoreAccessControlEnabled=true) in Gemini Enterprise Settings on project '${projectId}'. Note: Backend serving caches may take ~5 minutes to propagate.`
-          : `Disabled Resource Access Control (dataStoreAccessControlEnabled=false) in Gemini Enterprise Settings on project '${projectId}'.`
+          ? `Enabled Resource Access Control (dataStoreAccessControlEnabled=true) on '${projectId}' in multi-region '${loc}'. Allow ~5 minutes for serving caches to propagate (repeat per multi-region if hosting apps in us/eu/global).`
+          : `Disabled Resource Access Control (dataStoreAccessControlEnabled=false) on '${projectId}' in multi-region '${loc}'.`
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -376,37 +478,65 @@ export function useDataStorePermissions(
     }
   };
 
-  // Handle 1-Click Automated Environment Setup (Enable Resource Access Control + Re-Verify)
+  // Handle 1-Click Automated Environment Setup (Provision GA Custom Roles + Enable Resource Access Control + Re-Verify)
   const handleAutoEnableEnvironment = async (onLog?: (msg: string) => void) => {
     setIsAutoEnablingEnvironment(true);
     setError(null);
     setSuccessMessage(null);
     const log = (m: string) => onLog?.(`[${new Date().toLocaleTimeString()}] ${m}`);
+    const loc = config.appLocation || 'global';
 
     try {
-      log(`Starting Automated Environment Enablement for project '${projectId}'...`);
+      log(`Starting Automated GA Environment Enablement for project '${projectId}' (multi-region: '${loc}')...`);
 
-      // Step 1: Predefined Project Roles Check
-      log(
-        `[Step 1/2] [VERIFIED ✓] Predefined project roles ('${AGENTSPACE_RESTRICTED_USER_ROLE}' and '${NOTEBOOK_LM_USER_ROLE}') are standard Google Cloud IAM roles.`
-      );
+      // Step 1: Provision / Verify customRestrictedEndUser & customRestrictedAdmin
+      if (
+        typeof api.getCustomRole === 'function' &&
+        typeof api.createCustomRole === 'function'
+      ) {
+        const endUserRes = await ensureCustomRestrictedProjectRole({
+          projectId,
+          persona: 'endUser',
+          getCustomRole: api.getCustomRole,
+          createCustomRole: api.createCustomRole,
+          updateCustomRole: api.updateCustomRole,
+          undeleteCustomRole: api.undeleteCustomRole,
+          onLog: (m) => log(`[Step 1/3] ${m}`),
+        });
+        log(
+          `[Step 1/3] [VERIFIED ✓] End-user custom role '${endUserRes.roleName}' (${endUserRes.action}).`
+        );
 
-      // Step 2: Enable Resource Access Control in Gemini Enterprise Settings
+        const adminRes = await ensureCustomRestrictedProjectRole({
+          projectId,
+          persona: 'admin',
+          getCustomRole: api.getCustomRole,
+          createCustomRole: api.createCustomRole,
+          updateCustomRole: api.updateCustomRole,
+          undeleteCustomRole: api.undeleteCustomRole,
+          onLog: (m) => log(`[Step 2/3] ${m}`),
+        });
+        log(
+          `[Step 2/3] [VERIFIED ✓] Delegated admin/viewer custom role '${adminRes.roleName}' (${adminRes.action}).`
+        );
+      }
+
+      // Step 3: Enable Resource Access Control in Gemini Enterprise Settings for this multi-region
       if (readiness.dataStoreAccessControlEnabled !== true && typeof api.updateDataStoreAccessControlConfig === 'function') {
         log(
-          `[Step 2/2] Enabling Resource Access Control (customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled) on project '${projectId}'...`
+          `[Step 3/3] Enabling Resource Access Control (customerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled) on project '${projectId}' in '${loc}'...`
         );
-        await api.updateDataStoreAccessControlConfig(projectId, true, config.appLocation || 'global');
-        log(`[VERIFIED ✓] Resource Access Control enabled in Gemini Enterprise Settings.`);
+        await api.updateDataStoreAccessControlConfig(projectId, true, loc);
+        log(`[VERIFIED ✓] Resource Access Control enabled in '${loc}'.`);
       } else {
-        log(`[Step 2/2] [VERIFIED ✓] Resource Access Control is already enabled in Gemini Enterprise Settings.`);
+        log(`[Step 3/3] [VERIFIED ✓] Resource Access Control is already enabled in '${loc}'.`);
       }
 
       log(`Re-evaluating environment readiness checks...`);
       await refreshAll();
-      log(`[COMPLETE ✓] Environment is ready for DataStore & Connector direct IAM entitlements! (Allow ~5 min for serving cache propagation).`);
+      log(`[COMPLETE ✓] Environment is ready for GA DataStore & Connector IAM entitlements! (Allow ~5 min for IAM/config propagation; test in an Incognito window).`);
       setSuccessMessage(
-        `Resource Access Control (dataStoreAccessControlEnabled) is active in Gemini Enterprise Settings and predefined roles ('${AGENTSPACE_RESTRICTED_USER_ROLE}' + '${NOTEBOOK_LM_USER_ROLE}') are ready to assign.`
+        `Resource Access Control is active in '${loc}' and GA custom project roles ('${CUSTOM_RESTRICTED_END_USER_ROLE_ID}' & '${CUSTOM_RESTRICTED_ADMIN_ROLE_ID}') are verified and ready to assign.`
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -417,7 +547,7 @@ export function useDataStorePermissions(
     }
   };
 
-  // Helper for Read-Modify-Write Update (Add or Remove)
+  // Helper for Read-Modify-Write Update (Add or Remove) with automatic backoff on ETag conflicts
   const syncPolicyRMW = async (
     resourceDesc: string,
     getFn: () => Promise<IamPolicy>,
@@ -428,72 +558,78 @@ export function useDataStorePermissions(
     isDryRun: boolean,
     addLog: (msg: string) => void
   ): Promise<boolean> => {
-    addLog(`[RMW] Fetching IAM policy for ${resourceDesc}...`);
-    let policy: IamPolicy;
-    try {
-      policy = await getFn();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      addLog(`[ERROR ❌] Failed to fetch policy for ${resourceDesc}: ${msg}`);
-      return false;
-    }
-
-    const etag = policy.etag || '';
-    let bindings = policy.bindings || [];
-
-    const targetBinding = bindings.find(b => b.role === role);
-    const hasRole = targetBinding?.members?.includes(member);
-
-    if (shouldGrant) {
-      if (hasRole) {
-        addLog(`[SKIP] '${member}' already has '${role}' on ${resourceDesc}.`);
-        return true;
-      }
-      if (targetBinding) {
-        targetBinding.members = [...(targetBinding.members || []), member];
-      } else {
-        bindings.push({
-          role: role,
-          members: [member],
-        });
-      }
-    } else {
-      // Revoke
-      if (!hasRole) {
-        addLog(`[SKIP] '${member}' does not have '${role}' on ${resourceDesc} (no removal needed).`);
-        return true;
-      }
-      bindings = bindings
-        .map(b => {
-          if (b.role === role) {
-            return {
-              ...b,
-              members: (b.members || []).filter(m => m !== member),
-            };
-          }
-          return b;
-        })
-        .filter(b => b.members && b.members.length > 0);
-    }
-
-    const payload = {
-      policy: {
-        etag,
-        bindings,
-      },
-    };
+    const applyMutation = (current: IamPolicy) =>
+      shouldGrant
+        ? addMemberToRoles(current, [role], member)
+        : removeMemberFromRoles(current, (r) => r === role, member);
 
     if (isDryRun) {
+      addLog(`[RMW] Fetching IAM policy for ${resourceDesc}...`);
+      let policy: IamPolicy;
+      try {
+        policy = await getFn();
+      } catch (err: unknown) {
+        addLog(`[ERROR ❌] Failed to fetch policy for ${resourceDesc}: ${toErrorMessage(err)}`);
+        return false;
+      }
+
+      const { changed } = applyMutation(policy);
+      if (!changed) {
+        addLog(
+          shouldGrant
+            ? `[SKIP] '${member}' already has '${role}' on ${resourceDesc}.`
+            : `[SKIP] '${member}' does not have '${role}' on ${resourceDesc} (no removal needed).`
+        );
+        return true;
+      }
+
       addLog(
         `[DRY-RUN] Would ${shouldGrant ? 'GRANT' : 'REVOKE'} '${role}' ${shouldGrant ? 'to' : 'from'} '${member}' on ${resourceDesc}.`
       );
       return true;
     }
 
-    addLog(
-      `[ACTION] ${shouldGrant ? 'Granting' : 'Revoking'} '${role}' ${shouldGrant ? 'to' : 'from'} '${member}' on ${resourceDesc}...`
-    );
-    await setFn(payload.policy);
+    let didMutate = false;
+    try {
+      await retryIamReadModifyWrite({
+        getPolicy: async () => {
+          addLog(`[RMW] Fetching IAM policy for ${resourceDesc}...`);
+          return getFn();
+        },
+        modify: (current) => {
+          const result = applyMutation(current);
+          didMutate = result.changed;
+          if (!result.changed) {
+            addLog(
+              shouldGrant
+                ? `[SKIP] '${member}' already has '${role}' on ${resourceDesc}.`
+                : `[SKIP] '${member}' does not have '${role}' on ${resourceDesc} (no removal needed).`
+            );
+          }
+          return result;
+        },
+        setPolicy: async (updatedPolicy) => {
+          addLog(
+            `[ACTION] ${shouldGrant ? 'Granting' : 'Revoking'} '${role}' ${shouldGrant ? 'to' : 'from'} '${member}' on ${resourceDesc}...`
+          );
+          const res = await setFn(updatedPolicy);
+          return res as IamPolicy | void;
+        },
+        onRetry: ({ attempt, maxRetries, delayMs }) => {
+          addLog(
+            `[RETRY] Concurrent policy change on ${resourceDesc} (attempt ${attempt}/${maxRetries}); retrying read-modify-write in ${delayMs}ms...`
+          );
+        },
+      });
+    } catch (err: unknown) {
+      addLog(`[ERROR ❌] Failed to update policy for ${resourceDesc}: ${toErrorMessage(err)}`);
+      return false;
+    }
+
+    if (!didMutate) {
+      return true;
+    }
+
     addLog(`[SUCCESS] ${shouldGrant ? 'Granted' : 'Revoked'} '${role}' on ${resourceDesc}.`);
 
     // Verification check
@@ -510,7 +646,7 @@ export function useDataStorePermissions(
         addLog(`[VERIFY WARNING ⚠️] Policy verification check unexpected result for ${resourceDesc}.`);
       }
     } catch {
-      // ignore verify fetch failure
+      // Non-fatal post-write verification read failure
     }
     return true;
   };
@@ -518,6 +654,8 @@ export function useDataStorePermissions(
   // Compile All Users with Project, App, and DataStore Access
   const allUsersList: UserAccessDetails[] = useMemo(() => {
     const memberMap: Record<string, UserAccessDetails> = {};
+    const aiCompanionSet = new Set<string>();
+    const businessAiCodeSet = new Set<string>();
 
     const getMemberType = (m: string): 'user' | 'group' | 'serviceAccount' | 'domain' | 'other' => {
       if (m.startsWith('user:')) return 'user';
@@ -536,7 +674,10 @@ export function useDataStorePermissions(
           broadRoles: [],
           hasBroadRoles: false,
           hasRestrictedUserRole: false,
+          hasCustomEndUserRole: false,
+          hasCustomAdminRole: false,
           hasNotebookLmRole: false,
+          hasAiDevToolsRoles: false,
           hasEngineAccess: false,
           accessibleDataStoreCount: 0,
           totalDataStoreCount: 0,
@@ -553,11 +694,22 @@ export function useDataStorePermissions(
         if (!u.projectRoles.includes(b.role)) {
           u.projectRoles.push(b.role);
         }
-        if (b.role === AGENTSPACE_RESTRICTED_USER_ROLE) {
+        if (isCustomEndUserProjectRole(b.role, projectId)) {
+          u.hasCustomEndUserRole = true;
+          u.hasRestrictedUserRole = true;
+        }
+        if (isCustomAdminProjectRole(b.role, projectId)) {
+          u.hasCustomAdminRole = true;
           u.hasRestrictedUserRole = true;
         }
         if (b.role === NOTEBOOK_LM_USER_ROLE) {
           u.hasNotebookLmRole = true;
+        }
+        if (b.role === CLOUD_AI_COMPANION_USER_ROLE) {
+          aiCompanionSet.add(m);
+        }
+        if (b.role === BUSINESS_AI_CODE_USER_ROLE) {
+          businessAiCodeSet.add(m);
         }
         if (BROAD_PROJECT_ROLES.includes(b.role)) {
           if (!u.broadRoles.includes(b.role)) {
@@ -566,6 +718,11 @@ export function useDataStorePermissions(
           u.hasBroadRoles = true;
         }
       });
+    });
+
+    Object.values(memberMap).forEach(u => {
+      u.hasAiDevToolsRoles =
+        aiCompanionSet.has(u.member) && businessAiCodeSet.has(u.member);
     });
 
     // 2. Process App Engine Policy
@@ -643,18 +800,24 @@ export function useDataStorePermissions(
       if (!a.hasEngineAccess && b.hasEngineAccess) return 1;
       return a.member.localeCompare(b.member);
     });
-  }, [projectPolicy, enginePolicy, connectors, legacyDataStores]);
+  }, [projectPolicy, enginePolicy, connectors, legacyDataStores, projectId]);
 
   // Compile Principal Access Matrix
   const principalMatrix: PrincipalAccess[] = useMemo(() => {
     const principalMap: Record<string, PrincipalAccess> = {};
+    const aiCompanionSet = new Set<string>();
+    const businessAiCodeSet = new Set<string>();
 
     const getOrCreate = (mem: string): PrincipalAccess => {
       if (!principalMap[mem]) {
         principalMap[mem] = {
           member: mem,
           hasProjectRole: false,
+          hasCustomEndUserRole: false,
+          hasCustomAdminRole: false,
           hasNotebookLmRole: false,
+          hasAiDevToolsRoles: false,
+          hasAppOnlyRestrictedRole: false,
           hasEngineAccess: false,
           resourceAccess: {},
         };
@@ -664,9 +827,23 @@ export function useDataStorePermissions(
 
     // 1. Check Project Policy
     projectPolicy?.bindings?.forEach(b => {
+      if (isCustomEndUserProjectRole(b.role, projectId)) {
+        b.members?.forEach(m => {
+          const p = getOrCreate(m);
+          p.hasCustomEndUserRole = true;
+          p.hasProjectRole = true;
+        });
+      }
+      if (isCustomAdminProjectRole(b.role, projectId)) {
+        b.members?.forEach(m => {
+          const p = getOrCreate(m);
+          p.hasCustomAdminRole = true;
+          p.hasProjectRole = true;
+        });
+      }
       if (b.role === AGENTSPACE_RESTRICTED_USER_ROLE) {
         b.members?.forEach(m => {
-          getOrCreate(m).hasProjectRole = true;
+          getOrCreate(m).hasAppOnlyRestrictedRole = true;
         });
       }
       if (b.role === NOTEBOOK_LM_USER_ROLE) {
@@ -674,6 +851,17 @@ export function useDataStorePermissions(
           getOrCreate(m).hasNotebookLmRole = true;
         });
       }
+      if (b.role === CLOUD_AI_COMPANION_USER_ROLE) {
+        b.members?.forEach(m => aiCompanionSet.add(m));
+      }
+      if (b.role === BUSINESS_AI_CODE_USER_ROLE) {
+        b.members?.forEach(m => businessAiCodeSet.add(m));
+      }
+    });
+
+    Object.values(principalMap).forEach(p => {
+      p.hasAiDevToolsRoles =
+        aiCompanionSet.has(p.member) && businessAiCodeSet.has(p.member);
     });
 
     // 2. Check Engine Policy
@@ -717,52 +905,55 @@ export function useDataStorePermissions(
     });
 
     return Object.values(principalMap);
-  }, [projectPolicy, enginePolicy, connectors, legacyDataStores]);
+  }, [projectPolicy, enginePolicy, connectors, legacyDataStores, projectId]);
 
-  // Detect Connector vs. Child Entity DataStore Access Inconsistencies
+  // Detect Connector vs. Child Entity DataStore Access Inconsistencies across all GA resource roles
   const inconsistentConnectorGrants: ConnectorInconsistency[] = useMemo(() => {
     const inconsistencies: ConnectorInconsistency[] = [];
 
     connectors.forEach(conn => {
       if (conn.entities.length === 0) return;
 
-      const connMembers = new Set(
-        conn.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE)?.members || []
-      );
-      const entityMemberMap: Record<string, Set<string>> = {};
-      const allRelevantMembers = new Set<string>(connMembers);
-
-      conn.entities.forEach(ent => {
-        const entMembers = new Set(
-          ent.policy?.bindings?.find(b => b.role === AGENTSPACE_USER_ROLE)?.members || []
+      RESOURCE_LEVEL_ROLES.forEach((role: ResourceLevelRole) => {
+        const connMembers = new Set(
+          conn.policy?.bindings?.find(b => b.role === role)?.members || []
         );
-        entityMemberMap[ent.id] = entMembers;
-        entMembers.forEach(m => allRelevantMembers.add(m));
-      });
-
-      allRelevantMembers.forEach(member => {
-        const hasCollectionAccess = connMembers.has(member);
-        const grantedEntityIds: string[] = [];
-        const missingEntityIds: string[] = [];
+        const entityMemberMap: Record<string, Set<string>> = {};
+        const allRelevantMembers = new Set<string>(connMembers);
 
         conn.entities.forEach(ent => {
-          if (entityMemberMap[ent.id]?.has(member)) {
-            grantedEntityIds.push(ent.id);
-          } else {
-            missingEntityIds.push(ent.id);
-          }
+          const entMembers = new Set(
+            ent.policy?.bindings?.find(b => b.role === role)?.members || []
+          );
+          entityMemberMap[ent.id] = entMembers;
+          entMembers.forEach(m => allRelevantMembers.add(m));
         });
 
-        if (!hasCollectionAccess || missingEntityIds.length > 0) {
-          inconsistencies.push({
-            connectorId: conn.id,
-            connectorDisplayName: conn.displayName || conn.id,
-            member,
-            hasCollectionAccess,
-            missingEntityIds,
-            grantedEntityIds,
+        allRelevantMembers.forEach(member => {
+          const hasCollectionAccess = connMembers.has(member);
+          const grantedEntityIds: string[] = [];
+          const missingEntityIds: string[] = [];
+
+          conn.entities.forEach(ent => {
+            if (entityMemberMap[ent.id]?.has(member)) {
+              grantedEntityIds.push(ent.id);
+            } else {
+              missingEntityIds.push(ent.id);
+            }
           });
-        }
+
+          if (!hasCollectionAccess || missingEntityIds.length > 0) {
+            inconsistencies.push({
+              connectorId: conn.id,
+              connectorDisplayName: conn.displayName || conn.id,
+              member,
+              role,
+              hasCollectionAccess,
+              missingEntityIds,
+              grantedEntityIds,
+            });
+          }
+        });
       });
     });
 
@@ -794,7 +985,7 @@ export function useDataStorePermissions(
             () => api.getCollectionIamPolicy(item.connectorId, config),
             (p) => api.setCollectionIamPolicy(item.connectorId, p, config),
             item.member,
-            AGENTSPACE_USER_ROLE,
+            item.role,
             true,
             false,
             addRepairLog
@@ -807,7 +998,7 @@ export function useDataStorePermissions(
             () => api.getDataStoreIamPolicy(entId, config),
             (p) => api.setDataStoreIamPolicy(entId, p, config),
             item.member,
-            AGENTSPACE_USER_ROLE,
+            item.role,
             true,
             false,
             addRepairLog
@@ -862,6 +1053,7 @@ export function useDataStorePermissions(
     selectedResourcesForGrant,
     setSelectedResourcesForGrant,
     refreshAll,
+    ensurePersonaCustomRole,
     handleToggleProjectAccessControl,
     handleAutoEnableEnvironment,
     handleRepairConnectorInconsistencies,

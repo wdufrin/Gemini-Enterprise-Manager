@@ -63,19 +63,20 @@ interface ColumnDefinition {
   key: AgentListColumnKey;
   label: string;
   defaultVisible: boolean;
+  responsiveClass?: string;
 }
 
 const AGENT_LIST_COLUMNS: ColumnDefinition[] = [
   { key: 'displayName', label: 'Display Name', defaultVisible: true },
   { key: 'state', label: 'Status', defaultVisible: true },
-  { key: 'owner', label: 'Agent Owner', defaultVisible: true },
-  { key: 'sharing', label: 'Sharing Scope', defaultVisible: true },
-  { key: 'agentType', label: 'Agent Type', defaultVisible: true },
-  { key: 'agentOrigin', label: 'Origin', defaultVisible: false },
-  { key: 'description', label: 'Description', defaultVisible: false },
-  { key: 'name', label: 'Agent ID', defaultVisible: true },
-  { key: 'createTime', label: 'Created On', defaultVisible: false },
-  { key: 'updateTime', label: 'Last Modified', defaultVisible: true },
+  { key: 'owner', label: 'Agent Owner', defaultVisible: true, responsiveClass: 'gem-col-lg' },
+  { key: 'sharing', label: 'Sharing Scope', defaultVisible: true, responsiveClass: 'gem-col-md' },
+  { key: 'agentType', label: 'Agent Type', defaultVisible: true, responsiveClass: 'gem-col-lg' },
+  { key: 'agentOrigin', label: 'Origin', defaultVisible: false, responsiveClass: 'gem-col-xl' },
+  { key: 'description', label: 'Description', defaultVisible: false, responsiveClass: 'gem-col-2xl' },
+  { key: 'name', label: 'Agent ID', defaultVisible: true, responsiveClass: 'gem-col-2xl' },
+  { key: 'createTime', label: 'Created On', defaultVisible: false, responsiveClass: 'gem-col-2xl' },
+  { key: 'updateTime', label: 'Last Modified', defaultVisible: true, responsiveClass: 'gem-col-xl' },
 ];
 
 const DEFAULT_VISIBLE_COLUMNS: Record<AgentListColumnKey, boolean> = AGENT_LIST_COLUMNS.reduce(
@@ -136,6 +137,7 @@ const AgentList: React.FC<AgentListProps> = ({
 
   // Column visibility & Export state
   const [visibleColumns, setVisibleColumns] = useState<Record<AgentListColumnKey, boolean>>(DEFAULT_VISIBLE_COLUMNS);
+  const [forcedColumns, setForcedColumns] = useState<Set<AgentListColumnKey>>(new Set());
   const [isColumnsOpen, setIsColumnsOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
@@ -158,12 +160,22 @@ const AgentList: React.FC<AgentListProps> = ({
       if (!nextVal && activeCount <= 1) {
         return prev; // Keep at least 1 column visible
       }
+      if (nextVal) {
+        setForcedColumns(f => new Set(f).add(key));
+      } else {
+        setForcedColumns(f => {
+          const next = new Set(f);
+          next.delete(key);
+          return next;
+        });
+      }
       return { ...prev, [key]: nextVal };
     });
   };
 
   const resetColumns = () => {
     setVisibleColumns(DEFAULT_VISIBLE_COLUMNS);
+    setForcedColumns(new Set());
   };
 
   const showAllColumns = () => {
@@ -172,6 +184,12 @@ const AgentList: React.FC<AgentListProps> = ({
       {} as Record<AgentListColumnKey, boolean>,
     );
     setVisibleColumns(allTrue);
+    setForcedColumns(new Set(AGENT_LIST_COLUMNS.map(col => col.key)));
+  };
+
+  const getColResponsiveClass = (key: AgentListColumnKey): string => {
+    if (forcedColumns.has(key)) return '';
+    return AGENT_LIST_COLUMNS.find(c => c.key === key)?.responsiveClass || '';
   };
 
   const availableTypes = useMemo(() => {
@@ -600,7 +618,7 @@ const AgentList: React.FC<AgentListProps> = ({
           </button>
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="gem-table-container" role="region" aria-label="Registered agents table" tabIndex={0}>
             <table className="min-w-full divide-y divide-gray-700">
                 <thead className="bg-gray-700/50">
                     <tr>
@@ -621,38 +639,38 @@ const AgentList: React.FC<AgentListProps> = ({
                           <SortableHeader sortKey="state">Status</SortableHeader>
                         )}
                         {visibleColumns.owner && (
-                          <SortableHeader sortKey="owner">Agent Owner</SortableHeader>
+                          <SortableHeader sortKey="owner" className={getColResponsiveClass('owner')}>Agent Owner</SortableHeader>
                         )}
                         {visibleColumns.sharing && (
-                          <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          <th scope="col" className={`px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${getColResponsiveClass('sharing')}`}>
                             Sharing Scope
                           </th>
                         )}
                         {visibleColumns.agentType && (
-                          <SortableHeader sortKey="agentType">Agent Type</SortableHeader>
+                          <SortableHeader sortKey="agentType" className={getColResponsiveClass('agentType')}>Agent Type</SortableHeader>
                         )}
                         {visibleColumns.agentOrigin && (
-                          <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          <th scope="col" className={`px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${getColResponsiveClass('agentOrigin')}`}>
                             Origin
                           </th>
                         )}
                         {visibleColumns.description && (
-                          <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          <th scope="col" className={`px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${getColResponsiveClass('description')}`}>
                             Description
                           </th>
                         )}
                         {visibleColumns.name && (
-                          <SortableHeader sortKey="name">Agent ID</SortableHeader>
+                          <SortableHeader sortKey="name" className={getColResponsiveClass('name')}>Agent ID</SortableHeader>
                         )}
                         {visibleColumns.createTime && (
-                          <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                          <th scope="col" className={`px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${getColResponsiveClass('createTime')}`}>
                             Created On
                           </th>
                         )}
                         {visibleColumns.updateTime && (
-                          <SortableHeader sortKey="updateTime">Last Modified</SortableHeader>
+                          <SortableHeader sortKey="updateTime" className={getColResponsiveClass('updateTime')}>Last Modified</SortableHeader>
                         )}
-                        <th scope="col" className="px-3 xl:px-5 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                        <th scope="col" className="gem-sticky-action-th px-3 xl:px-5 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                             Actions
                         </th>
                     </tr>
@@ -696,7 +714,7 @@ const AgentList: React.FC<AgentListProps> = ({
                         }
 
                         return (
-                            <tr key={agent.name} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
+                            <tr key={agent.name} className={`${isSelected ? 'bg-blue-900/50 gem-row-selected' : 'hover:bg-gray-700/50'} transition-colors`}>
                                 <td className="px-3 xl:px-5 py-3">
                                     <input
                                         type="checkbox"
@@ -732,33 +750,43 @@ const AgentList: React.FC<AgentListProps> = ({
                                                   </button>
                                               </form>
                                           ) : (
-                                              <div className="flex items-center gap-2 group">
-                                                  <button
-                                                      type="button"
-                                                      onClick={() => onSelectAgent(agent)}
-                                                      className="text-left hover:text-blue-400 transition-colors max-w-[180px] xl:max-w-[260px] truncate"
-                                                      title={agent.displayName}
-                                                  >
-                                                      {agent.displayName}
-                                                  </button>
-                                                  {isGoogleManaged && (
-                                                      <span
-                                                          className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap shrink-0"
-                                                          title="First-party Google-managed built-in agent (protected from deletion)."
-                                                      >
-                                                          Google Built-in
-                                                      </span>
-                                                  )}
-                                                  {onUpdateAgentName && (
-                                                      <button 
+                                              <div className="min-w-0">
+                                                  <div className="flex items-center gap-2 group">
+                                                      <button
                                                           type="button"
-                                                          onClick={() => handleEditClick(agent)}
-                                                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded p-0.5 transition-opacity shrink-0"
-                                                          title="Edit Name"
-                                                          aria-label={`Edit name for ${agent.displayName}`}
+                                                          onClick={() => onSelectAgent(agent)}
+                                                          className="text-left hover:text-blue-400 transition-colors max-w-[180px] xl:max-w-[260px] truncate"
+                                                          title={agent.displayName}
                                                       >
-                                                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                                          {agent.displayName}
                                                       </button>
+                                                      {isGoogleManaged && (
+                                                          <span
+                                                              className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap shrink-0"
+                                                              title="First-party Google-managed built-in agent (protected from deletion)."
+                                                          >
+                                                              Google Built-in
+                                                          </span>
+                                                      )}
+                                                      {onUpdateAgentName && (
+                                                          <button 
+                                                              type="button"
+                                                              onClick={() => handleEditClick(agent)}
+                                                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 rounded p-0.5 transition-opacity shrink-0"
+                                                              title="Edit Name"
+                                                              aria-label={`Edit name for ${agent.displayName}`}
+                                                          >
+                                                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                                          </button>
+                                                      )}
+                                                  </div>
+                                                  {visibleColumns.name && !forcedColumns.has('name') && (
+                                                      <div
+                                                          className="gem-hide-2xl text-[11px] text-gray-400 font-mono truncate max-w-[180px] xl:max-w-[240px]"
+                                                          title={agentId}
+                                                      >
+                                                          {agentId}
+                                                      </div>
                                                   )}
                                               </div>
                                           )}
@@ -771,7 +799,7 @@ const AgentList: React.FC<AgentListProps> = ({
                                   </td>
                                 )}
                                 {visibleColumns.owner && (
-                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs">
+                                  <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs ${getColResponsiveClass('owner')}`}>
                                     {ownerHint ? (
                                       <span
                                         className="inline-flex items-center px-2 py-0.5 rounded bg-gray-900/70 text-cyan-300 border border-gray-700 font-mono truncate max-w-[180px]"
@@ -785,7 +813,7 @@ const AgentList: React.FC<AgentListProps> = ({
                                   </td>
                                 )}
                                 {visibleColumns.sharing && (
-                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs">
+                                  <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs ${getColResponsiveClass('sharing')}`}>
                                       {sharingScope === 'ALL_USERS' ? (
                                           <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 font-medium">
                                               All Users
@@ -802,30 +830,30 @@ const AgentList: React.FC<AgentListProps> = ({
                                   </td>
                                 )}
                                 {visibleColumns.agentType && (
-                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400">{agent.agentType || 'N/A'}</td>
+                                  <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400 ${getColResponsiveClass('agentType')}`}>{agent.agentType || 'N/A'}</td>
                                 )}
                                 {visibleColumns.agentOrigin && (
-                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400 font-mono">{agent.agentOrigin || 'N/A'}</td>
+                                  <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400 font-mono ${getColResponsiveClass('agentOrigin')}`}>{agent.agentOrigin || 'N/A'}</td>
                                 )}
                                 {visibleColumns.description && (
-                                  <td className="px-3 xl:px-5 py-3 text-xs text-gray-400 max-w-[240px] truncate" title={agent.description || ''}>
+                                  <td className={`px-3 xl:px-5 py-3 text-xs text-gray-400 max-w-[240px] truncate ${getColResponsiveClass('description')}`} title={agent.description || ''}>
                                     {agent.description || '—'}
                                   </td>
                                 )}
                                 {visibleColumns.name && (
-                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400 font-mono max-w-[140px] xl:max-w-[200px] truncate" title={agentId}>{agentId}</td>
+                                  <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400 font-mono max-w-[140px] xl:max-w-[200px] truncate ${getColResponsiveClass('name')}`} title={agentId}>{agentId}</td>
                                 )}
                                 {visibleColumns.createTime && (
-                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400">
+                                  <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400 ${getColResponsiveClass('createTime')}`}>
                                     {agent.createTime ? new Date(agent.createTime).toLocaleString() : 'N/A'}
                                   </td>
                                 )}
                                 {visibleColumns.updateTime && (
-                                  <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400">
+                                  <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400 ${getColResponsiveClass('updateTime')}`}>
                                       {agent.updateTime ? new Date(agent.updateTime).toLocaleString() : 'N/A'}
                                   </td>
                                 )}
-                                <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-right text-sm font-medium space-x-2.5">
+                                <td className="gem-sticky-action-td px-3 xl:px-5 py-3 whitespace-nowrap text-right text-sm font-medium space-x-2.5">
                                     {isDeleting ? (
                                         <span className="text-xs text-gray-400 italic">Deleting...</span>
                                     ) : (

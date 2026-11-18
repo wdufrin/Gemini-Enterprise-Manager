@@ -135,7 +135,9 @@ export function classifySkillAgent(skill: Partial<Agent> | null | undefined): Sk
   const rec = skill as Record<string, unknown>;
   const skillDef = skill.skillAgentDefinition;
   const has1PConfig = Boolean(
-    rec.geminiEnterpriseSkillConfig && typeof rec.geminiEnterpriseSkillConfig === 'object'
+    (rec.geminiEnterpriseSkillConfig && typeof rec.geminiEnterpriseSkillConfig === 'object') ||
+      (skillDef?.geminiEnterpriseSkillConfig &&
+        typeof skillDef.geminiEnterpriseSkillConfig === 'object')
   );
 
   // Extract raw owner from skillAgentDefinition or top-level fields

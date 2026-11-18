@@ -530,26 +530,26 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
         </div>
       ) : (
         <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden border border-gray-700">
-          <div className="overflow-x-auto">
+          <div className="gem-table-container" role="region" aria-label="Skills registry table" tabIndex={0}>
             <table className="min-w-full divide-y divide-gray-700 text-left">
               <thead className="bg-gray-900/60 text-gray-400 text-[11px] uppercase tracking-wider font-semibold">
                 <tr>
-                  <th scope="col" className="px-6 py-3.5">
+                  <th scope="col" className="px-3 xl:px-5 py-3.5 whitespace-nowrap">
                     Skill Name &amp; URN
                   </th>
-                  <th scope="col" className="px-6 py-3.5">
+                  <th scope="col" className="gem-col-md px-3 xl:px-5 py-3.5 whitespace-nowrap">
                     Publisher
                   </th>
-                  <th scope="col" className="px-6 py-3.5">
+                  <th scope="col" className="px-3 xl:px-5 py-3.5 whitespace-nowrap">
                     Status
                   </th>
-                  <th scope="col" className="px-6 py-3.5">
+                  <th scope="col" className="gem-col-lg px-3 xl:px-5 py-3.5 whitespace-nowrap">
                     Auto-Scan Policy
                   </th>
-                  <th scope="col" className="px-6 py-3.5">
+                  <th scope="col" className="gem-col-xl px-3 xl:px-5 py-3.5 whitespace-nowrap">
                     Semantic Trigger &amp; Description
                   </th>
-                  <th scope="col" className="px-6 py-3.5 text-right">
+                  <th scope="col" className="gem-sticky-action-th px-3 xl:px-5 py-3.5 text-right whitespace-nowrap">
                     Actions
                   </th>
                 </tr>
@@ -568,25 +568,32 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                   return (
                     <tr key={skill.name} className="hover:bg-gray-750/50 transition-colors">
                       {/* Name & URN */}
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap">
                         <div className="font-semibold text-gray-100 flex items-center gap-2">
-                          <span>{skill.displayName}</span>
+                          <button
+                            type="button"
+                            onClick={() => setInspectingSkill(skill)}
+                            className="text-left hover:text-blue-400 transition-colors max-w-[200px] xl:max-w-[280px] truncate"
+                            title={skill.displayName}
+                          >
+                            {skill.displayName}
+                          </button>
                           {isConnectorMcpSkill && (
                             <span
-                              className="px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-900/40 text-cyan-300 border border-cyan-700/70 rounded"
+                              className="px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-900/40 text-cyan-300 border border-cyan-700/70 rounded shrink-0"
                               title="Auto-synced from a Custom MCP Data Connector"
                             >
                               Data Connector MCP
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-blue-400 font-mono mt-0.5">
+                        <div className="text-[11px] text-blue-400 font-mono mt-0.5 truncate max-w-[220px] xl:max-w-[300px]" title={skill.skillId || `/${skillId}`}>
                           {skill.skillId || `/${skillId}`}
                         </div>
                       </td>
 
                       {/* Publisher */}
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="gem-col-md px-3 xl:px-5 py-3.5 whitespace-nowrap">
                         <span
                           className={`px-2 py-0.5 text-[11px] font-semibold rounded border ${
                             isGoogle
@@ -599,7 +606,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                       </td>
 
                       {/* Status */}
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap">
                         <span
                           className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${
                             skill.state === 'STATE_ACTIVE'
@@ -633,7 +640,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                       </td>
 
                       {/* Auto-Scan Policy */}
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="gem-col-lg px-3 xl:px-5 py-3.5 whitespace-nowrap">
                         <span
                           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold border ${
                             effScanPolicy === 'ENABLED_BLOCKING'
@@ -656,12 +663,12 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                       </td>
 
                       {/* Description */}
-                      <td className="px-6 py-4 text-gray-300 max-w-md truncate">
+                      <td className="gem-col-xl px-3 xl:px-5 py-3.5 text-gray-300 max-w-md truncate">
                         {skill.description || 'No description provided.'}
                       </td>
 
                       {/* Actions */}
-                      <td className="px-6 py-4 whitespace-nowrap text-right font-medium">
+                      <td className="gem-sticky-action-td px-3 xl:px-5 py-3.5 whitespace-nowrap text-right font-medium">
                         <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"

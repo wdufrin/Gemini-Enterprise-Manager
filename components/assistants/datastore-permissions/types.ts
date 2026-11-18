@@ -31,6 +31,7 @@ export interface IamPolicy {
   version?: number;
   etag?: string;
   bindings?: IamBinding[];
+  auditConfigs?: unknown[];
 }
 
 export interface ConnectedDataStorePermissionsProps {
@@ -63,10 +64,36 @@ export interface LegacyDataStoreResource {
   isAttached: boolean;
 }
 
+import {
+  buildCustomRestrictedRoleName,
+  CUSTOM_RESTRICTED_ADMIN_PERMISSIONS,
+  CUSTOM_RESTRICTED_ADMIN_ROLE_ID,
+  CUSTOM_RESTRICTED_END_USER_CORE_PERMISSIONS,
+  CUSTOM_RESTRICTED_END_USER_PERMISSIONS,
+  CUSTOM_RESTRICTED_END_USER_ROLE_ID,
+  FORBIDDEN_DATASTORE_BYPASS_PERMISSIONS,
+} from '../../../utils/iamPolicy';
+
+export {
+  buildCustomRestrictedRoleName,
+  CUSTOM_RESTRICTED_ADMIN_PERMISSIONS,
+  CUSTOM_RESTRICTED_ADMIN_ROLE_ID,
+  CUSTOM_RESTRICTED_END_USER_CORE_PERMISSIONS,
+  CUSTOM_RESTRICTED_END_USER_PERMISSIONS,
+  CUSTOM_RESTRICTED_END_USER_ROLE_ID,
+  FORBIDDEN_DATASTORE_BYPASS_PERMISSIONS,
+};
+
 export interface PrincipalAccess {
   member: string;
+  /** True when bound to `projects/{id}/roles/customRestrictedEndUser` or `customRestrictedAdmin`. */
   hasProjectRole: boolean;
+  hasCustomEndUserRole?: boolean;
+  hasCustomAdminRole?: boolean;
   hasNotebookLmRole?: boolean;
+  hasAiDevToolsRoles?: boolean;
+  /** True when bound to `roles/discoveryengine.agentspaceRestrictedUser` (bypasses DataStore ACLs!). */
+  hasAppOnlyRestrictedRole?: boolean;
   hasEngineAccess: boolean;
   resourceAccess: Record<string, boolean>; // resourceId -> boolean
 }
@@ -77,8 +104,12 @@ export interface UserAccessDetails {
   projectRoles: string[];
   broadRoles: string[];
   hasBroadRoles: boolean;
+  /** True when bound to `customRestrictedEndUser` or `customRestrictedAdmin` at the project level. */
   hasRestrictedUserRole: boolean;
+  hasCustomEndUserRole: boolean;
+  hasCustomAdminRole: boolean;
   hasNotebookLmRole: boolean;
+  hasAiDevToolsRoles: boolean;
   hasEngineAccess: boolean;
   accessibleDataStoreCount: number;
   totalDataStoreCount: number;
@@ -109,6 +140,7 @@ export interface ConnectorInconsistency {
   connectorId: string;
   connectorDisplayName: string;
   member: string;
+  role: ResourceLevelRole;
   hasCollectionAccess: boolean;
   missingEntityIds: string[];
   grantedEntityIds: string[];
@@ -120,6 +152,10 @@ export interface EnvironmentReadinessState {
   /** Project-level CustomerProvidedConfig.resourceAccessControlConfig.dataStoreAccessControlEnabled */
   dataStoreAccessControlEnabled: boolean | null;
   projectConfigError: string | null;
+  /** Custom project-level roles (`customRestrictedEndUser` & `customRestrictedAdmin`) readiness */
+  endUserCustomRoleReady: boolean | null;
+  adminCustomRoleReady: boolean | null;
+  customRoleError: string | null;
   /** v1 IAM Meta API (:getIamPolicy) reachability */
   v1IamApiSupported: boolean | null;
   v1IamApiError: string | null;
@@ -129,6 +165,11 @@ export interface EnvironmentReadinessState {
   missingAdminPermissions: string[];
 }
 
+/**
+ * Predefined project-level baseline role for **App-Only** Access Control (`dataStoreAccessControlEnabled = false`).
+ * WARNING: Contains `discoveryengine.collections.get` and `discoveryengine.dataStores.get`, so it MUST NOT
+ * be bound at the project level when enforcing **DataStore-level** Access Control (`dataStoreAccessControlEnabled = true`).
+ */
 export const AGENTSPACE_RESTRICTED_USER_ROLE = 'roles/discoveryengine.agentspaceRestrictedUser';
 export const NOTEBOOK_LM_USER_ROLE = 'roles/discoveryengine.notebookLmUser';
 
@@ -148,12 +189,16 @@ export const CLOUD_AI_COMPANION_USER_ROLE = 'roles/cloudaicompanion.user';
 export const BUSINESS_AI_CODE_USER_ROLE = 'roles/businessaicode.user';
 
 /**
- * Permissions checked via projects.testIamPermissions to verify if the current
- * operator can configure project opt-in, project IAM bindings, and resource IAM policies.
+ * Permissions checked via `projects.testIamPermissions` to verify if the current
+ * operator can configure project opt-in, custom project roles, project IAM bindings,
+ * and resource IAM policies.
  */
 export const REQUIRED_ADMIN_PERMISSIONS = [
   'discoveryengine.projects.get',
   'discoveryengine.projects.update',
+  'iam.roles.get',
+  'iam.roles.create',
+  'iam.roles.update',
   'resourcemanager.projects.getIamPolicy',
   'resourcemanager.projects.setIamPolicy',
   'discoveryengine.engines.getIamPolicy',
@@ -165,12 +210,9 @@ export const REQUIRED_ADMIN_PERMISSIONS = [
 ];
 
 /**
- * Project-level roles that grant unrestricted search/query/admin access across
- * all apps and data stores in the project and therefore bypass resource-level IAM restrictions.
- * Note: roles/discoveryengine.agentspaceRestrictedUser and roles/discoveryengine.notebookLmUser
- * are the intended predefined project-level baseline roles for restricted users.
+ * Project-level roles that bypass **App-Only** isolation (`dataStoreAccessControlEnabled = false`).
  */
-export const BROAD_PROJECT_ROLES = [
+export const APP_ONLY_BROAD_PROJECT_ROLES = [
   'roles/viewer',
   'roles/editor',
   'roles/owner',
@@ -181,4 +223,15 @@ export const BROAD_PROJECT_ROLES = [
   'roles/discoveryengine.agentspaceUser',
   'roles/discoveryengine.viewer',
   'roles/discoveryengine.agentspaceViewer',
+];
+
+/**
+ * Project-level roles that bypass **DataStore & DataConnector** IAM isolation
+ * (`dataStoreAccessControlEnabled = true`).
+ * Includes `roles/discoveryengine.agentspaceRestrictedUser` because that predefined role grants
+ * `discoveryengine.collections.get` and `discoveryengine.dataStores.get` across the entire project.
+ */
+export const BROAD_PROJECT_ROLES = [
+  ...APP_ONLY_BROAD_PROJECT_ROLES,
+  AGENTSPACE_RESTRICTED_USER_ROLE,
 ];

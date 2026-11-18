@@ -206,32 +206,32 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
         ) : servicesError ? (
           <div className="text-red-400 text-center p-4">{servicesError}</div>
         ) : groupServices.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-700 bg-gray-900 rounded-lg overflow-hidden">
+          <div className="gem-table-container rounded-lg" role="region" aria-label="Group license sync services table" tabIndex={0}>
+            <table className="min-w-full divide-y divide-gray-700 bg-gray-900">
               <thead className="bg-gray-700/50">
                 <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Service Name
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="gem-col-2xl px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Run Region
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="gem-col-lg px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     GE Region
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Subscription ID
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Groups
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="gem-col-xl px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Job Type
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="gem-col-xl px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Last Run
                   </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="gem-sticky-action-th px-3 xl:px-5 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Actions
                   </th>
                 </tr>
@@ -269,22 +269,22 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
 
                   return (
                     <tr key={service.name || idx} className="hover:bg-gray-700/50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{id}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{runRegion}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{geRegion}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                      <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap text-sm font-medium text-white max-w-[190px] xl:max-w-[260px] truncate" title={id}>{id}</td>
+                      <td className="gem-col-2xl px-3 xl:px-5 py-3.5 whitespace-nowrap text-xs xl:text-sm text-gray-400">{runRegion}</td>
+                      <td className="gem-col-lg px-3 xl:px-5 py-3.5 whitespace-nowrap text-xs xl:text-sm text-gray-400">{geRegion}</td>
+                      <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap text-xs xl:text-sm text-gray-400 max-w-[180px] truncate" title={`${geSku}${expDate ? ` (Exp: ${expDate})` : ''}`}>
                         {geSku} {expDate ? `(Exp: ${expDate})` : ''}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-300 max-w-xs truncate" title={groupsDisplay}>
+                      <td className="px-3 xl:px-5 py-3.5 text-xs xl:text-sm text-gray-300 max-w-[200px] xl:max-w-xs truncate" title={groupsDisplay}>
                         {groupsDisplay}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{jobType}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{lastRun}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <td className="gem-col-xl px-3 xl:px-5 py-3.5 whitespace-nowrap text-xs xl:text-sm text-gray-400">{jobType}</td>
+                      <td className="gem-col-xl px-3 xl:px-5 py-3.5 whitespace-nowrap text-xs xl:text-sm text-gray-400">{lastRun}</td>
+                      <td className="gem-sticky-action-td px-3 xl:px-5 py-3.5 whitespace-nowrap text-right text-xs xl:text-sm font-medium space-x-3">
                         <button
                           onClick={() => onRunService(service)}
                           disabled={isRunning}
-                          className="text-green-400 hover:text-green-300 disabled:opacity-50 mr-4"
+                          className="text-green-400 hover:text-green-300 font-semibold disabled:opacity-50"
                         >
                           {isRunning ? 'Running...' : 'Run'}
                         </button>
@@ -293,20 +293,20 @@ export const GroupAssignmentsTab: React.FC<GroupAssignmentsTabProps> = ({
                             onClick={() => onViewReport(service)}
                             disabled={isRunning}
                             title={cachedReport ? `Last status: ${cachedReport.status}` : 'Fetch latest execution report'}
-                            className="text-purple-400 hover:text-purple-300 disabled:opacity-50 mr-4"
+                            className="text-purple-400 hover:text-purple-300 font-semibold disabled:opacity-50"
                           >
                             Report
                           </button>
                         )}
                         <button
                           onClick={() => onEditService(service)}
-                          className="text-blue-400 hover:text-blue-300 mr-4"
+                          className="text-blue-400 hover:text-blue-300 font-semibold"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => onDeleteService(name)}
-                          className="text-red-400 hover:text-red-300"
+                          className="text-red-400 hover:text-red-300 font-semibold"
                         >
                           Delete
                         </button>

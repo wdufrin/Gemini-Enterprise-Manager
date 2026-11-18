@@ -23,10 +23,16 @@ import {
   AGENTSPACE_RESTRICTED_USER_ROLE,
   AGENTSPACE_USER_ROLE,
   BROAD_PROJECT_ROLES,
+  BUSINESS_AI_CODE_USER_ROLE,
+  CLOUD_AI_COMPANION_USER_ROLE,
+  CUSTOM_RESTRICTED_ADMIN_ROLE_ID,
+  CUSTOM_RESTRICTED_END_USER_ROLE_ID,
   NOTEBOOK_LM_USER_ROLE,
+  buildCustomRestrictedRoleName,
   ConnectedDataStorePermissionsProps,
   ConnectorResource,
   EditingResource,
+  IamPolicy,
   IsolateTarget,
   LegacyDataStoreResource,
   ResourceLevelRole,
@@ -34,6 +40,11 @@ import {
   UserAccessDetails,
 } from './datastore-permissions/types';
 import { formatMember, isPublicIamPrincipal, useDataStorePermissions } from '../../hooks/useDataStorePermissions';
+import {
+  addMemberToRoles,
+  removeMemberFromRoles,
+  retryIamReadModifyWrite,
+} from '../../utils/iamPolicy';
 import { EnvironmentReadinessWizard } from './datastore-permissions/EnvironmentReadinessWizard';
 import { StepByStepGuide } from './datastore-permissions/StepByStepGuide';
 import { UserAccessInspector } from './datastore-permissions/UserAccessInspector';
@@ -75,6 +86,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     selectedResourcesForGrant,
     setSelectedResourcesForGrant,
     refreshAll,
+    ensurePersonaCustomRole,
     handleToggleProjectAccessControl,
     handleAutoEnableEnvironment,
     handleRepairConnectorInconsistencies,
@@ -93,6 +105,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
   const [targetMembersInput, setTargetMembersInput] = useState('');
   const [wizardGrantProjectRole, setWizardGrantProjectRole] = useState(true);
   const [wizardGrantNotebookLmRole, setWizardGrantNotebookLmRole] = useState(true);
+  const [wizardGrantAiDevToolsRoles, setWizardGrantAiDevToolsRoles] = useState(false);
   const [wizardGrantEngineRole, setWizardGrantEngineRole] = useState(true);
   const [wizardResourceRole, setWizardResourceRole] = useState<ResourceLevelRole>(AGENTSPACE_USER_ROLE);
   const [includeUnattachedInSync, setIncludeUnattachedInSync] = useState(false);
@@ -137,7 +150,14 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
       setWizardGrantNotebookLmRole(true);
       setWizardGrantEngineRole(true);
 
-      // 2. Steps 3 & 4: Check DataConnectors, Entities, and Legacy DataStores
+      const matchedUsers = formattedMembers
+        .map(m => allUsersList.find(u => u.member === m))
+        .filter((u): u is UserAccessDetails => Boolean(u));
+      if (matchedUsers.length > 0 && matchedUsers.every(u => u.hasAiDevToolsRoles)) {
+        setWizardGrantAiDevToolsRoles(true);
+      }
+
+      // 2. Steps 3 & 4: Check DataConnectors (+ all child Entities atomically) and Legacy DataStores
       const newSelected: Record<string, boolean> = {};
       let hasAnyExplicitAttachedGrant = false;
 
@@ -145,20 +165,20 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         const connBinding = conn.policy?.bindings?.find(b => b.role === wizardResourceRole);
         const hasConnAccess =
           formattedMembers.length > 0 && formattedMembers.every(m => connBinding?.members?.includes(m));
-        if (hasConnAccess) {
+        const allEntitiesHaveAccess =
+          conn.entities.length > 0 &&
+          conn.entities.every(ent => {
+            const entBinding = ent.policy?.bindings?.find(b => b.role === wizardResourceRole);
+            return formattedMembers.every(m => entBinding?.members?.includes(m));
+          });
+
+        if (hasConnAccess || (!conn.policy && allEntitiesHaveAccess)) {
           newSelected[`connector:${conn.id}`] = true;
+          conn.entities.forEach(ent => {
+            newSelected[`entity:${ent.id}`] = true;
+          });
           if (conn.isAttached) hasAnyExplicitAttachedGrant = true;
         }
-
-        conn.entities.forEach(ent => {
-          const entBinding = ent.policy?.bindings?.find(b => b.role === wizardResourceRole);
-          const hasEntAccess =
-            formattedMembers.length > 0 && formattedMembers.every(m => entBinding?.members?.includes(m));
-          if (hasEntAccess && (hasConnAccess || !conn.policy)) {
-            newSelected[`entity:${ent.id}`] = true;
-            if (conn.isAttached) hasAnyExplicitAttachedGrant = true;
-          }
-        });
       });
 
       dsList.forEach(ds => {
@@ -192,7 +212,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
       lastPopulatedMembersKeyRef.current = formattedMembers.slice().sort().join(',');
       setSelectedResourcesForGrant(newSelected);
     },
-    [connectors, legacyDataStores, setSelectedResourcesForGrant, wizardResourceRole]
+    [allUsersList, connectors, legacyDataStores, setSelectedResourcesForGrant, wizardResourceRole]
   );
 
   // Automatically populate checkboxes ONLY when target member identity changes (do not clobber manual edits on refreshAll)
@@ -224,6 +244,8 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
 
     const rawMembers = targetMembersInput.split(/[\s,]+/).filter(m => m.trim() !== '');
     const members = rawMembers.map(formatMember);
+    const persona = wizardResourceRole === AGENTSPACE_USER_ROLE ? 'endUser' : 'admin';
+    let customProjectRole = buildCustomRestrictedRoleName(projectId, persona);
 
     setIsExecutingWizard(true);
     setError(null);
@@ -234,13 +256,22 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     addLog(`Target Principals: ${members.join(', ')}`);
     addLog(`App Engine: ${appId} (Location: ${config.appLocation || 'global'})`);
     addLog(
-      `Project Roles: ${AGENTSPACE_RESTRICTED_USER_ROLE}${
+      `Project Roles: ${customProjectRole}${
         wizardGrantNotebookLmRole ? ` + ${NOTEBOOK_LM_USER_ROLE}` : ''
+      }${
+        wizardGrantAiDevToolsRoles
+          ? ` + ${CLOUD_AI_COMPANION_USER_ROLE} + ${BUSINESS_AI_CODE_USER_ROLE}`
+          : ''
       } | Resource Role: ${wizardResourceRole}`
     );
     addLog(`Rule: Checked items will be GRANTED; unchecked items will be REVOKED.`);
 
     try {
+      // Ensure GA custom restricted project role exists & holds zero bypass permissions before binding
+      if (wizardGrantProjectRole && !isDryRun && members.some(m => !isPublicIamPrincipal(m))) {
+        customProjectRole = await ensurePersonaCustomRole(persona, (m) => addLog(`[Custom Role] ${m}`));
+      }
+
       const hasAnyAttached =
         connectors.some(c => c.isAttached) || legacyDataStores.some(ds => ds.isAttached);
 
@@ -269,24 +300,31 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         addLog(`Syncing Permissions for Member: ${member}`);
         addLog(`======================================================`);
 
-        // Step 1a & 1b: Project-level role bindings (skipped for allUsers / allAuthenticatedUsers as GCP Cloud Resource Manager forbids public principals on Project IAM policies)
+        // Step 1a/1b/1c: Project-level role bindings (skipped for allUsers / allAuthenticatedUsers as GCP Cloud Resource Manager forbids public principals on Project IAM policies)
         if (isPublicIamPrincipal(member)) {
           addLog(
             `[SKIP] Step 1a/1b: GCP Project IAM policies do not allow '${member}' on project-level bindings. Applying resource-level IAM directly to App Engine and DataStores.`
           );
         } else {
-          // Step 1a: Project-level Gemini Enterprise Restricted User role binding
+          const existingUser = allUsersList.find(u => u.member === member);
+          if (existingUser?.hasBroadRoles) {
+            addLog(
+              `[NOTICE ⚠️] '${member}' currently holds project-wide role(s) (${existingUser.broadRoles.join(', ')}) that bypass DataStore isolation. Use 'Isolate' in the User Access Inspector above to strip broad roles.`
+            );
+          }
+
+          // Step 1a: Project-level GA Custom Restricted Role binding
           addLog(
             `--- Step 1a: ${
               wizardGrantProjectRole ? 'Granting' : 'Revoking'
-            } project-level predefined role '${AGENTSPACE_RESTRICTED_USER_ROLE}' ---`
+            } project-level GA custom role '${customProjectRole}' ---`
           );
           const ok1a = await syncPolicyRMW(
             `Project '${projectId}'`,
             () => api.getProjectIamPolicy(projectId),
             (p) => api.setProjectIamPolicy(projectId, p),
             member,
-            AGENTSPACE_RESTRICTED_USER_ROLE,
+            customProjectRole,
             wizardGrantProjectRole,
             isDryRun,
             addLog
@@ -308,6 +346,24 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
             );
             if (!ok1b) failedStepCount++;
           }
+
+          // Step 1c: Optional AI Developer Tools project-level roles
+          if (wizardGrantAiDevToolsRoles) {
+            for (const aiRole of [CLOUD_AI_COMPANION_USER_ROLE, BUSINESS_AI_CODE_USER_ROLE]) {
+              addLog(`--- Step 1c: Granting '${aiRole}' on Project '${projectId}' ---`);
+              const okAi = await syncPolicyRMW(
+                `Project '${projectId}' (AI Dev Tools)`,
+                () => api.getProjectIamPolicy(projectId),
+                (p) => api.setProjectIamPolicy(projectId, p),
+                member,
+                aiRole,
+                true,
+                isDryRun,
+                addLog
+              );
+              if (!okAi) failedStepCount++;
+            }
+          }
         }
 
         // Step 2: App Engine role binding
@@ -324,7 +380,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         );
         if (!ok2) failedStepCount++;
 
-        // Step 3: DataConnectors and Entities
+        // Step 3: DataConnectors and all child Entities (kept atomically synchronized per GA docs)
         for (const conn of connectorsToSync) {
           const shouldGrantConn = !!selectedResourcesForGrant[`connector:${conn.id}`];
           addLog(`--- Step 3: ${shouldGrantConn ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on DataConnector Collection '${conn.id}' ---`);
@@ -341,7 +397,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
           if (!okConn) failedStepCount++;
 
           for (const ent of conn.entities) {
-            const shouldGrantEnt = !!selectedResourcesForGrant[`entity:${ent.id}`];
+            const shouldGrantEnt = shouldGrantConn;
             addLog(`  Sub-step: ${shouldGrantEnt ? 'Granting' : 'Revoking'} '${wizardResourceRole}' on Entity DataStore '${ent.id}' under '${conn.id}'`);
             const okEnt = await syncPolicyRMW(
               `Entity DataStore '${ent.id}'`,
@@ -407,49 +463,38 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     setSuccessMessage(null);
 
     try {
-      const currentProjPolicy = await api.getProjectIamPolicy(projectId);
-      const etag = currentProjPolicy.etag || '';
+      const customEndUserRole = await ensurePersonaCustomRole('endUser');
+      const targetBaselineRoles = grantNotebookLm
+        ? [customEndUserRole, NOTEBOOK_LM_USER_ROLE]
+        : [customEndUserRole];
 
-      // Filter out broad roles for these members
-      const updatedBindings = (currentProjPolicy.bindings || []).map(b => {
-        if (BROAD_PROJECT_ROLES.includes(b.role)) {
-          return {
-            ...b,
-            members: (b.members || []).filter(m => !membersToIsolate.includes(m)),
-          };
-        }
-        return b;
-      }).filter(b => b.members && b.members.length > 0);
+      await retryIamReadModifyWrite({
+        getPolicy: () => api.getProjectIamPolicy(projectId),
+        setPolicy: (p) => api.setProjectIamPolicy(projectId, p),
+        modify: (currentProjPolicy) => {
+          let working: IamPolicy = currentProjPolicy;
+          let changed = false;
 
-      // Add predefined roles/discoveryengine.agentspaceRestrictedUser binding for these members
-      let restrictedRoleBinding = updatedBindings.find(b => b.role === AGENTSPACE_RESTRICTED_USER_ROLE);
-      if (!restrictedRoleBinding) {
-        restrictedRoleBinding = { role: AGENTSPACE_RESTRICTED_USER_ROLE, members: [] };
-        updatedBindings.push(restrictedRoleBinding);
-      }
-      membersToIsolate.forEach(m => {
-        if (!restrictedRoleBinding!.members!.includes(m)) {
-          restrictedRoleBinding!.members!.push(m);
-        }
-      });
+          for (const m of membersToIsolate) {
+            const remRes = removeMemberFromRoles(
+              working,
+              (role) => BROAD_PROJECT_ROLES.includes(role),
+              m,
+              { includeConditional: true },
+            );
+            working = remRes.policy;
+            if (remRes.changed) changed = true;
 
-      // Also grant roles/discoveryengine.notebookLmUser at project level when selected (default true)
-      if (grantNotebookLm) {
-        let notebookBinding = updatedBindings.find(b => b.role === NOTEBOOK_LM_USER_ROLE);
-        if (!notebookBinding) {
-          notebookBinding = { role: NOTEBOOK_LM_USER_ROLE, members: [] };
-          updatedBindings.push(notebookBinding);
-        }
-        membersToIsolate.forEach(m => {
-          if (!notebookBinding!.members!.includes(m)) {
-            notebookBinding!.members!.push(m);
+            const addRes = addMemberToRoles(working, targetBaselineRoles, m);
+            working = addRes.policy;
+            if (addRes.changed) changed = true;
           }
-        });
-      }
 
-      await api.setProjectIamPolicy(projectId, { etag, bindings: updatedBindings });
+          return { policy: working, changed };
+        },
+      });
       setSuccessMessage(
-        `Successfully isolated ${membersToIsolate.length} user(s)! Broad project-wide roles removed, and '${AGENTSPACE_RESTRICTED_USER_ROLE}'${
+        `Successfully isolated ${membersToIsolate.length} user(s)! Project-wide bypass roles removed, and '${customEndUserRole}'${
           grantNotebookLm ? ` + '${NOTEBOOK_LM_USER_ROLE}'` : ''
         } granted. Pre-filled into Provisioner below to assign App Engine and DataStore permissions.`
       );
@@ -502,8 +547,8 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
     setIsLoading(true);
     setError(null);
     try {
-      let getFn: () => Promise<any>;
-      let setFn: (policy: any) => Promise<any>;
+      let getFn: () => Promise<IamPolicy>;
+      let setFn: (policy: IamPolicy) => Promise<IamPolicy>;
 
       if (resourceType === 'engine') {
         getFn = () => api.getEngineIamPolicy(engine.name, config);
@@ -516,38 +561,26 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         setFn = (p) => api.setDataStoreIamPolicy(resourceId, p, config);
       }
 
-      const policy = await getFn();
-      const etag = policy.etag || '';
-      const bindings = (policy.bindings || []).map((b: any) => {
-        if (b.role === AGENTSPACE_USER_ROLE || b.role?.includes('agentspace')) {
-          return {
-            ...b,
-            members: (b.members || []).filter((m: string) => m !== member),
-          };
-        }
-        return b;
-      }).filter((b: any) => b.members && b.members.length > 0);
+      const isAgentspaceRole = (role: string) =>
+        role === AGENTSPACE_USER_ROLE || Boolean(role?.includes('agentspace'));
 
-      await setFn({ etag, bindings });
+      await retryIamReadModifyWrite({
+        getPolicy: getFn,
+        setPolicy: setFn,
+        modify: (current) => removeMemberFromRoles(current, isAgentspaceRole, member),
+      });
 
       // If revoking from a DataConnector Collection, also revoke from its child Entity DataStores
       if (resourceType === 'connector') {
         const targetConnector = connectors.find(c => c.id === resourceId);
         if (targetConnector && targetConnector.entities.length > 0) {
           for (const ent of targetConnector.entities) {
-            const entPolicy = await api.getDataStoreIamPolicy(ent.id, config);
-            const entBindings = (entPolicy.bindings || [])
-              .map((b: any) => {
-                if (b.role === AGENTSPACE_USER_ROLE || b.role?.includes('agentspace')) {
-                  return {
-                    ...b,
-                    members: (b.members || []).filter((m: string) => m !== member),
-                  };
-                }
-                return b;
-              })
-              .filter((b: any) => b.members && b.members.length > 0);
-            await api.setDataStoreIamPolicy(ent.id, { etag: entPolicy.etag || '', bindings: entBindings }, config);
+            await retryIamReadModifyWrite({
+              getPolicy: () => api.getDataStoreIamPolicy(ent.id, config),
+              setPolicy: (p) => api.setDataStoreIamPolicy(ent.id, p, config),
+              modify: (entPolicy) =>
+                removeMemberFromRoles(entPolicy, isAgentspaceRole, member),
+            });
           }
         }
       }
@@ -580,7 +613,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
               </span>
             </div>
             <p className="text-xs text-gray-400 mt-1.5 max-w-3xl leading-relaxed">
-              Configure fine-grained App-level and DataStore-level permission controls for Gemini Enterprise end users and delegated admins without granting broad project-wide privileges.
+              Configure fine-grained App-level and DataStore / DataConnector-level IAM controls for Gemini Enterprise end users and delegated admins without granting broad project-wide privileges.
             </p>
           </div>
 
@@ -620,7 +653,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
           </div>
         </div>
 
-        {/* Predefined Project Roles Sub-Card */}
+        {/* GA Custom Restricted Project Roles Sub-Card */}
         <div className="mt-4 pt-4 border-t border-gray-700/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-gray-900/50 p-3 rounded-lg">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-blue-900/40 border border-blue-700/50 flex items-center justify-center shrink-0">
@@ -631,19 +664,24 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-semibold text-gray-200">
-                  Project Baseline Roles:{' '}
-                  <code className="text-blue-300">{AGENTSPACE_RESTRICTED_USER_ROLE}</code> +{' '}
-                  <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code>
+                  GA Project Baseline Roles:{' '}
+                  <code className="text-blue-300">projects/{projectId}/roles/{CUSTOM_RESTRICTED_END_USER_ROLE_ID}</code> +{' '}
+                  <code className="text-purple-300">{NOTEBOOK_LM_USER_ROLE}</code>{' '}
+                  <span className="text-gray-400 font-normal">
+                    (or <code className="text-indigo-300">{CUSTOM_RESTRICTED_ADMIN_ROLE_ID}</code> for Delegated Admins/Viewers)
+                  </span>
                 </span>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-green-900/50 text-green-400 border border-green-700">
                   <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
-                  Predefined Google Cloud IAM Roles
+                  GA Granular Isolation Standard
                 </span>
               </div>
               <p className="text-[11px] text-gray-400 mt-0.5">
-                Grants baseline Gemini Enterprise UI, OAuth connector authorization, and NotebookLM access without granting broad project-wide search access.
+                Grants location-level OAuth, user event, and NotebookLM access with <strong>zero</strong>{' '}
+                <code>collections.get</code> / <code>dataStores.get</code> bypasses. Do <strong>not</strong> use{' '}
+                <code>{AGENTSPACE_RESTRICTED_USER_ROLE}</code> here—it is for App-Only mode (<code>dataStoreAccessControlEnabled=false</code>) and bypasses DataStore isolation.
               </p>
             </div>
           </div>
@@ -723,6 +761,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
 
       {/* 3. Interactive Permission Setup Wizard */}
       <AccessGrantWizard
+        projectId={projectId}
         isWizardOpen={isWizardOpen}
         onToggleOpen={() => setIsWizardOpen(!isWizardOpen)}
         targetMembersInput={targetMembersInput}
@@ -736,6 +775,8 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         onChangeResourceRole={setWizardResourceRole}
         wizardGrantNotebookLmRole={wizardGrantNotebookLmRole}
         onChangeGrantNotebookLmRole={setWizardGrantNotebookLmRole}
+        wizardGrantAiDevToolsRoles={wizardGrantAiDevToolsRoles}
+        onChangeGrantAiDevToolsRoles={setWizardGrantAiDevToolsRoles}
         selectedResourcesForGrant={selectedResourcesForGrant}
         onChangeSelectedResources={setSelectedResourcesForGrant}
         connectors={connectors}

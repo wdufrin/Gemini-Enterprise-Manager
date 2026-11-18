@@ -43,16 +43,16 @@ const ServerList: React.FC<ServerListProps> = ({ services, onSelectService }) =>
       {services.length === 0 ? (
         <p className="text-gray-400 p-6 text-center">No Cloud Run services found for the selected project and region. Click &quot;Scan for Services&quot; to begin.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="gem-table-container" role="region" aria-label="Cloud Run services table" tabIndex={0}>
           <table className="min-w-full divide-y divide-gray-700">
             <thead className="bg-gray-700/50">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Service Name</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Label Status</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">URL</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Region</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Last Updated</th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
+                <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Service Name</th>
+                <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Label Status</th>
+                <th scope="col" className="gem-col-xl px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">URL</th>
+                <th scope="col" className="gem-col-md px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Region</th>
+                <th scope="col" className="gem-col-lg px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Last Updated</th>
+                <th scope="col" className="gem-sticky-action-th px-3 xl:px-5 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-gray-800 divide-y divide-gray-700">
@@ -62,27 +62,36 @@ const ServerList: React.FC<ServerListProps> = ({ services, onSelectService }) =>
 
                 return (
                   <tr key={service.name} className="hover:bg-gray-700/50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white flex items-center">
-                       <span className={`h-2.5 w-2.5 rounded-full mr-3 shrink-0 ${isMcpByLabel ? 'bg-green-500' : 'bg-gray-500'}`}></span>
-                       {serviceName}
+                    <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm font-medium text-white">
+                      <div className="flex items-center">
+                        <span className={`h-2.5 w-2.5 rounded-full mr-2.5 shrink-0 ${isMcpByLabel ? 'bg-green-500' : 'bg-gray-500'}`}></span>
+                        <button
+                          type="button"
+                          onClick={() => onSelectService(service)}
+                          className="text-left hover:text-blue-400 transition-colors truncate max-w-[200px] xl:max-w-[280px]"
+                          title={serviceName}
+                        >
+                          {serviceName}
+                        </button>
+                      </div>
                     </td>
-                     <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm">
                       {isMcpByLabel ? (
                         <span className="px-3 py-1 text-xs font-semibold rounded-full bg-green-500 text-white">MCP Server</span>
                       ) : (
                         <span className="px-3 py-1 text-xs font-semibold rounded-full bg-gray-600 text-gray-300">Not MCP</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-400">
+                    <td className="gem-col-xl px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-blue-400 max-w-[240px] truncate" title={service.uri}>
                       <a href={service.uri} target="_blank" rel="noopener noreferrer" className="hover:underline">
                         {service.uri}
                       </a>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{service.location}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                    <td className="gem-col-md px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400">{service.location}</td>
+                    <td className="gem-col-lg px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400">
                       {new Date(service.updateTime).toLocaleString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <td className="gem-sticky-action-td px-3 xl:px-5 py-3 whitespace-nowrap text-right text-sm font-medium">
                         <button onClick={() => onSelectService(service)} className="font-semibold text-blue-400 hover:text-blue-300">
                             View
                         </button>

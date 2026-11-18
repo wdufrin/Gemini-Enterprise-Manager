@@ -17,6 +17,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import JSZip from 'jszip';
 import * as api from '../../services/apiService';
+import { addMemberToRoles, retryIamReadModifyWrite } from '../../utils/iamPolicy';
 import {
   assertValidGcpResourceName,
   assertValidOpaqueId,
@@ -422,33 +423,29 @@ CMD ["python", "main.py"]
     setIsGrantingPermissions(true);
     setError(null);
     try {
-      const policy = await api.getProjectIamPolicy(projectId);
-      const bindings = policy.bindings || [];
-
       const cloudBuildMember = `serviceAccount:${projectNumber}@cloudbuild.gserviceaccount.com`;
       const computeMember = `serviceAccount:${projectNumber}-compute@developer.gserviceaccount.com`;
 
-      const ensureMemberBinding = (role: string, member: string) => {
-        const existing = bindings.find((b) => b.role === role);
-        if (existing) {
-          if (!existing.members) existing.members = [];
-          if (!existing.members.includes(member)) {
-            existing.members.push(member);
-          }
-        } else {
-          bindings.push({ role, members: [member] });
-        }
-      };
-
-      missingCloudBuildRoles.forEach((role) =>
-        ensureMemberBinding(role, cloudBuildMember)
-      );
-      missingComputeRoles.forEach((role) =>
-        ensureMemberBinding(role, computeMember)
-      );
-
-      policy.bindings = bindings;
-      await api.setProjectIamPolicy(projectId, policy);
+      await retryIamReadModifyWrite({
+        getPolicy: () => api.getProjectIamPolicy(projectId),
+        setPolicy: (p) => api.setProjectIamPolicy(projectId, p),
+        modify: (currentPolicy) => {
+          const cbRes = addMemberToRoles(
+            currentPolicy,
+            missingCloudBuildRoles,
+            cloudBuildMember,
+          );
+          const compRes = addMemberToRoles(
+            cbRes.policy,
+            missingComputeRoles,
+            computeMember,
+          );
+          return {
+            policy: compRes.policy,
+            changed: cbRes.changed || compRes.changed,
+          };
+        },
+      });
       addLog('Granted missing Cloud Build and Compute Service Account roles.');
       await validatePermissions();
     } catch (err: unknown) {

@@ -34,7 +34,6 @@ import HelpButton from './components/HelpButton';
 import { AppRoutes } from './components/layout/AppRoutes';
 import { AppModals } from './components/layout/AppModals';
 import { AuthWelcomeScreen, DEFAULT_GOOGLE_CLIENT_ID } from './components/auth/AuthWelcomeScreen';
-import { OnboardingBanner } from './components/OnboardingBanner';
 import { CommandPaletteModal } from './components/CommandPaletteModal';
 import { FeedbackModal } from './components/FeedbackModal';
 
@@ -723,12 +722,6 @@ const InnerApp: React.FC = () => {
             </div>
           </header>
           <div key={currentPage} className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 xl:p-6 relative">
-            <OnboardingBanner
-              projectId={projectId}
-              projectNumber={projectNumber}
-              accessToken={accessToken}
-              onNavigate={handleMenuClick}
-            />
             <ErrorBoundary boundaryName={currentPage} resetKey={currentPage}>
               <React.Suspense
                 fallback={

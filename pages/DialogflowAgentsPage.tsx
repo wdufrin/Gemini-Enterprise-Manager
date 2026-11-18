@@ -141,35 +141,35 @@ const DialogflowAgentsPage: React.FC<DialogflowAgentsPageProps> = ({ projectNumb
         ) : agents.length === 0 ? (
             <p className="text-gray-400 p-6 text-center">No agents found in this location.</p>
         ) : (
-            <div className="overflow-x-auto">
+            <div className="gem-table-container" role="region" aria-label="Dialogflow CX agents table" tabIndex={0}>
                 <table className="min-w-full divide-y divide-gray-700">
                     <thead className="bg-gray-700/50">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Display Name</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Time Zone</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Language</th>
-                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
+                            <th className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Display Name</th>
+                            <th className="gem-col-lg px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Time Zone</th>
+                            <th className="gem-col-md px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Language</th>
+                            <th className="gem-sticky-action-th px-3 xl:px-5 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="bg-gray-800 divide-y divide-gray-700">
                         {agents.map((agent) => (
                             <tr key={agent.name} className="hover:bg-gray-700/50">
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-white">{agent.displayName}</div>
-                                    <div className="text-xs text-gray-500 font-mono">{agent.name.split('/').pop()}</div>
+                                <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap">
+                                    <div className="text-sm font-medium text-white max-w-[220px] xl:max-w-[300px] truncate" title={agent.displayName}>{agent.displayName}</div>
+                                    <div className="text-xs text-gray-500 font-mono truncate max-w-[220px]" title={agent.name.split('/').pop()}>{agent.name.split('/').pop()}</div>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{agent.timeZone}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{agent.defaultLanguageCode}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
+                                <td className="gem-col-lg px-3 xl:px-5 py-3.5 whitespace-nowrap text-xs xl:text-sm text-gray-300">{agent.timeZone}</td>
+                                <td className="gem-col-md px-3 xl:px-5 py-3.5 whitespace-nowrap text-xs xl:text-sm text-gray-300">{agent.defaultLanguageCode}</td>
+                                <td className="gem-sticky-action-td px-3 xl:px-5 py-3.5 whitespace-nowrap text-right text-sm font-medium space-x-3">
                                     <button
                                         onClick={() => setSelectedAgentForTest(agent)}
-                                        className="text-green-400 hover:text-green-300"
+                                        className="text-green-400 hover:text-green-300 font-semibold"
                                     >
                                         Test Agent
                                     </button>
                                     <button
                                         onClick={() => setAgentToDelete(agent)}
-                                        className="text-red-400 hover:text-red-300"
+                                        className="text-red-400 hover:text-red-300 font-semibold"
                                     >
                                         Delete
                                     </button>

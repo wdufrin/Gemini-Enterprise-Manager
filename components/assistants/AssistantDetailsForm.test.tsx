@@ -29,6 +29,10 @@ vi.mock('../../services/apiService', () => ({
   getProjectIamPolicy: vi.fn(),
   setProjectIamPolicy: vi.fn(),
   getDiscoveryProjectConfig: vi.fn(),
+  getCustomRole: vi.fn(),
+  createCustomRole: vi.fn(),
+  updateCustomRole: vi.fn(),
+  undeleteCustomRole: vi.fn(),
   updateAssistant: vi.fn(),
   updateEngine: vi.fn(),
 }));
@@ -164,24 +168,97 @@ describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () =
       solutionType: 'SOLUTION_TYPE_CHAT',
     });
     mockedApi.getEngineIamPolicy.mockResolvedValue({ bindings: [] });
+    mockedApi.setEngineIamPolicy.mockImplementation(async (_appId: string, policy: any) => policy);
     mockedApi.getProjectIamPolicy.mockResolvedValue({ bindings: [] });
     mockedApi.setProjectIamPolicy.mockImplementation(async (_projId: string, policy: any) => policy);
+    mockedApi.getCustomRole.mockImplementation(async (_projId: string, roleId: string) => ({
+      name: `projects/test-project-123/roles/${roleId}`,
+      title: roleId,
+      includedPermissions: [
+        'discoveryengine.locations.buildAuthorizationUrl',
+        'discoveryengine.devToolsConfigs.get',
+        'discoveryengine.engines.list',
+        'discoveryengine.collections.list',
+        'discoveryengine.dataStores.list',
+        'discoveryengine.assistants.list',
+        'discoveryengine.agents.list',
+        'discoveryengine.LicenseConfigs.list',
+        'discoveryengine.userStores.get',
+        'discoveryengine.widgetConfigs.get',
+        'resourcemanager.projects.get',
+      ],
+    }));
   });
 
-  it('grants roles/discoveryengine.agentspaceUser on the Engine and predefined agentspaceRestrictedUser + notebookLmUser on the Project when dataStoreAccessControlEnabled is true', async () => {
+  it('Model A (App-Only mode, dataStoreAccessControlEnabled=false): grants predefined agentspaceRestrictedUser on Project without creating custom roles', async () => {
     mockedApi.getDiscoveryProjectConfig.mockResolvedValue({
       name: 'projects/test-project-123',
-      dataStoreAccessControlEnabled: true,
+      customerProvidedConfig: {
+        resourceAccessControlConfig: {
+          dataStoreAccessControlEnabled: false,
+        },
+      },
     } as any);
 
     renderForm();
 
-    // Open App-level IAM Permissions collapsible section
-    const iamSectionToggle = await screen.findByText('App-level IAM Permissions');
-    fireEvent.click(iamSectionToggle);
+    fireEvent.click(await screen.findByText('App-level IAM Permissions'));
+    await waitFor(() => {
+      expect(screen.getByText(/App-Only Access Control/i)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('email or ID'), {
+      target: { value: 'apponly@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 
     await waitFor(() => {
-      expect(screen.getByText(/DataStore Access Control/)).toBeInTheDocument();
+      expect(mockedApi.createCustomRole).not.toHaveBeenCalled();
+      expect(mockedApi.setProjectIamPolicy).toHaveBeenCalledWith(
+        'test-project-123',
+        expect.objectContaining({
+          bindings: [
+            {
+              role: 'roles/discoveryengine.agentspaceRestrictedUser',
+              members: ['user:apponly@example.com'],
+            },
+          ],
+        })
+      );
+      expect(screen.getByText('apponly@example.com')).toBeInTheDocument();
+    });
+  });
+
+  it('Model B (Granular DataStore mode, nested dataStoreAccessControlEnabled=true): provisions & grants customRestrictedEndUser + notebookLmUser (and customRestrictedAdmin for Admin role) without granting agentspaceRestrictedUser', async () => {
+    mockedApi.getDiscoveryProjectConfig.mockResolvedValue({
+      name: 'projects/test-project-123',
+      customerProvidedConfig: {
+        resourceAccessControlConfig: {
+          dataStoreAccessControlEnabled: true,
+        },
+      },
+    } as any);
+
+    // Simulate customRestrictedEndUser missing (404) so it gets auto-created
+    mockedApi.getCustomRole.mockImplementationOnce(async () => {
+      const notFound: any = new Error('Role not found');
+      notFound.status = 404;
+      throw notFound;
+    });
+    mockedApi.createCustomRole.mockResolvedValueOnce({
+      name: 'projects/test-project-123/roles/customRestrictedEndUser',
+      title: 'Custom Restricted End User',
+      includedPermissions: [
+        'discoveryengine.locations.buildAuthorizationUrl',
+        'discoveryengine.devToolsConfigs.get',
+      ],
+    });
+
+    renderForm();
+
+    fireEvent.click(await screen.findByText('App-level IAM Permissions'));
+    await waitFor(() => {
+      expect(screen.getByText(/Granular App & DataStore Access Control/i)).toBeInTheDocument();
     });
 
     const emailInput = screen.getByPlaceholderText('email or ID');
@@ -189,12 +266,23 @@ describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () =
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 
     await waitFor(() => {
+      expect(mockedApi.createCustomRole).toHaveBeenCalledWith(
+        'test-project-123',
+        'customRestrictedEndUser',
+        expect.objectContaining({
+          stage: 'GA',
+          includedPermissions: expect.arrayContaining([
+            'discoveryengine.locations.buildAuthorizationUrl',
+            'discoveryengine.devToolsConfigs.get',
+          ]),
+        })
+      );
       expect(mockedApi.setProjectIamPolicy).toHaveBeenCalledWith(
         'test-project-123',
         expect.objectContaining({
           bindings: [
             {
-              role: 'roles/discoveryengine.agentspaceRestrictedUser',
+              role: 'projects/test-project-123/roles/customRestrictedEndUser',
               members: ['user:alice@example.com'],
             },
             {
@@ -206,9 +294,44 @@ describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () =
       );
       expect(screen.getByText('alice@example.com')).toBeInTheDocument();
     });
+
+    // Switch App Role selector to Delegated Admin (agentspaceAdmin) and verify customRestrictedAdmin is granted
+    fireEvent.change(screen.getByLabelText('App Role'), {
+      target: { value: 'roles/discoveryengine.agentspaceAdmin' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('email or ID'), {
+      target: { value: 'appadmin@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => {
+      expect(mockedApi.setEngineIamPolicy).toHaveBeenLastCalledWith(
+        'test-engine-id',
+        expect.objectContaining({
+          bindings: expect.arrayContaining([
+            {
+              role: 'roles/discoveryengine.agentspaceAdmin',
+              members: ['user:appadmin@example.com'],
+            },
+          ]),
+        }),
+        mockConfig
+      );
+      expect(mockedApi.setProjectIamPolicy).toHaveBeenLastCalledWith(
+        'test-project-123',
+        expect.objectContaining({
+          bindings: [
+            {
+              role: 'projects/test-project-123/roles/customRestrictedAdmin',
+              members: ['user:appadmin@example.com'],
+            },
+          ],
+        })
+      );
+    });
   });
 
-  it('surfaces project IAM error when setProjectIamPolicy rejects', async () => {
+  it('surfaces project IAM error when setProjectIamPolicy rejects while keeping the Add form interactive', async () => {
     mockedApi.getDiscoveryProjectConfig.mockResolvedValue({
       name: 'projects/test-project-123',
       dataStoreAccessControlEnabled: false,
@@ -223,9 +346,117 @@ describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () =
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Failed to grant mandatory project-level access \(roles\/discoveryengine\.agentspaceRestrictedUser, roles\/discoveryengine\.notebookLmUser\): 403 Permission Denied/i)
+        screen.getByText(/Failed to grant mandatory project-level access \(roles\/discoveryengine\.agentspaceRestrictedUser\): 403 Permission Denied/i)
       ).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('email or ID')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
     });
   });
+
+  it('executes setEngineIamPolicy before reading Project IAM and retries full read-modify-write when concurrent project ETag changes occur', async () => {
+    mockedApi.getDiscoveryProjectConfig.mockResolvedValue({
+      name: 'projects/test-project-123',
+      customerProvidedConfig: {
+        resourceAccessControlConfig: {
+          dataStoreAccessControlEnabled: true,
+        },
+      },
+    } as any);
+
+    let liveProjectPolicy: any = {
+      version: 3,
+      etag: 'etag-initial',
+      bindings: [
+        {
+          role: 'roles/viewer',
+          members: ['user:existing@example.com'],
+        },
+      ],
+    };
+
+    mockedApi.setEngineIamPolicy.mockImplementation(async (_appId: string, policy: any) => {
+      liveProjectPolicy = {
+        ...liveProjectPolicy,
+        etag: "\\007\\006^\\377\\016o\\245'",
+      };
+      return { ...policy, etag: 'engine-etag-2' };
+    });
+
+    mockedApi.getProjectIamPolicy.mockImplementation(async () =>
+      JSON.parse(JSON.stringify(liveProjectPolicy))
+    );
+
+    let projectSetAttempts = 0;
+    mockedApi.setProjectIamPolicy.mockImplementation(async (_projId: string, incoming: any) => {
+      projectSetAttempts++;
+      if (projectSetAttempts === 1) {
+        expect(incoming.etag).toBe("\\007\\006^\\377\\016o\\245'");
+        liveProjectPolicy = {
+          ...liveProjectPolicy,
+          etag: '\\007\\006`)jE\\010\\330',
+          bindings: [
+            ...liveProjectPolicy.bindings,
+            {
+              role: 'roles/discoveryengine.serviceAgent',
+              members: ['serviceAccount:sa@gcp-sa-discoveryengine.iam.gserviceaccount.com'],
+            },
+          ],
+        };
+        const conflictErr: any = new Error(
+          "There were concurrent policy changes. Please retry the whole read-modify-write with exponential backoff. The request's ETag '\\007\\006^\\377\\016o\\245\\'' did not match the current policy's ETag '\\007\\006`)jE\\010\\330'."
+        );
+        conflictErr.status = 409;
+        conflictErr.code = 'ABORTED';
+        throw conflictErr;
+      }
+
+      expect(incoming.etag).toBe('\\007\\006`)jE\\010\\330');
+      liveProjectPolicy = {
+        ...incoming,
+        etag: 'etag-final',
+      };
+      return liveProjectPolicy;
+    });
+
+    renderForm();
+
+    fireEvent.click(await screen.findByText('App-level IAM Permissions'));
+    fireEvent.change(screen.getByPlaceholderText('email or ID'), {
+      target: { value: 'carol@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(
+      () => {
+        expect(projectSetAttempts).toBe(2);
+        expect(screen.getByText('carol@example.com')).toBeInTheDocument();
+        expect(
+          screen.queryByText(/Failed to grant mandatory project-level access/i)
+        ).not.toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
+
+    // Concurrent serviceAgent binding must be preserved alongside newly granted GA custom + NotebookLM roles
+    expect(liveProjectPolicy.bindings).toEqual([
+      {
+        role: 'roles/viewer',
+        members: ['user:existing@example.com'],
+      },
+      {
+        role: 'roles/discoveryengine.serviceAgent',
+        members: ['serviceAccount:sa@gcp-sa-discoveryengine.iam.gserviceaccount.com'],
+      },
+      {
+        role: 'projects/test-project-123/roles/customRestrictedEndUser',
+        members: ['user:carol@example.com'],
+      },
+      {
+        role: 'roles/discoveryengine.notebookLmUser',
+        members: ['user:carol@example.com'],
+      },
+    ]);
+  });
 });
+
 

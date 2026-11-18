@@ -172,7 +172,7 @@ const AuthList: React.FC<AuthListProps> = ({
           </div>
         </div>
       ) : (
-        <div className="w-full">
+        <div className="gem-table-container w-full" role="region" aria-label="OAuth authorizations table" tabIndex={0}>
           <table className="w-full table-fixed divide-y divide-gray-700">
             <thead className="bg-gray-700/50">
               <tr>
@@ -186,27 +186,27 @@ const AuthList: React.FC<AuthListProps> = ({
                   />
                 </th>
                 {visibleColumns.authId && (
-                  <th scope="col" className="px-3 py-3 w-[22%] text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="px-3 xl:px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Auth ID
                   </th>
                 )}
                 {visibleColumns.region && (
-                  <th scope="col" className="px-3 py-3 w-20 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="gem-col-md w-24 px-3 xl:px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Region
                   </th>
                 )}
                 {visibleColumns.clientId && (
-                  <th scope="col" className="px-3 py-3 w-[26%] text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="gem-col-xl px-3 xl:px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Client ID
                   </th>
                 )}
                 {visibleColumns.usedBy && (
-                  <th scope="col" className="px-3 py-3 w-[22%] text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="gem-col-lg px-3 xl:px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Used By Agent
                   </th>
                 )}
                 {visibleColumns.actions && (
-                  <th scope="col" className="px-3 py-3 w-44 sm:w-52 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th scope="col" className="gem-sticky-action-th w-48 xl:w-56 px-3 xl:px-4 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Actions
                   </th>
                 )}
@@ -225,7 +225,7 @@ const AuthList: React.FC<AuthListProps> = ({
                 return (
                   <tr
                     key={authName}
-                    className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}
+                    className={`${isSelected ? 'bg-blue-900/50 gem-row-selected' : 'hover:bg-gray-700/50'} transition-colors`}
                   >
                     <td className="px-3 py-3.5 align-middle">
                       <input
@@ -237,14 +237,19 @@ const AuthList: React.FC<AuthListProps> = ({
                       />
                     </td>
                     {visibleColumns.authId && (
-                      <td className="px-3 py-3.5 align-middle text-sm font-medium text-white font-mono">
-                        <div className="truncate" title={authId}>
+                      <td className="px-3 xl:px-4 py-3.5 align-middle text-sm font-medium text-white font-mono whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => onView(auth, 'config')}
+                          className="text-left hover:text-blue-400 transition-colors block max-w-[200px] xl:max-w-[280px] truncate"
+                          title={authId}
+                        >
                           {authId}
-                        </div>
+                        </button>
                       </td>
                     )}
                     {visibleColumns.region && (
-                      <td className="px-3 py-3.5 align-middle text-sm text-gray-300 font-mono">
+                      <td className="gem-col-md px-3 xl:px-4 py-3.5 align-middle text-sm text-gray-300 font-mono whitespace-nowrap">
                         <span
                           className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
                             location === 'global'
@@ -257,8 +262,8 @@ const AuthList: React.FC<AuthListProps> = ({
                       </td>
                     )}
                     {visibleColumns.clientId && (
-                      <td className="px-3 py-3.5 align-middle text-sm text-gray-300 font-mono">
-                        <div className="flex items-center gap-1.5 min-w-0">
+                      <td className="gem-col-xl px-3 xl:px-4 py-3.5 align-middle text-sm text-gray-300 font-mono">
+                        <div className="flex items-center gap-1.5 min-w-0 max-w-[220px] 2xl:max-w-[300px]">
                           <span className="truncate" title={clientIdValue}>
                             {clientIdValue}
                           </span>
@@ -282,14 +287,14 @@ const AuthList: React.FC<AuthListProps> = ({
                       </td>
                     )}
                     {visibleColumns.usedBy && (
-                      <td className="px-3 py-3.5 align-middle text-sm text-gray-300">
+                      <td className="gem-col-lg px-3 xl:px-4 py-3.5 align-middle text-sm text-gray-300">
                         {isScanningAgents ? (
                           <div className="flex items-center">
                             <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-gray-500 mr-2 shrink-0"></div>
                             <span className="text-xs text-gray-500 truncate">Scanning...</span>
                           </div>
                         ) : usingAgents.length > 0 ? (
-                          <ul className="space-y-1 min-w-0">
+                          <ul className="space-y-1 min-w-0 max-w-[200px]">
                             {usingAgents.map((agent) => (
                               <li
                                 key={agent.name}
@@ -301,13 +306,13 @@ const AuthList: React.FC<AuthListProps> = ({
                             ))}
                           </ul>
                         ) : (
-                          <span className="text-xs text-gray-500 italic">Not in use</span>
+                          <span className="text-xs text-gray-500 italic whitespace-nowrap">Not in use</span>
                         )}
                       </td>
                     )}
                     {visibleColumns.actions && (
-                      <td className="px-3 py-3.5 align-middle text-right text-xs sm:text-sm font-medium">
-                        <div className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-1">
+                      <td className="gem-sticky-action-td px-3 xl:px-4 py-3.5 align-middle text-right text-xs xl:text-sm font-medium whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-2.5">
                           <button
                             onClick={() => onView(auth, 'config')}
                             className="font-semibold text-blue-400 hover:text-blue-300"

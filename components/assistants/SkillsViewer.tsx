@@ -33,7 +33,14 @@ import {
 const getSourceBadge = (skill: Agent) => {
   const def = skill.skillAgentDefinition;
   const rec = skill as unknown as Record<string, unknown>;
-  if (rec.geminiEnterpriseSkillConfig) {
+  if (def?.geminiEnterpriseSkillConfig?.dataConnectorSkillConfig) {
+    return (
+      <span className="px-2 py-0.5 text-[11px] font-semibold bg-purple-900/40 text-purple-300 rounded border border-purple-800 font-mono">
+        1P Connector
+      </span>
+    );
+  }
+  if (rec.geminiEnterpriseSkillConfig || def?.geminiEnterpriseSkillConfig) {
     return (
       <span className="px-2 py-0.5 text-[11px] font-semibold bg-emerald-900/40 text-emerald-300 rounded border border-emerald-700 font-mono">
         Google (1P)
@@ -51,13 +58,6 @@ const getSourceBadge = (skill: Agent) => {
     return (
       <span className="px-2 py-0.5 text-[11px] font-semibold bg-indigo-900/40 text-indigo-300 rounded border border-indigo-700 font-mono">
         Cloud Storage
-      </span>
-    );
-  }
-  if (def?.geminiEnterpriseSkillConfig?.dataConnectorSkillConfig) {
-    return (
-      <span className="px-2 py-0.5 text-[11px] font-semibold bg-purple-900/40 text-purple-300 rounded border border-purple-700 font-mono">
-        1P Connector
       </span>
     );
   }
@@ -81,10 +81,10 @@ const SkillTableRow = React.memo<SkillTableRowProps>(
   ({ skill, isSelected, onToggleSelect, onInspect, onEdit, onDelete }) => {
     const skillId = skill.name.split('/').pop() || '';
     const classification = classifySkillAgent(skill);
+    const isGoogle1P = classification.origin === 'GOOGLE_1P';
     const ownerEmail = classification.ownerPrincipal;
     const normalizedState = (skill.state || 'PRIVATE').toUpperCase();
-    const canEditMd =
-      classification.origin !== 'GOOGLE_1P' && !classification.isInstructionRedactedForAdmin;
+    const canEditMd = !isGoogle1P && !classification.isInstructionRedactedForAdmin;
 
     const statusBadgeStyle =
       normalizedState === 'ENABLED'
@@ -107,30 +107,47 @@ const SkillTableRow = React.memo<SkillTableRowProps>(
     return (
       <tr
         className={`hover:bg-gray-750/50 transition-colors ${
-          isSelected ? 'bg-blue-950/25' : ''
+          isSelected ? 'bg-blue-950/25 gem-row-selected' : ''
         }`}
       >
         {/* Bulk Select Checkbox */}
-        <td className="pl-5 pr-2 py-4 whitespace-nowrap w-10">
+        <td className="pl-4 pr-2 py-3.5 whitespace-nowrap w-10">
           <input
             type="checkbox"
-            checked={isSelected}
-            onChange={() => onToggleSelect(skill.name)}
+            checked={!isGoogle1P && isSelected}
+            disabled={isGoogle1P}
+            onChange={() => {
+              if (!isGoogle1P) onToggleSelect(skill.name);
+            }}
+            title={
+              isGoogle1P
+                ? 'Google (1P) default skills are service-managed and cannot be deleted'
+                : undefined
+            }
             aria-label={`Select ${skill.displayName || skillId}`}
-            className="w-4 h-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 bg-gray-900 cursor-pointer"
+            className={`w-4 h-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 bg-gray-900 ${
+              isGoogle1P ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'
+            }`}
           />
         </td>
 
         {/* Name & ID */}
-        <td className="px-4 py-4 whitespace-nowrap">
-          <div className="font-semibold text-gray-100">{skill.displayName}</div>
-          <div className="text-[11px] text-gray-500 font-mono mt-0.5">{skillId}</div>
+        <td className="px-3 xl:px-4 py-3.5 whitespace-nowrap">
+          <button
+            type="button"
+            onClick={() => onInspect(skill)}
+            className="text-left font-semibold text-gray-100 hover:text-blue-400 transition-colors block max-w-[190px] xl:max-w-[260px] truncate"
+            title={skill.displayName}
+          >
+            {skill.displayName}
+          </button>
+          <div className="text-[11px] text-gray-500 font-mono mt-0.5 truncate max-w-[190px] xl:max-w-[260px]" title={skillId}>{skillId}</div>
         </td>
 
         {/* Origin & Scope Badge */}
-        <td className="px-6 py-4 whitespace-nowrap">
+        <td className="gem-col-md px-3 xl:px-5 py-3.5 whitespace-nowrap">
           <div className="flex flex-col items-start gap-1">
-            {classification.origin === 'GOOGLE_1P' ? (
+            {isGoogle1P ? (
               <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-900/40 text-emerald-300 border border-emerald-700/60">
                 <span>{classification.originLabel}</span>
               </div>
@@ -169,7 +186,7 @@ const SkillTableRow = React.memo<SkillTableRowProps>(
         </td>
 
         {/* Status */}
-        <td className="px-6 py-4 whitespace-nowrap">
+        <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap">
           <span
             className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${statusBadgeStyle}`}
           >
@@ -179,17 +196,17 @@ const SkillTableRow = React.memo<SkillTableRowProps>(
         </td>
 
         {/* Source Type */}
-        <td className="px-6 py-4 whitespace-nowrap">{getSourceBadge(skill)}</td>
+        <td className="gem-col-lg px-3 xl:px-5 py-3.5 whitespace-nowrap">{getSourceBadge(skill)}</td>
 
         {/* Description */}
-        <td className="px-6 py-4 text-gray-300 max-w-xs truncate">
+        <td className="gem-col-xl px-3 xl:px-5 py-3.5 text-gray-300 max-w-xs truncate">
           {skill.description || (
             <span className="text-gray-500 italic">No description provided</span>
           )}
         </td>
 
         {/* Actions */}
-        <td className="px-6 py-4 whitespace-nowrap text-right font-medium">
+        <td className="gem-sticky-action-td px-3 xl:px-5 py-3.5 whitespace-nowrap text-right font-medium">
           <div className="flex items-center justify-end gap-2">
             {canEditMd && (
               <button
@@ -241,27 +258,29 @@ const SkillTableRow = React.memo<SkillTableRowProps>(
                 />
               </svg>
             </button>
-            <button
-              onClick={() => onDelete(skill)}
-              className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition-colors"
-              title="Delete Skill"
-              aria-label={`Delete ${skill.displayName || skillId}`}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+            {!isGoogle1P && (
+              <button
+                onClick={() => onDelete(skill)}
+                className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition-colors"
+                title="Delete Skill"
+                aria-label={`Delete ${skill.displayName || skillId}`}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
-              </svg>
-            </button>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+              </button>
+            )}
           </div>
         </td>
       </tr>
@@ -288,7 +307,7 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
 }) => {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
-  const [scopeFilter, setScopeFilter] = useState<'ALL' | 'ORGANIZATIONAL' | 'USER_CREATED'>('ALL');
+  const [scopeFilter, setScopeFilter] = useState<'ALL' | 'ORGANIZATIONAL' | 'USER_CREATED' | 'GOOGLE_1P'>('ALL');
   const [selectedSkill, setSelectedSkill] = useState<Agent | null>(null);
   const [openInEditMode, setOpenInEditMode] = useState(false);
   const [skillToDelete, setSkillToDelete] = useState<Agent | null>(null);
@@ -316,6 +335,10 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
     () => skillsList.filter((s) => classifySkillAgent(s).origin === 'USER_CREATED').length,
     [skillsList]
   );
+  const google1pCount = useMemo(
+    () => skillsList.filter((s) => classifySkillAgent(s).origin === 'GOOGLE_1P').length,
+    [skillsList]
+  );
 
   // Filtered skills based on scope/origin tab and search query
   const filteredSkills = useMemo(() => {
@@ -325,6 +348,9 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
         return false;
       }
       if (scopeFilter === 'USER_CREATED' && classification.origin !== 'USER_CREATED') {
+        return false;
+      }
+      if (scopeFilter === 'GOOGLE_1P' && classification.origin !== 'GOOGLE_1P') {
         return false;
       }
 
@@ -345,17 +371,25 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
     });
   }, [skillsList, scopeFilter, searchQuery]);
 
-  // Keep only selected skills that still exist in skillsList
+  const deletableFilteredSkills = useMemo(
+    () => filteredSkills.filter((s) => classifySkillAgent(s).origin !== 'GOOGLE_1P'),
+    [filteredSkills]
+  );
+
+  // Keep only selected skills that still exist in skillsList and are customer-deletable (never GOOGLE_1P)
   const activeSelectedSkills = useMemo(
-    () => skillsList.filter((s) => selectedSkillNames.has(s.name)),
+    () =>
+      skillsList.filter(
+        (s) => selectedSkillNames.has(s.name) && classifySkillAgent(s).origin !== 'GOOGLE_1P'
+      ),
     [skillsList, selectedSkillNames]
   );
 
   const allFilteredSelected = useMemo(
     () =>
-      filteredSkills.length > 0 &&
-      filteredSkills.every((s) => selectedSkillNames.has(s.name)),
-    [filteredSkills, selectedSkillNames]
+      deletableFilteredSkills.length > 0 &&
+      deletableFilteredSkills.every((s) => selectedSkillNames.has(s.name)),
+    [deletableFilteredSkills, selectedSkillNames]
   );
 
   const handleToggleSelectSkill = useCallback((skillName: string) => {
@@ -374,15 +408,16 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
     setSelectedSkillNames((prev) => {
       const next = new Set(prev);
       const everySelected =
-        filteredSkills.length > 0 && filteredSkills.every((s) => next.has(s.name));
+        deletableFilteredSkills.length > 0 &&
+        deletableFilteredSkills.every((s) => next.has(s.name));
       if (everySelected) {
-        filteredSkills.forEach((s) => next.delete(s.name));
+        deletableFilteredSkills.forEach((s) => next.delete(s.name));
       } else {
-        filteredSkills.forEach((s) => next.add(s.name));
+        deletableFilteredSkills.forEach((s) => next.add(s.name));
       }
       return next;
     });
-  }, [filteredSkills]);
+  }, [deletableFilteredSkills]);
 
   const exportRecords = useMemo(
     () => filteredSkills.map((s) => normalizeAppSkillForExport(s)),
@@ -661,7 +696,7 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
       {/* Filter and Search Bar */}
       <div className="bg-gray-800 rounded-lg p-3.5 border border-gray-700 flex flex-col md:flex-row items-center justify-between gap-3">
         {/* Scope Tabs */}
-        <div className="flex items-center bg-gray-900/80 p-1 rounded-lg border border-gray-700/60 w-full md:w-auto">
+        <div className="flex items-center flex-wrap bg-gray-900/80 p-1 rounded-lg border border-gray-700/60 w-full md:w-auto">
           <button
             onClick={() => setScopeFilter('ALL')}
             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
@@ -691,6 +726,16 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
             }`}
           >
             <span>👤 User-Created ({userCreatedCount})</span>
+          </button>
+          <button
+            onClick={() => setScopeFilter('GOOGLE_1P')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1 ${
+              scopeFilter === 'GOOGLE_1P'
+                ? 'bg-emerald-600 text-white'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <span>✨ Google (1P) ({google1pCount})</span>
           </button>
         </div>
 
@@ -783,25 +828,30 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
         </div>
       ) : (
         <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden border border-gray-700">
-          <div className="overflow-x-auto">
+          <div className="gem-table-container" role="region" aria-label="Assistant skills table" tabIndex={0}>
             <table className="min-w-full divide-y divide-gray-700 text-left">
               <thead className="bg-gray-900/60 text-gray-400 text-[11px] uppercase tracking-wider font-semibold">
                 <tr>
-                  <th scope="col" className="pl-5 pr-2 py-3.5 w-10">
+                  <th scope="col" className="pl-4 pr-2 py-3.5 w-10">
                     <input
                       type="checkbox"
                       checked={allFilteredSelected}
+                      disabled={deletableFilteredSkills.length === 0}
                       onChange={handleToggleSelectAllFiltered}
                       aria-label="Select all visible skills"
-                      className="w-4 h-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 bg-gray-900 cursor-pointer"
+                      className={`w-4 h-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 bg-gray-900 ${
+                        deletableFilteredSkills.length === 0
+                          ? 'opacity-30 cursor-not-allowed'
+                          : 'cursor-pointer'
+                      }`}
                     />
                   </th>
-                  <th scope="col" className="px-4 py-3.5">Skill Name & ID</th>
-                  <th scope="col" className="px-6 py-3.5">Origin & Scope</th>
-                  <th scope="col" className="px-6 py-3.5">Status</th>
-                  <th scope="col" className="px-6 py-3.5">Source Type</th>
-                  <th scope="col" className="px-6 py-3.5">Description</th>
-                  <th scope="col" className="px-6 py-3.5 text-right">Actions</th>
+                  <th scope="col" className="px-3 xl:px-4 py-3.5 whitespace-nowrap">Skill Name &amp; ID</th>
+                  <th scope="col" className="gem-col-md px-3 xl:px-5 py-3.5 whitespace-nowrap">Origin &amp; Scope</th>
+                  <th scope="col" className="px-3 xl:px-5 py-3.5 whitespace-nowrap">Status</th>
+                  <th scope="col" className="gem-col-lg px-3 xl:px-5 py-3.5 whitespace-nowrap">Source Type</th>
+                  <th scope="col" className="gem-col-xl px-3 xl:px-5 py-3.5 whitespace-nowrap">Description</th>
+                  <th scope="col" className="gem-sticky-action-th px-3 xl:px-5 py-3.5 text-right whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700/60 bg-gray-800 text-xs">

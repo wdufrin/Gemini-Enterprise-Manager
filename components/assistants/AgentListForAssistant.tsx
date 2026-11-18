@@ -44,17 +44,18 @@ interface AssistantColumnDef {
   key: AssistantAgentColumnKey;
   label: string;
   defaultVisible: boolean;
+  responsiveClass?: string;
 }
 
 const ASSISTANT_AGENT_COLUMNS: AssistantColumnDef[] = [
   { key: 'displayName', label: 'Display Name', defaultVisible: true },
   { key: 'state', label: 'Status', defaultVisible: true },
-  { key: 'owner', label: 'Agent Owner', defaultVisible: true },
-  { key: 'sharing', label: 'Sharing Scope', defaultVisible: false },
+  { key: 'owner', label: 'Agent Owner', defaultVisible: true, responsiveClass: 'gem-col-lg' },
+  { key: 'sharing', label: 'Sharing Scope', defaultVisible: false, responsiveClass: 'gem-col-lg' },
   { key: 'telemetry', label: 'Telemetry', defaultVisible: true },
-  { key: 'agentType', label: 'Agent Type', defaultVisible: true },
-  { key: 'name', label: 'Agent ID', defaultVisible: true },
-  { key: 'updateTime', label: 'Last Modified', defaultVisible: false },
+  { key: 'agentType', label: 'Agent Type', defaultVisible: true, responsiveClass: 'gem-col-xl' },
+  { key: 'name', label: 'Agent ID', defaultVisible: true, responsiveClass: 'gem-col-2xl' },
+  { key: 'updateTime', label: 'Last Modified', defaultVisible: false, responsiveClass: 'gem-col-xl' },
 ];
 
 const DEFAULT_ASSISTANT_VISIBLE_COLUMNS: Record<AssistantAgentColumnKey, boolean> =
@@ -86,6 +87,7 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
   const [visibleColumns, setVisibleColumns] = useState<Record<AssistantAgentColumnKey, boolean>>(
     DEFAULT_ASSISTANT_VISIBLE_COLUMNS,
   );
+  const [forcedColumns, setForcedColumns] = useState<Set<AssistantAgentColumnKey>>(new Set());
   const [isColumnsOpen, setIsColumnsOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
@@ -108,12 +110,22 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
       if (!nextVal && activeCount <= 1) {
         return prev;
       }
+      if (nextVal) {
+        setForcedColumns((f) => new Set(f).add(key));
+      } else {
+        setForcedColumns((f) => {
+          const next = new Set(f);
+          next.delete(key);
+          return next;
+        });
+      }
       return { ...prev, [key]: nextVal };
     });
   };
 
   const resetColumns = () => {
     setVisibleColumns(DEFAULT_ASSISTANT_VISIBLE_COLUMNS);
+    setForcedColumns(new Set());
   };
 
   const showAllColumns = () => {
@@ -122,6 +134,12 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
       {} as Record<AssistantAgentColumnKey, boolean>,
     );
     setVisibleColumns(allTrue);
+    setForcedColumns(new Set(ASSISTANT_AGENT_COLUMNS.map((col) => col.key)));
+  };
+
+  const getColResponsiveClass = (key: AssistantAgentColumnKey): string => {
+    if (forcedColumns.has(key)) return '';
+    return ASSISTANT_AGENT_COLUMNS.find((c) => c.key === key)?.responsiveClass || '';
   };
 
   // App-level telemetry state from parent App Engine
@@ -467,35 +485,35 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
       {agents.length === 0 ? (
         <p className="text-gray-400 p-6 text-center flex-1">No agents found for this assistant.</p>
       ) : (
-        <div className="overflow-y-auto flex-1 rounded-b-lg">
+        <div className="gem-table-container overflow-y-auto flex-1 rounded-b-lg" role="region" aria-label="Assistant child agents table" tabIndex={0}>
           <table className="min-w-full divide-y divide-gray-700">
-            <thead className="bg-gray-700/50 sticky top-0">
+            <thead className="bg-gray-700/50 sticky top-0 z-20">
               <tr>
                 {visibleColumns.displayName && (
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Display Name</th>
+                  <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Display Name</th>
                 )}
                 {visibleColumns.state && (
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
+                  <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Status</th>
                 )}
                 {visibleColumns.owner && (
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent Owner</th>
+                  <th scope="col" className={`px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${getColResponsiveClass('owner')}`}>Agent Owner</th>
                 )}
                 {visibleColumns.sharing && (
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Sharing Scope</th>
+                  <th scope="col" className={`px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${getColResponsiveClass('sharing')}`}>Sharing Scope</th>
                 )}
                 {visibleColumns.telemetry && (
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Telemetry</th>
+                  <th scope="col" className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Telemetry</th>
                 )}
                 {visibleColumns.agentType && (
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent Type</th>
+                  <th scope="col" className={`px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${getColResponsiveClass('agentType')}`}>Agent Type</th>
                 )}
                 {visibleColumns.name && (
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent ID</th>
+                  <th scope="col" className={`px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${getColResponsiveClass('name')}`}>Agent ID</th>
                 )}
                 {visibleColumns.updateTime && (
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Last Modified</th>
+                  <th scope="col" className={`px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${getColResponsiveClass('updateTime')}`}>Last Modified</th>
                 )}
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
+                <th scope="col" className="gem-sticky-action-th px-3 xl:px-5 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-gray-800 divide-y divide-gray-700">
@@ -512,8 +530,9 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
                 return (
                   <tr key={agent.name} className="hover:bg-gray-700/50 transition-colors">
                     {visibleColumns.displayName && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white flex items-center">
-                          <span className={`h-2.5 w-2.5 rounded-full mr-3 shrink-0 ${statusColorClass}`}></span>
+                      <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm font-medium text-white">
+                        <div className="flex items-center">
+                          <span className={`h-2.5 w-2.5 rounded-full mr-2.5 shrink-0 ${statusColorClass}`}></span>
                           {editingId === agent.name ? (
                               <form 
                                   onSubmit={(e) => { e.preventDefault(); handleSaveName(agent); }}
@@ -534,44 +553,55 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
                                   </button>
                               </form>
                           ) : (
-                              <div className="flex items-center gap-2 group">
-                                  <span>{agent.displayName}</span>
-                                  {api.isGoogleManagedAgent(agent) && (
-                                    <span
-                                      className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70"
-                                      title="First-party Google-managed built-in agent (protected from deletion)."
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 group">
+                                    <span className="truncate max-w-[180px] xl:max-w-[260px]" title={agent.displayName}>{agent.displayName}</span>
+                                    {api.isGoogleManagedAgent(agent) && (
+                                      <span
+                                        className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 shrink-0"
+                                        title="First-party Google-managed built-in agent (protected from deletion)."
+                                      >
+                                        Google Built-in
+                                      </span>
+                                    )}
+                                    {hasLegacyAuth && (
+                                      <span
+                                        className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 text-amber-300 border border-amber-700/70 shrink-0"
+                                        title="Uses legacy agent.authorizations schema. In-place updates rejected by Google Cloud Discovery Engine API."
+                                      >
+                                        Legacy Schema
+                                      </span>
+                                    )}
+                                    <button 
+                                        onClick={() => handleEditClick(agent)}
+                                        className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity shrink-0"
+                                        title="Edit Name"
                                     >
-                                      Google Built-in
-                                    </span>
-                                  )}
-                                  {hasLegacyAuth && (
-                                    <span
-                                      className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 text-amber-300 border border-amber-700/70"
-                                      title="Uses legacy agent.authorizations schema. In-place updates rejected by Google Cloud Discovery Engine API."
-                                    >
-                                      Legacy Schema
-                                    </span>
-                                  )}
-                                  <button 
-                                      onClick={() => handleEditClick(agent)}
-                                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity"
-                                      title="Edit Name"
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                    </button>
+                                </div>
+                                {visibleColumns.name && !forcedColumns.has('name') && (
+                                  <div
+                                    className="gem-hide-2xl text-[11px] text-gray-400 font-mono truncate max-w-[180px] xl:max-w-[240px]"
+                                    title={agentId}
                                   >
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
-                                  </button>
+                                    {agentId}
+                                  </div>
+                                )}
                               </div>
                           )}
+                        </div>
                       </td>
                     )}
                     {visibleColumns.state && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <td className="px-3 xl:px-5 py-3 whitespace-nowrap text-sm">
                           <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusColorClass} ${statusText === 'Private' ? 'text-black' : 'text-white'}`}>
                               {statusText}
                           </span>
                       </td>
                     )}
                     {visibleColumns.owner && (
-                      <td className="px-6 py-4 whitespace-nowrap text-xs">
+                      <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs ${getColResponsiveClass('owner')}`}>
                         {ownerHint ? (
                           <span
                             className="inline-flex items-center px-2 py-0.5 rounded bg-gray-900/70 text-cyan-300 border border-gray-700 font-mono truncate max-w-[180px]"
@@ -585,7 +615,7 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
                       </td>
                     )}
                     {visibleColumns.sharing && (
-                      <td className="px-6 py-4 whitespace-nowrap text-xs">
+                      <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs ${getColResponsiveClass('sharing')}`}>
                         {sharingScope === 'ALL_USERS' ? (
                           <span className="inline-flex items-center w-fit px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 font-medium">
                             All Users
@@ -602,7 +632,7 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
                       </td>
                     )}
                     {visibleColumns.telemetry && (
-                      <td className="px-6 py-4 text-sm">
+                      <td className="px-3 xl:px-5 py-3 text-sm">
                         <div className="space-y-1.5">
                           {/* Visual Status Indicator: Shows if All or Part are enabled */}
                           <div className="flex items-center gap-2 flex-wrap">
@@ -740,17 +770,17 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({
                       </td>
                     )}
                     {visibleColumns.agentType && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{agent.agentType || 'N/A'}</td>
+                      <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs xl:text-sm text-gray-400 ${getColResponsiveClass('agentType')}`}>{agent.agentType || 'N/A'}</td>
                     )}
                     {visibleColumns.name && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{agentId}</td>
+                      <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400 font-mono ${getColResponsiveClass('name')}`}>{agentId}</td>
                     )}
                     {visibleColumns.updateTime && (
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400">
+                      <td className={`px-3 xl:px-5 py-3 whitespace-nowrap text-xs text-gray-400 ${getColResponsiveClass('updateTime')}`}>
                         {agent.updateTime ? new Date(agent.updateTime).toLocaleString() : 'N/A'}
                       </td>
                     )}
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <td className="gem-sticky-action-td px-3 xl:px-5 py-3 whitespace-nowrap text-right text-sm font-medium">
                       <button 
                         onClick={() => handleDownloadAgentConfig(agent)} 
                         className="text-blue-400 hover:text-blue-300 font-semibold"

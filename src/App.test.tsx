@@ -138,6 +138,10 @@ describe('Gemini Enterprise Manager - App Integration Tests', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /Agents/i })).toBeDefined();
     }, { timeout: 5000 });
+
+    // Verify the legacy Quick Start Guide onboarding banner does NOT render even with clean localStorage
+    expect(screen.queryByText('Quick Start Guide')).toBeNull();
+    expect(screen.queryByRole('region', { name: /first-run guided onboarding/i })).toBeNull();
   });
 
   it('allows navigating between sidebar tabs in the console', async () => {
