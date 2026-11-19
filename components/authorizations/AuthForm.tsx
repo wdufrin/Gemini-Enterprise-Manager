@@ -16,6 +16,11 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/apiService';
+import {
+  listSecrets,
+  accessSecretVersion,
+  SecretManagerSecret,
+} from '../../services/api/secretManager';
 import { Authorization, Config } from '../../types';
 
 interface AuthFormProps {
@@ -56,6 +61,63 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
   // State for cURL command preview
   const [curlCommand, setCurlCommand] = useState('');
   const [copySuccessCurl, setCopySuccessCurl] = useState(false);
+
+  // State for Secret Manager inline picker
+  const [isSecretPickerOpen, setIsSecretPickerOpen] = useState(false);
+  const [availableSecrets, setAvailableSecrets] = useState<SecretManagerSecret[]>([]);
+  const [selectedSecretName, setSelectedSecretName] = useState('');
+  const [isLoadingSecrets, setIsLoadingSecrets] = useState(false);
+  const [isAccessingSecret, setIsAccessingSecret] = useState(false);
+  const [secretManagerError, setSecretManagerError] = useState<string | null>(null);
+  const [loadedSecretSource, setLoadedSecretSource] = useState<string | null>(null);
+
+  const handleOpenSecretPicker = async () => {
+    if (isSecretPickerOpen) {
+      setIsSecretPickerOpen(false);
+      return;
+    }
+    setIsSecretPickerOpen(true);
+    setSecretManagerError(null);
+    if (!config.projectId) {
+      setSecretManagerError('Project ID must be configured before listing Secret Manager secrets.');
+      return;
+    }
+    setIsLoadingSecrets(true);
+    try {
+      const secrets = await listSecrets(config.projectId);
+      setAvailableSecrets(secrets);
+      if (secrets.length > 0 && !selectedSecretName) {
+        setSelectedSecretName(secrets[0].name);
+      }
+    } catch (err: unknown) {
+      setAvailableSecrets([]);
+      setSecretManagerError(
+        err instanceof Error ? err.message : 'Failed to list secrets from Secret Manager.',
+      );
+    } finally {
+      setIsLoadingSecrets(false);
+    }
+  };
+
+  const handleLoadSecretFromManager = async () => {
+    if (!selectedSecretName || !config.projectId) return;
+    setIsAccessingSecret(true);
+    setSecretManagerError(null);
+    try {
+      const versionResource = `${selectedSecretName}/versions/latest`;
+      const secretValue = await accessSecretVersion(versionResource, config.projectId);
+      setFormData((prev) => ({ ...prev, oauthClientSecret: secretValue }));
+      const shortName = selectedSecretName.split('/').pop() || selectedSecretName;
+      setLoadedSecretSource(`${shortName}/versions/latest`);
+      setIsSecretPickerOpen(false);
+    } catch (err: unknown) {
+      setSecretManagerError(
+        err instanceof Error ? err.message : 'Failed to access secret version from Secret Manager.',
+      );
+    } finally {
+      setIsAccessingSecret(false);
+    }
+  };
 
 
     const constructAuthUri = useCallback((provider: string, clientId: string, redirectUri: string, scopes: string, tenantId?: string) => {
@@ -273,6 +335,9 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.name === 'oauthClientSecret') {
+      setLoadedSecretSource(null);
+    }
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
@@ -397,7 +462,99 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
                   )}
 
                 <FormField name="oauthClientId" label="OAuth 2.0 Client ID" value={formData.oauthClientId} onChange={handleChange} placeholder="e.g. 1234567890-abc.apps.googleusercontent.com" required />
-                <FormField name="oauthClientSecret" label="OAuth 2.0 Client Secret" value={formData.oauthClientSecret} onChange={handleChange} required={!authToEdit} type="password" helpText={authToEdit ? 'Leave blank to keep existing secret. Enter a new value to update.' : ''} />
+                <div>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                        <label htmlFor="oauthClientSecret" className="block text-xs font-semibold uppercase tracking-wider text-gray-300">
+                            OAuth 2.0 Client Secret
+                        </label>
+                        <button
+                            type="button"
+                            data-testid="load-from-secret-manager-button"
+                            onClick={() => void handleOpenSecretPicker()}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-200 border border-indigo-700/70 transition-colors"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                            </svg>
+                            {isSecretPickerOpen ? 'Hide Secret Manager' : 'Load from Secret Manager'}
+                        </button>
+                    </div>
+                    <input
+                        type="password"
+                        name="oauthClientSecret"
+                        id="oauthClientSecret"
+                        value={formData.oauthClientSecret}
+                        onChange={handleChange}
+                        required={!authToEdit}
+                        autoComplete="new-password"
+                        className="block w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg shadow-sm text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors"
+                    />
+                    {authToEdit && (
+                        <p className="mt-1 text-xs text-gray-400">
+                            Leave blank to keep existing secret. Enter a new value to update.
+                        </p>
+                    )}
+                    {loadedSecretSource && (
+                        <p
+                            data-testid="secret-manager-loaded-badge"
+                            className="mt-1.5 text-xs text-emerald-300 bg-emerald-950/40 border border-emerald-800/60 rounded px-2.5 py-1 inline-block font-mono"
+                        >
+                            Loaded from Secret Manager: {loadedSecretSource} (masked in memory)
+                        </p>
+                    )}
+                    {isSecretPickerOpen && (
+                        <div
+                            data-testid="secret-manager-picker-panel"
+                            className="mt-2 p-3 bg-gray-900/90 border border-indigo-800/70 rounded-lg space-y-2.5"
+                        >
+                            <div className="text-xs text-gray-300 font-medium">
+                                Select a secret from Google Cloud Secret Manager (<code className="text-indigo-300">{config.projectId || 'unset'}</code>):
+                            </div>
+                            {isLoadingSecrets ? (
+                                <p className="text-xs text-indigo-300 animate-pulse">Loading secrets from Secret Manager...</p>
+                            ) : availableSecrets.length === 0 && !secretManagerError ? (
+                                <p className="text-xs text-gray-400">No secrets found in project {config.projectId}.</p>
+                            ) : availableSecrets.length > 0 ? (
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                    <select
+                                        aria-label="Select Secret Manager Secret"
+                                        data-testid="secret-manager-select"
+                                        value={selectedSecretName}
+                                        onChange={(e) => setSelectedSecretName(e.target.value)}
+                                        className="flex-1 bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    >
+                                        {availableSecrets.map((s) => {
+                                            const shortId = s.name.split('/').pop() || s.name;
+                                            return (
+                                                <option key={s.name} value={s.name}>
+                                                    {shortId}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        data-testid="apply-secret-version-button"
+                                        disabled={!selectedSecretName || isAccessingSecret}
+                                        onClick={() => void handleLoadSecretFromManager()}
+                                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 text-white text-xs font-semibold rounded whitespace-nowrap transition-colors"
+                                    >
+                                        {isAccessingSecret ? 'Accessing...' : 'Use Latest Version'}
+                                    </button>
+                                </div>
+                            ) : null}
+                            {secretManagerError && (
+                                <p
+                                    data-testid="secret-manager-error"
+                                    role="alert"
+                                    className="text-xs text-red-300 bg-red-950/40 border border-red-800/70 rounded p-2"
+                                >
+                                    {secretManagerError}
+                                </p>
+                            )}
+                        </div>
+                    )}
+                </div>
                 
                 <div>
                     <div className="flex items-center space-x-2 mb-1">

@@ -17,11 +17,62 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Agent, Config, SortableAgentKey, SortConfig } from '../../types';
 import * as api from '../../services/apiService';
+import { runBigQueryQuery } from '../../services/api/bigquery';
+import { toErrorMessage } from '../../utils/errors';
 import ExportAgentRegistryModal from './ExportAgentRegistryModal';
+
+export interface AgentAdoptionMetric {
+  queryCount30d: number;
+  activeUsers30d: number;
+}
+
+export function extractAgentFleetSource(
+  agent: Agent,
+): { location: string; engineId: string } | null {
+  const parts = (agent.name || '').split('/');
+  const locIdx = parts.indexOf('locations');
+  const engIdx = parts.indexOf('engines');
+  const location = locIdx >= 0 && parts[locIdx + 1] ? parts[locIdx + 1] : '';
+  const engineId = engIdx >= 0 && parts[engIdx + 1] ? parts[engIdx + 1] : '';
+  if (!location || !engineId) return null;
+  return { location, engineId };
+}
+
+export function buildAgent30dAdoptionSql(
+  projectId: string,
+  datasetId: string,
+): string {
+  const cleanProject = (projectId || '').trim();
+  const cleanDataset = (datasetId || '').trim();
+  if (!cleanProject || !/^[A-Za-z0-9_.:-]+$/.test(cleanProject)) {
+    throw new Error(
+      `Invalid BigQuery project identifier "${projectId}". Only alphanumeric, hyphen, underscore, colon, and dot characters are permitted.`,
+    );
+  }
+  if (!cleanDataset || !/^[A-Za-z0-9_]+$/.test(cleanDataset)) {
+    throw new Error(
+      `Invalid BigQuery dataset identifier "${datasetId}". Only letters, digits, and underscores are permitted.`,
+    );
+  }
+  return `SELECT
+  COALESCE(NULLIF(TRIM(agent_id), ''), NULLIF(TRIM(agent_name), '')) AS agent_key,
+  ANY_VALUE(agent_name) AS any_agent_name,
+  COUNT(1) AS query_count_30d,
+  COUNT(DISTINCT NULLIF(TRIM(user_email), '')) AS active_users_30d
+FROM (
+  SELECT insert_id, event_time, user_email, agent_name, agent_id
+  FROM \`${cleanProject}.${cleanDataset}.gem_accel_user_activity\`
+  WHERE event_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY insert_id, event_time ORDER BY event_time) = 1
+)
+WHERE COALESCE(NULLIF(TRIM(agent_id), ''), NULLIF(TRIM(agent_name), '')) IS NOT NULL
+GROUP BY agent_key`;
+}
 
 interface AgentListProps {
   agents: Agent[];
   config?: Config;
+  isFleetView?: boolean;
   onSelectAgent: (agent: Agent) => void;
   onEditAgent: (agent: Agent) => void;
   onDeleteAgent: (agent: Agent) => void;
@@ -29,6 +80,7 @@ interface AgentListProps {
   onRegisterNew: () => void;
   onOpenBulkDatasources?: () => void;
   onOpenBulkEditSharePublish?: () => void;
+  onOpenShadowEvalGate?: () => void;
   onToggleAgentStatus: (agent: Agent) => void;
   togglingAgentId?: string | null;
   deletingAgentIds: Set<string>;
@@ -104,6 +156,7 @@ const getAgentSharingScope = (agent: Agent): 'ALL_USERS' | 'RESTRICTED' | 'PRIVA
 const AgentList: React.FC<AgentListProps> = ({ 
   agents, 
   config,
+  isFleetView = false,
   onSelectAgent, 
   onEditAgent: _onEditAgent, 
   onDeleteAgent, 
@@ -111,6 +164,7 @@ const AgentList: React.FC<AgentListProps> = ({
   onRegisterNew, 
   onOpenBulkDatasources,
   onOpenBulkEditSharePublish,
+  onOpenShadowEvalGate,
   onToggleAgentStatus, 
   togglingAgentId, 
   deletingAgentIds, 
@@ -141,6 +195,179 @@ const AgentList: React.FC<AgentListProps> = ({
   const [isColumnsOpen, setIsColumnsOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
+
+  // 30-day BigQuery Adoption Overlay state
+  const [isBqPopoverOpen, setIsBqPopoverOpen] = useState(false);
+  const [bqDatasetId, setBqDatasetId] = useState<string>(() => {
+    try {
+      return (
+        window.localStorage?.getItem('gem_agent_adoption_bq_dataset') ||
+        'gemini_enterprise_logs'
+      );
+    } catch {
+      return 'gemini_enterprise_logs';
+    }
+  });
+  const [isLoadingAdoption, setIsLoadingAdoption] = useState(false);
+  const [adoptionError, setAdoptionError] = useState<string | null>(null);
+  const [adoptionLoaded, setAdoptionLoaded] = useState(false);
+  const [adoptionByKey, setAdoptionByKey] = useState<
+    Record<string, AgentAdoptionMetric>
+  >({});
+  const bqPopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isBqPopoverOpen) return;
+    const handleOutside = (event: MouseEvent) => {
+      if (
+        bqPopoverRef.current &&
+        !bqPopoverRef.current.contains(event.target as Node)
+      ) {
+        setIsBqPopoverOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [isBqPopoverOpen]);
+
+  const showFleetSourceBadges = useMemo(() => {
+    if (isFleetView) return true;
+    const distinctEngines = new Set<string>();
+    for (const a of agents) {
+      const src = extractAgentFleetSource(a);
+      if (src) distinctEngines.add(`${src.location}/${src.engineId}`);
+      if (distinctEngines.size > 1) return true;
+    }
+    return false;
+  }, [isFleetView, agents]);
+
+  const resolveAgentAdoption = (agent: Agent): AgentAdoptionMetric | null => {
+    if (!adoptionLoaded) return null;
+    const fullLower = (agent.name || '').trim().toLowerCase();
+    const shortLower = (agent.name.split('/').pop() || '').trim().toLowerCase();
+    const dispLower = (agent.displayName || '').trim().toLowerCase();
+    return (
+      adoptionByKey[fullLower] ||
+      (shortLower ? adoptionByKey[shortLower] : undefined) ||
+      (dispLower ? adoptionByKey[dispLower] : undefined) || {
+        queryCount30d: 0,
+        activeUsers30d: 0,
+      }
+    );
+  };
+
+  const handleLoad30dAdoption = async () => {
+    const projectId = (config?.projectId || '').trim();
+    if (!projectId) {
+      setAdoptionError('Select or enter a GCP Project ID before querying BigQuery.');
+      return;
+    }
+    setIsLoadingAdoption(true);
+    setAdoptionError(null);
+    try {
+      const sql = buildAgent30dAdoptionSql(projectId, bqDatasetId);
+      try {
+        window.localStorage?.setItem(
+          'gem_agent_adoption_bq_dataset',
+          bqDatasetId.trim(),
+        );
+      } catch {
+        // Ignore storage quota issues
+      }
+      const res = await runBigQueryQuery<{
+        agent_key?: string;
+        any_agent_name?: string;
+        query_count_30d?: number | string;
+        active_users_30d?: number | string;
+      }>(projectId, sql, true);
+
+      if (res?.error || (res?.errors && res.errors.length > 0)) {
+        const msg =
+          res.error?.message ||
+          res.errors?.[0]?.message ||
+          'BigQuery query failed.';
+        throw new Error(msg);
+      }
+
+      const nextMap: Record<string, AgentAdoptionMetric> = {};
+      const recordEntry = (
+        rawKey: unknown,
+        rawName: unknown,
+        rawQueries: unknown,
+        rawUsers: unknown,
+      ) => {
+        const metric: AgentAdoptionMetric = {
+          queryCount30d: Math.max(0, Number(rawQueries) || 0),
+          activeUsers30d: Math.max(0, Number(rawUsers) || 0),
+        };
+        const keys = [rawKey, rawName]
+          .map((v) => (v == null ? '' : String(v).trim().toLowerCase()))
+          .filter(Boolean);
+        for (const k of keys) {
+          const shortKey = k.includes('/') ? k.split('/').pop() || k : k;
+          const prev = nextMap[k];
+          nextMap[k] = prev
+            ? {
+                queryCount30d: Math.max(prev.queryCount30d, metric.queryCount30d),
+                activeUsers30d: Math.max(
+                  prev.activeUsers30d,
+                  metric.activeUsers30d,
+                ),
+              }
+            : metric;
+          if (shortKey && shortKey !== k) {
+            const prevShort = nextMap[shortKey];
+            nextMap[shortKey] = prevShort
+              ? {
+                  queryCount30d: Math.max(
+                    prevShort.queryCount30d,
+                    metric.queryCount30d,
+                  ),
+                  activeUsers30d: Math.max(
+                    prevShort.activeUsers30d,
+                    metric.activeUsers30d,
+                  ),
+                }
+              : metric;
+          }
+        }
+      };
+
+      if (Array.isArray(res?.parsedRows) && res.parsedRows.length > 0) {
+        for (const row of res.parsedRows) {
+          recordEntry(
+            row.agent_key,
+            row.any_agent_name,
+            row.query_count_30d,
+            row.active_users_30d,
+          );
+        }
+      } else if (Array.isArray(res?.rows)) {
+        for (const row of res.rows) {
+          const cells = row.f || [];
+          recordEntry(
+            cells[0]?.v,
+            cells[1]?.v,
+            cells[2]?.v,
+            cells[3]?.v,
+          );
+        }
+      }
+
+      setAdoptionByKey(nextMap);
+      setAdoptionLoaded(true);
+      setIsBqPopoverOpen(false);
+    } catch (err: unknown) {
+      setAdoptionError(
+        toErrorMessage(
+          err,
+          'Could not query gem_accel_user_activity in BigQuery.',
+        ),
+      );
+    } finally {
+      setIsLoadingAdoption(false);
+    }
+  };
 
   useEffect(() => {
     if (!isColumnsOpen) return;
@@ -229,12 +456,17 @@ const AgentList: React.FC<AgentListProps> = ({
         const description = (agent.description || '').toLowerCase();
         const agentType = (agent.agentType || '').toLowerCase();
         const ownerHint = (api.extractAgentOwnerHint(agent) || '').toLowerCase();
+        const fleetSrc = extractAgentFleetSource(agent);
+        const fleetLabel = fleetSrc
+          ? `${fleetSrc.location} ${fleetSrc.engineId} ${fleetSrc.location}/${fleetSrc.engineId}`.toLowerCase()
+          : '';
         return (
           displayName.includes(q) ||
           agentId.includes(q) ||
           description.includes(q) ||
           agentType.includes(q) ||
-          ownerHint.includes(q)
+          ownerHint.includes(q) ||
+          fleetLabel.includes(q)
         );
       }
       return true;
@@ -385,6 +617,116 @@ const AgentList: React.FC<AgentListProps> = ({
                 Delete Selected
               </button>
             </>
+          )}
+
+          {/* Shadow Eval Gate Button */}
+          {agents.length > 0 && onOpenShadowEvalGate && (
+            <button
+              type="button"
+              onClick={onOpenShadowEvalGate}
+              data-testid="open-shadow-eval-gate-btn"
+              className="px-3.5 py-2 bg-emerald-900/60 hover:bg-emerald-800/70 text-emerald-200 border border-emerald-600/60 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              title="Run non-destructive Golden Q&A :streamAssist evaluation against selected agents in ephemeral sessions"
+            >
+              <svg className="w-4 h-4 text-emerald-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>
+                Shadow Eval Gate{selectedAgents.size > 0 ? ` (${selectedAgents.size})` : ''}
+              </span>
+            </button>
+          )}
+
+          {/* Load 30d Adoption (BQ) Button & Popover */}
+          {agents.length > 0 && (
+            <div className="relative" ref={bqPopoverRef}>
+              <button
+                type="button"
+                data-testid="open-bq-adoption-popover-btn"
+                onClick={() => setIsBqPopoverOpen((prev) => !prev)}
+                aria-expanded={isBqPopoverOpen}
+                className="px-3 py-2 bg-purple-900/60 hover:bg-purple-800/70 text-purple-200 border border-purple-600/60 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                title="Overlay 30-day query count and active users from BigQuery gem_accel_user_activity"
+              >
+                <svg className="w-4 h-4 text-purple-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <span>
+                  {adoptionLoaded ? '30d Adoption Loaded' : 'Load 30d Adoption (BQ)'}
+                </span>
+              </button>
+
+              {isBqPopoverOpen && (
+                <div
+                  data-testid="bq-adoption-popover"
+                  className="absolute right-0 mt-2 w-80 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl z-30 p-3.5 space-y-2.5"
+                >
+                  <div className="flex items-center justify-between border-b border-gray-800 pb-1.5">
+                    <span className="text-xs font-bold text-gray-200 uppercase tracking-wider">
+                      30d Fleet Adoption (BigQuery)
+                    </span>
+                    {adoptionLoaded && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdoptionLoaded(false);
+                          setAdoptionByKey({});
+                        }}
+                        className="text-[11px] text-gray-400 hover:text-white"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    Queries <code className="text-gray-300">gem_accel_user_activity</code> over the last 30 days to overlay query volume and active user counts (and flag 0-query zombie agents).
+                  </p>
+                  <div>
+                    <label
+                      htmlFor="bq-adoption-dataset-input"
+                      className="block text-[11px] font-medium text-gray-300 mb-1"
+                    >
+                      BigQuery Dataset ID
+                    </label>
+                    <input
+                      id="bq-adoption-dataset-input"
+                      type="text"
+                      value={bqDatasetId}
+                      disabled={isLoadingAdoption}
+                      onChange={(e) => setBqDatasetId(e.target.value)}
+                      placeholder="gemini_enterprise_logs"
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-xs text-gray-100 font-mono"
+                    />
+                  </div>
+                  {adoptionError && (
+                    <div className="p-2 rounded bg-red-950/60 border border-red-700 text-[11px] text-red-200">
+                      {adoptionError}
+                    </div>
+                  )}
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsBqPopoverOpen(false)}
+                      className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="run-bq-adoption-query-btn"
+                      onClick={() => void handleLoad30dAdoption()}
+                      disabled={isLoadingAdoption}
+                      className="px-3 py-1 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold rounded flex items-center gap-1.5"
+                    >
+                      {isLoadingAdoption && (
+                        <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-white" />
+                      )}
+                      <span>{isLoadingAdoption ? 'Querying BQ...' : 'Query 30d Adoption'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Bulk Edit / Share / Publish Button */}
@@ -725,6 +1067,8 @@ const AgentList: React.FC<AgentListProps> = ({
                         const statusColorClass = agent.state === 'ENABLED' ? 'bg-green-500' : agent.state === 'DISABLED' ? 'bg-red-500' : 'bg-yellow-500';
                         const sharingScope = getAgentSharingScope(agent);
                         const ownerHint = api.extractAgentOwnerHint(agent);
+                        const fleetSrc = extractAgentFleetSource(agent);
+                        const adoptionMetric = resolveAgentAdoption(agent);
 
                         let statusButton: React.ReactNode = null;
                         if (agent.state === 'ENABLED' || agent.state === 'DISABLED') {
@@ -794,7 +1138,7 @@ const AgentList: React.FC<AgentListProps> = ({
                                               </form>
                                           ) : (
                                               <div className="min-w-0">
-                                                  <div className="flex items-center gap-2 group">
+                                                  <div className="flex items-center gap-2 group flex-wrap">
                                                       <button
                                                           type="button"
                                                           onClick={() => onSelectAgent(agent)}
@@ -803,6 +1147,34 @@ const AgentList: React.FC<AgentListProps> = ({
                                                       >
                                                           {agent.displayName}
                                                       </button>
+                                                      {showFleetSourceBadges && fleetSrc && (
+                                                          <span
+                                                              data-testid={`agent-fleet-source-${agentId}`}
+                                                              className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-cyan-950/80 text-cyan-300 border border-cyan-700/60 whitespace-nowrap shrink-0"
+                                                              title={`Engine: ${fleetSrc.engineId} (${fleetSrc.location})`}
+                                                          >
+                                                              [{fleetSrc.location} / {fleetSrc.engineId}]
+                                                          </span>
+                                                      )}
+                                                      {adoptionMetric && (
+                                                          adoptionMetric.queryCount30d > 0 ? (
+                                                            <span
+                                                                data-testid={`agent-adoption-badge-${agentId}`}
+                                                                className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 whitespace-nowrap shrink-0"
+                                                                title={`Last 30 days in BigQuery: ${adoptionMetric.queryCount30d} queries across ${adoptionMetric.activeUsers30d} active users`}
+                                                            >
+                                                                {adoptionMetric.queryCount30d} queries · {adoptionMetric.activeUsers30d} users (30d)
+                                                            </span>
+                                                          ) : (
+                                                            <span
+                                                                data-testid={`agent-adoption-badge-${agentId}`}
+                                                                className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-amber-950/80 text-amber-300 border border-amber-700/60 whitespace-nowrap shrink-0"
+                                                                title="Zero recorded queries in gem_accel_user_activity over the last 30 days"
+                                                            >
+                                                                Zombie · 0 queries (30d)
+                                                            </span>
+                                                          )
+                                                      )}
                                                       {isGoogleManaged && (
                                                           <span
                                                               className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap shrink-0"

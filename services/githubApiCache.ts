@@ -19,14 +19,48 @@ export interface GitHubRepoItem {
     [key: string]: unknown;
 }
 
-export const createGithubRepo = async (token: string, name: string, description: string = '', isPrivate: boolean = true): Promise<{ exists?: boolean; [key: string]: unknown }> => {
-    const response = await fetch('https://api.github.com/user/repos', {
+export const createGithubRepo = async (
+    token: string,
+    name: string,
+    description: string = '',
+    isPrivate: boolean = true,
+    orgOrOwner?: string
+): Promise<{ exists?: boolean; [key: string]: unknown }> => {
+    const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+    };
+
+    let createUrl = 'https://api.github.com/user/repos';
+    const trimmedOwner = (orgOrOwner || '').trim();
+    if (trimmedOwner) {
+        try {
+            const userResp = await fetch('https://api.github.com/user', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+            if (userResp.ok) {
+                const userJson = (await userResp.json()) as { login?: string };
+                if (
+                    userJson?.login &&
+                    userJson.login.trim().toLowerCase() !== trimmedOwner.toLowerCase()
+                ) {
+                    createUrl = `https://api.github.com/orgs/${encodeURIComponent(trimmedOwner)}/repos`;
+                }
+            }
+        } catch {
+            // Fall back cleanly to /user/repos when /user cannot be queried
+            createUrl = 'https://api.github.com/user/repos';
+        }
+    }
+
+    const response = await fetch(createUrl, {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json'
-        },
+        headers,
         body: JSON.stringify({
             name,
             description,

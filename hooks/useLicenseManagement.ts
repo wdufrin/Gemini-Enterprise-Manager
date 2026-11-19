@@ -23,6 +23,7 @@ import {
   getCachedUserLicenses,
   setCachedUserLicenses,
   updateCachedUserLicenses,
+  DEFAULT_LICENSE_CACHE_TTL_MS,
 } from '../services/licenseCache';
 import {
   UserLicense,
@@ -73,6 +74,7 @@ export function useLicenseManagement(projectNumber: string) {
   const [isPruneModalOpen, setIsPruneModalOpen] = useState(false);
   const [isDeploymentModalOpen, setIsDeploymentModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isBulkAssignCsvModalOpen, setIsBulkAssignCsvModalOpen] = useState(false);
 
   // Single Delete State
   const [licenseToDelete, setLicenseToDelete] = useState<UserLicense | null>(null);
@@ -174,7 +176,12 @@ export function useLicenseManagement(projectNumber: string) {
 
     try {
       if (!forceRefresh) {
-        const cached = await getCachedUserLicenses(projectNumber, apiConfig.userStoreId);
+        const cached = await getCachedUserLicenses(
+          projectNumber,
+          apiConfig.userStoreId,
+          DEFAULT_LICENSE_CACHE_TTL_MS,
+          apiConfig.appLocation,
+        );
         if (cached && cached.data && cached.data.length > 0) {
           setUserLicenses(cached.data);
           setCacheTimestamp(cached.timestamp);
@@ -209,7 +216,12 @@ export function useLicenseManagement(projectNumber: string) {
       setUserLicenses(allLicenses);
       const now = Date.now();
       setCacheTimestamp(now);
-      await setCachedUserLicenses(projectNumber, apiConfig.userStoreId, allLicenses);
+      await setCachedUserLicenses(
+        projectNumber,
+        apiConfig.userStoreId,
+        allLicenses,
+        apiConfig.appLocation,
+      );
       resolveLicenseNames(allLicenses);
     } catch (err: unknown) {
       setLicensesError(toErrorMessage(err) || 'Failed to list user licenses.');
@@ -376,7 +388,7 @@ export function useLicenseManagement(projectNumber: string) {
         await api.deleteUserLicenses(config, apiConfig.userStoreId, [userPrincipal]);
         const filterFn = (prev: UserLicense[]) => prev.filter((l) => l.userPrincipal !== userPrincipal);
         setUserLicenses(filterFn);
-        await updateCachedUserLicenses(projectNumber, apiConfig.userStoreId, filterFn);
+        await updateCachedUserLicenses(projectNumber, apiConfig.userStoreId, filterFn, apiConfig.appLocation);
       } else {
         await api.revokeUserLicenses(config, apiConfig.userStoreId, [userPrincipal]);
         const updateFn = (prev: UserLicense[]) =>
@@ -386,7 +398,7 @@ export function useLicenseManagement(projectNumber: string) {
               : l
           );
         setUserLicenses(updateFn);
-        await updateCachedUserLicenses(projectNumber, apiConfig.userStoreId, updateFn);
+        await updateCachedUserLicenses(projectNumber, apiConfig.userStoreId, updateFn, apiConfig.appLocation);
       }
     } catch (err: unknown) {
       setLicensesError(`Failed to ${actionType} license: ${toErrorMessage(err)}`);
@@ -442,7 +454,7 @@ export function useLicenseManagement(projectNumber: string) {
               : l
           );
         setUserLicenses(updateFn);
-        await updateCachedUserLicenses(projectNumber, apiConfig.userStoreId, updateFn);
+        await updateCachedUserLicenses(projectNumber, apiConfig.userStoreId, updateFn, apiConfig.appLocation);
       }
 
       setIsPruneModalOpen(false);
@@ -598,7 +610,7 @@ export function useLicenseManagement(projectNumber: string) {
       }
 
       setUserLicenses(updateFn);
-      await updateCachedUserLicenses(projectNumber, apiConfig.userStoreId, updateFn);
+      await updateCachedUserLicenses(projectNumber, apiConfig.userStoreId, updateFn, apiConfig.appLocation);
       setSelectedUsers(new Set());
     } catch (err: unknown) {
       setLicensesError(`Bulk action failed: ${toErrorMessage(err)}`);
@@ -606,6 +618,71 @@ export function useLicenseManagement(projectNumber: string) {
       setIsBulkActionLoading(false);
     }
   };
+
+  const handleBulkAssignCsvEmails = useCallback(
+    async (
+      emails: string[],
+      targetLicenseConfigName: string,
+      onProgress?: (completedChunks: number, totalChunks: number) => void,
+    ) => {
+      if (!projectNumber || emails.length === 0 || !targetLicenseConfigName) return;
+      setLicensesError(null);
+
+      const config: Config = {
+        projectId: projectNumber,
+        appLocation: apiConfig.appLocation,
+        collectionId: '',
+        appId: '',
+        assistantId: '',
+      };
+
+      const CHUNK_SIZE = 100;
+      const totalChunks = Math.ceil(emails.length / CHUNK_SIZE);
+      for (let i = 0; i < emails.length; i += CHUNK_SIZE) {
+        const chunk = emails.slice(i, i + CHUNK_SIZE);
+        await api.assignUserLicenses(config, apiConfig.userStoreId, chunk, targetLicenseConfigName);
+        onProgress?.(Math.floor(i / CHUNK_SIZE) + 1, totalChunks);
+      }
+
+      const normalizedEmails = emails.map((e) => e.toLowerCase());
+      const emailSet = new Set(normalizedEmails);
+      const mergeAssignedFn = (prev: UserLicense[]): UserLicense[] => {
+        const existingLower = new Set<string>();
+        const next = prev.map((lic) => {
+          const lower = (lic.userPrincipal || '').toLowerCase();
+          if (lower) existingLower.add(lower);
+          if (emailSet.has(lower)) {
+            return {
+              ...lic,
+              licenseAssignmentState: 'ASSIGNED',
+              licenseConfig: targetLicenseConfigName,
+            };
+          }
+          return lic;
+        });
+        for (const email of normalizedEmails) {
+          if (!existingLower.has(email)) {
+            next.push({
+              userPrincipal: email,
+              licenseAssignmentState: 'ASSIGNED',
+              licenseConfig: targetLicenseConfigName,
+            });
+          }
+        }
+        return next;
+      };
+
+      setUserLicenses(mergeAssignedFn);
+      await updateCachedUserLicenses(
+        projectNumber,
+        apiConfig.userStoreId,
+        mergeAssignedFn,
+        apiConfig.appLocation,
+      );
+      toast?.success?.(`Assigned ${emails.length} user license(s) successfully.`);
+    },
+    [projectNumber, apiConfig.appLocation, apiConfig.userStoreId, toast],
+  );
 
   return {
     apiConfig,
@@ -721,5 +798,8 @@ export function useLicenseManagement(projectNumber: string) {
     setIsGroupDeploymentModalOpen: groupLicensing.setIsGroupDeploymentModalOpen,
     isExportModalOpen,
     setIsExportModalOpen,
+    isBulkAssignCsvModalOpen,
+    setIsBulkAssignCsvModalOpen,
+    handleBulkAssignCsvEmails,
   };
 }

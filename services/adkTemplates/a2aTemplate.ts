@@ -114,9 +114,9 @@ AGENT_DESCRIPTION = os.getenv("AGENT_DESCRIPTION", "An agent-to-agent function."
 PROVIDER_ORGANIZATION = os.getenv("PROVIDER_ORGANIZATION", "Unknown")
 
 # This is the DEFAULT instruction if none is provided in the request
-DEFAULT_SYSTEM_INSTRUCTION = """
-${instruction}
-"""
+DEFAULT_SYSTEM_INSTRUCTION = ${JSON.stringify(instruction ?? "")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029")}
 
 # Initialize Vertex AI SDK
 try:

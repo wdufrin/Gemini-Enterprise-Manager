@@ -31,6 +31,7 @@ import {
   WORKFLOW_ENTERPRISE_MODELS,
   formatModelDisplayName,
 } from '../assistants/engine-details/modelsCatalog';
+import ShadowEvalGateModal from './ShadowEvalGateModal';
 
 export interface BulkEditSharePublishModalProps {
   isOpen: boolean;
@@ -38,6 +39,7 @@ export interface BulkEditSharePublishModalProps {
   agents: Agent[];
   initialSelectedAgentNames?: Set<string>;
   config: Config;
+  accessToken?: string;
   onComplete: (result: BulkEditSharePublishResult) => void;
   onOpenBulkDatasources?: () => void;
 }
@@ -126,6 +128,7 @@ const BulkEditSharePublishModal: React.FC<BulkEditSharePublishModalProps> = ({
   agents,
   initialSelectedAgentNames,
   config,
+  accessToken = '',
   onComplete,
   onOpenBulkDatasources,
 }) => {
@@ -209,6 +212,7 @@ const BulkEditSharePublishModal: React.FC<BulkEditSharePublishModalProps> = ({
 
   // Execution state
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isShadowEvalOpen, setIsShadowEvalOpen] = useState<boolean>(false);
   const [progress, setProgress] = useState<{
     completed: number;
     total: number;
@@ -2055,10 +2059,22 @@ const BulkEditSharePublishModal: React.FC<BulkEditSharePublishModalProps> = ({
           </div>
 
           {/* Wizard Footer */}
-          <div className="p-4 border-t border-gray-700 bg-gray-900/60 flex items-center justify-between gap-3">
-            <div className="text-xs text-gray-400">
-              Step {step} of 3 · {selectedAgentsList.length} agent
-              {selectedAgentsList.length === 1 ? '' : 's'} targeted
+          <div className="p-4 border-t border-gray-700 bg-gray-900/60 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs text-gray-400">
+                Step {step} of 3 · {selectedAgentsList.length} agent
+                {selectedAgentsList.length === 1 ? '' : 's'} targeted
+              </span>
+              <button
+                type="button"
+                data-testid="bulk-open-shadow-eval-gate-btn"
+                disabled={isSubmitting || selectedAgentsList.length === 0}
+                onClick={() => setIsShadowEvalOpen(true)}
+                title="Run non-destructive Golden Q&A :streamAssist evaluation before or after bulk model/instruction upgrades"
+                className="px-3 py-1.5 bg-emerald-900/60 hover:bg-emerald-800/70 disabled:opacity-40 text-emerald-200 border border-emerald-600/60 text-xs font-semibold rounded-md transition-colors"
+              >
+                Shadow Eval Gate ({selectedAgentsList.length})
+              </button>
             </div>
             <div className="flex items-center gap-2.5">
               {step > 1 && (
@@ -2134,6 +2150,16 @@ const BulkEditSharePublishModal: React.FC<BulkEditSharePublishModalProps> = ({
           </div>
         </form>
       </div>
+
+      <ShadowEvalGateModal
+        isOpen={isShadowEvalOpen}
+        onClose={() => setIsShadowEvalOpen(false)}
+        agents={selectedAgentsList.length > 0 ? selectedAgentsList : selectableAgents}
+        initialSelectedAgentNames={selectedNames}
+        config={config}
+        accessToken={accessToken}
+        zIndexClass="z-[60]"
+      />
     </div>
   );
 };

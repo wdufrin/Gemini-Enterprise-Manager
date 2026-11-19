@@ -72,27 +72,33 @@ export function generateCodeSnippets({
   wifProviderId,
   wifSubjectTokenType,
 }: GenerateCodeSnippetsArgs): Record<CodeLanguage, string> {
-  const servingConfig = `projects/${projectId}/locations/${location}/collections/default_collection/dataStores/${dataStoreId}/servingConfigs/default_serving_config`;
-  const baseUrl = location === 'global'
+  const trimmedResourceName = dataStoreName?.trim().replace(/\/+$/, '') || '';
+  const resolvedDataStoreName = trimmedResourceName.startsWith('projects/')
+    ? trimmedResourceName
+    : `projects/${projectId}/locations/${location}/collections/default_collection/dataStores/${dataStoreId}`;
+  const locationMatch = resolvedDataStoreName.match(/\/locations\/([^/]+)\//);
+  const resolvedLocation = locationMatch?.[1] || location || 'global';
+  const servingConfig = `${resolvedDataStoreName}/servingConfigs/default_serving_config`;
+  const baseUrl = resolvedLocation === 'global'
     ? 'https://discoveryengine.googleapis.com'
-    : `https://${location}-discoveryengine.googleapis.com`;
-  const apiUrl = `${baseUrl}/v1beta/${dataStoreName}/servingConfigs/default_serving_config:search`;
+    : `https://${resolvedLocation}-discoveryengine.googleapis.com`;
+  const apiUrl = `${baseUrl}/v1beta/${servingConfig}:search`;
 
   // --- Default Auth Code ---
   const pythonDefault = `from google.cloud import discoveryengine_v1beta
-
-# Initialize the Search Service client
-client = discoveryengine_v1beta.SearchServiceClient()
+from google.api_core.client_options import ClientOptions
 
 # Configuration
-project = "${projectId}"
-location = "${location}"
-data_store = "${dataStoreId}"
+location = "${resolvedLocation}"
+data_store_name = "${resolvedDataStoreName}"
+serving_config = f"{data_store_name}/servingConfigs/default_serving_config"
 
-serving_config = (
-    f"projects/{project}/locations/{location}/collections/default_collection"
-    f"/dataStores/{data_store}/servingConfigs/default_serving_config"
+client_options = (
+    ClientOptions(api_endpoint=f"{location}-discoveryengine.googleapis.com")
+    if location != "global"
+    else None
 )
+client = discoveryengine_v1beta.SearchServiceClient(client_options=client_options)
 
 # Build the search request
 search_request = discoveryengine_v1beta.SearchRequest(
@@ -117,6 +123,7 @@ for page in response.pages:
   const pythonWif = `import json
 import requests
 from google.cloud import discoveryengine_v1beta
+from google.api_core.client_options import ClientOptions
 from google.auth import credentials as ga_credentials
 
 # ============================================
@@ -168,16 +175,19 @@ class WifCredentials(ga_credentials.Credentials):
     def valid(self):
         return True
 
+location = "${resolvedLocation}"
+data_store_name = "${resolvedDataStoreName}"
+serving_config = f"{data_store_name}/servingConfigs/default_serving_config"
+
 creds = WifCredentials(access_token)
-client = discoveryengine_v1beta.SearchServiceClient(credentials=creds)
-
-project = "${projectId}"
-location = "${location}"
-data_store = "${dataStoreId}"
-
-serving_config = (
-    f"projects/{project}/locations/{location}/collections/default_collection"
-    f"/dataStores/{data_store}/servingConfigs/default_serving_config"
+client_options = (
+    ClientOptions(api_endpoint=f"{location}-discoveryengine.googleapis.com")
+    if location != "global"
+    else None
+)
+client = discoveryengine_v1beta.SearchServiceClient(
+    credentials=creds,
+    client_options=client_options,
 )
 
 search_request = discoveryengine_v1beta.SearchRequest(
@@ -234,15 +244,17 @@ curl -X POST \\
 
   const nodejsDefault = `const { SearchServiceClient } = require("@google-cloud/discoveryengine").v1beta;
 
+const location = "${resolvedLocation}";
+const apiEndpoint = location === "global"
+  ? "discoveryengine.googleapis.com"
+  : \`\${location}-discoveryengine.googleapis.com\`;
+
 // Initialize the client
-const client = new SearchServiceClient();
+const client = new SearchServiceClient({ apiEndpoint });
 
 async function searchDataStore() {
-  const project = "${projectId}";
-  const location = "${location}";
-  const dataStore = "${dataStoreId}";
-
-  const servingConfig = \`projects/\${project}/locations/\${location}/collections/default_collection/dataStores/\${dataStore}/servingConfigs/default_serving_config\`;
+  const dataStoreName = "${resolvedDataStoreName}";
+  const servingConfig = \`\${dataStoreName}/servingConfigs/default_serving_config\`;
 
   const request = {
     servingConfig,
@@ -265,9 +277,7 @@ async function searchDataStore() {
 
 searchDataStore().catch(console.error);`;
 
-  const nodejsWif = `const { SearchServiceClient } = require("@google-cloud/discoveryengine").v1beta;
-
-// ============================================
+  const nodejsWif = `// ============================================
 // Step 1: Exchange external IdP token via STS
 // (Workforce Identity Federation)
 // ============================================
@@ -295,18 +305,18 @@ async function searchWithWif() {
   });
 
   if (!stsResponse.ok) throw new Error(\`STS failed: \${await stsResponse.text()}\`);
-  let { access_token } = await stsResponse.json();
+  const { access_token } = await stsResponse.json();
   console.log("STS token exchange successful.");
 
   // Step 2: Query the Data Store
   const project = "${projectId}";
-  const location = "${location}";
-  const dataStore = "${dataStoreId}";
+  const location = "${resolvedLocation}";
+  const dataStoreName = "${resolvedDataStoreName}";
   const baseUrl = location === "global"
     ? "https://discoveryengine.googleapis.com"
     : \`https://\${location}-discoveryengine.googleapis.com\`;
 
-  const searchUrl = \`\${baseUrl}/v1beta/projects/\${project}/locations/\${location}/collections/default_collection/dataStores/\${dataStore}/servingConfigs/default_serving_config:search\`;
+  const searchUrl = \`\${baseUrl}/v1beta/\${dataStoreName}/servingConfigs/default_serving_config:search\`;
 
   const searchResponse = await fetch(searchUrl, {
     method: "POST",
@@ -354,7 +364,7 @@ ${JSON.stringify({ query: codeQuery, pageSize }, null, 2)}
 ${servingConfig}
 
 # Data Store Resource Name:
-${dataStoreName}`;
+${resolvedDataStoreName}`;
 
   const restWif = `# Workforce Identity Federation (WIF) Authentication Flow
 # ======================================================
@@ -391,7 +401,7 @@ ${JSON.stringify({ query: codeQuery, pageSize }, null, 2)}
 ${servingConfig}
 
 # Data Store Resource Name:
-${dataStoreName}`;
+${resolvedDataStoreName}`;
 
   if (authMode === 'wif') {
     return { python: pythonWif, curl: curlWif, nodejs: nodejsWif, rest: restWif };

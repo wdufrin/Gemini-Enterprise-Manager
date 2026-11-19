@@ -15,9 +15,191 @@
  */
 
 import React, { useState, useMemo } from "react";
-import { Collection } from "../../types";
+import { Collection, DataConnector, Operation } from "../../types";
 import { ValidationResult } from "./connectorDiagnostics";
 import { getConnectorCloneEligibility } from "./duplicate/duplicateFieldUtils";
+
+export interface SyncSlaStatus {
+  breached: boolean;
+  severity: "ok" | "warning" | "error";
+  label: string;
+  reason: string;
+  ageMs?: number;
+  intervalMs?: number;
+}
+
+/**
+ * Parses a Discovery Engine DataConnector `refreshInterval` string into milliseconds.
+ * Supports Protobuf Duration seconds (`"86400s"`, `"21600.5s"`) and ISO-8601
+ * durations (`"P1D"`, `"PT6H"`, `"P1DT12H"`, `"PT30M"`, `"P1W"`).
+ */
+export function parseRefreshIntervalMs(
+  rawInterval?: string | number | null,
+): number | null {
+  if (rawInterval === undefined || rawInterval === null) return null;
+  if (typeof rawInterval === "number") {
+    return Number.isFinite(rawInterval) && rawInterval > 0
+      ? rawInterval * 1000
+      : null;
+  }
+  const trimmed = rawInterval.trim();
+  if (!trimmed) return null;
+
+  const secondsMatch = trimmed.match(/^(\d+(?:\.\d+)?)s?$/i);
+  if (secondsMatch) {
+    const secs = parseFloat(secondsMatch[1]);
+    return secs > 0 ? secs * 1000 : null;
+  }
+
+  const isoMatch = trimmed.match(
+    /^P(?:(\d+(?:\.\d+)?)W)?(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/i,
+  );
+  if (isoMatch) {
+    const [, wStr, dStr, hStr, mStr, sStr] = isoMatch;
+    if (!wStr && !dStr && !hStr && !mStr && !sStr) return null;
+    const totalMs =
+      (wStr ? parseFloat(wStr) * 7 * 86400_000 : 0) +
+      (dStr ? parseFloat(dStr) * 86400_000 : 0) +
+      (hStr ? parseFloat(hStr) * 3600_000 : 0) +
+      (mStr ? parseFloat(mStr) * 60_000 : 0) +
+      (sStr ? parseFloat(sStr) * 1000 : 0);
+    return totalMs > 0 ? totalMs : null;
+  }
+
+  return null;
+}
+
+function formatDurationCompact(ms: number): string {
+  const hours = ms / 3600_000;
+  if (hours >= 48) return `${(hours / 24).toFixed(1)}d`;
+  if (hours >= 1) return `${hours.toFixed(1)}h`;
+  return `${Math.max(1, Math.round(ms / 60_000))}m`;
+}
+
+export function evaluateConnectorSyncSla(
+  connector?: DataConnector | Record<string, unknown> | null,
+  nowMs: number = Date.now(),
+): SyncSlaStatus {
+  if (!connector || typeof connector !== "object") {
+    return { breached: false, severity: "ok", label: "", reason: "" };
+  }
+
+  const conn = connector as DataConnector & Record<string, unknown>;
+  const latestRun = conn.latestRun as
+    | {
+        state?: string;
+        endTime?: string;
+        startTime?: string;
+        updateTime?: string;
+        error?: { message?: string; code?: number };
+      }
+    | undefined;
+
+  const runStateUpper =
+    typeof latestRun?.state === "string"
+      ? latestRun.state.trim().toUpperCase()
+      : "";
+
+  if (
+    runStateUpper === "FAILED" ||
+    runStateUpper === "STATE_FAILED" ||
+    Boolean(latestRun?.error)
+  ) {
+    const errMsg =
+      latestRun?.error?.message || `latestRun state is ${runStateUpper || "FAILED"}`;
+    return {
+      breached: true,
+      severity: "error",
+      label: "SLA Stale",
+      reason: `Sync SLA breached: ${errMsg}`,
+    };
+  }
+
+  const intervalMs = parseRefreshIntervalMs(
+    typeof conn.refreshInterval === "string" || typeof conn.refreshInterval === "number"
+      ? conn.refreshInterval
+      : undefined,
+  );
+  if (!intervalMs) {
+    return { breached: false, severity: "ok", label: "", reason: "" };
+  }
+
+  const rawRunTimestamp =
+    latestRun?.endTime ||
+    latestRun?.startTime ||
+    latestRun?.updateTime ||
+    (typeof conn.lastSyncTime === "string" ? conn.lastSyncTime : undefined);
+  if (!rawRunTimestamp) {
+    return { breached: false, severity: "ok", label: "", reason: "" };
+  }
+
+  const runTimeMs = Date.parse(rawRunTimestamp);
+  if (Number.isNaN(runTimeMs)) {
+    return { breached: false, severity: "ok", label: "", reason: "" };
+  }
+
+  const ageMs = Math.max(0, nowMs - runTimeMs);
+  if (ageMs > 2 * intervalMs) {
+    return {
+      breached: true,
+      severity: ageMs > 4 * intervalMs ? "error" : "warning",
+      label: "SLA Stale",
+      reason: `Last sync completed ${formatDurationCompact(ageMs)} ago, exceeding 2x refreshInterval (${formatDurationCompact(intervalMs)}).`,
+      ageMs,
+      intervalMs,
+    };
+  }
+
+  return {
+    breached: false,
+    severity: "ok",
+    label: "SLA Healthy",
+    reason: `Last sync ${formatDurationCompact(ageMs)} ago (interval ${formatDurationCompact(intervalMs)}).`,
+    ageMs,
+    intervalMs,
+  };
+}
+
+export function extractDeadLetterGcsPrefix(
+  collection: Collection,
+  result?: ValidationResult,
+): string | undefined {
+  const detailsObj =
+    result?.details && typeof result.details === "object"
+      ? result.details
+      : undefined;
+  const conn =
+    result?.dataConnector ||
+    detailsObj?.connectorState ||
+    (collection.dataConnector && typeof collection.dataConnector === "object"
+      ? (collection.dataConnector as DataConnector)
+      : undefined);
+
+  const directPrefix = (conn?.errorConfig as { gcsPrefix?: unknown } | undefined)
+    ?.gcsPrefix;
+  if (typeof directPrefix === "string" && directPrefix.trim().startsWith("gs://")) {
+    return directPrefix.trim();
+  }
+
+  const rawOps = Array.isArray(detailsObj?.rawOperations)
+    ? (detailsObj.rawOperations as Operation[])
+    : [];
+  for (const op of rawOps) {
+    const respPrefix = (
+      op?.response as { errorConfig?: { gcsPrefix?: unknown } } | undefined
+    )?.errorConfig?.gcsPrefix;
+    if (typeof respPrefix === "string" && respPrefix.trim().startsWith("gs://")) {
+      return respPrefix.trim();
+    }
+    const metaPrefix = (
+      op?.metadata as { errorConfig?: { gcsPrefix?: unknown } } | undefined
+    )?.errorConfig?.gcsPrefix;
+    if (typeof metaPrefix === "string" && metaPrefix.trim().startsWith("gs://")) {
+      return metaPrefix.trim();
+    }
+  }
+  return undefined;
+}
 
 interface ConnectorCollectionTableProps {
   collections: Collection[];
@@ -34,6 +216,8 @@ interface ConnectorCollectionTableProps {
   onSelectResult: (payload: { result: ValidationResult; title: string }) => void;
   onDuplicateConnector: (collection: Collection) => void;
   onRequestDelete: (collection: Collection) => void;
+  onOpenDeadLetter?: (collection: Collection, gcsPrefix?: string) => void;
+  onOpenAlertPolicy?: (collection: Collection) => void;
   associationWarning?: string | null;
   enableExperimentalClone?: boolean;
   onToggleExperimentalClone?: (enabled: boolean) => void;
@@ -55,6 +239,8 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
   onSelectResult,
   onDuplicateConnector,
   onRequestDelete,
+  onOpenDeadLetter,
+  onOpenAlertPolicy,
   associationWarning,
   enableExperimentalClone,
   onToggleExperimentalClone,
@@ -73,6 +259,26 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
     }
   };
 
+  const resolveKnownConnector = (
+    collection: Collection,
+    result?: ValidationResult,
+  ): DataConnector | undefined => {
+    const fromDetails =
+      result?.details &&
+      typeof result.details === "object" &&
+      "connectorState" in result.details
+        ? (result.details as { connectorState?: DataConnector | null })
+            .connectorState || undefined
+        : undefined;
+    return (
+      result?.dataConnector ||
+      fromDetails ||
+      (collection.dataConnector && typeof collection.dataConnector === "object"
+        ? (collection.dataConnector as DataConnector)
+        : undefined)
+    );
+  };
+
   const filteredCollections = useMemo(() => {
     return collections.filter((collection) => {
       const collectionId = collection.name.split("/").pop() || "";
@@ -80,8 +286,12 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
       const apps = getAssociatedApps(collection.name);
       const result = validationResults[collection.name];
       const status = result ? result.status : "unchecked";
+      const knownConn = resolveKnownConnector(collection, result);
+      const sla = evaluateConnectorSyncSla(knownConn);
 
-      if (statusFilter !== "all" && status !== statusFilter) {
+      if (statusFilter === "sla_breach") {
+        if (!sla.breached) return false;
+      } else if (statusFilter !== "all" && status !== statusFilter) {
         return false;
       }
 
@@ -165,6 +375,7 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
             <option value="all">All Statuses</option>
             <option value="success">PASS</option>
             <option value="error">FAIL</option>
+            <option value="sla_breach">SLA Stale</option>
             <option value="n/a">N/A</option>
             <option value="unchecked">Not Checked</option>
           </select>
@@ -296,76 +507,97 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                       {collectionId}
                     </td>
                     <td className="px-3 xl:px-4 py-3 whitespace-nowrap text-sm">
-                      {result ? (
-                        <button
-                          type="button"
-                          disabled={result.status === "n/a"}
-                          className={`inline-flex items-center px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors shadow-sm ${
-                            result.status === "success"
-                              ? "bg-green-900/80 text-green-200 border border-green-700 hover:bg-green-800 cursor-pointer"
+                      <div className="inline-flex items-center gap-1.5">
+                        {result ? (
+                          <button
+                            type="button"
+                            disabled={result.status === "n/a"}
+                            className={`inline-flex items-center px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors shadow-sm ${
+                              result.status === "success"
+                                ? "bg-green-900/80 text-green-200 border border-green-700 hover:bg-green-800 cursor-pointer"
+                                : result.status === "error"
+                                  ? "bg-red-900/80 text-red-200 border border-red-700 hover:bg-red-800 cursor-pointer"
+                                  : result.status === "n/a"
+                                    ? "bg-gray-700/80 text-gray-300 border border-gray-600 cursor-default"
+                                    : "bg-blue-900/80 text-blue-200 border border-blue-700 cursor-pointer"
+                            }`}
+                            onClick={() => {
+                              if (result.status !== "n/a") {
+                                const displayLabel =
+                                  collection.displayName &&
+                                  collection.displayName !== collectionId
+                                    ? `${collection.displayName} (${collectionId})`
+                                    : collectionId;
+                                onSelectResult({
+                                  result: {
+                                    ...result,
+                                    details:
+                                      result.details && typeof result.details === "object"
+                                        ? {
+                                            ...result.details,
+                                            collectionDisplayName:
+                                              collection.displayName,
+                                          }
+                                        : result.details,
+                                  },
+                                  title: `Connector Diagnostics: ${displayLabel}`,
+                                });
+                              }
+                            }}
+                          >
+                            {result.status === "pending" && (
+                              <svg
+                                className="animate-spin h-3 w-3 mr-2 shrink-0"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                ></circle>
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                ></path>
+                              </svg>
+                            )}
+                            {result.status === "success"
+                              ? "PASS"
                               : result.status === "error"
-                                ? "bg-red-900/80 text-red-200 border border-red-700 hover:bg-red-800 cursor-pointer"
+                                ? "FAIL"
                                 : result.status === "n/a"
-                                  ? "bg-gray-700/80 text-gray-300 border border-gray-600 cursor-default"
-                                  : "bg-blue-900/80 text-blue-200 border border-blue-700 cursor-pointer"
-                          }`}
-                          onClick={() => {
-                            if (result.status !== "n/a") {
-                              const displayLabel =
-                                collection.displayName &&
-                                collection.displayName !== collectionId
-                                  ? `${collection.displayName} (${collectionId})`
-                                  : collectionId;
-                              onSelectResult({
-                                result: {
-                                  ...result,
-                                  details:
-                                    result.details && typeof result.details === "object"
-                                      ? {
-                                          ...result.details,
-                                          collectionDisplayName:
-                                            collection.displayName,
-                                        }
-                                      : result.details,
-                                },
-                                title: `Connector Diagnostics: ${displayLabel}`,
-                              });
-                            }
-                          }}
-                        >
-                          {result.status === "pending" && (
-                            <svg
-                              className="animate-spin h-3 w-3 mr-2 shrink-0"
-                              viewBox="0 0 24 24"
+                                  ? "N/A"
+                                  : "CHECKING"}
+                          </button>
+                        ) : (
+                          <span className="text-gray-500 text-xs italic whitespace-nowrap">
+                            Not checked
+                          </span>
+                        )}
+                        {(() => {
+                          if (collectionId === "default_collection") return null;
+                          const knownConn = resolveKnownConnector(collection, result);
+                          const sla = evaluateConnectorSyncSla(knownConn);
+                          if (!sla.breached) return null;
+                          return (
+                            <span
+                              data-testid={`sla-stale-badge-${collectionId}`}
+                              title={sla.reason}
+                              className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider border ${
+                                sla.severity === "error"
+                                  ? "bg-red-950/90 text-red-200 border-red-600/80"
+                                  : "bg-amber-950/90 text-amber-200 border-amber-500/80"
+                              }`}
                             >
-                              <circle
-                                className="opacity-25"
-                                cx="12"
-                                cy="12"
-                                r="10"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                              ></circle>
-                              <path
-                                className="opacity-75"
-                                fill="currentColor"
-                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                              ></path>
-                            </svg>
-                          )}
-                          {result.status === "success"
-                            ? "PASS"
-                            : result.status === "error"
-                              ? "FAIL"
-                              : result.status === "n/a"
-                                ? "N/A"
-                                : "CHECKING"}
-                        </button>
-                      ) : (
-                        <span className="text-gray-500 text-xs italic whitespace-nowrap">
-                          Not checked
-                        </span>
-                      )}
+                              {sla.label}
+                            </span>
+                          );
+                        })()}
+                      </div>
                     </td>
                     <td className="gem-col-lg px-3 xl:px-4 py-3 whitespace-normal text-sm">
                       {(() => {
@@ -442,6 +674,42 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                           "Details"
                         )}
                       </button>
+                      {onOpenDeadLetter && collectionId !== "default_collection" && (() => {
+                        const detectedGcsPrefix = extractDeadLetterGcsPrefix(
+                          collection,
+                          result,
+                        );
+                        return (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onOpenDeadLetter(collection, detectedGcsPrefix)
+                            }
+                            className={`font-semibold text-xs border px-2.5 xl:px-3 py-1.5 rounded transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0 ${
+                              detectedGcsPrefix
+                                ? "text-orange-300 hover:text-orange-200 border-orange-500/50 bg-orange-950/30 hover:bg-orange-900/40"
+                                : "text-gray-300 hover:text-white border-gray-600 hover:bg-gray-700"
+                            }`}
+                            title={
+                              detectedGcsPrefix
+                                ? `Inspect GCS dead-letter errors (${detectedGcsPrefix})`
+                                : "Inspect GCS dead-letter JSONL logs for this connector"
+                            }
+                          >
+                            Dead-Letter
+                          </button>
+                        );
+                      })()}
+                      {onOpenAlertPolicy && collectionId !== "default_collection" && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenAlertPolicy(collection)}
+                          className="text-purple-300 hover:text-purple-200 font-semibold text-xs border border-purple-500/30 px-2.5 xl:px-3 py-1.5 rounded hover:bg-purple-500/10 transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0"
+                          title="Provision Cloud Monitoring sync failure alert policy"
+                        >
+                          Alert
+                        </button>
+                      )}
                       {(() => {
                         if (!isCloneEnabled || collectionId === "default_collection") return null;
                         const knownConnector =

@@ -137,8 +137,8 @@ const GitHubDeployModal: React.FC<GitHubDeployModalProps> = ({ isOpen, onClose, 
             let filesToPush = [...files];
 
             if (selectedTemplate === 'create_new') {
-                // 1. Create the template repo as PUBLIC so it can be reused across repositories
-                await createGithubRepo(token, templateRepoName, 'Shared GitHub Actions Templates', false);
+                // 1. Create the template repo as PRIVATE by default (never expose unprompted public repos)
+                await createGithubRepo(token, templateRepoName, 'Shared GitHub Actions Templates', true, owner);
                 await new Promise(resolve => setTimeout(resolve, 3000));
                 
                 // Find the deploy.yaml in files and push it to the template repo
@@ -180,7 +180,7 @@ const GitHubDeployModal: React.FC<GitHubDeployModalProps> = ({ isOpen, onClose, 
             }
 
             // Create Agent Repo and push agent files (including the caller workflow)
-            await createGithubRepo(token, repoName, `Automated Agent Deployment for ${agentName}`);
+            await createGithubRepo(token, repoName, `Automated Agent Deployment for ${agentName}`, true, owner);
             await new Promise(resolve => setTimeout(resolve, 3000));
             await pushToGithub(token, owner, repoName, filesToPush, 'Initial commit: Agent Starter templates');
             

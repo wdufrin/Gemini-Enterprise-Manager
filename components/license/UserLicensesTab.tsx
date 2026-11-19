@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import Spinner from '../Spinner';
 import { UserLicense, LicenseConfig, SortKey, SortDirection } from './types';
+import { BulkAssignCsvModal } from './BulkAssignCsvModal';
 
 interface UserLicensesTabProps {
   projectNumber: string;
@@ -73,6 +74,15 @@ interface UserLicensesTabProps {
   setJsonModalData: (data: UserLicense) => void;
   requestDelete: (license: UserLicense, type: 'revoke' | 'delete') => void;
   isActionLoading: boolean;
+  appLocation?: string;
+  userStoreId?: string;
+  isBulkAssignCsvModalOpen?: boolean;
+  setIsBulkAssignCsvModalOpen?: (open: boolean) => void;
+  onExecuteBulkAssignCsv?: (
+    emails: string[],
+    targetLicenseConfigName: string,
+    onProgress?: (completedChunks: number, totalChunks: number) => void,
+  ) => Promise<void>;
 }
 
 const SortIcon: React.FC<{ active: boolean; direction: SortDirection }> = ({ active, direction }) => (
@@ -149,9 +159,29 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
   setJsonModalData,
   requestDelete,
   isActionLoading,
+  appLocation,
+  userStoreId,
+  isBulkAssignCsvModalOpen,
+  setIsBulkAssignCsvModalOpen,
+  onExecuteBulkAssignCsv,
 }) => {
+  const [internalCsvModalOpen, setInternalCsvModalOpen] = useState(false);
+  const csvModalOpen = isBulkAssignCsvModalOpen ?? internalCsvModalOpen;
+  const setCsvModalOpen = setIsBulkAssignCsvModalOpen ?? setInternalCsvModalOpen;
+
   return (
     <>
+      <BulkAssignCsvModal
+        isOpen={csvModalOpen}
+        onClose={() => setCsvModalOpen(false)}
+        projectNumber={projectNumber}
+        appLocation={appLocation}
+        userStoreId={userStoreId}
+        apiLicenseConfigs={apiLicenseConfigs}
+        existingLicenses={userLicenses}
+        onExecuteBulkAssign={onExecuteBulkAssignCsv}
+        onAssignSuccess={() => fetchUserLicenses(true)}
+      />
       {/* Stats & Actions Row */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="bg-gray-800 p-6 rounded-lg shadow-md flex flex-col justify-center items-center border border-gray-700">
@@ -231,6 +261,15 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                 className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center whitespace-nowrap h-[38px]"
               >
                 {isBulkActionLoading ? 'Applying...' : `Apply (${selectedUsers.size})`}
+              </button>
+              <button
+                type="button"
+                data-testid="open-bulk-assign-csv-button"
+                onClick={() => setCsvModalOpen(true)}
+                disabled={!projectNumber}
+                className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-md hover:bg-emerald-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center whitespace-nowrap h-[38px]"
+              >
+                + Assign Emails / CSV
               </button>
               <button
                 onClick={() => fetchUserLicenses(true)}

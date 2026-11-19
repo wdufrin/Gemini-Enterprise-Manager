@@ -215,7 +215,13 @@ export function useDataStoreQuery(
     setIsSearching(true);
 
     try {
-      let response: { results?: SearchResultItem[]; totalSize?: number };
+      let response: {
+        results?: SearchResultItem[];
+        totalSize?: number;
+        summary?: unknown;
+        queryExpansionInfo?: unknown;
+        [key: string]: unknown;
+      };
 
       if (authMode === 'wif') {
         setIsExchangingToken(true);
@@ -262,6 +268,7 @@ export function useDataStoreQuery(
         totalSize: response.totalSize,
         timestamp: new Date(),
         authMode,
+        rawResponse: response,
       }]);
     } catch (err: unknown) {
       setHistory(prev => [...prev, {

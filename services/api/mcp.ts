@@ -125,6 +125,9 @@ const fetchCustomMcpWithCorsFallback = async (
   // Tier 3: Fall back to same-origin server proxy (`/api/mcp-proxy`), which
   // executes the request from Node.js outside browser CORS restrictions and
   // handles MCP Streamable HTTP `Mcp-Session-Id` negotiation if required.
+  // Note: Static Nginx `try_files` returns HTTP 405 (or 404) HTML when the Node
+  // `/api/mcp-proxy` middleware is absent — treat both 404 and 405 as proxy-absent
+  // and throw an actionable CORS error instead of returning an Nginx 405 HTML page.
   try {
     const proxyRes = await fetch("/api/mcp-proxy", {
       method: "POST",
@@ -135,19 +138,40 @@ const fetchCustomMcpWithCorsFallback = async (
         headers,
       }),
     });
-    if (proxyRes && typeof proxyRes.ok === "boolean" && proxyRes.status !== 404) {
+    if (
+      proxyRes &&
+      typeof proxyRes.ok === "boolean" &&
+      proxyRes.status !== 404 &&
+      proxyRes.status !== 405
+    ) {
       return proxyRes;
     }
   } catch {
-    // Proxy unavailable in pure static/unit-test environments; rethrow original CORS error below.
+    // Proxy unavailable in pure static/unit-test environments; throw actionable CORS error below.
   }
 
-  throw initialCorsError;
+  const rawReason =
+    initialCorsError instanceof Error
+      ? initialCorsError.message
+      : String(initialCorsError ?? "Failed to fetch");
+  throw new TypeError(
+    `CORS preflight/response blocked for MCP endpoint "${mcpEndpointUrl}" (${rawReason}). ` +
+      `Configure Access-Control-Allow-Origin on your MCP server or run Gemini Enterprise Manager with the Node /api/mcp-proxy server enabled.`,
+  );
 };
+
+export interface ListMcpToolsOptions {
+  /**
+   * Optional explicit Bearer token supplied by the administrator when live-probing
+   * a custom HTTPS MCP server (never populated from the user's Google OAuth session).
+   */
+  bearerToken?: string;
+}
 
 export const listMcpTools = async (
   projectId: string,
   mcpEndpointUrl: string,
+  options?: ListMcpToolsOptions,
 ): Promise<Record<string, unknown>[]> => {
   try {
     const payload = {
@@ -218,7 +242,10 @@ export const listMcpTools = async (
         Accept: "application/json, text/event-stream",
       };
 
-      if (isTrustedGoogleHost) {
+      const explicitBearer = options?.bearerToken?.trim();
+      if (explicitBearer) {
+        headers["Authorization"] = `Bearer ${explicitBearer}`;
+      } else if (isTrustedGoogleHost) {
         const client = await getGapiClient();
         const token = client.getToken()?.access_token;
         if (token) {

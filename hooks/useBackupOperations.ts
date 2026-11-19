@@ -62,6 +62,69 @@ import {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function buildAssistantRestorePayloadAndMask(assistant: Partial<Assistant>): {
+  payload: Partial<Assistant>;
+  updateMask: string[];
+} {
+  const payload: Partial<Assistant> = {};
+  const updateMask: string[] = [];
+
+  if (assistant.displayName !== undefined) {
+    payload.displayName = assistant.displayName;
+    updateMask.push('displayName');
+  }
+  if (assistant.description !== undefined) {
+    payload.description = assistant.description;
+    updateMask.push('description');
+  }
+  if (assistant.generationConfig !== undefined) {
+    payload.generationConfig = assistant.generationConfig;
+    updateMask.push('generationConfig');
+  }
+  if (assistant.customerPolicy !== undefined) {
+    payload.customerPolicy = assistant.customerPolicy;
+    updateMask.push('customerPolicy');
+  }
+  if (assistant.styleAndFormattingInstructions !== undefined) {
+    payload.styleAndFormattingInstructions = assistant.styleAndFormattingInstructions;
+    updateMask.push('styleAndFormattingInstructions');
+  }
+  if (assistant.googleSearchGroundingEnabled !== undefined) {
+    payload.googleSearchGroundingEnabled = assistant.googleSearchGroundingEnabled;
+    updateMask.push('googleSearchGroundingEnabled');
+  }
+  if (assistant.webGroundingType !== undefined) {
+    payload.webGroundingType = assistant.webGroundingType;
+    updateMask.push('webGroundingType');
+  }
+  if (assistant.defaultWebGroundingToggleOff !== undefined) {
+    payload.defaultWebGroundingToggleOff = assistant.defaultWebGroundingToggleOff;
+    updateMask.push('defaultWebGroundingToggleOff');
+  }
+  if (assistant.vertexAiAgentConfigs !== undefined) {
+    payload.vertexAiAgentConfigs = assistant.vertexAiAgentConfigs;
+    updateMask.push('vertexAiAgentConfigs');
+  }
+  if (assistant.enabledActions !== undefined) {
+    payload.enabledActions = assistant.enabledActions;
+    updateMask.push('enabledActions');
+  }
+  if (assistant.enabledTools !== undefined) {
+    payload.enabledTools = assistant.enabledTools;
+    updateMask.push('enabledTools');
+  }
+  if (assistant.enableEndUserAgentCreation !== undefined) {
+    payload.enableEndUserAgentCreation = assistant.enableEndUserAgentCreation;
+    updateMask.push('enableEndUserAgentCreation');
+  }
+  if (assistant.disableLocationContext !== undefined) {
+    payload.disableLocationContext = assistant.disableLocationContext;
+    updateMask.push('disableLocationContext');
+  }
+
+  return { payload, updateMask };
+}
+
 export interface BackupRestorePayload {
   type?: string;
   collections?: Collection[];
@@ -389,7 +452,7 @@ export function useBackupOperations({
   };
 
   const processRestoreAssistant = async (
-    backupData: { assistant?: { name: string; displayName?: string; generationConfig?: Record<string, unknown>; agents?: Agent[] } },
+    backupData: { assistant?: Assistant },
     useModal = true
   ): Promise<RestoreOutcome> => {
     const outcome = createRestoreOutcome();
@@ -420,7 +483,7 @@ export function useBackupOperations({
         });
         return outcome;
       }
-      const processor = async (data: { assistant?: { name?: string; displayName?: string; generationConfig?: Record<string, unknown>; agents?: Agent[] } }) => {
+      const processor = async (data: { assistant?: Assistant }) => {
         const agentsToRestore = data.assistant?.agents || [];
         const restoreConfig = apiConfig;
         if (!restoreConfig.appId) {
@@ -430,16 +493,7 @@ export function useBackupOperations({
         }
         const assistantId = restoreConfig.assistantId || 'default_assistant';
         const assistantName = `projects/${restoreConfig.projectId}/locations/${restoreConfig.appLocation}/collections/${restoreConfig.collectionId}/engines/${restoreConfig.appId}/assistants/${assistantId}`;
-        const payload: Record<string, unknown> = {};
-        const updateMask: string[] = [];
-        if (assistant.displayName) {
-          payload.displayName = assistant.displayName;
-          updateMask.push('displayName');
-        }
-        if (assistant.generationConfig) {
-          payload.generationConfig = assistant.generationConfig;
-          updateMask.push('generationConfig');
-        }
+        const { payload, updateMask } = buildAssistantRestorePayloadAndMask(assistant);
         if (updateMask.length > 0) {
           try {
             await api.updateAssistant(assistantName, payload, updateMask, restoreConfig);
@@ -484,16 +538,7 @@ export function useBackupOperations({
       const updateExistingAssistant = async () => {
         try {
           const assistantName = `projects/${restoreConfig.projectId}/locations/${restoreConfig.appLocation}/collections/${restoreConfig.collectionId}/engines/${restoreConfig.appId}/assistants/${assistantId}`;
-          const payload: Record<string, unknown> = {};
-          const updateMask: string[] = [];
-          if (assistantToRestore.displayName) {
-            payload.displayName = assistantToRestore.displayName;
-            updateMask.push('displayName');
-          }
-          if (assistantToRestore.generationConfig) {
-            payload.generationConfig = assistantToRestore.generationConfig;
-            updateMask.push('generationConfig');
-          }
+          const { payload, updateMask } = buildAssistantRestorePayloadAndMask(assistantToRestore);
           if (updateMask.length > 0) {
             await api.updateAssistant(assistantName, payload, updateMask, restoreConfig);
             addLog(`  - UPDATED: Assistant '${assistantId}' settings applied.`);
@@ -501,8 +546,6 @@ export function useBackupOperations({
         } catch (updateErr: unknown) {
           const reason = toErrorMessage(updateErr);
           addLog(`  - ERROR: Failed to update assistant '${assistantId}': ${reason}.`);
-          // The assistant keeps its old displayName/generationConfig, so the
-          // restore did not actually reproduce the backed-up configuration.
           recordFailure(outcome, 'Assistant', assistantId, reason);
         }
       };
@@ -511,12 +554,17 @@ export function useBackupOperations({
         await updateExistingAssistant();
       } else {
         try {
+          const { payload: createPayload, updateMask } =
+            buildAssistantRestorePayloadAndMask(assistantToRestore);
           await api.createAssistant(
             assistantId,
-            { displayName: assistantToRestore.displayName },
+            { displayName: assistantToRestore.displayName, ...createPayload },
             restoreConfig
           );
           addLog(`  - CREATED: Assistant '${assistantId}'`);
+          if (updateMask.length > 1 || (updateMask.length === 1 && updateMask[0] !== 'displayName')) {
+            await updateExistingAssistant();
+          }
         } catch (err: unknown) {
           const errorMsg = toErrorMessage(err);
           if (errorMsg.includes('ALREADY_EXISTS')) {

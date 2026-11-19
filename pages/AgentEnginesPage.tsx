@@ -171,12 +171,17 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
               <option value="us-central1">us-central1</option>
               <option value="us-east1">us-east1</option>
               <option value="us-east4">us-east4</option>
+              <option value="us-south1">us-south1</option>
               <option value="us-west1">us-west1</option>
+              <option value="northamerica-northeast1">northamerica-northeast1</option>
               <option value="europe-west1">europe-west1</option>
               <option value="europe-west2">europe-west2</option>
+              <option value="europe-west3">europe-west3</option>
               <option value="europe-west4">europe-west4</option>
               <option value="asia-east1">asia-east1</option>
+              <option value="asia-northeast1">asia-northeast1</option>
               <option value="asia-southeast1">asia-southeast1</option>
+              <option value="australia-southeast1">australia-southeast1</option>
             </select>
           </div>
         </div>
@@ -215,6 +220,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
         onConfirmDelete={confirmDelete}
         selectedIds={selectedIds}
         resources={resources}
+        agentsByResource={agentsByResource}
         isDeleting={isDeleting}
         engineToClearSessions={engineToClearSessions}
         onCloseClearSessions={() => setEngineToClearSessions(null)}

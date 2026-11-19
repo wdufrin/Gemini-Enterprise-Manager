@@ -428,16 +428,27 @@ export const setAgentIamPolicy = async (
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
   const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}:setIamPolicy`;
 
-  // Read-modify-write concurrency protection: if etag is missing, fetch current policy first to obtain etag
-  const finalPolicy: IamPolicy = { ...policy };
+  // Read-modify-write concurrency protection: if etag is missing, fetch current policy first to obtain etag.
+  // Propagate non-404 errors rather than silently overwriting concurrent IAM policy changes without an etag.
+  let finalPolicy: IamPolicy = { ...policy };
   if (!finalPolicy.etag) {
     try {
       const current = await getAgentIamPolicy(name, config);
       if (current?.etag) {
-        finalPolicy.etag = current.etag;
+        finalPolicy = { ...finalPolicy, etag: current.etag };
       }
-    } catch (fetchErr) {
-      console.warn("Could not fetch current agent IAM policy for etag concurrency check:", fetchErr);
+    } catch (fetchErr: unknown) {
+      const status =
+        typeof fetchErr === "object" && fetchErr !== null && "status" in fetchErr
+          ? (fetchErr as { status?: number }).status
+          : undefined;
+      if (status !== 404) {
+        throw new Error(
+          `Failed to read current agent IAM policy etag before setIamPolicy: ${
+            fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
+          }`,
+        );
+      }
     }
   }
 

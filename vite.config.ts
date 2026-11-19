@@ -29,14 +29,61 @@ if (fs.existsSync(docsAssetsSrc)) {
   fs.cpSync(docsAssetsSrc, docsAssetsDest, { recursive: true });
 }
 
+function isUnsafeIpv4Octets(a: number, b: number, c: number, d: number): boolean {
+  if (
+    !Number.isInteger(a) ||
+    !Number.isInteger(b) ||
+    !Number.isInteger(c) ||
+    !Number.isInteger(d) ||
+    a < 0 ||
+    a > 255 ||
+    b < 0 ||
+    b > 255 ||
+    c < 0 ||
+    c > 255 ||
+    d < 0 ||
+    d > 255
+  ) {
+    return true;
+  }
+  // 0.0.0.0/8 (unspecified / "this" network)
+  if (a === 0) return true;
+  // 10.0.0.0/8 (RFC1918 private)
+  if (a === 10) return true;
+  // 100.64.0.0/10 (RFC6598 carrier-grade NAT)
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  // 127.0.0.0/8 (loopback)
+  if (a === 127) return true;
+  // 169.254.0.0/16 (link-local & cloud metadata 169.254.169.254)
+  if (a === 169 && b === 254) return true;
+  // 172.16.0.0/12 (RFC1918 private)
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  // 192.168.0.0/16 (RFC1918 private)
+  if (a === 192 && b === 168) return true;
+  // 224.0.0.0/4 (multicast) & 240.0.0.0/4 (reserved / broadcast)
+  if (a >= 224) return true;
+  return false;
+}
+
 /**
  * Validates that a target MCP URL is a public HTTPS endpoint (blocking SSRF
- * targets such as loopback, link-local, metadata, and RFC1918 private IPs).
+ * targets such as loopback, link-local, metadata, RFC1918 private IPs, and
+ * IPv4-mapped / IPv4-compatible IPv6 representations in both dotted and
+ * WHATWG-normalized hex forms).
  */
-function isSafeExternalHttpsUrl(rawUrl: string): boolean {
+export function isSafeExternalHttpsUrl(rawUrl: string): boolean {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) return false;
+
+  // Also inspect the raw bracketed IPv6 literal before URL canonicalization in case
+  // callers pass dotted IPv4-mapped forms or IPv6 zone identifiers (%25eth0).
+  const trimmed = rawUrl.trim();
+  if (/^https:\/\/\[[^\]]*%/.test(trimmed)) {
+    return false;
+  }
+
   let parsed: URL;
   try {
-    parsed = new URL(rawUrl);
+    parsed = new URL(trimmed);
   } catch {
     return false;
   }
@@ -45,25 +92,77 @@ function isSafeExternalHttpsUrl(rawUrl: string): boolean {
 
   const host = parsed.hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
   if (!host) return false;
+
   if (
     host === 'localhost' ||
     host.endsWith('.localhost') ||
     host.endsWith('.local') ||
     host.endsWith('.internal') ||
     host === 'metadata.google.internal' ||
-    host === '0.0.0.0' ||
-    host === '::1' ||
-    host.startsWith('127.') ||
-    host.startsWith('10.') ||
-    host.startsWith('192.168.') ||
-    host.startsWith('169.254.') ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(host) ||
-    host.startsWith('fc') ||
-    host.startsWith('fd') ||
-    host.startsWith('fe80:')
+    host === 'metadata'
   ) {
     return false;
   }
+
+  // Standard dotted-quad IPv4
+  const ipv4Match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const [, sA, sB, sC, sD] = ipv4Match;
+    return !isUnsafeIpv4Octets(Number(sA), Number(sB), Number(sC), Number(sD));
+  }
+
+  // IPv6 literals (contain ':')
+  if (host.includes(':')) {
+    const normalizedV6 = host.replace(/^(?:0+:)+/, '::');
+    if (
+      host === '::' ||
+      host === '::1' ||
+      normalizedV6 === '::' ||
+      normalizedV6 === '::1'
+    ) {
+      return false;
+    }
+
+    // Unique local (fc00::/7 -> fc.. / fd..), link-local (fe80::/10 -> fe8..feb), multicast (ff00::/8)
+    if (
+      /^f[cd][0-9a-f]{0,2}:/.test(host) ||
+      /^fe[89ab][0-9a-f]:/.test(host) ||
+      /^ff[0-9a-f]{0,2}:/.test(host)
+    ) {
+      return false;
+    }
+
+    // Dotted IPv4-mapped / IPv4-compatible IPv6 (e.g. ::ffff:127.0.0.1, ::ffff:169.254.169.254, ::127.0.0.1)
+    const dottedV4Mapped = host.match(
+      /^(?:::ffff:|0:0:0:0:0:ffff:|::)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/,
+    );
+    if (dottedV4Mapped) {
+      const [, sA, sB, sC, sD] = dottedV4Mapped;
+      return !isUnsafeIpv4Octets(Number(sA), Number(sB), Number(sC), Number(sD));
+    }
+
+    // Node WHATWG URL canonicalized hex IPv4-mapped / IPv4-compatible / NAT64 IPv6
+    // e.g. [::ffff:127.0.0.1] -> "::ffff:7f00:1", [::ffff:169.254.169.254] -> "::ffff:a9fe:a9fe",
+    // [::ffff:10.0.0.1] -> "::ffff:a00:1", [64:ff9b::127.0.0.1] -> "64:ff9b::7f00:1"
+    const hexV4Mapped = host.match(
+      /^(?:::ffff:|(?:0:){5}ffff:|::|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/,
+    );
+    if (hexV4Mapped) {
+      const hi = parseInt(hexV4Mapped[1], 16);
+      const lo = parseInt(hexV4Mapped[2], 16);
+      const a = (hi >> 8) & 0xff;
+      const b = hi & 0xff;
+      const c = (lo >> 8) & 0xff;
+      const d = lo & 0xff;
+      return !isUnsafeIpv4Octets(a, b, c, d);
+    }
+
+    // Single-hextet ::0 / ::ffff:0 edge cases
+    if (/^(?:::ffff:|(?:0:){5}ffff:)0+$/.test(host)) {
+      return false;
+    }
+  }
+
   return true;
 }
 

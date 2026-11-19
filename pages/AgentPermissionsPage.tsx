@@ -73,8 +73,16 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
         const headers = ['Location', 'Gemini Enterprise App', 'Agent Name', 'Agent Type', 'User ID', 'Permission'];
         const csvRows = [headers.join(',')];
         
+        const escapeCsvCell = (val: string) => `"${String(val ?? '').replace(/"/g, '""')}"`;
         filteredData.forEach(row => {
-            csvRows.push(`"${row.location}","${row.appName}","${row.agentName}","${row.agentType}","${row.userId}","${row.permission}"`);
+            csvRows.push([
+                row.location,
+                row.appName,
+                row.agentName,
+                row.agentType,
+                row.userId,
+                row.permission,
+            ].map(escapeCsvCell).join(','));
         });
         
         const csvBlob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -148,16 +156,23 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
                 });
             }
 
-            // Extract inherited project roles related to agent access
+            // Extract inherited project roles that genuinely confer broad Discovery Engine agent access
+            // (Explicitly exclude customRestrictedEndUser / customRestrictedAdmin / notebookLmUser, which are
+            // isolation baseline roles designed NOT to grant inherited private-agent access.)
             const inheritedBindings: IamBinding[] = projectPolicy.bindings?.filter((binding: IamBinding) => {
                 if (!binding.role) return false;
                 const role = binding.role.toLowerCase();
-                return role.includes('roles/owner') || 
-                       role.includes('roles/editor') || 
-                       role.includes('roles/viewer') || 
-                       role.includes('roles/discoveryengine.') ||
-                       role.startsWith('projects/') ||
-                       role.startsWith('organizations/');
+                if (
+                    role.endsWith('/roles/customrestrictedenduser') ||
+                    role.endsWith('/roles/customrestrictedadmin') ||
+                    role === 'roles/discoveryengine.notebooklmuser'
+                ) {
+                    return false;
+                }
+                return role === 'roles/owner' ||
+                       role === 'roles/editor' ||
+                       role === 'roles/viewer' ||
+                       role.startsWith('roles/discoveryengine.');
             }) || [];
             
             for (const location of locationsToScan) {

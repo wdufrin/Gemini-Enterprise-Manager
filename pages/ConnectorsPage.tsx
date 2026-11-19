@@ -15,9 +15,12 @@
  */
 
 import React from "react";
-import { Config } from "../types";
+import { Collection, Config } from "../types";
 import ConnectorDetailsModal from "../components/ConnectorDetailsModal";
 import DuplicateConnectorModal from "../components/connectors/DuplicateConnectorModal";
+import CreateByoMcpModal from "../components/connectors/CreateByoMcpModal";
+import DeadLetterInspectorModal from "../components/connectors/DeadLetterInspectorModal";
+import ConnectorAlertPolicyModal from "../components/connectors/ConnectorAlertPolicyModal";
 import ConfirmationModal from "../components/ConfirmationModal";
 import { ConnectorConfigHeader } from "../components/connectors/ConnectorConfigHeader";
 import { ConnectorCollectionTable } from "../components/connectors/ConnectorCollectionTable";
@@ -43,6 +46,7 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
 
   const {
     config,
+    setConfig,
     collections,
     isLoading,
     error,
@@ -79,7 +83,15 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
     setAssociationWarning,
   } = useConnectorsPage({ projectNumber });
 
-  const [enableExperimentalClone, setEnableExperimentalClone] = React.useState(false);
+  const [enableExperimentalClone, setEnableExperimentalClone] = React.useState(true);
+  const [isCreateByoMcpOpen, setIsCreateByoMcpOpen] = React.useState(false);
+  const [deadLetterModalState, setDeadLetterModalState] = React.useState<{
+    collection?: Collection;
+    gcsPrefix?: string;
+  } | null>(null);
+  const [alertModalState, setAlertModalState] = React.useState<{
+    collectionId?: string;
+  } | null>(null);
 
   const activeVendors = React.useMemo(() => {
     const set = new Set<string>();
@@ -124,6 +136,38 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
         onBulkDiagnostics={handleBulkDiagnostics}
       />
 
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-800/80 border border-gray-700 rounded-lg px-4 py-3">
+        <div className="text-xs text-gray-400">
+          Provision custom MCP tool servers, inspect GCS ingestion dead-letter JSONL logs, or deploy 1-click Cloud Monitoring sync alerts.
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={!projectNumber}
+            onClick={() => setIsCreateByoMcpOpen(true)}
+            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-xs font-semibold rounded-md transition-colors shadow-sm"
+          >
+            + Create BYO MCP Connector
+          </button>
+          <button
+            type="button"
+            disabled={!projectNumber}
+            onClick={() => setDeadLetterModalState({})}
+            className="px-3 py-1.5 bg-gray-900 hover:bg-gray-700 disabled:opacity-50 border border-gray-600 text-gray-200 text-xs font-semibold rounded-md transition-colors"
+          >
+            GCS Dead-Letter Inspector
+          </button>
+          <button
+            type="button"
+            disabled={!projectNumber}
+            onClick={() => setAlertModalState({})}
+            className="px-3 py-1.5 bg-purple-900/50 hover:bg-purple-800/60 disabled:opacity-50 border border-purple-600/60 text-purple-200 text-xs font-semibold rounded-md transition-colors"
+          >
+            Cloud Monitoring Alerts
+          </button>
+        </div>
+      </div>
+
       {associationWarning && (
         <div
           role="alert"
@@ -165,6 +209,14 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
           onSelectResult={setSelectedResult}
           onDuplicateConnector={handleDuplicateConnector}
           onRequestDelete={handleRequestDelete}
+          onOpenDeadLetter={(collection, gcsPrefix) =>
+            setDeadLetterModalState({ collection, gcsPrefix })
+          }
+          onOpenAlertPolicy={(collection) =>
+            setAlertModalState({
+              collectionId: collection.name.split("/").pop() || "",
+            })
+          }
           associationWarning={associationWarning}
           enableExperimentalClone={enableExperimentalClone}
           onToggleExperimentalClone={setEnableExperimentalClone}
@@ -246,6 +298,37 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
           </p>
         </ConfirmationModal>
       )}
+
+      <CreateByoMcpModal
+        isOpen={isCreateByoMcpOpen}
+        onClose={() => setIsCreateByoMcpOpen(false)}
+        onSuccess={(_createdCollectionId, createdLocation) => {
+          setIsCreateByoMcpOpen(false);
+          if (createdLocation !== config.appLocation) {
+            setConfig((prev) => ({ ...prev, appLocation: createdLocation }));
+          } else {
+            fetchCollections();
+          }
+        }}
+        projectId={config.projectId}
+        defaultLocation={config.appLocation}
+      />
+
+      <DeadLetterInspectorModal
+        isOpen={!!deadLetterModalState}
+        onClose={() => setDeadLetterModalState(null)}
+        projectId={config.projectId}
+        collectionName={deadLetterModalState?.collection?.name}
+        initialGcsPrefix={deadLetterModalState?.gcsPrefix}
+      />
+
+      <ConnectorAlertPolicyModal
+        isOpen={!!alertModalState}
+        onClose={() => setAlertModalState(null)}
+        projectId={config.projectId}
+        collections={collections}
+        initialCollectionId={alertModalState?.collectionId}
+      />
     </div>
   );
 };

@@ -38,6 +38,14 @@ import {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const REGIONAL_VERTEX_LOCATION_PATTERN = /^[a-z]+(?:-[a-z]+)+\d+$/;
+
+function isRegionalVertexLocation(location?: string): boolean {
+  if (!location) return false;
+  const trimmed = location.trim();
+  return REGIONAL_VERTEX_LOCATION_PATTERN.test(trimmed);
+}
+
 export async function pollOperation<T = Record<string, unknown>>(
   operation: Operation<T>,
   pollConfig: Omit<Config, 'accessToken'>,
@@ -126,6 +134,46 @@ export async function restoreAgentsIntoAssistant(
       if (currentAgent.longRunningOperationsEnabled !== undefined) {
         payload.longRunningOperationsEnabled = currentAgent.longRunningOperationsEnabled;
       }
+      if (currentAgent.observabilityConfig) {
+        payload.observabilityConfig = { ...currentAgent.observabilityConfig };
+      }
+      if (currentAgent.dataStoreSpecs) {
+        payload.dataStoreSpecs = {
+          ...currentAgent.dataStoreSpecs,
+          ...(Array.isArray(currentAgent.dataStoreSpecs.specs)
+            ? {
+                specs: currentAgent.dataStoreSpecs.specs.map((spec) => {
+                  if (!spec?.dataStore) return spec;
+                  const dsMatch = spec.dataStore.match(
+                    /^projects\/[^/]+\/locations\/[^/]+\/collections\/([^/]+)\/dataStores\/([^/]+)$/
+                  );
+                  if (!dsMatch || !restoreConfig.projectId) {
+                    return { ...spec };
+                  }
+                  const [, colId, dsId] = dsMatch;
+                  return {
+                    ...spec,
+                    dataStore: `projects/${restoreConfig.projectId}/locations/${restoreConfig.appLocation || 'global'}/collections/${restoreConfig.collectionId || colId}/dataStores/${dsId}`,
+                  };
+                }),
+              }
+            : {}),
+        };
+      }
+      if (Array.isArray(currentAgent.dataConnectors)) {
+        payload.dataConnectors = currentAgent.dataConnectors.map((dc) => {
+          if (!dc?.name || !restoreConfig.projectId) return { ...dc };
+          const dcMatch = dc.name.match(
+            /^projects\/[^/]+\/locations\/[^/]+\/collections\/([^/]+)(\/.*)?$/
+          );
+          if (!dcMatch) return { ...dc };
+          const [, colId, rest = ''] = dcMatch;
+          return {
+            ...dc,
+            name: `projects/${restoreConfig.projectId}/locations/${restoreConfig.appLocation || 'global'}/collections/${colId}${rest}`,
+          };
+        });
+      }
 
       const definitionKeys = Object.keys(currentAgent).filter((key) =>
         key.toLowerCase().includes('agentdefinition')
@@ -143,10 +191,16 @@ export async function restoreAgentsIntoAssistant(
               parts.pop();
               parts.pop();
               parts.pop();
-              reasoningEngineStr = `projects/${restoreConfig.projectId}/locations/${restoreConfig.appLocation || oldReLoc}/reasoningEngines/${oldReId}`;
+              // Vertex AI Reasoning Engines are strictly regional (e.g. us-central1) and
+              // NEVER reside in Discovery Engine multi-regions ('global', 'us', 'eu').
+              const targetReLoc = isRegionalVertexLocation(restoreConfig.reasoningEngineLocation)
+                ? restoreConfig.reasoningEngineLocation!.trim()
+                : oldReLoc;
+              reasoningEngineStr = `projects/${restoreConfig.projectId}/locations/${targetReLoc}/reasoningEngines/${oldReId}`;
             }
           }
           payload.adkAgentDefinition = {
+            ...adkDef,
             toolSettings: { toolDescription: adkDef?.toolSettings?.toolDescription || '' },
             provisionedReasoningEngine: { reasoningEngine: reasoningEngineStr || '' },
           };
@@ -361,6 +415,17 @@ export async function executeRestoreDiscovery(
             }),
             ...(engine.industryVertical && { industryVertical: engine.industryVertical }),
             ...(engine.appType && { appType: engine.appType }),
+            ...(engine.features && { features: engine.features }),
+            ...(engine.modelConfigs && { modelConfigs: engine.modelConfigs }),
+            ...(engine.observabilityConfig && {
+              observabilityConfig: engine.observabilityConfig,
+            }),
+            ...(engine.agentCreationConfig && {
+              agentCreationConfig: engine.agentCreationConfig,
+            }),
+            ...(engine.agentControlConfig && {
+              agentControlConfig: engine.agentControlConfig,
+            }),
           };
           const engineOperation = await api.createEngine(
             engineId,

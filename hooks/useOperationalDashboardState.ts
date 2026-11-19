@@ -275,6 +275,7 @@ export function useOperationalDashboardState({
     const [schemaValidationReport, setSchemaValidationReport] = useState<SchemaValidationReport | null>(null);
 
     const [extraInstalledViews, setExtraInstalledViews] = useState<Set<string>>(new Set());
+    const extraInstalledViewsRef = useRef<Set<string>>(new Set());
     const [droppedViews, setDroppedViews] = useState<Set<string>>(new Set());
     const droppedViewsRef = useRef<Set<string>>(new Set());
     const [brokenViews, setBrokenViews] = useState<Map<string, string>>(new Map());
@@ -413,6 +414,7 @@ export function useOperationalDashboardState({
         setLiveData({});
         setViewRows({});
         setExtraInstalledViews(new Set());
+        extraInstalledViewsRef.current = new Set();
         setDroppedViews(new Set());
         droppedViewsRef.current = new Set();
         setBrokenViews(new Map());
@@ -500,6 +502,9 @@ export function useOperationalDashboardState({
         setViewRows({});
         brokenViewsRef.current = new Map();
         setBrokenViews(new Map());
+        setActionMessage((prev) =>
+            prev?.text.startsWith('Demo / Unprovisioned') ? null : prev
+        );
     }, []);
 
     const executeCreateViewWithFallback = useCallback(
@@ -659,7 +664,7 @@ export function useOperationalDashboardState({
             const hasSourceInMode =
                 dataSourceMode === 'tables'
                     ? availableMainTables.has(viewId)
-                    : installedViews.has(viewId);
+                    : installedViews.has(viewId) || extraInstalledViewsRef.current.has(viewId);
             if (currentDatasetTables.length > 0 && !hasSourceInMode) {
                 const fallbackRows = FALLBACK_SNAPSHOT.rows[viewId] || [];
                 setViewRows((prev) => ({
@@ -669,6 +674,16 @@ export function useOperationalDashboardState({
                             ? enrichTelemetryRowsWithLatency(fallbackRows)
                             : fallbackRows
                 }));
+                setActionMessage((prev) =>
+                    prev ?? {
+                        type: 'error',
+                        text: `Demo / Unprovisioned Telemetry Notice: \`${datasetId}.${viewId}\` is not provisioned in BigQuery (${
+                            dataSourceMode === 'tables'
+                                ? 'missing Cloud Logging sink table'
+                                : 'view not yet deployed'
+                        }). Displaying simulated sample snapshot rows — not live telemetry.`
+                    }
+                );
                 return;
             }
             setRowsLoading((prev) => ({ ...prev, [viewId]: true }));
@@ -1245,6 +1260,7 @@ export function useOperationalDashboardState({
                 next.delete(viewId);
                 return next;
             });
+            extraInstalledViewsRef.current.add(viewId);
             setExtraInstalledViews((prev) => new Set(prev).add(viewId));
             brokenViewsRef.current.delete(viewId);
             setBrokenViews((prev) => {
@@ -1325,6 +1341,7 @@ export function useOperationalDashboardState({
 
             droppedViewsRef.current.add(viewId);
             setDroppedViews((prev) => new Set(prev).add(viewId));
+            extraInstalledViewsRef.current.delete(viewId);
             setExtraInstalledViews((prev) => {
                 const next = new Set(prev);
                 next.delete(viewId);
@@ -1398,6 +1415,51 @@ export function useOperationalDashboardState({
     const isAiChoicesLive = isViewLive('v_consolidated_ai_choices');
     const isFeedbackLive = isViewLive('v_agent_feedback');
 
+    const unprovisionedOverviewFeeds = useMemo(() => {
+        const missing: string[] = [];
+        if (!isUserActivityLive) missing.push('User Activity');
+        if (!isGenAiTelemetryLive) missing.push('GenAI Telemetry');
+        if (!isConnectorUsageLive) missing.push('Connector Usage');
+        if (!isAiChoicesLive) missing.push('AI Finish Reasons');
+        if (!isFeedbackLive) missing.push('Agent Feedback');
+        return missing;
+    }, [isUserActivityLive, isGenAiTelemetryLive, isConnectorUsageLive, isAiChoicesLive, isFeedbackLive]);
+
+    const isUsingFallbackData =
+        !datasetId ||
+        unprovisionedOverviewFeeds.length > 0 ||
+        (activeViewId !== 'overview' && !isViewLive(activeViewId));
+
+    const fallbackDataNotice = useMemo<string | null>(() => {
+        if (!isUsingFallbackData) return null;
+        if (!datasetId) {
+            return 'Demo / Unprovisioned Telemetry Notice: No BigQuery log sink dataset is configured. Displaying simulated FALLBACK_SNAPSHOT demo data — not live production telemetry.';
+        }
+        if (activeViewId !== 'overview' && !isViewLive(activeViewId)) {
+            return `Demo / Unprovisioned Telemetry Notice: \`${datasetId}.${activeViewId}\` is not provisioned in BigQuery. Displaying simulated FALLBACK_SNAPSHOT demo data — not live production telemetry.`;
+        }
+        return `Demo / Unprovisioned Telemetry Notice: Unprovisioned BigQuery feeds (${unprovisionedOverviewFeeds.join(', ')}) in \`${datasetId}\` are displaying simulated FALLBACK_SNAPSHOT demo data rather than live production telemetry.`;
+    }, [isUsingFallbackData, datasetId, activeViewId, isViewLive, unprovisionedOverviewFeeds]);
+
+    const hasZeroLiveSources =
+        !datasetId ||
+        (dataSourceMode === 'tables' ? availableMainTables.size === 0 : installedViews.size === 0);
+
+    useEffect(() => {
+        if (hasZeroLiveSources && fallbackDataNotice) {
+            setActionMessage((prev) =>
+                prev ?? {
+                    type: 'error',
+                    text: fallbackDataNotice
+                }
+            );
+        } else if (!isUsingFallbackData) {
+            setActionMessage((prev) =>
+                prev?.text.startsWith('Demo / Unprovisioned') ? null : prev
+            );
+        }
+    }, [hasZeroLiveSources, fallbackDataNotice, isUsingFallbackData]);
+
     const dailyActivityData = isUserActivityLive ? liveData.dailyActivity || [] : FALLBACK_SNAPSHOT.dailyActivity;
     const agentPopularityData = isUserActivityLive ? liveData.agentPopularity || [] : FALLBACK_SNAPSHOT.agentPopularity;
     const genaiTokensData = isGenAiTelemetryLive ? liveData.genaiTokens || [] : FALLBACK_SNAPSHOT.genaiTelemetryTokens;
@@ -1467,6 +1529,8 @@ export function useOperationalDashboardState({
         isConnectorUsageLive,
         isAiChoicesLive,
         isFeedbackLive,
+        isUsingFallbackData,
+        fallbackDataNotice,
         dailyActivityData,
         agentPopularityData,
         genaiTokensData,

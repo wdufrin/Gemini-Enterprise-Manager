@@ -92,10 +92,29 @@ const SUPPORTED_EXCLUSION_FILTER_TYPES = new Set([
   'RESPONSIBLE_AI',
 ]);
 
-// Regex pattern matching for unconstrained wildcard patterns (e.g. .*, .+, (.*), (?:.*), [\s\S]*, .{0,}, ^.*$, (?i).*)
-// Note: Uses Regex Pattern Matching for common wildcard patterns; does not parse arbitrary regex ASTs.
-const UNCONSTRAINED_WILDCARD_REGEX =
-  /^(?:\(\?[imsU]+\))?\^?(?:\((?:\?:)?)?(?:\.\*|\.\+|\.\{0,\}|\.\{1,\}|\[\\s\\S\][*+]|\[\\d\\D\][*+]|\[\\w\\W\][*+])\)*\$?$/;
+// Regex Pattern Matching for unconstrained wildcard patterns (e.g. .*, .+, (.*), (?:.*), [\s\S]*, .{0,}, ^.*$, (?i).*)
+// and PARTIAL_MATCH universal single-character / anchor matchers (e.g. ".", "(?i).", "^", "$", "[\s\S]", "[\w\W]", "[\d\D]").
+// Known limits: Uses Regex Pattern Matching for common wildcard and universal-anchor constructs; does not parse arbitrary regex ASTs.
+export const UNCONSTRAINED_WILDCARD_REGEX =
+  /^(?:\(\?[imsU-]+\))*\s*\^?(?:\((?:\?:)?)?(?:\.\*|\.\+|\.\{0,\d*\}|\.\{1,\d*\}|\[(?:\\s\\S|\\S\\s|\\d\\D|\\D\\d|\\w\\W|\\W\\w)\][*+]|\[\\\^\][*+]|\[\^\][*+])\)*\$?\s*$/;
+
+export const PARTIAL_MATCH_UNIVERSAL_REGEX =
+  /^(?:\(\?[imsU-]+\))*\s*(?:\((?:\?:)?)?(?:\^+|\$+|\^\$|\\A|\\z|\\Z|\\b|\\B|\^?\.(?:[*+?]|(?:\{[01](?:,\d*)?\}))?\$?|\^?\[(?:\\s\\S|\\S\\s|\\d\\D|\\D\\d|\\w\\W|\\W\\w|\^)\](?:[*+?]|(?:\{[01](?:,\d*)?\}))?\$?)\)*\s*$/;
+
+export const isUnconstrainedExclusionRegex = (
+  rawPattern: string,
+  matchingScope: string = 'MATCHING_SCOPE_PARTIAL_MATCH',
+): boolean => {
+  const trimmed = rawPattern.trim();
+  if (!trimmed) return false;
+  if (UNCONSTRAINED_WILDCARD_REGEX.test(trimmed)) {
+    return true;
+  }
+  if (matchingScope !== 'MATCHING_SCOPE_FULL_MATCH' && PARTIAL_MATCH_UNIVERSAL_REGEX.test(trimmed)) {
+    return true;
+  }
+  return false;
+};
 
 const hasNonAsciiChars = (str: string): boolean =>
   Array.from(str).some((ch) => ch.charCodeAt(0) > 127);
@@ -300,11 +319,7 @@ export const analyzeTemplateExclusionRules = (
             );
           }
           const trimmedPattern = pattern.trim();
-          const isPartialDotWildcard =
-            matchingScope === 'MATCHING_SCOPE_PARTIAL_MATCH' &&
-            /^(?:\(\?[imsU]+\))?\^?\(?\.?\)?\$?$/.test(trimmedPattern) &&
-            trimmedPattern.includes('.');
-          if (UNCONSTRAINED_WILDCARD_REGEX.test(trimmedPattern) || isPartialDotWildcard) {
+          if (isUnconstrainedExclusionRegex(trimmedPattern, matchingScope)) {
             const wildcardMsg = `Unconstrained wildcard regex "${pattern}" in [${filterTypes.join(
               ', ',
             )}] matches all inputs and completely disables the targeted safety filter.`;
@@ -989,9 +1004,9 @@ export const validateProposedExclusionRule = (params: {
       if (pattern.length > 1000) {
         errors.push(`Regex pattern length (${pattern.length}) exceeds the 1,000-character Model Armor limit.`);
       }
-      if (UNCONSTRAINED_WILDCARD_REGEX.test(pattern)) {
+      if (isUnconstrainedExclusionRegex(pattern, params.matchingScope)) {
         errors.push(
-          `Unconstrained wildcard regex "${pattern}" matches all inputs and completely disables ${params.filterType}. Scope the regex to specific operational phrases.`,
+          `Unconstrained wildcard regex "${pattern}" matches all inputs under ${params.matchingScope} and completely disables ${params.filterType}. Scope the regex to specific operational phrases.`,
         );
       }
       if (params.matchingScope === 'MATCHING_SCOPE_FULL_MATCH' && hasNonAsciiChars(pattern)) {

@@ -25,6 +25,7 @@ import { ActivePoliciesViewer } from '../components/model-armor/ActivePoliciesVi
 import { AttachedProtectionPanel } from '../components/model-armor/AttachedProtectionPanel';
 import { PolicyGenerator } from '../components/model-armor/PolicyGenerator';
 import { CloneTemplateModal } from '../components/model-armor/CloneTemplateModal';
+import { FloorSettingsAndSanitizeTester } from '../components/model-armor/FloorSettingsAndSanitizeTester';
 
 const ShieldIcon = () => (
   <svg
@@ -56,9 +57,12 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
   const [filterBlockedOnly, setFilterBlockedOnly] = useState(false);
   const [filterExclusionsOnly, setFilterExclusionsOnly] = useState(false);
   const [daysFilter, setDaysFilter] = useState(7);
-  const [activeTab, setActiveTab] = useState<'logs' | 'policies'>('logs');
+  const [activeTab, setActiveTab] = useState<'logs' | 'policies' | 'floor_and_tester'>('logs');
 
-  const policyState = useModelArmorPolicies(projectNumber, activeTab);
+  const policyState = useModelArmorPolicies(
+    projectNumber,
+    activeTab === 'logs' ? 'logs' : 'policies',
+  );
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(
     () => ({
@@ -178,6 +182,16 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
           >
             Policy Configuration
           </button>
+          <button
+            onClick={() => setActiveTab('floor_and_tester')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'floor_and_tester'
+                ? 'text-blue-400 border-blue-400'
+                : 'text-gray-400 border-transparent hover:text-white hover:border-gray-600'
+            }`}
+          >
+            Floor Settings &amp; Live Tester
+          </button>
         </div>
 
         {/* Filters Row (Only for Logs) */}
@@ -238,6 +252,17 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
               }}
             />
           )}
+        </div>
+      )}
+
+      {/* Floor Settings & Live Sanitize Tester View */}
+      {activeTab === 'floor_and_tester' && (
+        <div className="animate-fade-in-up">
+          <FloorSettingsAndSanitizeTester
+            projectId={projectNumber}
+            templates={policyState.templates}
+            onRefreshTemplates={policyState.fetchPoliciesAndAssociations}
+          />
         </div>
       )}
     </div>

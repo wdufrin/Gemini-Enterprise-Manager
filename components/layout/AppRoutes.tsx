@@ -28,10 +28,6 @@ const BackupPage = React.lazy(() => import('../../pages/BackupPage'));
 const ModelArmorPage = React.lazy(() => import('../../pages/ModelArmorPage'));
 const ObservabilityPage = React.lazy(() => import('../../pages/ObservabilityPage'));
 const AgentBuilderPage = React.lazy(() => import('../../pages/AgentBuilderPage'));
-const A2aTesterPage = React.lazy(() => import('../../pages/A2aTesterPage'));
-const McpServersPage = React.lazy(() => import('../../pages/McpServersPage'));
-const CloudRunAgentsPage = React.lazy(() => import('../../pages/CloudRunAgentsPage'));
-const DialogflowAgentsPage = React.lazy(() => import('../../pages/DialogflowAgentsPage'));
 const ArchitecturePage = React.lazy(() => import('../../pages/ArchitecturePage'));
 const AssistantPage = React.lazy(() => import('../../pages/AssistantPage'));
 const LicensePage = React.lazy(() => import('../../pages/LicensePage'));
@@ -84,19 +80,16 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
     case Page.AGENT_ENGINES:
       return <AgentEnginesPage {...commonProps} onNavigate={onNavigate} accessToken={accessToken} onDirectQuery={onDirectQuery} />;
     case Page.A2A_TESTER:
-      return <A2aTesterPage {...projectProps} context={pageContext} onNavigate={onNavigate} accessToken={accessToken} />;
+    case Page.CLOUD_RUN_AGENTS:
+    case Page.DIALOGFLOW_AGENTS:
+    case Page.MCP_SERVERS:
+      return <Navigate to="/runtimes" replace />;
     case Page.AGENT_BUILDER:
       return <AgentBuilderPage {...projectProps} context={pageContext} onBuildTriggered={onBuildTriggered} />;
-    case Page.CLOUD_RUN_AGENTS:
-      return <CloudRunAgentsPage {...projectProps} />;
-    case Page.DIALOGFLOW_AGENTS:
-      return <DialogflowAgentsPage {...projectProps} accessToken={accessToken} />;
     case Page.CHAT:
       return <AssistantPage {...projectProps} context={pageContext} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={onBuildTriggered} onNavigate={onNavigate} />;
     case Page.DATA_STORES:
       return <DataStoresPage {...projectProps} accessToken={accessToken} />;
-    case Page.MCP_SERVERS:
-      return <McpServersPage {...commonProps} />;
     case Page.MODEL_ARMOR:
       return <ModelArmorPage {...projectProps} />;
     case Page.OBSERVABILITY:

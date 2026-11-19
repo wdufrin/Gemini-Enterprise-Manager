@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { AppEngine, Config } from '../../types';
 import InfoTooltip from '../InfoTooltip';
 import { useVanityUrlDeployment } from '../../hooks/useVanityUrlDeployment';
 import { PublicRoutingConfig } from './vanity/PublicRoutingConfig';
 import { PrivateRoutingConfig } from './vanity/PrivateRoutingConfig';
+import { generateVanityUrlTerraform } from '../../utils/terraformExporter';
 
 export interface VanityUrlDeploymentFormProps {
   engine: AppEngine;
@@ -93,6 +94,76 @@ export const VanityUrlDeploymentForm: React.FC<VanityUrlDeploymentFormProps> = (
     handleDeploy,
   } = useVanityUrlDeployment(engine, config, projectNumber, onBuildTriggered);
 
+  const [isTerraformOpen, setIsTerraformOpen] = useState(false);
+  const [manageSharedGoogleapisDns, setManageSharedGoogleapisDns] = useState(false);
+  const [copiedTf, setCopiedTf] = useState(false);
+
+  const terraformHcl = useMemo(
+    () =>
+      generateVanityUrlTerraform({
+        projectId: projectId || config.projectId || projectNumber,
+        serviceName: serviceName || 'gemini-enterprise-portal',
+        portalCid: portalCid || engine.widgetConfigConfigId || engine.cid || '',
+        customDomain,
+        isPrivateMode,
+        region: config.appLocation,
+        automateGLB,
+        automateDNS,
+        dnsProjectId,
+        vpcNetwork,
+        vpcSubnet,
+        autoAllocatePscIp,
+        customPscIp,
+        useVpcScBundle,
+        automatePrivateDns,
+        manageSharedGoogleapisDns,
+      }),
+    [
+      projectId,
+      config.projectId,
+      config.appLocation,
+      projectNumber,
+      serviceName,
+      portalCid,
+      engine.widgetConfigConfigId,
+      engine.cid,
+      customDomain,
+      isPrivateMode,
+      automateGLB,
+      automateDNS,
+      dnsProjectId,
+      vpcNetwork,
+      vpcSubnet,
+      autoAllocatePscIp,
+      customPscIp,
+      useVpcScBundle,
+      automatePrivateDns,
+      manageSharedGoogleapisDns,
+    ]
+  );
+
+  const handleCopyTerraform = async () => {
+    try {
+      await navigator.clipboard.writeText(terraformHcl);
+      setCopiedTf(true);
+      setTimeout(() => setCopiedTf(false), 2000);
+    } catch {
+      // Ignore clipboard failure
+    }
+  };
+
+  const handleDownloadTerraform = () => {
+    const blob = new Blob([terraformHcl], { type: 'text/plain;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'main.tf';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const hasDisabledApiWarning = Boolean(
     discoveryWarnings?.some(
       (w) =>
@@ -105,10 +176,90 @@ export const VanityUrlDeploymentForm: React.FC<VanityUrlDeploymentFormProps> = (
 
   return (
     <div className="bg-gray-800 shadow-xl rounded-lg p-6 mb-6 border border-gray-700 animate-fade-in-up">
-      <h2 className="text-xl font-bold text-white mb-2">Deploy Redirect & Private Routing URL</h2>
-      <p className="text-gray-400 text-sm mb-6">
-        Provision a branded redirect URL or private VPC-SC routing for your Gemini Enterprise Assistant.
-      </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-white mb-1">Deploy Redirect &amp; Private Routing URL</h2>
+          <p className="text-gray-400 text-sm">
+            Provision a branded redirect URL or private VPC-SC routing for your Gemini Enterprise Assistant.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsTerraformOpen((prev) => !prev)}
+          data-testid="export-vanity-terraform-btn"
+          className="px-3.5 py-2 bg-gray-900 hover:bg-gray-700 text-indigo-300 border border-indigo-700/60 rounded-md text-xs font-semibold flex items-center gap-2 shrink-0 transition-colors"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-4 w-4 text-indigo-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+            />
+          </svg>
+          {isTerraformOpen ? 'Hide Terraform (main.tf)' : 'Export Terraform (main.tf)'}
+        </button>
+      </div>
+
+      {isTerraformOpen && (
+        <div
+          data-testid="vanity-terraform-panel"
+          className="mb-6 bg-gray-900/95 border border-indigo-700/60 rounded-lg p-4 space-y-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-white">
+                Declarative Terraform Configuration (<code className="font-mono text-indigo-300">main.tf</code>)
+              </h3>
+              <p className="text-xs text-gray-400">
+                {isPrivateMode
+                  ? 'Private Service Connect (PSC) + Cloud DNS + optional Internal Regional HTTP Redirect LB.'
+                  : 'Global External HTTPS Load Balancer + Google-Managed SSL Certificate + 302 Portal Redirect.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCopyTerraform()}
+                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-600 rounded text-xs font-medium transition-colors"
+              >
+                {copiedTf ? 'Copied!' : 'Copy HCL'}
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadTerraform}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold transition-colors"
+              >
+                Download main.tf
+              </button>
+            </div>
+          </div>
+
+          {isPrivateMode && (
+            <label className="flex items-start gap-2.5 p-2.5 bg-amber-950/30 border border-amber-800/60 rounded text-xs text-amber-200 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={manageSharedGoogleapisDns}
+                onChange={(e) => setManageSharedGoogleapisDns(e.target.checked)}
+                className="mt-0.5 rounded border-amber-600 bg-gray-800 text-amber-500 focus:ring-amber-500"
+              />
+              <span>
+                <strong>Opt-in: Manage shared <code>*.googleapis.com.</code> Private DNS zone</strong> — Leave unchecked in Shared VPC environments that already route <code>googleapis.com.</code> to an existing PSC endpoint.
+              </span>
+            </label>
+          )}
+
+          <pre className="bg-gray-950 border border-gray-800 rounded p-3 text-[11px] font-mono text-gray-200 overflow-x-auto max-h-80">
+            {terraformHcl}
+          </pre>
+        </div>
+      )}
 
       {discoveryWarnings && discoveryWarnings.length > 0 && (
         <div
@@ -290,7 +441,7 @@ export const VanityUrlDeploymentForm: React.FC<VanityUrlDeploymentFormProps> = (
                   disabled={isDeploying}
                 />
                 <span className="text-sm text-purple-300 font-medium">
-                  Private Enterprise (PSC & VPC)
+                  Private Enterprise (PSC &amp; VPC)
                 </span>
               </label>
             </div>

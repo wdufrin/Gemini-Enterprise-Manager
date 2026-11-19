@@ -2801,22 +2801,36 @@ export const parseAgentOwnerRemapCsv = (
     const keyLower = rawAgentKey.toLowerCase();
     const normalizedOwnerKey = keyLower.replace(/^user:/i, "");
 
-    const matchedAgents = customAgents.filter((a) => {
+    const exactIdMatches = customAgents.filter((a) => {
       const fullNameLower = (a.name || "").toLowerCase();
       const shortIdLower = (a.name?.split("/").pop() || "").toLowerCase();
-      const displayLower = (a.displayName || "").trim().toLowerCase();
-      const currentOwnerLower = (extractAgentOwnerHint(a) || "")
-        .trim()
-        .toLowerCase()
-        .replace(/^user:/i, "");
-
-      return (
-        fullNameLower === keyLower ||
-        shortIdLower === keyLower ||
-        (displayLower && displayLower === keyLower) ||
-        (currentOwnerLower && currentOwnerLower === normalizedOwnerKey)
-      );
+      return fullNameLower === keyLower || shortIdLower === keyLower;
     });
+
+    let matchedAgents: Agent[] = exactIdMatches;
+    if (matchedAgents.length === 0) {
+      const displayMatches = customAgents.filter((a) => {
+        const displayLower = (a.displayName || "").trim().toLowerCase();
+        return Boolean(displayLower && displayLower === keyLower);
+      });
+      if (displayMatches.length > 1) {
+        validationErrors.push(
+          `Row ${lineNum}: Ambiguous displayName "${rawAgentKey}" matches ${displayMatches.length} agents; use unique agent_id instead.`,
+        );
+        continue;
+      }
+      if (displayMatches.length === 1) {
+        matchedAgents = displayMatches;
+      } else {
+        matchedAgents = customAgents.filter((a) => {
+          const currentOwnerLower = (extractAgentOwnerHint(a) || "")
+            .trim()
+            .toLowerCase()
+            .replace(/^user:/i, "");
+          return Boolean(currentOwnerLower && currentOwnerLower === normalizedOwnerKey);
+        });
+      }
+    }
 
     if (matchedAgents.length === 0) {
       unmatchedRows.push(`Row ${lineNum}: "${rawAgentKey}" -> ${formattedOwner}`);
@@ -3074,16 +3088,26 @@ export const parseAgentBulkFieldsCsv = (
     }
 
     const keyLower = rawAgentKey.toLowerCase();
-    const matchedAgents = customAgents.filter((a) => {
+    const exactIdMatches = customAgents.filter((a) => {
       const fullNameLower = (a.name || "").toLowerCase();
       const shortIdLower = (a.name?.split("/").pop() || "").toLowerCase();
-      const displayLower = (a.displayName || "").trim().toLowerCase();
-      return (
-        fullNameLower === keyLower ||
-        shortIdLower === keyLower ||
-        (displayLower && displayLower === keyLower)
-      );
+      return fullNameLower === keyLower || shortIdLower === keyLower;
     });
+
+    let matchedAgents: Agent[] = exactIdMatches;
+    if (matchedAgents.length === 0) {
+      const displayMatches = customAgents.filter((a) => {
+        const displayLower = (a.displayName || "").trim().toLowerCase();
+        return Boolean(displayLower && displayLower === keyLower);
+      });
+      if (displayMatches.length > 1) {
+        validationErrors.push(
+          `Row ${lineNum}: Ambiguous displayName "${rawAgentKey}" matches ${displayMatches.length} agents; use unique agent_id instead.`,
+        );
+        continue;
+      }
+      matchedAgents = displayMatches;
+    }
 
     if (matchedAgents.length === 0) {
       unmatchedRows.push(`Row ${lineNum}: "${rawAgentKey}"`);
@@ -3280,6 +3304,10 @@ export const bulkEditSharePublishAgents = async (
     const item = agents[i];
     const displayName =
       item.displayName || item.name?.split("/").pop() || "Agent";
+    const completedSteps: string[] = [];
+    let ownershipClaimed = false;
+    let wasCloned = false;
+    let resolvedOutcomeAgentName = item.name;
 
     try {
       if (isGoogleManagedAgent(item)) {
@@ -3289,28 +3317,27 @@ export const bulkEditSharePublishAgents = async (
           options.lifecycleAction === "DISABLE"
         ) {
           const agentName = resolveFullAgentResourceName(item.name, config);
-          const actionsApplied: string[] = [];
           if (
             options.lifecycleAction === "ENABLE" &&
             item.state !== "ENABLED"
           ) {
             await enableAgent(agentName, config);
-            actionsApplied.push("Enabled agent (:enableAgent)");
+            completedSteps.push("Enabled agent (:enableAgent)");
           } else if (
             options.lifecycleAction === "DISABLE" &&
             item.state !== "DISABLED"
           ) {
             await disableAgent(agentName, config);
-            actionsApplied.push("Disabled agent (:disableAgent)");
+            completedSteps.push("Disabled agent (:disableAgent)");
           }
 
           const outcome: BulkEditSharePublishAgentOutcome = {
             agentName: item.name,
             displayName,
-            status: actionsApplied.length > 0 ? "updated" : "skipped",
-            actionsApplied,
+            status: completedSteps.length > 0 ? "updated" : "skipped",
+            actionsApplied: completedSteps,
           };
-          if (actionsApplied.length > 0) result.updated++;
+          if (completedSteps.length > 0) result.updated++;
           else result.skipped++;
           result.outcomes.push(outcome);
           options.onProgress?.(i + 1, agents.length, outcome);
@@ -3334,16 +3361,15 @@ export const bulkEditSharePublishAgents = async (
       let currentAgent: Agent = await getAgent(item.name, config).catch(
         () => item,
       );
+      resolvedOutcomeAgentName = currentAgent.name;
       let currentAgentName = resolveFullAgentResourceName(
         currentAgent.name,
         config,
       );
       const mappedTargetOwner = validatedOwnerByAgentName[item.name];
       let ownerTransferred = false;
-      const actionsApplied: string[] = [];
+      const actionsApplied = completedSteps;
       const warnings: string[] = [];
-      let ownershipClaimed = false;
-      let wasCloned = false;
 
       const claimOwnershipIfAllowed = async (): Promise<boolean> => {
         if (
@@ -3365,6 +3391,7 @@ export const bulkEditSharePublishAgents = async (
 
       // Step 1: Build metadata / settings PATCH payload
       const patchPayload: Partial<Agent> = {};
+      const pendingPatchActions: string[] = [];
       let hasPatchChanges = false;
 
       // 1a-0. Per-agent Display Name override
@@ -3378,7 +3405,7 @@ export const bulkEditSharePublishAgents = async (
       ) {
         patchPayload.displayName = perAgentDisplayName;
         hasPatchChanges = true;
-        actionsApplied.push(`Updated display name to "${perAgentDisplayName}"`);
+        pendingPatchActions.push(`Updated display name to "${perAgentDisplayName}"`);
       }
 
       // 1a. Description update (per-agent override takes priority over uniform mode)
@@ -3402,7 +3429,7 @@ export const bulkEditSharePublishAgents = async (
             };
           }
           hasPatchChanges = true;
-          actionsApplied.push("Updated description (per-agent override)");
+          pendingPatchActions.push("Updated description (per-agent override)");
         }
       } else if (
         options.descriptionMode &&
@@ -3443,7 +3470,7 @@ export const bulkEditSharePublishAgents = async (
             };
           }
           hasPatchChanges = true;
-          actionsApplied.push(
+          pendingPatchActions.push(
             `Updated description (${options.descriptionMode.toLowerCase()})`,
           );
         }
@@ -3476,7 +3503,7 @@ export const bulkEditSharePublishAgents = async (
             sensitiveLoggingEnabled: nextSensEnabled,
           };
           hasPatchChanges = true;
-          actionsApplied.push(
+          pendingPatchActions.push(
             `Updated observability (enabled=${nextObsEnabled}, sensitiveLogging=${nextSensEnabled})`,
           );
         }
@@ -3527,7 +3554,7 @@ export const bulkEditSharePublishAgents = async (
             if (modelChanged) {
               patchPayload.lowCodeAgentDefinition = baseDef;
               hasPatchChanges = true;
-              actionsApplied.push(
+              pendingPatchActions.push(
                 targetModel
                   ? `Set Low-Code LLM model to ${targetModel}`
                   : "Reset Low-Code LLM model to Auto (Engine Default)",
@@ -3553,7 +3580,7 @@ export const bulkEditSharePublishAgents = async (
           if (modelChanged) {
             patchPayload.workflowAgentDefinition = baseWf;
             hasPatchChanges = true;
-            actionsApplied.push(
+            pendingPatchActions.push(
               targetModel
                 ? `Set Workflow LLM model to ${targetModel}`
                 : "Reset Workflow LLM model to Auto (Engine Default)",
@@ -3565,6 +3592,8 @@ export const bulkEditSharePublishAgents = async (
       if (hasPatchChanges) {
         try {
           currentAgent = await updateAgent(currentAgent, patchPayload, config);
+          resolvedOutcomeAgentName = currentAgent.name;
+          actionsApplied.push(...pendingPatchActions);
         } catch (patchErr: unknown) {
           if (
             isBulkPermissionError(patchErr) &&
@@ -3575,6 +3604,8 @@ export const bulkEditSharePublishAgents = async (
               patchPayload,
               config,
             );
+            resolvedOutcomeAgentName = currentAgent.name;
+            actionsApplied.push(...pendingPatchActions);
           } else if (isLegacyAuthorizationsDeprecationError(patchErr)) {
             const migRes = await migrateLegacyAgentAuthorizations(
               currentAgent,
@@ -3585,6 +3616,7 @@ export const bulkEditSharePublishAgents = async (
               },
             );
             currentAgent = migRes.agent;
+            resolvedOutcomeAgentName = currentAgent.name;
             currentAgentName = resolveFullAgentResourceName(
               currentAgent.name,
               config,
@@ -3592,6 +3624,7 @@ export const bulkEditSharePublishAgents = async (
             wasCloned = !migRes.inPlace;
             actionsApplied.push(
               "Migrated deprecated agent.authorizations to authorizationConfig",
+              ...pendingPatchActions,
             );
           } else {
             throw patchErr;
@@ -4044,10 +4077,12 @@ export const bulkEditSharePublishAgents = async (
         : rawMsg;
 
       const outcome: BulkEditSharePublishAgentOutcome = {
-        agentName: item.name,
+        agentName: resolvedOutcomeAgentName,
         displayName,
         status: "failed",
-        actionsApplied: [],
+        actionsApplied: [...completedSteps],
+        ...(wasCloned ? { wasCloned } : {}),
+        ...(ownershipClaimed ? { ownershipClaimed } : {}),
         error: cleanMsg,
       };
       result.failed++;

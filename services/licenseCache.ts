@@ -52,8 +52,13 @@ const openDB = (): Promise<IDBDatabase> => {
   });
 };
 
-const getCacheKey = (projectNumber: string, userStoreId: string): string => {
-  return `${projectNumber}:${userStoreId}`;
+export const getCacheKey = (
+  projectNumber: string,
+  userStoreId: string,
+  appLocation: string = 'global',
+): string => {
+  const normalizedLocation = (appLocation || 'global').trim().toLowerCase() || 'global';
+  return `${projectNumber}:${normalizedLocation}:${userStoreId}`;
 };
 
 export const DEFAULT_LICENSE_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
@@ -61,9 +66,18 @@ export const DEFAULT_LICENSE_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 export const getCachedUserLicenses = async (
   projectNumber: string,
   userStoreId: string,
-  maxAgeMs: number = DEFAULT_LICENSE_CACHE_TTL_MS,
+  maxAgeMsOrLocation: number | string = DEFAULT_LICENSE_CACHE_TTL_MS,
+  appLocationArg: string = 'global',
 ): Promise<CachedLicenseData | null> => {
-  const key = getCacheKey(projectNumber, userStoreId);
+  const maxAgeMs =
+    typeof maxAgeMsOrLocation === 'number'
+      ? maxAgeMsOrLocation
+      : DEFAULT_LICENSE_CACHE_TTL_MS;
+  const appLocation =
+    typeof maxAgeMsOrLocation === 'string'
+      ? maxAgeMsOrLocation
+      : appLocationArg;
+  const key = getCacheKey(projectNumber, userStoreId, appLocation);
 
   const checkTTL = (record: CachedLicenseData | null): CachedLicenseData | null => {
     if (!record) return null;
@@ -96,9 +110,10 @@ export const getCachedUserLicenses = async (
 export const setCachedUserLicenses = async <T = UserLicense>(
   projectNumber: string,
   userStoreId: string,
-  data: T[]
+  data: T[],
+  appLocation: string = 'global',
 ): Promise<void> => {
-  const key = getCacheKey(projectNumber, userStoreId);
+  const key = getCacheKey(projectNumber, userStoreId, appLocation);
   const record: CachedLicenseData = {
     data: data as unknown as UserLicense[],
     timestamp: Date.now(),
@@ -127,9 +142,10 @@ export const setCachedUserLicenses = async <T = UserLicense>(
 
 export const clearCachedUserLicenses = async (
   projectNumber: string,
-  userStoreId: string
+  userStoreId: string,
+  appLocation: string = 'global',
 ): Promise<void> => {
-  const key = getCacheKey(projectNumber, userStoreId);
+  const key = getCacheKey(projectNumber, userStoreId, appLocation);
   memoryCache.delete(key);
 
   try {
@@ -150,10 +166,16 @@ export const clearCachedUserLicenses = async (
 export const updateCachedUserLicenses = async <T = UserLicense>(
   projectNumber: string,
   userStoreId: string,
-  updater: (current: T[]) => T[]
+  updater: (current: T[]) => T[],
+  appLocation: string = 'global',
 ): Promise<T[]> => {
-  const current = await getCachedUserLicenses(projectNumber, userStoreId);
+  const current = await getCachedUserLicenses(
+    projectNumber,
+    userStoreId,
+    DEFAULT_LICENSE_CACHE_TTL_MS,
+    appLocation,
+  );
   const updatedData = updater((current ? current.data : []) as unknown as T[]);
-  await setCachedUserLicenses(projectNumber, userStoreId, updatedData);
+  await setCachedUserLicenses(projectNumber, userStoreId, updatedData, appLocation);
   return updatedData;
 };

@@ -185,7 +185,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
             {(!isCollapsed || isMobileOpen) && (
               <div className="flex flex-col ml-2.5 min-w-0 justify-center animate-fadeIn">
                 <span className="text-sm xl:text-base font-display font-bold text-gray-100 tracking-tight leading-none truncate">Gemini Enterprise</span>
-                <span className="text-[10px] text-gray-400 font-mono mt-1">Control Plane · v0.1119.402</span>
+                <span className="text-[10px] text-gray-400 font-mono mt-1">Control Plane · v0.1119.403</span>
               </div>
             )}
           </div>

@@ -246,17 +246,41 @@ const throwIfBigQueryError = (result: BigQueryQueryResponse<unknown> | undefined
   }
 };
 
+export interface RunBigQueryQueryOptions {
+  suppressErrorLog?: boolean;
+  maximumBytesBilled?: string;
+}
+
 export const runBigQueryQuery = async <T = Record<string, unknown>>(
   projectId: string,
   query: string,
-  suppressErrorLog: boolean = false,
+  suppressErrorLogOrOptions: boolean | RunBigQueryQueryOptions = false,
+  extraOptions?: { maximumBytesBilled?: string },
 ): Promise<BigQueryQueryResponse<T>> => {
+  const suppressErrorLog =
+    typeof suppressErrorLogOrOptions === "boolean"
+      ? suppressErrorLogOrOptions
+      : Boolean(suppressErrorLogOrOptions?.suppressErrorLog);
+  const maximumBytesBilled =
+    typeof suppressErrorLogOrOptions === "object" && suppressErrorLogOrOptions !== null
+      ? suppressErrorLogOrOptions.maximumBytesBilled
+      : extraOptions?.maximumBytesBilled;
+
+  const requestBody: Record<string, unknown> = {
+    query,
+    useLegacySql: false,
+    timeoutMs: BIGQUERY_QUERY_TIMEOUT_MS,
+  };
+  if (maximumBytesBilled !== undefined && maximumBytesBilled !== "") {
+    requestBody.maximumBytesBilled = maximumBytesBilled;
+  }
+
   let result = await gapiRequest<BigQueryQueryResponse<T>>(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`,
     "POST",
     projectId,
     undefined,
-    { query, useLegacySql: false, timeoutMs: BIGQUERY_QUERY_TIMEOUT_MS },
+    requestBody,
     undefined,
     suppressErrorLog,
   );

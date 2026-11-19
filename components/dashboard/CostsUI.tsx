@@ -1,8 +1,125 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import InfoTooltip from '../InfoTooltip';
 import * as api from '../../services/apiService';
+import { dryRunBigQueryQuery, runBigQueryQuery } from '../../services/api/bigquery';
 import { Config, BillingAccount, BillingAccountLicenseConfig, LicenseConfig, TimeSeries } from '../../types';
 import { toErrorMessage } from '../../utils/errors';
+
+/**
+ * Strict Regex Pattern Matching validator for `project.dataset.table` BigQuery Cloud Billing Export identifiers
+ * (e.g. `my-billing-proj.billing_export.gcp_billing_export_v1_*`).
+ * Known limits: Validates standard GCP unquoted `project.dataset.table` identifier characters via regex;
+ * does not support domain-scoped `org:project` prefixes or arbitrary backtick-quoted SQL expressions.
+ */
+export const BILLING_EXPORT_TABLE_REGEX = /^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_*]+$/;
+
+/** 5 GiB query scan safety cap (`5 * 1024 * 1024 * 1024` bytes) for FinOps billing queries. */
+export const FINOPS_MAX_BYTES_BILLED = '5368709120';
+
+export interface FinOpsCostRow {
+    serviceDescription: string;
+    skuDescription: string;
+    currency: string;
+    grossCost: number;
+    creditsAmount: number;
+    netSpend: number;
+}
+
+/**
+ * Computes the UTC ISO timestamp corresponding to 00:00:00 Midnight in `America/Los_Angeles` (Pacific Time)
+ * for the given reference instant, matching Google Cloud's daily quota reset boundary across PST (UTC-8) and PDT (UTC-7).
+ */
+export const getPacificMidnightStartIso = (now: Date = new Date()): string => {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Los_Angeles',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+    });
+
+    const extractParts = (d: Date) => {
+        const parts = formatter.formatToParts(d);
+        const get = (type: string) => Number(parts.find((p) => p.type === type)?.value || '0');
+        return {
+            year: get('year'),
+            month: get('month'),
+            day: get('day'),
+            hour: get('hour'),
+            minute: get('minute'),
+            second: get('second'),
+        };
+    };
+
+    const currentPt = extractParts(now);
+    // Initial guess: 08:00 UTC on the current Pacific calendar date (exact midnight in PST, 01:00 in PDT)
+    let utcCandidateMs = Date.UTC(currentPt.year, currentPt.month - 1, currentPt.day, 8, 0, 0, 0);
+    const checkPt = extractParts(new Date(utcCandidateMs));
+    const desiredWallMs = Date.UTC(currentPt.year, currentPt.month - 1, currentPt.day, 0, 0, 0, 0);
+    const actualWallMs = Date.UTC(
+        checkPt.year,
+        checkPt.month - 1,
+        checkPt.day,
+        checkPt.hour,
+        checkPt.minute,
+        checkPt.second,
+        0
+    );
+    utcCandidateMs -= actualWallMs - desiredWallMs;
+
+    // Ensure interval.startTime is strictly before interval.endTime even at 00:00:00.000 PT
+    const clampedMs = Math.min(utcCandidateMs, now.getTime() - 1000);
+    return new Date(clampedMs).toISOString();
+};
+
+export const validateBillingExportTable = (
+    rawTable: string
+): { valid: boolean; normalized: string; projectFromTable?: string; error?: string } => {
+    const normalized = rawTable.trim().replace(/^`+|`+$/g, '');
+    if (!normalized) {
+        return {
+            valid: false,
+            normalized: '',
+            error: 'Enter a BigQuery Cloud Billing Export table (e.g. billing-proj.billing_export.gcp_billing_export_v1_*).',
+        };
+    }
+    if (!BILLING_EXPORT_TABLE_REGEX.test(normalized)) {
+        return {
+            valid: false,
+            normalized,
+            error: 'Invalid table format. Must strictly match project.dataset.table (letters, digits, underscores, hyphens in project, optional wildcard *).',
+        };
+    }
+    const [projectFromTable] = normalized.split('.');
+    return { valid: true, normalized, projectFromTable };
+};
+
+export const buildFinOpsBillingExportQuery = (tableRef: string): string => {
+    const check = validateBillingExportTable(tableRef);
+    if (!check.valid) {
+        throw new Error(check.error || 'Invalid BigQuery Billing Export table identifier.');
+    }
+    return `SELECT
+  service.description AS service_description,
+  sku.description AS sku_description,
+  ANY_VALUE(currency) AS currency,
+  ROUND(SUM(cost), 4) AS gross_cost,
+  ROUND(SUM(IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) c), 0)), 4) AS credits_amount,
+  ROUND(SUM(cost) + SUM(IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) c), 0)), 4) AS net_spend
+FROM \`${check.normalized}\`
+WHERE usage_start_time >= TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), MONTH)
+  AND REGEXP_CONTAINS(
+    LOWER(service.description),
+    r'discovery engine|gemini|agentspace|vertex ai|ai platform|bigquery|cloud run'
+  )
+GROUP BY service_description, sku_description
+HAVING ABS(gross_cost) > 0 OR ABS(net_spend) > 0
+ORDER BY net_spend DESC
+LIMIT 100;`;
+};
 
 interface Props {
     projectNumber?: string;
@@ -351,6 +468,15 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
     const [isFetchingMetrics, setIsFetchingMetrics] = useState(false);
     const [metricsError, setMetricsError] = useState<string | null>(null);
 
+    // Real FinOps BigQuery Billing Export State
+    const [billingExportTable, setBillingExportTable] = useState<string>('');
+    const [finOpsDryRunBytes, setFinOpsDryRunBytes] = useState<number | null>(null);
+    const [isDryRunningFinOps, setIsDryRunningFinOps] = useState<boolean>(false);
+    const [isQueryingFinOps, setIsQueryingFinOps] = useState<boolean>(false);
+    const [finOpsRows, setFinOpsRows] = useState<FinOpsCostRow[] | null>(null);
+    const [finOpsBytesProcessed, setFinOpsBytesProcessed] = useState<number | null>(null);
+    const [finOpsError, setFinOpsError] = useState<string | null>(null);
+
     // Fetch Billing Accounts
     useEffect(() => {
         const fetchAccounts = async () => {
@@ -576,8 +702,9 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             setIsFetchingMetrics(true);
             setMetricsError(null);
             try {
-                const endTime = new Date().toISOString();
-                const startTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+                const now = new Date();
+                const endTime = now.toISOString();
+                const startTime = getPacificMidnightStartIso(now);
                 
                 const metricMap = {
                     Standard: {
@@ -628,11 +755,13 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                             res.timeSeries.forEach((series: TimeSeries) => {
                                 const points = series.points;
                                 if (points && points.length > 0) {
-                                    // With ALIGN_SUM 86400s, point[0] holds the aggregated 24h total for this series
-                                    const point = points[0];
-                                    const valObj = point.value;
-                                    const val = parseInt(String(valObj?.int64Value ?? valObj?.doubleValue ?? "0"), 10);
-                                    total += val;
+                                    points.forEach((point) => {
+                                        const valObj = point.value;
+                                        const val = parseInt(String(valObj?.int64Value ?? valObj?.doubleValue ?? "0"), 10);
+                                        if (Number.isFinite(val)) {
+                                            total += val;
+                                        }
+                                    });
                                 }
                             });
                         }
@@ -731,6 +860,104 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
 
     const noLicenses = licenses === '';
     const numLicenses = Number(licenses) || 0;
+
+    const billingTableCheck = useMemo(
+        () => validateBillingExportTable(billingExportTable),
+        [billingExportTable]
+    );
+
+    const handleFinOpsDryRun = async (): Promise<number | null> => {
+        if (!billingTableCheck.valid) {
+            setFinOpsError(billingTableCheck.error || 'Invalid BigQuery Billing Export table.');
+            return null;
+        }
+        const queryProject = projectNumber || billingTableCheck.projectFromTable || '';
+        if (!queryProject) {
+            setFinOpsError('Project ID / Number is required to run BigQuery billing jobs.');
+            return null;
+        }
+        setIsDryRunningFinOps(true);
+        setFinOpsError(null);
+        try {
+            const sql = buildFinOpsBillingExportQuery(billingTableCheck.normalized);
+            const { totalBytesProcessed } = await dryRunBigQueryQuery(queryProject, sql);
+            setFinOpsDryRunBytes(totalBytesProcessed);
+            return totalBytesProcessed;
+        } catch (err: unknown) {
+            setFinOpsDryRunBytes(null);
+            setFinOpsError(toErrorMessage(err, 'BigQuery dry run failed.'));
+            return null;
+        } finally {
+            setIsDryRunningFinOps(false);
+        }
+    };
+
+    const handleRunFinOpsBillingQuery = async () => {
+        if (!billingTableCheck.valid) {
+            setFinOpsError(billingTableCheck.error || 'Invalid BigQuery Billing Export table.');
+            return;
+        }
+        const queryProject = projectNumber || billingTableCheck.projectFromTable || '';
+        if (!queryProject) {
+            setFinOpsError('Project ID / Number is required to run BigQuery billing jobs.');
+            return;
+        }
+
+        const estimatedBytes = await handleFinOpsDryRun();
+        if (estimatedBytes === null) {
+            return;
+        }
+        const maxBytesNum = Number(FINOPS_MAX_BYTES_BILLED);
+        if (estimatedBytes > maxBytesNum) {
+            setFinOpsError(
+                `Estimated scan (${(estimatedBytes / (1024 * 1024)).toFixed(2)} MB) exceeds the 5,120 MB (5 GiB) FinOps safety guardrail. Narrow your export view or partition filter before querying.`
+            );
+            return;
+        }
+
+        setIsQueryingFinOps(true);
+        setFinOpsError(null);
+        try {
+            const sql = buildFinOpsBillingExportQuery(billingTableCheck.normalized);
+            const res = await runBigQueryQuery(queryProject, sql, {
+                maximumBytesBilled: FINOPS_MAX_BYTES_BILLED,
+            });
+            if (res?.error || (res?.errors && res.errors.length > 0)) {
+                throw new Error(
+                    res.error?.message || res.errors?.[0]?.message || 'BigQuery billing query failed.'
+                );
+            }
+            const parsed: FinOpsCostRow[] = (res?.rows || []).map((row) => ({
+                serviceDescription: String(row.f?.[0]?.v ?? 'Unknown Service'),
+                skuDescription: String(row.f?.[1]?.v ?? 'Unknown SKU'),
+                currency: String(row.f?.[2]?.v ?? 'USD'),
+                grossCost: Number(row.f?.[3]?.v ?? 0) || 0,
+                creditsAmount: Number(row.f?.[4]?.v ?? 0) || 0,
+                netSpend: Number(row.f?.[5]?.v ?? 0) || 0,
+            }));
+            setFinOpsRows(parsed);
+            const billedBytes = Number(res?.totalBytesProcessed);
+            setFinOpsBytesProcessed(Number.isFinite(billedBytes) ? billedBytes : estimatedBytes);
+        } catch (err: unknown) {
+            setFinOpsRows(null);
+            setFinOpsError(toErrorMessage(err, 'Failed to query BigQuery Cloud Billing export.'));
+        } finally {
+            setIsQueryingFinOps(false);
+        }
+    };
+
+    const finOpsTotals = useMemo(() => {
+        if (!finOpsRows) return null;
+        return finOpsRows.reduce(
+            (acc, r) => ({
+                currency: r.currency || acc.currency,
+                gross: acc.gross + r.grossCost,
+                credits: acc.credits + r.creditsAmount,
+                net: acc.net + r.netSpend,
+            }),
+            { currency: 'USD', gross: 0, credits: 0, net: 0 }
+        );
+    }, [finOpsRows]);
 
     return (
         <div className="space-y-6">
@@ -1166,6 +1393,188 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         </div>
                     </div>
                 </div>
+            </div>
+
+            {/* Real FinOps Cloud Billing Export (BigQuery) Section */}
+            <div
+                data-testid="finops-billing-export-section"
+                className="bg-gray-800 p-5 xl:p-6 rounded-lg shadow-md border border-gray-700 space-y-4"
+            >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h2 className="text-lg font-semibold text-white">
+                                Real FinOps Cloud Billing Export (BigQuery)
+                            </h2>
+                            <span className="bg-emerald-900/50 border border-emerald-700 text-emerald-300 text-[11px] font-semibold px-2 py-0.5 rounded">
+                                5 GB Scan Guardrail
+                            </span>
+                        </div>
+                        <p className="text-sm text-gray-400 mt-1">
+                            Query actual month-to-date (MTD) net spend (<code className="text-gray-300">cost + credits</code>) grouped by service and SKU across Discovery Engine / Gemini Enterprise, Vertex AI, BigQuery, and Cloud Run. Runs a zero-cost dry-run scan estimate before executing with <code className="text-gray-300">maximumBytesBilled = 5 GiB</code>.
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-end">
+                    <div className="flex-1">
+                        <label
+                            htmlFor="finops-billing-table-input"
+                            className="block text-xs font-semibold uppercase tracking-wider text-gray-300 mb-1.5"
+                        >
+                            BigQuery Billing Export Table
+                        </label>
+                        <input
+                            id="finops-billing-table-input"
+                            data-testid="finops-billing-table-input"
+                            aria-label="BigQuery Billing Export Table"
+                            type="text"
+                            value={billingExportTable}
+                            onChange={(e) => {
+                                setBillingExportTable(e.target.value);
+                                setFinOpsDryRunBytes(null);
+                                setFinOpsError(null);
+                            }}
+                            placeholder="my-billing-proj.billing_export.gcp_billing_export_v1_*"
+                            className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white font-mono placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]"
+                        />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            data-testid="finops-dry-run-button"
+                            onClick={() => void handleFinOpsDryRun()}
+                            disabled={
+                                !billingExportTable.trim() ||
+                                !billingTableCheck.valid ||
+                                isDryRunningFinOps ||
+                                isQueryingFinOps
+                            }
+                            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 text-white text-sm font-semibold rounded border border-gray-600 transition-colors h-[38px] whitespace-nowrap"
+                        >
+                            {isDryRunningFinOps ? 'Estimating...' : 'Estimate Scan (Dry Run)'}
+                        </button>
+                        <button
+                            type="button"
+                            data-testid="finops-run-query-button"
+                            onClick={() => void handleRunFinOpsBillingQuery()}
+                            disabled={
+                                !billingExportTable.trim() ||
+                                !billingTableCheck.valid ||
+                                isDryRunningFinOps ||
+                                isQueryingFinOps
+                            }
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold rounded transition-colors h-[38px] whitespace-nowrap"
+                        >
+                            {isQueryingFinOps ? 'Querying MTD Spend...' : 'Query MTD Net Spend'}
+                        </button>
+                    </div>
+                </div>
+
+                {billingExportTable.trim() !== '' && !billingTableCheck.valid && (
+                    <div
+                        data-testid="finops-table-validation-error"
+                        role="alert"
+                        className="bg-red-900/30 border border-red-800 p-2.5 rounded text-red-300 text-xs"
+                    >
+                        {billingTableCheck.error}
+                    </div>
+                )}
+
+                {finOpsDryRunBytes !== null && (
+                    <div
+                        data-testid="finops-estimated-scan-mb"
+                        className="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-xs text-gray-300 flex flex-wrap items-center justify-between gap-2"
+                    >
+                        <span>
+                            <strong>Estimated Dry-Run Scan:</strong>{' '}
+                            <span className="font-mono text-cyan-300">
+                                {(finOpsDryRunBytes / (1024 * 1024)).toFixed(2)} MB
+                            </span>{' '}
+                            ({finOpsDryRunBytes.toLocaleString()} bytes)
+                        </span>
+                        <span className="text-gray-400">
+                            Safety Cap: <code className="text-emerald-300">5,120.00 MB</code> (<code className="text-gray-300">maximumBytesBilled={FINOPS_MAX_BYTES_BILLED}</code>)
+                        </span>
+                    </div>
+                )}
+
+                {finOpsError && (
+                    <div
+                        data-testid="finops-query-error"
+                        role="alert"
+                        className="bg-red-900/30 border border-red-800 p-3 rounded text-red-300 text-xs"
+                    >
+                        {finOpsError}
+                    </div>
+                )}
+
+                {finOpsRows && finOpsTotals && (
+                    <div className="space-y-4 pt-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div className="bg-gray-900 border border-gray-700 rounded-lg p-3.5">
+                                <div className="text-xs text-gray-400 uppercase font-semibold">MTD Net Spend</div>
+                                <div data-testid="finops-mtd-net-spend" className="text-2xl font-bold text-emerald-400 mt-1 tabular-nums">
+                                    {finOpsTotals.currency} {finOpsTotals.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </div>
+                            </div>
+                            <div className="bg-gray-900 border border-gray-700 rounded-lg p-3.5">
+                                <div className="text-xs text-gray-400 uppercase font-semibold">MTD Gross Cost</div>
+                                <div className="text-xl font-semibold text-gray-200 mt-1 tabular-nums">
+                                    {finOpsTotals.currency} {finOpsTotals.gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </div>
+                            </div>
+                            <div className="bg-gray-900 border border-gray-700 rounded-lg p-3.5">
+                                <div className="text-xs text-gray-400 uppercase font-semibold">Credits &amp; Discounts</div>
+                                <div className="text-xl font-semibold text-blue-300 mt-1 tabular-nums">
+                                    {finOpsTotals.currency} {finOpsTotals.credits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </div>
+                                {finOpsBytesProcessed !== null && (
+                                    <div className="text-[11px] text-gray-500 mt-1">
+                                        Scanned {(finOpsBytesProcessed / (1024 * 1024)).toFixed(2)} MB
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {finOpsRows.length === 0 ? (
+                            <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 text-center text-sm text-gray-400">
+                                Query succeeded with 0 matching AI/Cloud rows for the current UTC month.
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto rounded-lg border border-gray-700">
+                                <table className="min-w-full divide-y divide-gray-700 bg-gray-900 text-xs">
+                                    <thead className="bg-gray-800 text-gray-300 uppercase">
+                                        <tr>
+                                            <th className="px-3 py-2.5 text-left font-semibold">Service</th>
+                                            <th className="px-3 py-2.5 text-left font-semibold">SKU</th>
+                                            <th className="px-3 py-2.5 text-right font-semibold">Gross Cost</th>
+                                            <th className="px-3 py-2.5 text-right font-semibold">Credits</th>
+                                            <th className="px-3 py-2.5 text-right font-semibold">Net Spend</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-800 text-gray-200">
+                                        {finOpsRows.map((row, idx) => (
+                                            <tr key={`${row.serviceDescription}-${row.skuDescription}-${idx}`} className="hover:bg-gray-800/60">
+                                                <td className="px-3 py-2 font-medium text-white whitespace-nowrap">{row.serviceDescription}</td>
+                                                <td className="px-3 py-2 text-gray-300">{row.skuDescription}</td>
+                                                <td className="px-3 py-2 text-right font-mono tabular-nums">
+                                                    {row.grossCost.toFixed(2)}
+                                                </td>
+                                                <td className="px-3 py-2 text-right font-mono text-blue-300 tabular-nums">
+                                                    {row.creditsAmount.toFixed(2)}
+                                                </td>
+                                                <td className="px-3 py-2 text-right font-mono font-semibold text-emerald-300 tabular-nums">
+                                                    {row.currency} {row.netSpend.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
             
              <div className="bg-blue-900/30 border border-blue-800 p-4 rounded-lg flex items-start gap-3">

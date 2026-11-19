@@ -359,6 +359,29 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
     [singleDeleteTargetId, selectedIds]
   );
 
+  const usedByAgentsForDelete = useMemo(() => {
+    const seenAgents = new Set<string>();
+    const boundAgents: Agent[] = [];
+    for (const targetId of deleteTargetIds) {
+      const suffixMatch = targetId.match(/\/locations\/[^/]+\/authorizations\/[^/]+$/)?.[0];
+      for (const [usageAuthKey, agents] of Object.entries(authUsage)) {
+        const isMatch =
+          usageAuthKey === targetId ||
+          Boolean(suffixMatch && usageAuthKey.endsWith(suffixMatch));
+        if (isMatch && Array.isArray(agents)) {
+          for (const ag of agents) {
+            const key = ag.name || ag.displayName || '';
+            if (key && !seenAgents.has(key)) {
+              seenAgents.add(key);
+              boundAgents.push(ag);
+            }
+          }
+        }
+      }
+    }
+    return boundAgents;
+  }, [deleteTargetIds, authUsage]);
+
   const openDeleteModal = (auth?: Authorization) => {
     if (auth) {
       setSingleDeleteTargetId(auth.name);
@@ -600,6 +623,33 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
               )
             })}
           </ul>
+          {usedByAgentsForDelete.length > 0 && (
+            <div
+              data-testid="active-agent-dependency-warning"
+              role="alert"
+              className="mt-4 p-3.5 bg-red-950/80 border-2 border-red-600 rounded-lg text-red-100 space-y-2"
+            >
+              <div className="flex items-center gap-2 text-sm font-bold text-red-300 uppercase tracking-wide">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>Active Agent Dependency Warning ({usedByAgentsForDelete.length} Bound Agent{usedByAgentsForDelete.length === 1 ? '' : 's'})</span>
+              </div>
+              <p className="text-xs text-red-200 leading-relaxed">
+                Deleting {deleteTargetIds.length === 1 ? 'this authorization' : 'these authorizations'} will immediately break OAuth 2.0 tool execution for the following live agent(s):
+              </p>
+              <ul className="list-disc list-inside text-xs font-mono text-white bg-black/40 p-2.5 rounded border border-red-800/80 max-h-32 overflow-y-auto space-y-1">
+                {usedByAgentsForDelete.map((agent) => (
+                  <li key={agent.name}>
+                    <span className="font-semibold text-red-200">
+                      {agent.displayName || agent.name.split('/').pop() || agent.name}
+                    </span>{' '}
+                    <span className="text-gray-400">({agent.name.split('/').pop()})</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and may break agents that rely on them.</p>
         </ConfirmationModal>
       )}

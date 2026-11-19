@@ -191,7 +191,25 @@ export function useDuplicateConnector({
     };
 
     try {
-      await api.setUpDataConnector(finalPayload, config);
+      const op = await api.setUpDataConnector(finalPayload, config);
+      if (op?.name && !op.done) {
+        const completedOp = await api.pollDiscoveryOperation(op, config);
+        if (completedOp?.error) {
+          throw new Error(
+            completedOp.error.message ||
+              `Operation failed with code ${completedOp.error.code}`,
+          );
+        }
+        if (!completedOp?.done) {
+          throw new Error(
+            `Connector provisioning timed out waiting for operation ${op.name}. Check Recent Operations in Google Cloud Console.`,
+          );
+        }
+      } else if (op?.error) {
+        throw new Error(
+          op.error.message || `Operation failed with code ${op.error.code}`,
+        );
+      }
       setIsSubmitting(false);
       onSuccess();
     } catch (err: unknown) {

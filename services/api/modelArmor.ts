@@ -70,6 +70,103 @@ export interface ModelArmorTemplate {
   [key: string]: unknown;
 }
 
+export interface ModelArmorFloorSetting {
+  name?: string;
+  filterConfig?: {
+    raiSettings?: {
+      raiFilters?: Array<{ filterType?: string; confidenceLevel?: string }>;
+    };
+    sdpSettings?: {
+      basicConfig?: { filterEnforcement?: string };
+      advancedConfig?: { inspectTemplate?: string; deidentifyTemplate?: string };
+    };
+    piAndJailbreakFilterSettings?: {
+      filterEnforcement?: string;
+      confidenceLevel?: string;
+    };
+    maliciousUriFilterSettings?: {
+      filterEnforcement?: string;
+    };
+    [key: string]: unknown;
+  };
+  enableFloorSettingEnforcement?: boolean;
+  integratedServices?: string[];
+  aiPlatformFloorSetting?: {
+    inspectOnly?: boolean;
+    inspectAndBlock?: boolean;
+    enableCloudLogging?: boolean;
+    [key: string]: unknown;
+  };
+  floorSettingMetadata?: {
+    multiLanguageDetection?: { enableMultiLanguageDetection?: boolean };
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface SanitizeFilterSubResult {
+  executionState?: string;
+  matchState?: string;
+  confidenceLevel?: string;
+  [key: string]: unknown;
+}
+
+export interface SanitizeOperationResponse {
+  sanitizationResult?: {
+    filterMatchState?: "MATCH_FOUND" | "NO_MATCH_FOUND" | string;
+    filterResults?: Record<string, Record<string, SanitizeFilterSubResult>>;
+    invocationResult?: string;
+    sanitizationMetadata?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/**
+ * Resolves the regional Model Armor REST API hostname (`modelarmor.{loc}.rep.googleapis.com` vs `modelarmor.googleapis.com`).
+ */
+export const getModelArmorHost = (location?: string): string => {
+  const normalized = (location || "global").trim().toLowerCase();
+  if (!normalized || normalized === "global") {
+    return "modelarmor.googleapis.com";
+  }
+  if (!/^[a-z0-9-]+$/.test(normalized)) {
+    throw new Error(`Invalid Model Armor location: "${location}"`);
+  }
+  return `modelarmor.${normalized}.rep.googleapis.com`;
+};
+
+export const extractModelArmorLocation = (resourceName?: string): string => {
+  if (!resourceName) return "global";
+  const parts = resourceName.trim().split("/");
+  const locIdx = parts.indexOf("locations");
+  if (locIdx >= 0 && locIdx + 1 < parts.length && parts[locIdx + 1]) {
+    return parts[locIdx + 1];
+  }
+  return "global";
+};
+
+/**
+ * Maps a Model Armor / Discovery Engine location (`eu`, `us`, `global`, or concrete GCP region)
+ * to a regional Vertex AI endpoint region for EU/US data residency compliance.
+ */
+export const resolveVertexAiRegion = (location?: string): string => {
+  const normalized = (location || "global").trim().toLowerCase();
+  if (!normalized || normalized === "global" || normalized === "us") {
+    return "us-central1";
+  }
+  if (normalized === "eu") {
+    return "europe-west1";
+  }
+  if (/^(?:us|europe|asia|northamerica|southamerica|australia|me)-[a-z0-9-]+$/.test(normalized)) {
+    return normalized;
+  }
+  if (normalized.startsWith("eu-")) {
+    return "europe-west1";
+  }
+  return "us-central1";
+};
+
 export const fetchModelArmorTemplates = async (
   config: Omit<Config, "accessToken">,
 ): Promise<{ templates?: ModelArmorTemplate[] }> => {
@@ -84,12 +181,99 @@ export const createModelArmorTemplate = async (
   templateId: string,
   payload: ModelArmorTemplate,
 ): Promise<ModelArmorTemplate> => {
-  const host =
-    !location || location === "global"
-      ? "modelarmor.googleapis.com"
-      : `modelarmor.${location}.rep.googleapis.com`;
-  const url = `https://${host}/v1/projects/${projectId}/locations/${location}/templates?templateId=${templateId}`;
+  const host = getModelArmorHost(location);
+  const loc = (location || "global").trim().toLowerCase();
+  const url = `https://${host}/v1/projects/${projectId}/locations/${loc}/templates?templateId=${templateId}`;
   return gapiRequest<ModelArmorTemplate>(url, "POST", projectId, undefined, payload);
+};
+
+export const getFloorSetting = async (
+  projectId: string,
+  location: string = "global",
+): Promise<ModelArmorFloorSetting> => {
+  const cleanProject = (projectId || "").trim();
+  if (!cleanProject) {
+    throw new Error("Project ID is required to fetch Model Armor floor settings.");
+  }
+  const loc = (location || "global").trim().toLowerCase();
+  const host = getModelArmorHost(loc);
+  const url = `https://${host}/v1/projects/${encodeURIComponent(cleanProject)}/locations/${encodeURIComponent(loc)}/floorSetting`;
+  return gapiRequest<ModelArmorFloorSetting>(url, "GET", cleanProject);
+};
+
+export const updateFloorSetting = async (
+  projectId: string,
+  location: string,
+  floorSetting: ModelArmorFloorSetting,
+  updateMask?: string | string[],
+): Promise<ModelArmorFloorSetting> => {
+  const cleanProject = (projectId || "").trim();
+  if (!cleanProject) {
+    throw new Error("Project ID is required to update Model Armor floor settings.");
+  }
+  const loc = (location || "global").trim().toLowerCase();
+  const host = getModelArmorHost(loc);
+  const maskStr = Array.isArray(updateMask)
+    ? updateMask.filter(Boolean).join(",")
+    : (updateMask || "").trim();
+  const maskParam = maskStr ? `?updateMask=${encodeURIComponent(maskStr)}` : "";
+  const url = `https://${host}/v1/projects/${encodeURIComponent(cleanProject)}/locations/${encodeURIComponent(loc)}/floorSetting${maskParam}`;
+  return gapiRequest<ModelArmorFloorSetting>(url, "PATCH", cleanProject, undefined, floorSetting);
+};
+
+const TEMPLATE_RESOURCE_REGEX =
+  /^projects\/[^/]+\/locations\/[a-zA-Z0-9-]+\/templates\/[^/]+$/;
+
+export const sanitizeUserPrompt = async (
+  templateName: string,
+  text: string,
+  projectId: string,
+): Promise<SanitizeOperationResponse> => {
+  const cleanTemplate = (templateName || "").trim().replace(/^\/+/, "");
+  const cleanProject = (projectId || "").trim();
+  if (!cleanProject) {
+    throw new Error("Project ID is required to sanitize a user prompt.");
+  }
+  if (!TEMPLATE_RESOURCE_REGEX.test(cleanTemplate)) {
+    throw new Error(
+      `Invalid Model Armor template resource name: "${templateName}". Expected projects/{project}/locations/{location}/templates/{template}.`,
+    );
+  }
+  if (!text || !text.trim()) {
+    throw new Error("Prompt text cannot be empty when calling sanitizeUserPrompt.");
+  }
+  const location = extractModelArmorLocation(cleanTemplate);
+  const host = getModelArmorHost(location);
+  const url = `https://${host}/v1/${cleanTemplate}:sanitizeUserPrompt`;
+  return gapiRequest<SanitizeOperationResponse>(url, "POST", cleanProject, undefined, {
+    userPromptData: { text },
+  });
+};
+
+export const sanitizeModelResponse = async (
+  templateName: string,
+  text: string,
+  projectId: string,
+): Promise<SanitizeOperationResponse> => {
+  const cleanTemplate = (templateName || "").trim().replace(/^\/+/, "");
+  const cleanProject = (projectId || "").trim();
+  if (!cleanProject) {
+    throw new Error("Project ID is required to sanitize a model response.");
+  }
+  if (!TEMPLATE_RESOURCE_REGEX.test(cleanTemplate)) {
+    throw new Error(
+      `Invalid Model Armor template resource name: "${templateName}". Expected projects/{project}/locations/{location}/templates/{template}.`,
+    );
+  }
+  if (!text || !text.trim()) {
+    throw new Error("Model response text cannot be empty when calling sanitizeModelResponse.");
+  }
+  const location = extractModelArmorLocation(cleanTemplate);
+  const host = getModelArmorHost(location);
+  const url = `https://${host}/v1/${cleanTemplate}:sanitizeModelResponse`;
+  return gapiRequest<SanitizeOperationResponse>(url, "POST", cleanProject, undefined, {
+    modelResponseData: { text },
+  });
 };
 
 export interface ApplyExclusionRuleInput {
@@ -220,14 +404,8 @@ export const updateModelArmorTemplateExclusionRules = async (
     throw new Error("Template resource name is required to update exclusion rules.");
   }
 
-  const parts = template.name.split("/");
-  const locIdx = parts.indexOf("locations");
-  const location = locIdx >= 0 && locIdx + 1 < parts.length ? parts[locIdx + 1] : "global";
-
-  const host =
-    !location || location === "global"
-      ? "modelarmor.googleapis.com"
-      : `modelarmor.${location}.rep.googleapis.com`;
+  const location = extractModelArmorLocation(template.name);
+  const host = getModelArmorHost(location);
 
   const mergedRuleSettings = mergeExclusionRuleIntoSettings(
     template.filterConfig?.filterRuleSettings,
@@ -280,11 +458,14 @@ export interface GeminiExclusionSynthesisResult {
   isAdversarialTruePositive: boolean;
 }
 
+// Regex Pattern Matching guard rejecting unconstrained wildcards and single-character / anchor universal matchers
+// (e.g. ".*", ".+", ".", "(?i).", "^", "$", "[\s\S]", "[\w\W]"). Does not perform arbitrary regex AST parsing.
 const GEMINI_WILDCARD_GUARD_REGEX =
-  /^(?:\(\?[imsU]+\))?\^?(?:\((?:\?:)?)?(?:\.\*|\.\+|\.\{0,\}|\.\{1,\}|\[\\s\\S\][*+]|\[\\d\\D\][*+]|\[\\w\\W\][*+])\)*\$?$/;
+  /^(?:\(\?[imsU-]+\))*\s*(?:\((?:\?:)?)?(?:\^+|\$+|\^\$|\\A|\\z|\\Z|\\b|\\B|\^?\.(?:[*+?]|(?:\{[01](?:,\d*)?\}))?\$?|\^?\[(?:\\s\\S|\\S\\s|\\d\\D|\\D\\d|\\w\\W|\\W\\w|\^)\](?:[*+?]|(?:\{[01](?:,\d*)?\}))?\$?)\)*\s*$/;
 
 /**
- * Uses Vertex AI Gemini (`gemini-2.5-flash`) to analyze a blocked Model Armor prompt,
+ * Uses Vertex AI Gemini (`gemini-2.5-flash`) on a regional endpoint matching the template/assistant region
+ * (`eu` -> `europe-west1`, `us` -> `us-central1`, `global` -> `us-central1`) to analyze a blocked Model Armor prompt,
  * isolate the narrow 3–7 word triggering clause, decide between a Static Keyword Phrase (`DICTIONARY`)
  * vs. a Parameterized Pattern Formula (`REGEX`), and synthesize a quota-efficient exclusion rule.
  */
@@ -294,6 +475,8 @@ export const synthesizeExclusionRuleWithGemini = async (
     inputText: string;
     filterType: "PROMPT_INJECTION_AND_JAILBREAK" | "RESPONSIBLE_AI";
     currentVerdict?: string;
+    location?: string;
+    templateName?: string;
   },
 ): Promise<GeminiExclusionSynthesisResult> => {
   const cleanProject = projectId.trim();
@@ -305,9 +488,12 @@ export const synthesizeExclusionRuleWithGemini = async (
     throw new Error("Cannot synthesize an exclusion rule from an empty sanitizationInput.text.");
   }
 
-  const endpoint = `https://aiplatform.googleapis.com/v1/projects/${encodeURIComponent(
+  const inferredLocation =
+    params.location || (params.templateName ? extractModelArmorLocation(params.templateName) : "global");
+  const vertexRegion = resolveVertexAiRegion(inferredLocation);
+  const endpoint = `https://${vertexRegion}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(
     cleanProject,
-  )}/locations/global/publishers/google/models/gemini-2.5-flash:generateContent`;
+  )}/locations/${encodeURIComponent(vertexRegion)}/publishers/google/models/gemini-2.5-flash:generateContent`;
 
   const systemInstruction = [
     "You are a Google Cloud Model Armor Principal Security Architect.",

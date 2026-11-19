@@ -413,6 +413,14 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
     [availableDataStoreOptions],
   );
 
+  const allUsersOrgSkills = useMemo(
+    () =>
+      agents.filter(
+        (a) => isSkillAgentResource(a) && a.sharingConfig?.scope === 'ALL_USERS',
+      ),
+    [agents],
+  );
+
   const handleToggleDataStoreResource = (resourceName: string) => {
     setSelectedDataStoreResources((prev) =>
       prev.includes(resourceName)
@@ -1948,6 +1956,26 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
                 }`}
               >
                 {abStatusMessage.text}
+              </div>
+            )}
+
+            {/* Warning Banner when ALL_USERS Organizational Skills exist */}
+            {allUsersOrgSkills.length > 0 && (
+              <div
+                data-testid="all-users-skill-ab-warning"
+                className="p-3.5 rounded-lg bg-amber-950/60 border border-amber-600/70 text-xs text-amber-100 space-y-1.5"
+              >
+                <div className="flex items-center gap-2 font-bold text-amber-300">
+                  <span className="px-2 py-0.5 rounded text-[10px] uppercase tracking-wider bg-amber-900/90 border border-amber-600">
+                    Live Production Impact Warning
+                  </span>
+                  <span>
+                    {allUsersOrgSkills.length} Organization-Wide Skill{allUsersOrgSkills.length === 1 ? '' : 's'} Shared with ALL_USERS
+                  </span>
+                </div>
+                <p className="text-amber-100/90 leading-relaxed">
+                  Running <strong>1. Run Baseline (Before Skill)</strong> temporarily calls <code className="text-amber-200">:disableAgent</code> on a matching deployed Skill, and <strong>2. Deploy / Update Skill</strong> mutates live Assistant routing across active organization users ({allUsersOrgSkills.map((s) => s.displayName || s.name.split('/').pop()).join(', ')}). Run live Skill A/B toggles during a maintenance window, or use <strong>Shadow Eval Gate</strong> in Agent Manager for zero-mutation evaluation.
+                </p>
               </div>
             )}
 

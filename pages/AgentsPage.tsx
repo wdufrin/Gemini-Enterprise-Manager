@@ -23,6 +23,7 @@ import AgentForm from '../components/agents/AgentForm';
 import AgentDetails from '../components/agents/AgentDetails';
 import BulkAgentDatasourcesPanel from '../components/agents/BulkAgentDatasourcesPanel';
 import BulkEditSharePublishModal from '../components/agents/BulkEditSharePublishModal';
+import ShadowEvalGateModal, { resolveAgentStreamConfig } from '../components/agents/ShadowEvalGateModal';
 import ChatWindow from '../components/agents/ChatWindow';
 import ProjectInput from '../components/ProjectInput';
 import ConfirmationModal from '../components/ConfirmationModal';
@@ -32,9 +33,16 @@ import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
 import {
   DEFAULT_BACKGROUND_CONCURRENCY,
+  getCachedAgentIamPolicy,
+  getCachedAgentView,
+  invalidateAgentMetadataCache,
   invalidateProjectAgentsUsageCache,
   mapWithQuotaLimit,
+  setCachedAgentIamPolicy,
+  setCachedAgentView,
 } from '../utils/quotaGuard';
+
+export const ALL_ENGINES_VALUE = '__ALL_ENGINES__';
 
 type ViewMode = 'list' | 'form' | 'details' | 'bulk-datasources';
 
@@ -66,6 +74,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   useEffect(() => {
     return () => {
       hydrationAbortRef.current?.abort();
+      invalidateAgentMetadataCache();
     };
   }, []);
 
@@ -125,6 +134,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   // State for delete confirmation & bulk edit/share/publish modals
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isBulkEditSharePublishOpen, setIsBulkEditSharePublishOpen] = useState(false);
+  const [isShadowEvalOpen, setIsShadowEvalOpen] = useState(false);
   const [agentsToDelete, setAgentsToDelete] = useState<Agent[]>([]);
   const [sortConfig, setSortConfig] = useState<{ key: SortableAgentKey; direction: SortDirection }>({ key: 'displayName', direction: 'asc' });
 
@@ -216,7 +226,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
                 }
             } else if (fetchedApps.length > 1) {
                 setConfig(prev => {
-                    if (prev.appLocation !== targetLocation || !prev.appId) return prev;
+                    if (prev.appLocation !== targetLocation || !prev.appId || prev.appId === ALL_ENGINES_VALUE) return prev;
                     const stillExists = fetchedApps.some(a => a.name.split('/').pop() === prev.appId);
                     return stillExists ? prev : { ...prev, appId: '' };
                 });
@@ -257,38 +267,125 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     setHydrationWarning(null);
     
     try {
-        const assistantsResponse = await api.listResources('assistants', requestConfig);
-        if (fetchSeq !== agentsFetchSeqRef.current) return;
-
-        const assistants: Assistant[] = assistantsResponse.assistants || [];
-        
-        if (assistants.length === 0) {
-            setAgents([]);
-            console.log("No assistants found for this engine. Cannot list agents.");
-            return;
-        }
-
-        const agentPromises = assistants.map(assistant => {
-            const assistantId = assistant.name.split('/').pop()!;
-            const agentListConfig = { ...requestConfig, assistantId };
-            return api.listResources('agents', agentListConfig);
-        });
-
-        const agentResults = await Promise.allSettled(agentPromises);
-        if (fetchSeq !== agentsFetchSeqRef.current) return;
-
         const allAgents: Agent[] = [];
         const failedAssistants: string[] = [];
 
-        agentResults.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-                allAgents.push(...(result.value.agents || []));
-            } else {
-                const assistantName = assistants[index].displayName || assistants[index].name.split('/').pop()!;
-                failedAssistants.push(assistantName);
-                console.error(`Failed to fetch agents for assistant: ${assistantName}`, result.reason);
+        if (requestConfig.appId === ALL_ENGINES_VALUE) {
+            const fleetLocations = ['global', 'us', 'eu'];
+            const discoveredEngines: Array<{ loc: string; appId: string; name: string }> = [];
+            const seenEngineNames = new Set<string>();
+
+            await mapWithQuotaLimit(
+                fleetLocations,
+                DEFAULT_BACKGROUND_CONCURRENCY,
+                async (loc) => {
+                    const locConfig: Config = {
+                        ...requestConfig,
+                        appLocation: loc,
+                        collectionId: requestConfig.collectionId || 'default_collection',
+                        appId: '',
+                    };
+                    const res = await api.listResources('engines', locConfig);
+                    const engs: AppEngine[] = res?.engines || [];
+                    for (const eng of engs) {
+                        if (!eng?.name || seenEngineNames.has(eng.name)) continue;
+                        seenEngineNames.add(eng.name);
+                        const parts = eng.name.split('/');
+                        const locIdx = parts.indexOf('locations');
+                        const engIdx = parts.indexOf('engines');
+                        const parsedLoc =
+                            locIdx >= 0 && parts[locIdx + 1] ? parts[locIdx + 1] : loc;
+                        const parsedAppId =
+                            engIdx >= 0 && parts[engIdx + 1]
+                                ? parts[engIdx + 1]
+                                : parts[parts.length - 1] || '';
+                        if (parsedAppId) {
+                            discoveredEngines.push({
+                                loc: parsedLoc,
+                                appId: parsedAppId,
+                                name: eng.name,
+                            });
+                        }
+                    }
+                },
+                { signal: abortController.signal },
+            );
+
+            if (fetchSeq !== agentsFetchSeqRef.current || abortController.signal.aborted) return;
+
+            if (discoveredEngines.length === 0) {
+                setAgents([]);
+                return;
             }
-        });
+
+            const seenAgentNames = new Set<string>();
+            await mapWithQuotaLimit(
+                discoveredEngines,
+                DEFAULT_BACKGROUND_CONCURRENCY,
+                async ({ loc, appId }) => {
+                    const engConfig: Config = {
+                        ...requestConfig,
+                        appLocation: loc,
+                        collectionId: requestConfig.collectionId || 'default_collection',
+                        appId,
+                    };
+                    try {
+                        const astRes = await api.listResources('assistants', engConfig);
+                        const assistants: Assistant[] = astRes?.assistants || [];
+                        for (const ast of assistants) {
+                            if (abortController.signal.aborted) return;
+                            const assistantId = ast.name.split('/').pop() || 'default_assistant';
+                            const agRes = await api.listResources('agents', {
+                                ...engConfig,
+                                assistantId,
+                            });
+                            for (const ag of agRes?.agents || []) {
+                                if (!seenAgentNames.has(ag.name)) {
+                                    seenAgentNames.add(ag.name);
+                                    allAgents.push(ag);
+                                }
+                            }
+                        }
+                    } catch (engErr: unknown) {
+                        failedAssistants.push(`${loc}/${appId}`);
+                        console.error(`Failed to fetch fleet agents for ${loc}/${appId}`, engErr);
+                    }
+                },
+                { signal: abortController.signal },
+            );
+
+            if (fetchSeq !== agentsFetchSeqRef.current || abortController.signal.aborted) return;
+        } else {
+            const assistantsResponse = await api.listResources('assistants', requestConfig);
+            if (fetchSeq !== agentsFetchSeqRef.current) return;
+
+            const assistants: Assistant[] = assistantsResponse.assistants || [];
+            
+            if (assistants.length === 0) {
+                setAgents([]);
+                console.log("No assistants found for this engine. Cannot list agents.");
+                return;
+            }
+
+            const agentPromises = assistants.map(assistant => {
+                const assistantId = assistant.name.split('/').pop()!;
+                const agentListConfig = { ...requestConfig, assistantId };
+                return api.listResources('agents', agentListConfig);
+            });
+
+            const agentResults = await Promise.allSettled(agentPromises);
+            if (fetchSeq !== agentsFetchSeqRef.current) return;
+
+            agentResults.forEach((result, index) => {
+                if (result.status === 'fulfilled') {
+                    allAgents.push(...(result.value.agents || []));
+                } else {
+                    const assistantName = assistants[index].displayName || assistants[index].name.split('/').pop()!;
+                    failedAssistants.push(assistantName);
+                    console.error(`Failed to fetch agents for assistant: ${assistantName}`, result.reason);
+                }
+            });
+        }
         
         const inferLocalAgentType = (agent: Agent): string | undefined => {
           if (agent.agentType) return agent.agentType;
@@ -315,21 +412,29 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
           return undefined;
         };
 
-        const baseAgents = allAgents.map(agent => ({
-          ...agent,
-          agentType: inferLocalAgentType(agent),
-          agentOrigin: inferLocalAgentOrigin(agent),
-        }));
+        const baseAgents = allAgents.map(agent => {
+          const cachedView = getCachedAgentView(agent.name);
+          const cachedIam = getCachedAgentIamPolicy(agent.name);
+          return {
+            ...agent,
+            agentType: cachedView?.agentType || inferLocalAgentType(agent),
+            agentOrigin: cachedView?.agentOrigin || inferLocalAgentOrigin(agent),
+            iamPolicy: agent.iamPolicy || cachedIam,
+          };
+        });
 
         // Render agents immediately without blocking on getAgentView calls
         setAgents(baseAgents);
         setIsLoading(false);
 
-        const agentsNeedingView = baseAgents.filter(a => !a.agentType || !a.agentOrigin);
+        const agentsNeedingView = baseAgents.filter(
+          a => !getCachedAgentView(a.name) && (!a.agentType || !a.agentOrigin)
+        );
         const agentsNeedingIamOwner = baseAgents.filter(
           a =>
             !api.isGoogleManagedAgent(a) &&
             !a.iamPolicy &&
+            !getCachedAgentIamPolicy(a.name) &&
             typeof api.getAgentIamPolicy === 'function'
         );
 
@@ -340,7 +445,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
           const viewTask = mapWithQuotaLimit(
             agentsNeedingView,
             DEFAULT_BACKGROUND_CONCURRENCY,
-            (agent) => api.getAgentView(agent.name, requestConfig),
+            (agent) => api.getAgentView(agent.name, resolveAgentStreamConfig(agent, requestConfig)),
             { signal: abortController.signal },
           ).then(({ outcomes, shortCircuited }) => {
             if (fetchSeq !== agentsFetchSeqRef.current || abortController.signal.aborted) return;
@@ -348,6 +453,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             outcomes.forEach((res, idx) => {
               const agent = agentsNeedingView[idx];
               if (res.status === 'fulfilled' && res.value?.agentView) {
+                setCachedAgentView(agent.name, res.value.agentView);
                 viewByName.set(agent.name, res.value.agentView);
               } else if (res.status === 'rejected') {
                 const label = agent.displayName || agent.name.split('/').pop() || agent.name;
@@ -386,7 +492,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
           const iamTask = mapWithQuotaLimit(
             agentsNeedingIamOwner,
             DEFAULT_BACKGROUND_CONCURRENCY,
-            (agent) => api.getAgentIamPolicy(agent.name, requestConfig),
+            (agent) => api.getAgentIamPolicy(agent.name, resolveAgentStreamConfig(agent, requestConfig)),
             { signal: abortController.signal },
           ).then(({ outcomes, shortCircuited }) => {
             if (fetchSeq !== agentsFetchSeqRef.current || abortController.signal.aborted) return;
@@ -399,6 +505,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             const policyByName = new Map<string, IamPolicy>();
             outcomes.forEach((res, idx) => {
               if (res.status === 'fulfilled' && res.value?.bindings) {
+                setCachedAgentIamPolicy(agentsNeedingIamOwner[idx].name, res.value);
                 policyByName.set(agentsNeedingIamOwner[idx].name, res.value);
               }
             });
@@ -457,11 +564,13 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     const agentId = agent.name.split('/').pop() || '';
     setTogglingAgentId(agentId);
     setError(null);
+    const targetConfig = resolveAgentStreamConfig(agent, apiConfig);
     try {
       const updatedAgent = agent.state === 'ENABLED'
-        ? await api.disableAgent(agent.name, apiConfig)
-        : await api.enableAgent(agent.name, apiConfig);
+        ? await api.disableAgent(agent.name, targetConfig)
+        : await api.enableAgent(agent.name, targetConfig);
 
+      invalidateAgentMetadataCache(agent.name);
       setAgents(prev => prev.map(a => a.name === updatedAgent.name ? { ...a, ...updatedAgent } : a));
       if (selectedAgent?.name === updatedAgent.name) {
           setSelectedAgent(prev => prev ? { ...prev, ...updatedAgent } : updatedAgent);
@@ -581,7 +690,10 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     setError(null);
 
     const results = await Promise.allSettled(
-        agentsToDelete.map(a => api.deleteResource(a.name, apiConfig))
+        agentsToDelete.map(a => {
+          invalidateAgentMetadataCache(a.name);
+          return api.deleteResource(a.name, resolveAgentStreamConfig(a, apiConfig));
+        })
     );
 
     const failures: string[] = [];
@@ -611,6 +723,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   };
 
   const handleFormSuccess = () => {
+    invalidateAgentMetadataCache();
     invalidateProjectAgentsUsageCache(projectNumber);
     setViewMode('list');
     fetchAgents();
@@ -642,7 +755,8 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
           draftDisplayName: newName,
         };
       }
-      await api.updateAgent(agent, payload, apiConfig);
+      await api.updateAgent(agent, payload, resolveAgentStreamConfig(agent, apiConfig));
+      invalidateAgentMetadataCache(agent.name);
       fetchAgents();
     } catch (e: unknown) {
       console.error("Failed to update agent name", e);
@@ -652,6 +766,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   };
 
   const handleAgentUpdatedInPlace = useCallback((updatedAgent: Agent) => {
+    invalidateAgentMetadataCache(updatedAgent.name);
     setSelectedAgent(updatedAgent);
     setAgents(prev => {
       const exists = prev.some(a => a.name === updatedAgent.name);
@@ -690,16 +805,25 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
       return <Spinner />;
     }
 
+    const effectiveFormConfig: Config = selectedAgent
+      ? resolveAgentStreamConfig(selectedAgent, apiConfig)
+      : apiConfig.appId === ALL_ENGINES_VALUE && apps[0]
+        ? {
+            ...apiConfig,
+            appId: apps[0].name.split('/').pop() || '',
+          }
+        : apiConfig;
+
     switch (viewMode) {
       case 'form':
-        return <AgentForm config={apiConfig} onSuccess={handleFormSuccess} onCancel={() => setViewMode('list')} agentToEdit={selectedAgent} />;
+        return <AgentForm config={effectiveFormConfig} onSuccess={handleFormSuccess} onCancel={() => setViewMode('list')} agentToEdit={selectedAgent} />;
       case 'details':
         return selectedAgent ? <AgentDetails 
             agent={selectedAgent} 
-            config={apiConfig}
+            config={resolveAgentStreamConfig(selectedAgent, apiConfig)}
             onBack={() => { setViewMode('list'); setSelectedAgent(null); }} 
             onEdit={() => setViewMode('form')}
-            onDeleteSuccess={() => { setViewMode('list'); fetchAgents(); }}
+            onDeleteSuccess={() => { invalidateAgentMetadataCache(selectedAgent.name); setViewMode('list'); fetchAgents(); }}
             onToggleStatus={handleToggleStatus}
             togglingAgentId={togglingAgentId}
             error={error}
@@ -713,7 +837,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             config={apiConfig}
             initialSelectedAgentNames={selectedAgents}
             onBackToList={() => setViewMode('list')}
-            onRefreshAgents={fetchAgents}
+            onRefreshAgents={() => { invalidateAgentMetadataCache(); void fetchAgents(); }}
             onSelectAgent={handleSelectAgent}
           />
         );
@@ -725,13 +849,14 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             {!config.appId && !isLoadingApps && apps.length > 1 && !error && (
               <div className="mb-4 px-4 py-3 rounded-xl bg-blue-950/25 border border-blue-800/50 text-xs text-blue-200 flex items-center justify-between gap-3">
                 <span>
-                  Found <strong>{apps.length}</strong> Gemini Enterprise engines in <code>{config.appLocation}</code>. Select an engine above to load its registered agents without unnecessary background API calls.
+                  Found <strong>{apps.length}</strong> Gemini Enterprise engines in <code>{config.appLocation}</code>. Select an engine above (or choose <strong>All Regions &amp; Engines (Fleet View)</strong>) to load registered agents.
                 </span>
               </div>
             )}
             <AgentList
               agents={sortedAgents}
               config={apiConfig}
+              isFleetView={config.appId === ALL_ENGINES_VALUE}
               onSelectAgent={handleSelectAgent}
               onEditAgent={handleEditAgent}
               onDeleteAgent={handleRequestDelete}
@@ -739,6 +864,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
               onRegisterNew={() => { setSelectedAgent(null); setViewMode('form'); }}
               onOpenBulkDatasources={() => setViewMode('bulk-datasources')}
               onOpenBulkEditSharePublish={() => setIsBulkEditSharePublishOpen(true)}
+              onOpenShadowEvalGate={() => setIsShadowEvalOpen(true)}
               onToggleAgentStatus={handleToggleStatus}
               togglingAgentId={togglingAgentId}
               deletingAgentIds={deletingAgentIds}
@@ -749,7 +875,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
               onSort={handleSort}
               sortConfig={sortConfig}
               onUpdateAgentName={handleUpdateAgentName}
-              canRestoreDeepResearch={Boolean(config.appId) && !isLoading && !hasDeepResearchAgent}
+              canRestoreDeepResearch={Boolean(config.appId) && config.appId !== ALL_ENGINES_VALUE && !isLoading && !hasDeepResearchAgent}
               isRestoringDeepResearch={isRestoringDeepResearch}
               onRestoreDeepResearch={handleRestoreDeepResearch}
             />
@@ -784,7 +910,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
               <p className="text-xs text-gray-400">Govern, inspect, test, and share Discovery Engine, ADK, and A2A agents.</p>
             </div>
             <CloudConsoleButton 
-                url={config.appId ? 
+                url={config.appId && config.appId !== ALL_ENGINES_VALUE ? 
                     `https://console.cloud.google.com/gemini-enterprise/locations/${config.appLocation}/engines/${config.appId}/agentic/agents?project=${projectNumber}` : 
                     `https://console.cloud.google.com/vertex-ai/agents/agent-engines?referrer=search&project=${projectNumber}`
                 }
@@ -805,8 +931,9 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
           </div>
           <div className="flex-1 min-w-0">
             <label htmlFor="appId" className="block text-xs font-medium text-gray-400 mb-1 whitespace-nowrap">Gemini Enterprise ID</label>
-            <select id="appId" name="appId" value={config.appId} onChange={handleConfigChange} disabled={isLoadingApps || apps.length === 0} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 w-full h-[38px] disabled:bg-gray-800/50 disabled:text-gray-400">
+            <select id="appId" name="appId" value={config.appId} onChange={handleConfigChange} disabled={!projectNumber || isLoadingApps} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 w-full h-[38px] disabled:bg-gray-800/50 disabled:text-gray-400">
               <option value="">{isLoadingApps ? 'Loading...' : '-- Select Gemini Enterprise --'}</option>
+              <option value={ALL_ENGINES_VALUE}>All Regions &amp; Engines (Fleet View)</option>
               {apps.map(a => {
                   const appId = a.name.split('/').pop() || '';
                   return <option key={a.name} value={appId}>{a.displayName || appId}</option>
@@ -818,7 +945,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
                 <button 
                     type="button"
                     data-testid="refresh-agents-btn"
-                    onClick={fetchAgents} 
+                    onClick={() => { invalidateAgentMetadataCache(); void fetchAgents(); }} 
                     disabled={isLoading || isLoadingApps || isHydratingAgents}
                     aria-busy={isLoading || isLoadingApps || isHydratingAgents}
                     title={
@@ -926,11 +1053,13 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         agents={sortedAgents}
         initialSelectedAgentNames={selectedAgents}
         config={apiConfig}
+        accessToken={accessToken}
         onOpenBulkDatasources={() => {
           setIsBulkEditSharePublishOpen(false);
           setViewMode('bulk-datasources');
         }}
         onComplete={(res) => {
+          invalidateAgentMetadataCache();
           if (res.failed > 0) {
             toast.warning(
               `Bulk update finished: ${res.updated} updated, ${res.skipped} unchanged, ${res.failed} failed.`,
@@ -942,6 +1071,16 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
           }
           fetchAgents();
         }}
+      />
+
+      {/* Non-Destructive Shadow Evaluation & Regression Gate Modal */}
+      <ShadowEvalGateModal
+        isOpen={isShadowEvalOpen}
+        onClose={() => setIsShadowEvalOpen(false)}
+        agents={sortedAgents}
+        initialSelectedAgentNames={selectedAgents}
+        config={apiConfig}
+        accessToken={accessToken}
       />
 
       {/* Scoped Agent Chat Test Modal */}
@@ -960,7 +1099,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             <ChatWindow
               targetDisplayName={`Agent: ${testingAgent.displayName}`}
               agentName={testingAgent.name}
-              config={apiConfig}
+              config={resolveAgentStreamConfig(testingAgent, apiConfig)}
               accessToken={accessToken}
               onClose={() => setTestingAgent(null)}
               userProfile={userProfile}

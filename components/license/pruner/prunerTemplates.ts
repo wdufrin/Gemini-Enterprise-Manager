@@ -78,9 +78,14 @@ def prune_licenses():
         authed_session = AuthorizedSession(credentials)
         authed_session.headers.update({"X-Goog-User-Project": str(PROJECT_ID)})
         
-        # Base URLs - Using v1
-        v1_base = "https://discoveryengine.googleapis.com/v1"
-        parent = f"projects/{PROJECT_ID}/locations/{LOCATION}/userStores/{USER_STORE_ID}"
+        # Base URLs - Using regional Discovery Engine v1 endpoint when LOCATION != "global"
+        normalized_loc = (LOCATION or "global").strip().lower()
+        v1_base = (
+            "https://discoveryengine.googleapis.com/v1"
+            if normalized_loc == "global"
+            else f"https://{normalized_loc}-discoveryengine.googleapis.com/v1"
+        )
+        parent = f"projects/{PROJECT_ID}/locations/{normalized_loc}/userStores/{USER_STORE_ID}"
         
         print(f"Listing licenses from: {v1_base}/{parent}/userLicenses")
         
@@ -129,38 +134,47 @@ def prune_licenses():
 
         print(f"Found {len(licenses_to_delete)} inactive licenses to delete.")
 
-        # 4. Perform Batch Update
+        # 4. Perform Chunked Batch Update (batches of 100 per :batchUpdateUserLicenses API limit)
         batch_url = f"{v1_base}/{parent}:batchUpdateUserLicenses"
-        inactive_principals = [item["userPrincipal"] for item in licenses_to_delete]
-        
-        payload = {
-            "inlineSource": {
-                "userLicenses": [{"userPrincipal": p} for p in inactive_principals],
-                "updateMask": {
-                    "paths": ["userPrincipal", "licenseConfig"]
-                }
-            },
-            "deleteUnassignedUserLicenses": True 
-        }
-        
-        print(f"Sending batch update to {batch_url}...")
-        resp = authed_session.post(batch_url, json=payload)
-        
-        if resp.status_code != 200:
-            print(f"❌ Batch update failed: {resp.status_code} - {resp.text}")
-            return jsonify({
-                "status": "error", 
-                "message": f"Batch update failed with status {resp.status_code}", 
-                "details": resp.text
-            }), 500
-            
-        print(f"✅ Batch update request successful. Response: {resp.text}")
-        
+        inactive_principals = [item["userPrincipal"] for item in licenses_to_delete if item.get("userPrincipal")]
+        CHUNK_SIZE = 100
+        operations = []
+
+        for idx in range(0, len(inactive_principals), CHUNK_SIZE):
+            chunk = inactive_principals[idx : idx + CHUNK_SIZE]
+            payload = {
+                "inlineSource": {
+                    "userLicenses": [{"userPrincipal": p} for p in chunk],
+                    "updateMask": {
+                        "paths": ["userPrincipal", "licenseConfig"]
+                    }
+                },
+                "deleteUnassignedUserLicenses": True
+            }
+
+            print(f"Sending batch update chunk {idx // CHUNK_SIZE + 1} ({len(chunk)} users) to {batch_url}...")
+            resp = authed_session.post(batch_url, json=payload)
+
+            if resp.status_code != 200:
+                print(f"❌ Batch update chunk failed: {resp.status_code} - {resp.text}")
+                return jsonify({
+                    "status": "error",
+                    "message": f"Batch update failed on chunk {idx // CHUNK_SIZE + 1} with status {resp.status_code}",
+                    "processed_before_failure": idx,
+                    "details": resp.text
+                }), 500
+
+            op_name = resp.json().get("name")
+            if op_name:
+                operations.append(op_name)
+            print(f"✅ Batch update chunk {idx // CHUNK_SIZE + 1} successful. Response: {resp.text}")
+
         return jsonify({
             "status": "success",
-            "message": f"Pruning initiated for {len(inactive_principals)} users via batch update.",
+            "message": f"Pruning initiated for {len(inactive_principals)} users across {len(operations) or 1} batch chunk(s).",
             "count": len(inactive_principals),
-            "operation": resp.json().get("name")
+            "operations": operations,
+            "operation": operations[0] if operations else None
         }), 200
 
     except Exception as e:

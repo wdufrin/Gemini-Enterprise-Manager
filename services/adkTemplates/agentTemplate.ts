@@ -496,10 +496,96 @@ else:
 # Define Model Armor Callback if configured
 async def model_armor_before_model_callback(callback_context, model_request):
     """Model Armor sanitization and prompt defense callback."""
-    model_armor_template = os.getenv("MODEL_ARMOR_TEMPLATE")
+    model_armor_template = os.getenv("MODEL_ARMOR_TEMPLATE", ${formatPythonString(config.modelArmorTemplate || "")}).strip()
     if not model_armor_template:
         return None
-    # Inspect or sanitize prompt parts via Model Armor policy
+
+    # Extract latest user prompt text from model_request.contents
+    prompt_parts = []
+    contents = getattr(model_request, "contents", None) or []
+    for content in reversed(contents):
+        role = getattr(content, "role", None)
+        if role in (None, "user"):
+            for part in (getattr(content, "parts", None) or []):
+                part_text = getattr(part, "text", None)
+                if part_text:
+                    prompt_parts.append(str(part_text))
+            if prompt_parts:
+                break
+
+    user_prompt_text = "\\n".join(prompt_parts).strip()
+    if not user_prompt_text:
+        return None
+
+    # Resolve regional vs global Model Armor REST endpoint from template resource name
+    # Format: projects/{project}/locations/{loc}/templates/{template_id}
+    loc = "global"
+    template_segments = model_armor_template.strip("/").split("/")
+    if "locations" in template_segments:
+        loc_idx = template_segments.index("locations")
+        if loc_idx + 1 < len(template_segments) and template_segments[loc_idx + 1]:
+            loc = template_segments[loc_idx + 1]
+
+    host = (
+        "modelarmor.googleapis.com"
+        if loc == "global"
+        else f"modelarmor.{loc}.rep.googleapis.com"
+    )
+    endpoint = f"https://{host}/v1/{model_armor_template.lstrip('/')}:sanitizeUserPrompt"
+
+    import asyncio
+    import logging
+    from google.auth.transport.requests import AuthorizedSession
+    try:
+        from google.adk.models.llm_response import LlmResponse
+    except ImportError:
+        from google.adk.models import LlmResponse
+
+    def _invoke_model_armor() -> dict:
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        authed_session = AuthorizedSession(credentials)
+        resp = authed_session.post(
+            endpoint,
+            json={"userPromptData": {"text": user_prompt_text}},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    try:
+        result = await asyncio.to_thread(_invoke_model_armor)
+    except Exception as ma_err:
+        logging.error(f"Model Armor sanitizeUserPrompt failed ({endpoint}): {ma_err}")
+        fail_open = os.getenv("MODEL_ARMOR_FAIL_OPEN", "false").lower() in ("1", "true", "yes")
+        if fail_open:
+            return None
+        return LlmResponse(
+            content=genai_types.Content(
+                role="model",
+                parts=[
+                    genai_types.Part.from_text(
+                        text="Request blocked because the Model Armor safety policy service could not verify this prompt."
+                    )
+                ],
+            )
+        )
+
+    sanitization_result = result.get("sanitizationResult", {}) if isinstance(result, dict) else {}
+    filter_match_state = sanitization_result.get("filterMatchState", "")
+    if filter_match_state == "MATCH_FOUND":
+        return LlmResponse(
+            content=genai_types.Content(
+                role="model",
+                parts=[
+                    genai_types.Part.from_text(
+                        text="Request blocked by enterprise Model Armor safety policy (MATCH_FOUND)."
+                    )
+                ],
+            )
+        )
+
     return None
 
 # Application wrapper using Vertex AI Agent Engines AdkApp

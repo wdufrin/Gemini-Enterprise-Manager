@@ -160,27 +160,126 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
 
   const getAssociatedApps = (collectionName: string) => {
     const collectionId = collectionName.split("/").pop() || "";
+    if (!collectionId) return [];
+
     if (collectionId === "default_collection") {
+      const defaultDsIds = new Set(
+        dataStores
+          .filter(
+            (ds) =>
+              ds.name.includes("/collections/default_collection/") ||
+              !ds.name.includes("/collections/"),
+          )
+          .map((ds) => ds.name.split("/").pop() || "")
+          .filter(Boolean),
+      );
+      const matchedDefaultEngines = engines.filter((engine) =>
+        engine.dataStoreIds?.some((rawRef: string) => {
+          const bareId = rawRef.split("/").pop() || "";
+          return (
+            rawRef.includes("/collections/default_collection/") ||
+            defaultDsIds.has(bareId)
+          );
+        }),
+      );
+      if (matchedDefaultEngines.length > 0) {
+        return Array.from(
+          new Set(
+            matchedDefaultEngines
+              .map((e) => e.displayName || e.name.split("/").pop() || "")
+              .filter(Boolean),
+          ),
+        );
+      }
       return ["Default Search"];
     }
 
-    const matchingDsIds = dataStores
-      .map((ds) => ds.name.split("/").pop() || "")
-      .filter(
-        (dsId) =>
-          dsId.startsWith(collectionId) || dsId.includes(collectionId)
-      );
+    // Collect candidate datastore IDs & full resource paths for custom connector collections:
+    // 1. DataStores array (if any belong to or match this collection)
+    // 2. Connector entities (`entity.dataStore` resource path or `<collectionId>_<entityName>`)
+    // 3. Direct Discovery Engine naming convention `<collectionId>_*` / `<collectionId>-*` / `<collectionId>`
+    const candidateShortIds = new Set<string>([collectionId]);
+    const candidateFullPaths = new Set<string>();
 
-    if (matchingDsIds.length === 0) return [];
+    for (const ds of dataStores) {
+      const dsShort = ds.name.split("/").pop() || "";
+      if (
+        ds.name.includes(`/collections/${collectionId}/`) ||
+        dsShort === collectionId ||
+        dsShort.startsWith(`${collectionId}_`) ||
+        dsShort.startsWith(`${collectionId}-`)
+      ) {
+        if (dsShort) candidateShortIds.add(dsShort);
+        candidateFullPaths.add(ds.name);
+      }
+    }
+
+    const colObj = collections.find((c) => c.name === collectionName);
+    if (Array.isArray(colObj?.dataStores)) {
+      for (const ds of colObj.dataStores) {
+        if (ds?.name) {
+          candidateFullPaths.add(ds.name);
+          const shortId = ds.name.split("/").pop();
+          if (shortId) candidateShortIds.add(shortId);
+        }
+      }
+    }
+
+    const valResult = validationResults[collectionName];
+    const detailsObj =
+      valResult?.details && typeof valResult.details === "object"
+        ? valResult.details
+        : undefined;
+    const connectorObj =
+      valResult?.dataConnector ||
+      detailsObj?.connectorState ||
+      (colObj?.dataConnector && typeof colObj.dataConnector === "object"
+        ? (colObj.dataConnector as DataConnector)
+        : undefined);
+
+    if (Array.isArray(connectorObj?.entities)) {
+      for (const entity of connectorObj.entities) {
+        if (!entity || typeof entity !== "object") continue;
+        const entRecord = entity as Record<string, unknown>;
+        if (typeof entRecord.dataStore === "string" && entRecord.dataStore.trim()) {
+          const dsPath = entRecord.dataStore.trim();
+          candidateFullPaths.add(dsPath);
+          const dsShort = dsPath.split("/").pop();
+          if (dsShort) candidateShortIds.add(dsShort);
+        }
+        const rawEntityName =
+          (typeof entRecord.entityName === "string" && entRecord.entityName) ||
+          (typeof entRecord.name === "string" && entRecord.name) ||
+          "";
+        const shortEntity = rawEntityName.split("/").pop()?.trim();
+        if (shortEntity) {
+          candidateShortIds.add(`${collectionId}_${shortEntity}`);
+          candidateShortIds.add(`${collectionId}-${shortEntity}`);
+        }
+      }
+    }
 
     const associatedEngines = engines.filter((engine) =>
-      engine.dataStoreIds?.some((dsId: string) =>
-        matchingDsIds.includes(dsId)
-      )
+      engine.dataStoreIds?.some((rawRef: string) => {
+        if (!rawRef) return false;
+        if (candidateFullPaths.has(rawRef)) return true;
+        if (rawRef.includes(`/collections/${collectionId}/`)) return true;
+        const bareId = rawRef.split("/").pop() || "";
+        if (!bareId) return false;
+        return (
+          candidateShortIds.has(bareId) ||
+          bareId.startsWith(`${collectionId}_`) ||
+          bareId.startsWith(`${collectionId}-`)
+        );
+      }),
     );
 
-    return associatedEngines.map(
-      (e) => e.displayName || e.name.split("/").pop() || ""
+    return Array.from(
+      new Set(
+        associatedEngines
+          .map((e) => e.displayName || e.name.split("/").pop() || "")
+          .filter(Boolean),
+      ),
     );
   };
 
@@ -415,6 +514,7 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
 
   return {
     config,
+    setConfig,
     collections,
     isLoading,
     error,

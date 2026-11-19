@@ -38,4 +38,6 @@ export * from "./api/a2a";
 export * from "./api/notebooks";
 export * from "./api/mcp";
 export * from "./api/registry";
-export * from "./api/liveDocSyncService";
+export * from "./api/auditLogs";
+export * from "./api/alertPolicies";
+export * from "./api/secretManager";

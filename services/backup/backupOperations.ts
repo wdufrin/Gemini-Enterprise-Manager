@@ -113,6 +113,16 @@ export async function backupDiscoveryResources(
 
     for (const engine of engines) {
       const appId = engine.name.split('/').pop()!;
+      if ('getEngine' in api && typeof api.getEngine === 'function') {
+        try {
+          const fullEngine = await api.getEngine(appId, { ...apiConfig, collectionId, appId });
+          if (fullEngine) {
+            Object.assign(engine, fullEngine);
+          }
+        } catch {
+          // Keep summary engine fields returned by listResources
+        }
+      }
       const assistants: Assistant[] = [];
       let asstToken: string | undefined = undefined;
       do {
@@ -131,6 +141,21 @@ export async function backupDiscoveryResources(
 
       for (const assistant of assistants) {
         const assistantId = assistant.name.split('/').pop()!;
+        if ('getAssistant' in api && typeof api.getAssistant === 'function') {
+          try {
+            const fullAssistant = await api.getAssistant(assistant.name, {
+              ...apiConfig,
+              collectionId,
+              appId,
+              assistantId,
+            });
+            if (fullAssistant) {
+              Object.assign(assistant, fullAssistant);
+            }
+          } catch {
+            // Keep summary assistant fields returned by listResources
+          }
+        }
         const agents: Agent[] = [];
         let agtToken: string | undefined = undefined;
         try {

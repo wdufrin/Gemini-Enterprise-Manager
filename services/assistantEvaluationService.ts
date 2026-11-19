@@ -82,6 +82,8 @@ export interface SkillBenchmarkQueryRun {
   citationsCount: number;
   routedSources: string[];
   skillTriggered: boolean;
+  /** True when grounding citations or target source references were returned (tracked separately from explicit skill invocation). */
+  citationMatched?: boolean;
   skippedReason?: string;
   errorMessage?: string;
 }
@@ -2820,12 +2822,27 @@ Activate this skill when the user specifically asks about **${profile.domainLabe
     });
   }
 
-  // Search Tier & LLM Add-On check
+  // Search Tier & LLM Add-On check (skip penalty when engine.solutionType is SOLUTION_TYPE_GENERATIVE_CHAT)
+  const isGenerativeChatEngine = engine?.solutionType === 'SOLUTION_TYPE_GENERATIVE_CHAT';
   const searchTier = engine.searchEngineConfig?.searchTier || 'SEARCH_TIER_STANDARD';
   const searchAddOns = engine.searchEngineConfig?.searchAddOns || [];
   const hasLlmAddOn = searchAddOns.includes('SEARCH_ADD_ON_LLM');
 
-  if (searchTier !== 'SEARCH_TIER_ENTERPRISE' || !hasLlmAddOn) {
+  if (isGenerativeChatEngine) {
+    findings.push({
+      id: 'config-search-tier-optimal',
+      category: 'ASSISTANT_AND_ENGINE_CONFIG',
+      severity: 'PASS',
+      title: 'Generative Chat Solution Type (Native Conversational Grounding)',
+      summary:
+        'Engine uses SOLUTION_TYPE_GENERATIVE_CHAT; Search Engine Tier and Search LLM Add-On flags are not required.',
+      currentValue: 'SOLUTION_TYPE_GENERATIVE_CHAT',
+      recommendedValue: 'SOLUTION_TYPE_GENERATIVE_CHAT',
+      impact: 'Native Gemini Enterprise conversational grounding active.',
+      remediation: 'No action required.',
+      targetTab: 'overview',
+    });
+  } else if (searchTier !== 'SEARCH_TIER_ENTERPRISE' || !hasLlmAddOn) {
     findings.push({
       id: 'config-search-tier-or-llm-addon',
       category: 'ASSISTANT_AND_ENGINE_CONFIG',
@@ -4269,6 +4286,8 @@ export async function runSkillBenchmarkPhase(
     let citationRefsTrace = '';
     let skippedReason: string | undefined;
     let diagnosticJson = '';
+    let adkAuthorTrace = '';
+    let toolCallTrace = '';
     let errorMessage: string | undefined;
 
     try {
@@ -4284,6 +4303,9 @@ export async function runSkillBenchmarkPhase(
             firstWireChunkMs = chunkElapsedMs;
           }
 
+          if (chunk.answer?.adkAuthor) {
+            adkAuthorTrace += String(chunk.answer.adkAuthor) + ' ';
+          }
           if (chunk.answer?.diagnosticInfo) {
             try {
               diagnosticJson += JSON.stringify(chunk.answer.diagnosticInfo) + ' ';
@@ -4298,6 +4320,19 @@ export async function runSkillBenchmarkPhase(
 
           if (chunk.answer?.replies) {
             for (const reply of chunk.answer.replies) {
+              const rawReply = reply as Record<string, unknown>;
+              if (rawReply.functionCall || rawReply.toolCall || rawReply.agentInfo) {
+                try {
+                  toolCallTrace +=
+                    JSON.stringify({
+                      functionCall: rawReply.functionCall,
+                      toolCall: rawReply.toolCall,
+                      agentInfo: rawReply.agentInfo,
+                    }) + ' ';
+                } catch {
+                  // Ignore non-serializable tool metadata
+                }
+              }
               const refs = reply.groundedContent?.textGroundingMetadata?.references;
               if (Array.isArray(refs)) {
                 citationsCount += refs.length;
@@ -4309,6 +4344,18 @@ export async function runSkillBenchmarkPhase(
               }
               const replyContent = reply.groundedContent?.content || reply.content;
               if (replyContent) {
+                const rawContent = replyContent as Record<string, unknown>;
+                if (rawContent.functionCall || rawContent.toolCall || rawContent.executableCode) {
+                  try {
+                    toolCallTrace +=
+                      JSON.stringify({
+                        functionCall: rawContent.functionCall,
+                        toolCall: rawContent.toolCall,
+                      }) + ' ';
+                  } catch {
+                    // Ignore non-serializable content tool metadata
+                  }
+                }
                 const elapsedMs = Math.max(1, Math.round(nowMs() - startMs));
                 if (firstTokenMs === null && (replyContent.text || replyContent.thought)) {
                   firstTokenMs = elapsedMs;
@@ -4353,22 +4400,28 @@ export async function runSkillBenchmarkPhase(
       combinedTrace.includes(src.toLowerCase()),
     );
 
+    const invocationTrace =
+      `${adkAuthorTrace} ${diagnosticJson} ${toolCallTrace} ${thoughtSteps.join(' ')}`.toLowerCase();
     const skillNameLower = skillDraft.displayName.trim().toLowerCase();
     const skillIdLower = skillDraft.skillId.trim().toLowerCase();
-    const mentionsSkill =
-      (skillNameLower.length >= 4 && combinedTrace.includes(skillNameLower)) ||
-      (skillIdLower.length >= 4 && combinedTrace.includes(skillIdLower));
+    const isEngineSuiteProbe = !skillIdLower || skillIdLower === 'engine-latency-suite';
 
-    const hasExplicitSkillOrTargets =
-      skillDraft.targetSources.length > 0 ||
-      (skillIdLower.length >= 4 && skillIdLower !== 'engine-latency-suite');
+    const mentionsSkill =
+      !isEngineSuiteProbe &&
+      ((skillIdLower.length >= 2 &&
+        (invocationTrace.includes(`agents/${skillIdLower}`) ||
+          (skillIdLower.length >= 4 && invocationTrace.includes(skillIdLower)))) ||
+        (skillNameLower.length >= 4 && invocationTrace.includes(skillNameLower)));
+
+    const citationMatched =
+      !errorMessage && !skippedReason && (citationsCount > 0 || routedSources.length > 0);
 
     const skillTriggered =
       !errorMessage &&
       !skippedReason &&
-      (mentionsSkill ||
-        routedSources.length > 0 ||
-        (!hasExplicitSkillOrTargets && thoughtSteps.length > 0 && citationsCount > 0));
+      (isEngineSuiteProbe
+        ? routedSources.length > 0 || (thoughtSteps.length > 0 && citationsCount > 0)
+        : mentionsSkill);
 
     runs.push({
       query,
@@ -4383,6 +4436,7 @@ export async function runSkillBenchmarkPhase(
       citationsCount,
       routedSources,
       skillTriggered,
+      citationMatched,
       ...(skippedReason ? { skippedReason } : {}),
       ...(errorMessage ? { errorMessage } : {}),
     });

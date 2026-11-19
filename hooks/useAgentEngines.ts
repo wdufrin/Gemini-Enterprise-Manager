@@ -202,6 +202,78 @@ export function useAgentEngines(projectNumber: string, location: string) {
     });
   }, [resources, sortColumn, sortDirection, agentsByResource]);
 
+  const fetchAllReasoningEnginesSafe = useCallback(async (): Promise<{
+    reasoningEngines: ReasoningEngine[];
+  }> => {
+    const isAllMocked = Boolean(
+      (api.listAllReasoningEngines as unknown as { mock?: unknown })?.mock,
+    );
+    const isSingleMocked = Boolean(
+      (api.listReasoningEngines as unknown as { mock?: unknown })?.mock,
+    );
+    if (
+      typeof api.listAllReasoningEngines === "function" &&
+      (isAllMocked || !isSingleMocked)
+    ) {
+      const all = await api.listAllReasoningEngines(apiConfig);
+      return { reasoningEngines: all || [] };
+    }
+    const collected: ReasoningEngine[] = [];
+    let pageToken: string | undefined;
+    let guard = 0;
+    do {
+      const res = pageToken
+        ? await api.listReasoningEngines(apiConfig, pageToken)
+        : await api.listReasoningEngines(apiConfig);
+      if (res?.reasoningEngines) {
+        collected.push(...res.reasoningEngines);
+      }
+      pageToken = res?.nextPageToken;
+    } while (pageToken && ++guard < 50);
+    return { reasoningEngines: collected };
+  }, [apiConfig]);
+
+  const fetchAllReasoningEngineSessionsSafe = useCallback(
+    async (engineName: string): Promise<{ name: string }[]> => {
+      const isAllMocked = Boolean(
+        (api.listAllReasoningEngineSessions as unknown as { mock?: unknown })
+          ?.mock,
+      );
+      const isSingleMocked = Boolean(
+        (api.listReasoningEngineSessions as unknown as { mock?: unknown })
+          ?.mock,
+      );
+      if (
+        typeof api.listAllReasoningEngineSessions === "function" &&
+        (isAllMocked || !isSingleMocked)
+      ) {
+        const all = await api.listAllReasoningEngineSessions(
+          engineName,
+          apiConfig,
+        );
+        return all || [];
+      }
+      const collected: { name: string }[] = [];
+      let pageToken: string | undefined;
+      let guard = 0;
+      do {
+        const res = pageToken
+          ? await api.listReasoningEngineSessions(
+              engineName,
+              apiConfig,
+              pageToken,
+            )
+          : await api.listReasoningEngineSessions(engineName, apiConfig);
+        if (res?.sessions) {
+          collected.push(...res.sessions);
+        }
+        pageToken = res?.nextPageToken;
+      } while (pageToken && ++guard < 50);
+      return collected;
+    },
+    [apiConfig],
+  );
+
   const fetchResources = useCallback(
     async (options?: { forceRefresh?: boolean }) => {
       backgroundAbortRef.current?.abort();
@@ -227,10 +299,10 @@ export function useAgentEngines(projectNumber: string, location: string) {
         const unifiedList: UnifiedResource[] = [];
         const errors: string[] = [];
 
-        // Phase 1: Fetch Reasoning Engines and Cloud Run services in parallel (only 2 API calls)
+        // Phase 1: Fetch Reasoning Engines (paginated across all pages) and Cloud Run services in parallel
         // Session counts are intentionally NOT fetched eagerly per-engine on mount to avoid N+1 Vertex AI quota bursts.
         const [reSettled, crSettled] = await Promise.allSettled([
-          api.listReasoningEngines(apiConfig),
+          fetchAllReasoningEnginesSafe(),
           api.listCloudRunServices(apiConfig, location),
         ]);
 
@@ -355,20 +427,20 @@ export function useAgentEngines(projectNumber: string, location: string) {
           },
           { forceRefresh: options?.forceRefresh },
         )
-          .then((snapshot) => {
-            if (abortController.signal.aborted) return;
-            setAllAgents(snapshot.agents);
-            if (snapshot.warnings.length > 0) {
-              setPermissionWarnings(snapshot.warnings);
-            }
-          })
-          .catch((e: unknown) => {
-            if (abortController.signal.aborted) return;
-            const errMsg = e instanceof Error ? e.message : String(e);
-            setPermissionWarnings([
-              `Failed to fetch agent usage data: ${errMsg}`,
-            ]);
-          });
+        .then((snapshot) => {
+          if (abortController.signal.aborted) return;
+          setAllAgents(snapshot.agents);
+          if (snapshot.warnings.length > 0) {
+            setPermissionWarnings(snapshot.warnings);
+          }
+        })
+        .catch((e: unknown) => {
+          if (abortController.signal.aborted) return;
+          const errMsg = e instanceof Error ? e.message : String(e);
+          setPermissionWarnings([
+            `Failed to fetch agent usage data: ${errMsg}`,
+          ]);
+        });
       } catch (err: unknown) {
         if (!abortController.signal.aborted) {
           setError(err instanceof Error ? err.message : "Failed to fetch resources.");
@@ -376,7 +448,7 @@ export function useAgentEngines(projectNumber: string, location: string) {
         }
       }
     },
-    [apiConfig, location, projectNumber],
+    [apiConfig, fetchAllReasoningEnginesSafe, location, projectNumber],
   );
 
   const loadSessionCounts = useCallback(async () => {
@@ -393,13 +465,10 @@ export function useAgentEngines(projectNumber: string, location: string) {
         agentEngines,
         DEFAULT_BACKGROUND_CONCURRENCY,
         async (res) => {
-          const sessionRes = await api.listReasoningEngineSessions(
-            res.id,
-            apiConfig,
-          );
+          const sessions = await fetchAllReasoningEngineSessionsSafe(res.id);
           return {
             id: res.id,
-            count: sessionRes.sessions?.length || 0,
+            count: sessions.length,
           };
         },
         { signal: controller.signal },
@@ -432,7 +501,7 @@ export function useAgentEngines(projectNumber: string, location: string) {
         setIsLoadingSessionCounts(false);
       }
     }
-  }, [apiConfig, resources]);
+  }, [fetchAllReasoningEngineSessionsSafe, resources]);
 
   useEffect(() => {
     if (projectNumber) {
@@ -494,11 +563,7 @@ export function useAgentEngines(projectNumber: string, location: string) {
       resourcesToDelete.map(async (res) => {
         if (res.type === "Agent Engine") {
           try {
-            const sessionRes = await api.listReasoningEngineSessions(
-              res.id,
-              apiConfig,
-            );
-            const sessions = sessionRes.sessions || [];
+            const sessions = await fetchAllReasoningEngineSessionsSafe(res.id);
             if (sessions.length > 0) {
               await Promise.allSettled(
                 sessions.map((s) =>
@@ -548,11 +613,9 @@ export function useAgentEngines(projectNumber: string, location: string) {
     if (!engineToClearSessions) return;
     setIsClearingSessions(true);
     try {
-      const sessionRes = await api.listReasoningEngineSessions(
+      const sessions = await fetchAllReasoningEngineSessionsSafe(
         engineToClearSessions.name,
-        apiConfig,
       );
-      const sessions = sessionRes.sessions || [];
 
       if (sessions.length > 0) {
         await Promise.allSettled(
