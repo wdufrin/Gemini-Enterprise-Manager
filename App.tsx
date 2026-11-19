@@ -73,6 +73,7 @@ const InnerApp: React.FC = () => {
   const currentPage = useMemo(() => routeToPage(location.pathname), [location.pathname]);
   const [pageContext, setPageContext] = useState<unknown>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
 
@@ -657,7 +658,13 @@ const InnerApp: React.FC = () => {
       isGapiReady={isGapiReady}
       initialEnrollment={projectEnrollment}
     >
-      <div className="flex h-screen w-full overflow-hidden bg-gray-900 text-gray-100 font-sans">
+      <div className="flex h-screen w-full overflow-hidden bg-[#0b0f19] text-gray-100 font-sans">
+        <a
+          href="#main-workspace"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[200] focus:px-4 focus:py-2 focus:bg-blue-600 focus:text-white focus:text-xs focus:font-semibold focus:rounded-lg focus:shadow-2xl"
+        >
+          Skip to main content
+        </a>
         <Sidebar
           currentPage={currentPage}
           setCurrentPage={handleMenuClick}
@@ -665,12 +672,24 @@ const InnerApp: React.FC = () => {
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           onOpenFeedback={() => setIsFeedbackModalOpen(true)}
+          isMobileOpen={isMobileSidebarOpen}
+          onCloseMobile={() => setIsMobileSidebarOpen(false)}
         />
-        <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <header className="bg-gray-800 border-b border-gray-700 px-4 py-2 min-h-[3.5rem] flex flex-wrap items-center justify-between gap-x-4 gap-y-2 shrink-0">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0 flex-1">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          <header className="bg-gray-900/95 border-b border-gray-800 px-3 sm:px-4 h-14 flex items-center justify-between gap-2 sm:gap-3 shrink-0">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => setIsMobileSidebarOpen(true)}
+                aria-label="Open navigation menu"
+                className="lg:hidden p-1.5 rounded-lg text-gray-300 hover:text-white hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 shrink-0"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
               <Breadcrumbs currentPage={currentPage} context={pageContext} />
-              <span className="text-gray-600 hidden sm:inline select-none">•</span>
+              <span className="text-gray-600 hidden md:inline select-none" aria-hidden="true">/</span>
               <HeaderProjectInput
                 projectId={projectId}
                 projectNumber={projectNumber}
@@ -678,19 +697,19 @@ const InnerApp: React.FC = () => {
               />
             </div>
 
-            <div className="flex items-center gap-2 xl:gap-3 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsCommandPaletteOpen(true)}
                 aria-label="Open Command Palette"
                 title="Quick Switcher (⌘K / Ctrl+K)"
-                className="flex items-center gap-2 px-2.5 xl:px-3 py-1.5 bg-gray-900/90 hover:bg-gray-750 border border-gray-700 hover:border-gray-600 rounded-lg text-xs text-gray-300 hover:text-white transition-colors whitespace-nowrap shrink-0"
+                className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-800/80 hover:bg-gray-750 border border-gray-700 hover:border-gray-600 rounded-lg text-xs text-gray-300 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 whitespace-nowrap shrink-0"
               >
-                <svg className="w-3.5 h-3.5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-3.5 h-3.5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                <span className="hidden sm:inline">Jump to...</span>
-                <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-gray-800 border border-gray-700 rounded text-gray-400">
+                <span className="hidden md:inline">Jump to...</span>
+                <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono bg-gray-900 border border-gray-700 rounded text-gray-400">
                   ⌘K
                 </kbd>
               </button>
@@ -699,9 +718,9 @@ const InnerApp: React.FC = () => {
                 onClick={() => setIsFeedbackModalOpen(true)}
                 aria-label="Report Issue or Feedback"
                 title="Report Issue or Feedback (PII-Sanitized GitHub Issue)"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-gray-700 transition-colors border border-transparent hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 whitespace-nowrap shrink-0"
+                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors border border-transparent hover:border-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 whitespace-nowrap shrink-0"
               >
-                <svg className="w-4 h-4 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-4 h-4 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -709,19 +728,21 @@ const InnerApp: React.FC = () => {
                     d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
                   />
                 </svg>
-                <span className="hidden xl:inline text-xs font-medium text-gray-300">Feedback</span>
+                <span className="hidden 2xl:inline text-xs font-medium text-gray-300">Feedback</span>
               </button>
               <HelpButton onNavigateToPage={handleMenuClick} />
-              <div className="h-6 w-px bg-gray-700 mx-0.5 hidden md:block"></div>
-              <AccessTokenInput
-                accessToken={accessToken}
-                setAccessToken={handleSetAccessToken}
-                userProfile={userProfile}
-                onSignOut={handleSignOut}
-              />
+              <div className="h-5 w-px bg-gray-800 mx-0.5 hidden md:block" aria-hidden="true"></div>
+              <div className="hidden sm:block">
+                <AccessTokenInput
+                  accessToken={accessToken}
+                  setAccessToken={handleSetAccessToken}
+                  userProfile={userProfile}
+                  onSignOut={handleSignOut}
+                />
+              </div>
             </div>
           </header>
-          <div key={currentPage} className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 xl:p-6 relative">
+          <main id="main-workspace" tabIndex={-1} key={currentPage} className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar p-3 sm:p-4 xl:p-6 relative focus:outline-none">
             <ErrorBoundary boundaryName={currentPage} resetKey={currentPage}>
               <React.Suspense
                 fallback={
@@ -747,8 +768,8 @@ const InnerApp: React.FC = () => {
                 />
               </React.Suspense>
             </ErrorBoundary>
-          </div>
-        </main>
+          </main>
+        </div>
       </div>
 
       <CommandPaletteModal

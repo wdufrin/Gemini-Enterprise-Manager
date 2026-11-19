@@ -103,14 +103,14 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
     const [searchQuery, setSearchQuery] = useState('');
     const [viewMode, setViewMode] = useState<'graph' | 'table'>('graph');
     
-    // Track previous loading state
+    // Track previous loading state (keep Scan Log expanded if scan ended with an error)
     const isLoadingRef = useRef(isLoading);
     useEffect(() => {
-        if (isLoadingRef.current && !isLoading) { 
+        if (isLoadingRef.current && !isLoading && !error) { 
             setIsLogExpanded(false); 
         }
         isLoadingRef.current = isLoading;
-    }, [isLoading]);
+    }, [isLoading, error]);
     
     const handleScanClick = () => {
         setIsLogExpanded(true);
@@ -448,6 +448,8 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                 {/* Popup Panel (Absolute Positioned over Graph) */}
                 <DetailsPanel
                     node={selectedNode}
+                    edges={edges}
+                    nodes={nodes}
                     projectNumber={projectNumber}
                     onClose={handleClearSelection}
                     onNavigate={onNavigate}

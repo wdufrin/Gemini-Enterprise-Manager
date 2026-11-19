@@ -14,7 +14,16 @@
  * limitations under the License.
  */
 
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, {
+    createContext,
+    useContext,
+    useState,
+    ReactNode,
+    useEffect,
+    useRef,
+    useCallback,
+    useMemo,
+} from 'react';
 import * as api from '../services/apiService';
 
 export interface ApiHistoryItem {
@@ -34,10 +43,14 @@ interface GlobalDebugContextType {
     showCurlPreview: boolean;
     setShowCurlPreview: (show: boolean) => void;
     apiHistory: ApiHistoryItem[];
+    getApiHistory: () => ApiHistoryItem[];
     clearHistory: () => void;
 }
 
 const GlobalDebugContext = createContext<GlobalDebugContextType | undefined>(undefined);
+
+const MAX_HISTORY_ITEMS = 50;
+const BURST_COALESCE_MS = 120;
 
 const createHistoryId = (): string => {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -47,9 +60,23 @@ const createHistoryId = (): string => {
 };
 
 export const GlobalDebugProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    // Default to false for sidebar visibility; ring buffer always captures last 50 API calls for R2 inspection.
-    const [showCurlPreview, setShowCurlPreview] = useState(false);
+    // Default to false for sidebar visibility; ring buffer always captures last 50 API calls
+    // while coalescing rapid bursts (e.g. 50 parallel RPCs -> 1 trailing React render instead of 50).
+    const [showCurlPreview, setShowCurlPreviewState] = useState(false);
     const [apiHistory, setApiHistory] = useState<ApiHistoryItem[]>([]);
+    const historyBufferRef = useRef<ApiHistoryItem[]>([]);
+    const lastFlushAtRef = useRef(0);
+    const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const setShowCurlPreview = useCallback((show: boolean) => {
+        setShowCurlPreviewState(show);
+        if (show) {
+            lastFlushAtRef.current = 0;
+            setApiHistory([...historyBufferRef.current]);
+        }
+    }, []);
+
+    const getApiHistory = useCallback(() => historyBufferRef.current, []);
 
     useEffect(() => {
         api.setDebugLogger((log) => {
@@ -66,18 +93,56 @@ export const GlobalDebugProvider: React.FC<{ children: ReactNode }> = ({ childre
                 errorMessage: log.errorMessage,
             };
 
-            setApiHistory((prev) => [newItem, ...prev].slice(0, 50));
+            const nextBuffer = [newItem, ...historyBufferRef.current].slice(0, MAX_HISTORY_ITEMS);
+            historyBufferRef.current = nextBuffer;
+
+            const now = Date.now();
+            if (now - lastFlushAtRef.current >= BURST_COALESCE_MS && !flushTimerRef.current) {
+                lastFlushAtRef.current = now;
+                setApiHistory(nextBuffer);
+                return;
+            }
+
+            if (!flushTimerRef.current) {
+                flushTimerRef.current = setTimeout(() => {
+                    flushTimerRef.current = null;
+                    lastFlushAtRef.current = Date.now();
+                    setApiHistory([...historyBufferRef.current]);
+                }, BURST_COALESCE_MS);
+            }
         });
 
         return () => {
+            if (flushTimerRef.current) {
+                clearTimeout(flushTimerRef.current);
+                flushTimerRef.current = null;
+            }
             api.setDebugLogger(null);
         };
     }, []);
 
-    const clearHistory = () => setApiHistory([]);
+    const clearHistory = useCallback(() => {
+        if (flushTimerRef.current) {
+            clearTimeout(flushTimerRef.current);
+            flushTimerRef.current = null;
+        }
+        historyBufferRef.current = [];
+        setApiHistory([]);
+    }, []);
+
+    const contextValue = useMemo(
+        () => ({
+            showCurlPreview,
+            setShowCurlPreview,
+            apiHistory,
+            getApiHistory,
+            clearHistory,
+        }),
+        [showCurlPreview, setShowCurlPreview, apiHistory, getApiHistory, clearHistory],
+    );
 
     return (
-        <GlobalDebugContext.Provider value={{ showCurlPreview, setShowCurlPreview, apiHistory, clearHistory }}>
+        <GlobalDebugContext.Provider value={contextValue}>
             {children}
         </GlobalDebugContext.Provider>
     );

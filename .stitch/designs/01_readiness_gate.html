@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={theme:{extend:{colors:{'surface-obsidian':'#0b0f19','surface-nav':'#0f172a','border-subtle':'#1e293b','surface':'#0b0f19','surface-container-low':'#0d1322','surface-container':'#111827','surface-container-high':'#1e293b','on-surface':'#f8fafc','on-surface-variant':'#94a3b8','primary':'#38bdf8','on-primary':'#082f49','primary-container':'#0369a1','on-primary-container':'#e0f2fe','success':'#10b981','on-success':'#022c22'},fontFamily:{headline:['Inter','system-ui','sans-serif'],body:['Inter','system-ui','sans-serif']}}}}</script></head><body class="bg-surface font-body text-on-surface"><header class="fixed top-0 left-0 right-0 h-14 bg-surface-nav border-b border-border-subtle z-50 px-4 flex items-center justify-between"><div class="flex items-center gap-3"><img alt="Gemini Enterprise Manager Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCjMzCSN7Q8ebh4GtU2J9mHn4uPM6uCCT1H6iaqjGnPZByWMbewE9Q310xGcRvN7rvHAJBZ5spWGLFgw1Pbfe2D74XRRfmI3b1SrH0ARmEzIUAfh1kOSmbQlolwZraOWnbHzNXcYLulaR2qHRy9m60VZCqmF0AnKoY23pb41s56A9X2f_PRPwzA_8N0Z0k2b9kaEmyO5pP7Q91hQQVIdpusFx4UnaKJYiikS170CrBHcDGAd4Tlac79klmlUiWN-PZ9WJCTGcdZzDG1"/><div class="flex items-center gap-2"><span class="text-sm font-semibold tracking-tight text-on-surface">Gemini Enterprise Manager</span><span class="px-2 py-0.5 text-[10px] font-mono font-medium rounded-full bg-surface-container-high text-primary border border-border-subtle">v2.4-preview</span></div></div><div class="flex items-center gap-5"><div class="flex items-center gap-2 px-2.5 py-1 rounded bg-surface-obsidian/60 border border-border-subtle text-xs"><span class="w-2 h-2 rounded-full bg-success animate-pulse"></span><span class="text-[11px] font-mono text-on-surface-variant">Systems Normal</span></div><a class="flex items-center gap-1 text-xs text-on-surface-variant hover:text-on-surface transition-colors font-medium" href="#"><span class="material-symbols-outlined text-[15px]">description</span>Documentation<span class="material-symbols-outlined text-[13px]">open_in_new</span></a><div class="h-4 w-px bg-border-subtle"></div><div class="flex items-center gap-3"><div class="flex flex-col text-right leading-none"><span class="text-xs font-medium text-on-surface">alex.vance@acme-cloud.internal</span><span class="text-[10px] font-mono text-on-surface-variant mt-0.5">IAM: Org Admin</span></div><div class="relative group"><button class="flex items-center gap-1.5 p-1 rounded hover:bg-surface-container-high transition-colors text-on-surface-variant hover:text-on-surface" type="button"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><span class="material-symbols-outlined text-[16px]">expand_more</span></button><div class="absolute right-0 top-full mt-1.5 w-56 rounded-md bg-surface-container border border-border-subtle shadow-xl py-1 hidden group-hover:block"><div class="px-3 py-2 border-b border-border-subtle"><p class="text-[11px] text-on-surface-variant uppercase tracking-wider font-semibold">Context Account</p><p class="text-xs font-mono text-on-surface font-medium truncate">acme-cloud.internal</p></div><a class="flex items-center gap-2 px-3 py-2 text-xs text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#"><span class="material-symbols-outlined text-[16px]">switch_account</span>Switch Account</a><a class="flex items-center gap-2 px-3 py-2 text-xs text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#"><span class="material-symbols-outlined text-[16px]">security</span>IAM Credentials</a><div class="border-t border-border-subtle my-1"></div><a class="flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-surface-container-high transition-colors" href="#"><span class="material-symbols-outlined text-[16px]">logout</span>Sign Out</a></div></div></div></div></header><aside class="fixed left-0 top-14 bottom-0 w-64 bg-surface-obsidian border-r border-border-subtle z-40 flex flex-col justify-between p-3"><div class="space-y-6"><div class="px-3 pt-2"><p class="text-[10px] font-mono uppercase tracking-wider text-on-surface-variant font-semibold">Cloud Management</p></div><nav class="space-y-1" data-active-classes="bg-surface-container-high text-primary font-medium"><a aria-current="page" class="flex items-center gap-3 px-3 py-2 rounded transition-colors bg-surface-container-high text-primary font-medium" data-path="overview" href="#"><span class="material-symbols-outlined text-[18px]">grid_view</span>Overview</a><a class="flex items-center gap-3 px-3 py-2 rounded text-xs text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="model-deployments" href="#"><span class="material-symbols-outlined text-[18px]">neurology</span>Model Deployments</a><a class="flex items-center gap-3 px-3 py-2 rounded text-xs text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="endpoint-quotas" href="#"><span class="material-symbols-outlined text-[18px]">speed</span>Endpoint Quotas</a><a class="flex items-center gap-3 px-3 py-2 rounded text-xs text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="audit-telemetry" href="#"><span class="material-symbols-outlined text-[18px]">history_toggle_off</span>Audit &amp; Telemetry</a><a class="flex items-center gap-3 px-3 py-2 rounded text-xs text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="iam-policies" href="#"><span class="material-symbols-outlined text-[18px]">admin_panel_settings</span>IAM Policies</a></nav></div><div class="p-3 rounded bg-surface-container border border-border-subtle"><div class="flex items-center justify-between text-[11px] text-on-surface-variant mb-1"><span>Compute Region</span><span class="font-mono text-on-surface">us-central1</span></div><div class="flex items-center justify-between text-[11px] text-on-surface-variant"><span>Cluster SLA</span><span class="font-mono text-success">99.99%</span></div></div></aside><div class="pl-64"><main class="pt-14 min-h-screen bg-surface w-full px-8 pb-12"><div class="flex flex-col w-full">
+<!-- Top Ambient Glow Field -->
+<div class="relative w-full overflow-hidden">
+<div class="absolute -top-32 left-1/2 -translate-x-1/2 w-[720px] h-48 bg-gradient-to-r from-primary/10 via-primary-container/20 to-transparent blur-3xl pointer-events-none -z-10"></div>
+<!-- Header Section -->
+<div class="pt-6 pb-8 text-center max-w-4xl mx-auto px-4">
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-surface-container-high/60 backdrop-blur text-primary text-[11px] font-mono font-medium tracking-wide uppercase mb-4 shadow-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
+        Pre-Flight Environment Assessment
+      </div>
+<h1 class="text-2xl sm:text-3xl lg:text-4xl font-headline font-bold tracking-tight text-on-surface text-balance">
+        Enterprise AI Platform Readiness Gate
+      </h1>
+<p class="mt-2.5 text-xs sm:text-sm text-on-surface-variant max-w-2xl mx-auto leading-relaxed text-pretty">
+        Verify environment prerequisites, authenticate enterprise identity, and bind required Vertex AI &amp; Discovery Engine service agents before entering production console.
+      </p>
+<!-- Stepper Strip -->
+<div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-3 p-1.5 rounded-xl bg-surface-container-low shadow-xl">
+<!-- Step 1: Completed -->
+<div class="flex items-center gap-3 px-3.5 py-3 rounded-lg bg-surface-container transition-all">
+<div class="w-7 h-7 rounded-full bg-emerald-500/15 flex items-center justify-center text-emerald-400 shrink-0">
+<span class="material-symbols-outlined text-[17px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="flex flex-col text-left min-w-0">
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-mono uppercase text-emerald-400 font-semibold tracking-wider">Step 01 • Complete</span>
+</div>
+<span class="text-xs font-semibold text-on-surface truncate">Identity &amp; Credentials</span>
+<span class="text-[10px] font-mono text-on-surface-variant truncate">alex.vance@acme-cloud.internal</span>
+</div>
+</div>
+<!-- Step 2: Active -->
+<div class="relative flex items-center gap-3 px-3.5 py-3 rounded-lg bg-surface-container-high/80 shadow-md transition-all">
+<div class="absolute -inset-0.5 rounded-lg bg-primary/20 blur-[1px] -z-10"></div>
+<div class="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-on-primary font-mono text-xs font-bold shrink-0 shadow-lg shadow-primary/30">
+            02
+          </div>
+<div class="flex flex-col text-left min-w-0">
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-mono uppercase text-primary font-semibold tracking-wider">Step 02 • Active</span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+</div>
+<span class="text-xs font-semibold text-on-surface truncate">Target GCP Project</span>
+<span class="text-[10px] font-mono text-primary truncate">gemini-ai-core-prod-882</span>
+</div>
+</div>
+<!-- Step 3: Pending -->
+<div class="flex items-center gap-3 px-3.5 py-3 rounded-lg bg-surface-container/50 opacity-90 transition-all">
+<div class="w-7 h-7 rounded-full bg-surface-container-high flex items-center justify-center text-on-surface-variant font-mono text-xs font-medium shrink-0">
+            03
+          </div>
+<div class="flex flex-col text-left min-w-0">
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-mono uppercase text-amber-400 font-semibold tracking-wider">Step 03 • Action Required</span>
+</div>
+<span class="text-xs font-semibold text-on-surface truncate">API &amp; Service Readiness</span>
+<span class="text-[10px] font-mono text-amber-300/90 truncate">3 / 4 Checks Passed</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Primary Two-Column Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-2 max-w-7xl mx-auto w-full">
+<!-- LEFT COLUMN: Identity & Project Configuration -->
+<div class="lg:col-span-5 flex flex-col gap-6">
+<!-- Identity Verification Card -->
+<div class="rounded-xl bg-surface-container p-5 shadow-lg flex flex-col gap-4 relative overflow-hidden">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-lg bg-primary-container/40 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">verified_user</span>
+</div>
+<div>
+<h2 class="text-sm font-semibold text-on-surface font-headline">Enterprise Identity Status</h2>
+<p class="text-[11px] text-on-surface-variant">Validated through Cloud IAM Federation</p>
+</div>
+</div>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 shadow-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            Verified SSO
+          </span>
+</div>
+<div class="rounded-lg bg-surface-container-low p-3.5 flex flex-col gap-2.5">
+<div class="flex items-center justify-between text-xs">
+<span class="text-on-surface-variant">Domain Target</span>
+<span class="font-mono text-on-surface font-medium">@acme-cloud.internal</span>
+</div>
+<div class="flex items-center justify-between text-xs">
+<span class="text-on-surface-variant">Authenticated Identity</span>
+<span class="font-mono text-on-surface font-medium truncate max-w-[190px]">alex.vance</span>
+</div>
+<div class="flex items-center justify-between text-xs">
+<span class="text-on-surface-variant">Token TTL Window</span>
+<span class="font-mono text-primary flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">timer</span>
+              52m 14s remaining
+            </span>
+</div>
+</div>
+<!-- CLI Access Accordion -->
+<div class="rounded-lg bg-surface-obsidian p-3">
+<div class="flex items-center justify-between cursor-pointer select-none" id="cli-toggle" onclick="document.getElementById('cli-content').classList.toggle('hidden'); document.getElementById('cli-chevron').classList.toggle('rotate-180')">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[16px]">terminal</span>
+<span class="text-xs font-medium text-on-surface">CLI Access Token &amp; Credentials</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-[16px] transition-transform" id="cli-chevron">expand_more</span>
+</div>
+<div class="mt-3 flex flex-col gap-2.5" id="cli-content">
+<p class="text-[11px] text-on-surface-variant leading-relaxed">
+              Export an authorized temporary bearer token into your local environment for shell execution:
+            </p>
+<div class="relative rounded bg-surface-container-high/70 p-2.5 font-mono text-[11px] text-primary flex items-center justify-between">
+<code class="truncate pr-8 select-all">export GEMINI_AUTH_TOKEN=$(gcloud auth print-access-token)</code>
+<button class="absolute right-2 px-2 py-0.5 rounded bg-primary text-on-primary text-[9px] font-bold tracking-wider uppercase transition hover:brightness-110 active:scale-95" onclick="navigator.clipboard.writeText('export GEMINI_AUTH_TOKEN=$(gcloud auth print-access-token)'); this.innerText='COPIED'; setTimeout(()=&gt;this.innerText='COPY', 1800);" type="button">
+                COPY
+              </button>
+</div>
+<div class="flex items-center justify-between pt-1">
+<span class="text-[10px] text-on-surface-variant font-mono">OAuth 2.0 PKCE Session #tk_883019</span>
+<button class="text-[11px] font-medium text-primary hover:underline flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[13px]">sync</span>
+                Rotate Session
+              </button>
+</div>
+</div>
+</div>
+</div>
+<!-- Project Selection & Quota Card -->
+<div class="rounded-xl bg-surface-container p-5 shadow-lg flex flex-col gap-4">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-lg bg-primary-container/40 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">lan</span>
+</div>
+<div>
+<h2 class="text-sm font-semibold text-on-surface font-headline">GCP Project Context</h2>
+<p class="text-[11px] text-on-surface-variant">Active deployment anchor</p>
+</div>
+</div>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-container-high text-on-surface-variant">ID: 492019482103</span>
+</div>
+<!-- Validated Input Field -->
+<div class="space-y-1.5">
+<label class="text-[11px] font-mono text-on-surface-variant uppercase tracking-wider">Active Workspace Project</label>
+<div class="relative flex items-center">
+<input class="w-full bg-surface-container-low text-xs font-mono text-on-surface px-3 py-2.5 rounded-lg focus:outline-none" readonly="" type="text" value="gemini-ai-core-prod-882"/>
+<div class="absolute right-3 flex items-center gap-1.5 text-emerald-400 text-xs font-medium">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="hidden sm:inline text-[11px]">roles/projectAdmin</span>
+</div>
+</div>
+</div>
+<!-- Quick Switch Chips -->
+<div class="space-y-2">
+<div class="flex items-center justify-between text-[11px] text-on-surface-variant">
+<span>Quick Switch Profile</span>
+<span class="text-[10px] font-mono">Recent Projects</span>
+</div>
+<div class="flex flex-wrap gap-2">
+<button class="px-2.5 py-1 rounded-md text-[11px] font-mono font-medium bg-primary text-on-primary shadow-sm flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[13px]">done</span>
+              gemini-ai-core-prod-882
+            </button>
+<button class="px-2.5 py-1 rounded-md text-[11px] font-mono text-on-surface-variant bg-surface-container-low hover:bg-surface-container-high hover:text-on-surface transition" type="button">
+              ai-search-staging-04
+            </button>
+<button class="px-2.5 py-1 rounded-md text-[11px] font-mono text-on-surface-variant bg-surface-container-low hover:bg-surface-container-high hover:text-on-surface transition" type="button">
+              vertex-eval-sandbox-us
+            </button>
+<button class="px-2 py-1 rounded-md text-[11px] font-mono text-primary bg-primary-container/20 hover:bg-primary-container/40 transition flex items-center gap-0.5" type="button">
+<span class="material-symbols-outlined text-[13px]">add</span>
+              Custom ID
+            </button>
+</div>
+</div>
+<!-- Quota Alert Banner -->
+<div class="rounded-lg bg-surface-obsidian p-3.5 flex items-start gap-3">
+<div class="p-1 rounded bg-primary/10 text-primary shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[17px]">speed</span>
+</div>
+<div class="flex flex-col gap-1 min-w-0 text-xs">
+<div class="flex items-center justify-between">
+<span class="font-medium text-on-surface">Gemini 1.5 Pro Inference Quota</span>
+<span class="font-mono text-emerald-400 font-semibold text-[11px]">15,000 QPM</span>
+</div>
+<p class="text-[11px] text-on-surface-variant leading-snug">
+              US-Central1 &amp; Europe-West4 compute capacity allocations are validated for enterprise payload routing.
+            </p>
+<div class="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden mt-1">
+<div class="bg-primary h-full rounded-full" style="width: 24%"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- RIGHT COLUMN: Live Preflight Checklist & Gatekeeper -->
+<div class="lg:col-span-7 flex flex-col gap-6">
+<!-- Diagnostic Header Bar -->
+<div class="rounded-xl bg-surface-container p-5 shadow-lg flex flex-col gap-4">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-surface-container-high/40">
+<div>
+<div class="flex items-center gap-2">
+<h2 class="text-sm font-semibold text-on-surface font-headline">Automated Preflight Validation</h2>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-400/10 text-amber-300">
+                1 Unresolved Flag
+              </span>
+</div>
+<p class="text-[11px] text-on-surface-variant mt-0.5">Continuous runtime API inspection against target project</p>
+</div>
+<div class="flex items-center gap-2 self-start sm:self-auto">
+<span class="text-[10px] font-mono text-on-surface-variant">Last run: Just now</span>
+<button class="p-1.5 rounded-md bg-surface-container-high text-on-surface-variant hover:text-on-surface hover:bg-surface-obsidian transition" onclick="this.classList.add('animate-spin'); setTimeout(() =&gt; this.classList.remove('animate-spin'), 750);" title="Re-run Diagnostic" type="button">
+<span class="material-symbols-outlined text-[17px]">refresh</span>
+</button>
+</div>
+</div>
+<!-- Checklist Stream -->
+<div class="flex flex-col gap-3">
+<!-- Item 1: Discovery Engine API -->
+<div class="flex items-start justify-between p-3 rounded-lg bg-surface-container-low hover:bg-surface-container-high/40 transition">
+<div class="flex items-start gap-3">
+<div class="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[15px]" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<div class="flex flex-col">
+<span class="text-xs font-medium text-on-surface">Discovery Engine API</span>
+<span class="text-[11px] font-mono text-on-surface-variant">discoveryengine.googleapis.com</span>
+<span class="text-[10px] text-on-surface-variant mt-0.5">Multimodal vector search indexing enabled</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 shrink-0">
+              Enabled (v1alpha)
+            </span>
+</div>
+<!-- Item 2: Vertex AI API -->
+<div class="flex items-start justify-between p-3 rounded-lg bg-surface-container-low hover:bg-surface-container-high/40 transition">
+<div class="flex items-start gap-3">
+<div class="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[15px]" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<div class="flex flex-col">
+<span class="text-xs font-medium text-on-surface">Vertex AI Foundation API</span>
+<span class="text-[11px] font-mono text-on-surface-variant">aiplatform.googleapis.com</span>
+<span class="text-[10px] text-on-surface-variant mt-0.5">Model garden endpoints &amp; prediction pipeline active</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 shrink-0">
+              Enabled (v1)
+            </span>
+</div>
+<!-- Item 3: Cloud Resource Manager API -->
+<div class="flex items-start justify-between p-3 rounded-lg bg-surface-container-low hover:bg-surface-container-high/40 transition">
+<div class="flex items-start gap-3">
+<div class="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[15px]" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<div class="flex flex-col">
+<span class="text-xs font-medium text-on-surface">Cloud Resource Manager</span>
+<span class="text-[11px] font-mono text-on-surface-variant">cloudresourcemanager.googleapis.com</span>
+<span class="text-[10px] text-on-surface-variant mt-0.5">Organizational hierarchy and policy sync active</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 shrink-0">
+              Enabled
+            </span>
+</div>
+<!-- Item 4: IAM Service Agent Binding (Warning State) -->
+<div class="flex flex-col gap-2.5 p-3.5 rounded-lg bg-amber-500/5 transition" id="service-agent-item">
+<div class="flex items-start justify-between gap-2">
+<div class="flex items-start gap-3">
+<div class="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[15px]">warning</span>
+</div>
+<div class="flex flex-col">
+<span class="text-xs font-semibold text-on-surface">Vertex AI Service Agent IAM Binding</span>
+<span class="text-[10px] font-mono text-on-surface-variant truncate max-w-xs sm:max-w-md">service-492019482103@gcp-sa-aiplatform.iam.gserviceaccount.com</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-500/15 text-amber-300 shrink-0" id="agent-status-badge">
+                Action Required
+              </span>
+</div>
+<div class="ml-9 rounded bg-surface-obsidian/70 p-2.5 text-[11px] text-on-surface-variant flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+<p class="leading-relaxed">
+                Missing <code class="font-mono text-primary text-[10px]">roles/aiplatform.serviceAgent</code> role on dataset staging bucket.
+              </p>
+<button class="px-2.5 py-1 rounded bg-primary text-on-primary text-[11px] font-semibold tracking-wide shrink-0 transition hover:brightness-110 active:scale-95 shadow-md shadow-primary/20" id="auto-grant-btn" onclick="
+                  this.innerText='Binding...';
+                  setTimeout(() =&gt; {
+                    this.parentElement.innerHTML='&lt;span class=\'text-emerald-400 font-mono text-[10px] flex items-center gap-1\'&gt;&lt;span class=\'material-symbols-outlined text-[13px]\'&gt;check&lt;/span&gt; Permission granted successfully.&lt;/span&gt;';
+                    document.getElementById('agent-status-badge').className='px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 shrink-0';
+                    document.getElementById('agent-status-badge').innerText='Resolved';
+                    document.getElementById('launch-btn').removeAttribute('disabled');
+                    document.getElementById('launch-btn').classList.remove('opacity-60', 'cursor-not-allowed');
+                  }, 800);
+                " type="button">
+                Auto-grant IAM Permission
+              </button>
+</div>
+</div>
+</div>
+<!-- Bulk Remediation Action -->
+<div class="pt-2 flex items-center justify-between">
+<span class="text-[11px] text-on-surface-variant">Need batch configuration across folders?</span>
+<button class="text-xs font-mono font-medium text-primary hover:text-primary-container transition flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[15px]">auto_fix_high</span>
+            Enable Selected APIs &amp; Auto-Repair IAM
+          </button>
+</div>
+</div>
+<!-- Launch Workspace Gatekeeper Card -->
+<div class="rounded-xl bg-surface-container p-5 shadow-xl flex flex-col gap-4 relative overflow-hidden">
+<div class="absolute right-0 top-0 w-48 h-48 bg-primary/5 rounded-full blur-2xl pointer-events-none"></div>
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[18px]">lock_open</span>
+</div>
+<div>
+<h3 class="text-xs font-semibold uppercase tracking-wider text-on-surface font-mono">Workspace Gatekeeper Status</h3>
+<p class="text-[11px] text-on-surface-variant">All critical preflight checks must pass before opening the live manager session.</p>
+</div>
+</div>
+<div class="flex flex-col sm:flex-row items-center gap-3 pt-1">
+<!-- Primary CTA -->
+<button class="w-full sm:flex-1 py-3 px-5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs sm:text-sm tracking-wide flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition transform active:scale-[0.99]" id="launch-btn" onclick="alert('Entering Gemini Enterprise Manager production console session...');" type="button">
+<span>Launch Gemini Enterprise Manager</span>
+<span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+</button>
+<!-- Secondary Mode -->
+<button class="w-full sm:w-auto py-3 px-4 rounded-lg bg-surface-container-high hover:bg-surface-obsidian text-on-surface-variant hover:text-on-surface font-medium text-xs font-mono transition flex items-center justify-center gap-1.5" onclick="alert('Sandbox read-only mode activated. Write endpoints disabled.');" type="button">
+<span class="material-symbols-outlined text-[16px]">visibility</span>
+<span>Read-Only Sandbox Mode</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Compact Footer Security & Compliance Bar -->
+<div class="mt-12 rounded-xl bg-surface-container-low p-4 flex flex-col md:flex-row items-center justify-between gap-4 text-[11px] text-on-surface-variant shadow-md max-w-7xl mx-auto w-full">
+<div class="flex items-center gap-2">
+<span class="text-sm">🔒</span>
+<span>In-memory session handling. Credentials and OAuth refresh tokens are zero-persisted to client storage.</span>
+</div>
+<div class="flex items-center gap-4 shrink-0">
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded bg-surface-container-high font-mono text-[10px] text-emerald-400 font-semibold tracking-wide">
+          SOC2 TYPE II
+        </span>
+<span class="px-2 py-0.5 rounded bg-surface-container-high font-mono text-[10px] text-primary font-semibold tracking-wide">
+          FedRAMP HIGH
+        </span>
+</div>
+<div class="h-3 w-px bg-surface-container-high hidden sm:block"></div>
+<div class="hidden sm:flex items-center gap-1.5 font-mono text-[10px]">
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface">⌘+K</span>
+<span>Command Palette</span>
+<span class="text-on-surface-variant/40">|</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface">Esc</span>
+<span>Close</span>
+</div>
+</div>
+</div>
+</div></main></div></body></html>

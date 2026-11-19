@@ -11,6 +11,8 @@ vi.mock('../services/apiService', () => ({
   getGcsObjectContent: vi.fn(),
   deleteGcsObject: vi.fn(),
   downloadGcsObject: vi.fn(),
+  updateAssistant: vi.fn(),
+  createAssistant: vi.fn(),
 }));
 
 const mockedApi = vi.mocked(api);
@@ -123,5 +125,35 @@ describe('useBackupOperations', () => {
     });
 
     expect(result.current.error).toMatch(/Failed to parse backup JSON/i);
+  });
+
+  it('gates settings-only Single Assistant restore behind restoreConfirmData instead of mutating live assistant immediately', async () => {
+    const { result } = renderHook(() =>
+      useBackupOperations({
+        accessToken: 'mock-access-token',
+        projectNumber: 'glm-prod',
+        setProjectNumber: vi.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.selectedBucket).toBe('glm-enterprise-backups');
+    });
+
+    await act(async () => {
+      await result.current.processRestoreAssistant({
+        assistant: {
+          name: 'projects/glm-prod/locations/global/collections/default_collection/engines/glm-app/assistants/default_assistant',
+          displayName: 'Restored Prod Assistant',
+          generationConfig: { systemInstruction: { additionalSystemInstruction: 'Be concise' } },
+          agents: [],
+        },
+      });
+    });
+
+    expect(mockedApi.updateAssistant).not.toHaveBeenCalled();
+    expect(result.current.restoreConfirmData).not.toBeNull();
+    expect(result.current.restoreConfirmData?.section).toBe('Assistant');
+    expect(result.current.restoreConfirmData?.items).toHaveLength(1);
   });
 });

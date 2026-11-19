@@ -31,6 +31,10 @@ import {
   AssistantDetailView,
   AssistantDetailTab,
 } from '../components/assistants/page/AssistantDetailView';
+import {
+  DEFAULT_BACKGROUND_CONCURRENCY,
+  mapWithQuotaLimit,
+} from '../utils/quotaGuard';
 
 const toErrorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
@@ -216,8 +220,20 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
     setAgentDiscoveryWarning(null);
   };
 
+  const hydrationAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      hydrationAbortRef.current?.abort();
+    };
+  }, []);
+
   const fetchAgentsForAssistant = useCallback(
     async (appId: string, customAssistantId?: string) => {
+      hydrationAbortRef.current?.abort();
+      const abortController = new AbortController();
+      hydrationAbortRef.current = abortController;
+
       setIsDetailLoading(true);
       setAgentDiscoveryWarning(null);
       const detailConfig = {
@@ -227,63 +243,104 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
       };
       try {
         const agentsResponse = await api.listResources('agents', detailConfig);
+        if (abortController.signal.aborted) return;
         const baseAgents = agentsResponse.agents || [];
 
         if (baseAgents.length > 0) {
-          const agentViewPromises = baseAgents.map((agent) =>
-            api.getAgentView(agent.name, detailConfig),
-          );
-          const agentViewResults = await Promise.allSettled(agentViewPromises);
-
-          let rejectedCount = 0;
-          const enrichedAgents = baseAgents.map((agent, index) => {
-            const viewResult = agentViewResults[index];
-            if (viewResult.status === 'rejected') {
-              rejectedCount += 1;
+          const inferLocalAgentType = (agent: Agent): string | undefined => {
+            if (agent.agentType) return agent.agentType;
+            if (api.isGoogleManagedAgent(agent)) return 'MANAGED';
+            if (agent.adkAgentDefinition) return 'ADK';
+            if (agent.a2aAgentDefinition) return 'A2A';
+            if (agent.skillAgentDefinition) return 'SKILL';
+            if (
+              agent.lowCodeAgentDefinition ||
+              agent.workflowAgentDefinition ||
+              agent.agentDesignerAgentDefinition ||
+              agent.noCodeAgentDefinition
+            ) {
+              return 'LOW_CODE';
             }
-            const agentType =
-              viewResult.status === 'fulfilled' && viewResult.value?.agentView
-                ? viewResult.value.agentView.agentType
-                : undefined;
-            const agentOrigin =
-              viewResult.status === 'fulfilled' && viewResult.value?.agentView
-                ? viewResult.value.agentView.agentOrigin
-                : undefined;
-            return {
-              ...agent,
-              agentType,
-              agentOrigin,
-            };
-          });
-          setAgents(enrichedAgents);
-          if (rejectedCount > 0) {
-            setAgentDiscoveryWarning(
-              `Could not resolve AgentView (:getView) for ${rejectedCount} agent(s) on this assistant. Some agents may be omitted or lack runtime metadata.`,
-            );
+            if (!agent.state || (agent.state !== 'ENABLED' && agent.state !== 'DISABLED')) {
+              return 'LOW_CODE';
+            }
+            return undefined;
+          };
+
+          const inferLocalAgentOrigin = (agent: Agent): string | undefined => {
+            if (agent.agentOrigin) return agent.agentOrigin;
+            if (api.isGoogleManagedAgent(agent)) return 'GOOGLE';
+            if (api.isCustomNoCodeAgent(agent)) return 'AGENT_DESIGNER';
+            return undefined;
+          };
+
+          const locallyInferred = baseAgents.map((agent) => ({
+            ...agent,
+            agentType: inferLocalAgentType(agent),
+            agentOrigin: inferLocalAgentOrigin(agent),
+          }));
+
+          // Render base list immediately without blocking on per-agent :getView RPCs
+          setAgents(locallyInferred);
+
+          const agentsNeedingView = locallyInferred.filter(
+            (a) => !a.agentType || !a.agentOrigin,
+          );
+
+          if (agentsNeedingView.length > 0) {
+            void mapWithQuotaLimit(
+              agentsNeedingView,
+              DEFAULT_BACKGROUND_CONCURRENCY,
+              (agent) => api.getAgentView(agent.name, detailConfig),
+              { signal: abortController.signal },
+            ).then(({ outcomes }) => {
+              if (abortController.signal.aborted) return;
+              let rejectedCount = 0;
+              const viewByName = new Map<string, { agentType?: string; agentOrigin?: string }>();
+              outcomes.forEach((res, idx) => {
+                if (res.status === 'rejected') rejectedCount += 1;
+                if (res.status === 'fulfilled' && res.value?.agentView) {
+                  viewByName.set(agentsNeedingView[idx].name, res.value.agentView);
+                }
+              });
+              if (rejectedCount > 0) {
+                setAgentDiscoveryWarning(
+                  `Could not resolve AgentView (:getView) for ${rejectedCount} agent(s) on this assistant. Displaying locally inferred types.`,
+                );
+              }
+              if (viewByName.size === 0) return;
+              setAgents((prev) =>
+                prev.map((a) => {
+                  const v = viewByName.get(a.name);
+                  if (!v) return a;
+                  return {
+                    ...a,
+                    agentType: v.agentType || a.agentType,
+                    agentOrigin: v.agentOrigin || a.agentOrigin,
+                  };
+                }),
+              );
+            });
           }
 
-          const agentsNeedingIamOwner = enrichedAgents.filter(
+          const agentsNeedingIamOwner = locallyInferred.filter(
             (a) =>
               !api.isGoogleManagedAgent(a) &&
               !a.iamPolicy &&
               typeof api.getAgentIamPolicy === 'function',
           );
           if (agentsNeedingIamOwner.length > 0) {
-            void Promise.all(
-              agentsNeedingIamOwner.map(async (agent) => {
-                try {
-                  return await api.getAgentIamPolicy(agent.name, detailConfig);
-                } catch {
-                  // Non-fatal: caller may lack getIamPolicy permission on individual agent resources
-                  return null;
-                }
-              }),
-            ).then((policyResults) => {
+            void mapWithQuotaLimit(
+              agentsNeedingIamOwner,
+              DEFAULT_BACKGROUND_CONCURRENCY,
+              (agent) => api.getAgentIamPolicy(agent.name, detailConfig),
+              { signal: abortController.signal },
+            ).then(({ outcomes }) => {
+              if (abortController.signal.aborted) return;
               const policyByName = new Map<string, IamPolicy>();
-              agentsNeedingIamOwner.forEach((a, idx) => {
-                const policy = policyResults[idx];
-                if (policy?.bindings) {
-                  policyByName.set(a.name, policy);
+              outcomes.forEach((res, idx) => {
+                if (res.status === 'fulfilled' && res.value?.bindings) {
+                  policyByName.set(agentsNeedingIamOwner[idx].name, res.value);
                 }
               });
               if (policyByName.size === 0) return;

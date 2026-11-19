@@ -4,6 +4,7 @@ import { Config, GcsBucket, LicenseConfig, GroupLicensingEditConfig } from '../.
 import * as api from '../../services/apiService';
 import { formatCloudRunDeploymentError, toErrorMessage } from '../../utils/errors';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import DestructiveConfirmModal from '../DestructiveConfirmModal';
 import {
     assertValidBucketPath,
     assertValidGcpResourceName,
@@ -1105,6 +1106,22 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
         document.body.removeChild(a);
     };
 
+    const [isConfirmSaveConfigOpen, setIsConfirmSaveConfigOpen] = useState(false);
+
+    const handleRequestSaveConfigOnly = () => {
+        if (!selectedBucket) {
+            setDeployError("Please select a bucket for staging.");
+            return;
+        }
+        try {
+            validateDeploymentInputs(false);
+            setDeployError(null);
+            setIsConfirmSaveConfigOpen(true);
+        } catch (err: unknown) {
+            setDeployError(toErrorMessage(err, "Invalid group licensing configuration."));
+        }
+    };
+
     const handleSaveConfigOnly = async () => {
         if (!selectedBucket) {
             setDeployError("Please select a bucket for staging.");
@@ -1119,9 +1136,11 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
             const configBlob = new Blob([mergedConfigJson], { type: 'application/json' });
             const configFile = new File([configBlob], "entitlements.json", { type: "application/json" });
             await api.uploadFileToGcs(selectedBucket.trim(), "config/entitlements.json", configFile, validated.validProjectId);
+            setIsConfirmSaveConfigOpen(false);
             onConfigSaved?.();
             onClose();
         } catch (err: unknown) {
+            setIsConfirmSaveConfigOpen(false);
             setDeployError(toErrorMessage(err, "Failed to update entitlements.json in GCS."));
         } finally {
             setIsSavingConfig(false);
@@ -1224,6 +1243,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
     const safeSkuLabelDisplay = sanitizeCloudRunLabelValue(selectedTier);
 
     return (
+        <>
         <div
             className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4 animate-fade-in"
             role="dialog"
@@ -1244,7 +1264,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                     <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white" disabled={isBusy}>&times;</button>
                 </header>
                 
-                <main className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-y-auto">
+                <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-y-auto">
                     {/* Left Config */}
                     <div className="space-y-4 lg:col-span-5">
                         <div className="bg-blue-900/30 border border-blue-700 p-3 rounded-md text-sm text-blue-200 space-y-2">
@@ -1432,7 +1452,7 @@ const GroupLicenseDeploymentModal: React.FC<GroupLicenseDeploymentModalProps> = 
                                 Download .zip
                             </button>
                             <button
-                                onClick={handleSaveConfigOnly}
+                                onClick={handleRequestSaveConfigOnly}
                                 disabled={isBusy || !selectedBucket}
                                 title="Directly updates config/entitlements.json in GCS without rebuilding the Cloud Run container"
                                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg shadow flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1663,9 +1683,37 @@ INGRESS="internal" VPC_NETWORK="default" VPC_SUBNET="<YOUR_SUBNET>" VPC_EGRESS="
                             )}
                         </div>
                     </div>
-                </main>
+                </div>
             </div>
         </div>
+        <DestructiveConfirmModal
+            isOpen={isConfirmSaveConfigOpen}
+            onClose={() => {
+                if (!isSavingConfig) setIsConfirmSaveConfigOpen(false);
+            }}
+            onConfirm={handleSaveConfigOnly}
+            title="Overwrite Group Entitlements in Cloud Storage"
+            resourceType="GCS Entitlements Config"
+            resources={
+                selectedBucket
+                    ? [
+                          {
+                              name: `gs://${selectedBucket.trim()}/config/entitlements.json`,
+                              details: `${groups.length} group(s) -> tier "${selectedTier}" (${appLocation})`,
+                          },
+                      ]
+                    : []
+            }
+            confirmKeyword={selectedBucket.trim() || 'UPDATE'}
+            confirmButtonText="Overwrite entitlements.json"
+            description={`You are about to overwrite "gs://${selectedBucket.trim()}/config/entitlements.json" for project "${config.projectId}".`}
+            consequences={[
+                'Active Cloud Run group-licensing adder and cleanup schedules reading this GCS path will apply the updated group list on their next execution.',
+                'Removing groups from an active tier can cause the cleanup service to revoke seats for members no longer matched by any configured group.',
+            ]}
+            isLoading={isSavingConfig}
+        />
+        </>
     );
 };
 

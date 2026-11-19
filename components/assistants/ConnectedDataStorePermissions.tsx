@@ -64,6 +64,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
   engine,
   config,
   projectNumber,
+  currentUserEmail,
 }) => {
   const projectId = config.projectId || projectNumber;
   const appId = engine.name.split('/').pop() || '';
@@ -457,7 +458,25 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
   };
 
   // Execute Isolation Action
-  const handleExecuteIsolation = async (membersToIsolate: string[], grantNotebookLm: boolean = true) => {
+  const handleExecuteIsolation = async (
+    membersToIsolate: string[],
+    grantNotebookLm: boolean = true,
+    allowSelfIsolation: boolean = false
+  ) => {
+    const normalizedAdminEmail = currentUserEmail?.trim().toLowerCase() || '';
+    if (
+      normalizedAdminEmail &&
+      !allowSelfIsolation &&
+      membersToIsolate.some(
+        (m) => m.replace(/^user:/i, '').trim().toLowerCase() === normalizedAdminEmail
+      )
+    ) {
+      setError(
+        `Self-lockout guard blocked isolation of your active account (${currentUserEmail}). Acknowledge the self-lockout confirmation if you intentionally want to strip your own project-wide roles.`
+      );
+      return;
+    }
+
     setIsIsolating(true);
     setError(null);
     setSuccessMessage(null);
@@ -851,6 +870,7 @@ const ConnectedDataStorePermissions: React.FC<ConnectedDataStorePermissionsProps
         isolateModalTarget={isolateModalTarget}
         projectId={projectId}
         isIsolating={isIsolating}
+        currentUserEmail={currentUserEmail}
         onClose={() => setIsolateModalTarget(null)}
         onConfirm={handleExecuteIsolation}
       />

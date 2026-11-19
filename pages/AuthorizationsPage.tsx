@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Authorization, Config, Agent } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
@@ -25,6 +25,11 @@ import WorkforcePoolValidator from '../components/tools/WorkforcePoolValidator';
 import ConfirmationModal from '../components/ConfirmationModal';
 import PartialResultsBanner, { PartialFailure } from '../components/common/PartialResultsBanner';
 import { toErrorMessage } from '../utils/errors';
+import {
+  DEFAULT_BACKGROUND_CONCURRENCY,
+  getOrLoadProjectAgentsUsage,
+  mapWithQuotaLimit,
+} from '../utils/quotaGuard';
 
 interface AuthorizationsPageProps {
   projectNumber?: string;
@@ -110,13 +115,27 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       assistantId: 'default_assistant'
   }), [projectNumber, projectId, region]);
 
-  const fetchData = useCallback(async () => {
+  const scanAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      scanAbortRef.current?.abort();
+    };
+  }, []);
+
+  const fetchData = useCallback(async (forceRefresh = false) => {
+    scanAbortRef.current?.abort();
+
     if (!projectNumber) {
         setAuthorizations([]);
         setPartialFailures([]);
         setError("Project ID/Number is required to list authorizations.");
         return;
     }
+
+    const abortController = new AbortController();
+    scanAbortRef.current = abortController;
+
     setIsLoading(true);
     setIsScanningAgents(true);
     setError(null);
@@ -150,83 +169,111 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
         }
       });
       
-      const agentPromise = (async () => {
-        const agentsList: Agent[] = [];
-          for (const discoveryLocation of discoveryLocations) {
-              const locationConfig = { ...apiConfig, appLocation: discoveryLocation };
+      // Query default_collection directly (skipping DataConnector collections, which never contain App Engines)
+      // and cap background concurrency to protect customer Discovery Engine quotas.
+      const agentPromise = getOrLoadProjectAgentsUsage(
+        apiConfig.projectId || projectNumber,
+        async () => {
+          const agentsList: Agent[] = [];
+          const enginesToScan: Array<{ loc: string; appId: string }> = [];
+
+          await mapWithQuotaLimit(
+            discoveryLocations,
+            DEFAULT_BACKGROUND_CONCURRENCY,
+            async (discoveryLocation) => {
+              const locationConfig = {
+                ...apiConfig,
+                appLocation: discoveryLocation,
+                collectionId: 'default_collection',
+              };
               try {
-                  const collectionsResponse = (await api.listResources('collections', locationConfig)) || {};
-                  const collections = collectionsResponse.collections || [];
-                  for (const collection of collections) {
-                      const collectionId = collection.name.split('/').pop()!;
-                      const collectionConfig = { ...locationConfig, collectionId };
-                      try {
-                          const appEnginesResponse = (await api.listResources('engines', collectionConfig)) || {};
-                          const appEngines = appEnginesResponse.engines || [];
-                          for (const appEngine of appEngines) {
-                              const appId = appEngine.name.split('/').pop()!;
-                              const appConfig = { ...collectionConfig, appId };
-                              try {
-                                  const assistantsResponse = (await api.listResources('assistants', appConfig)) || {};
-                                  const assistants = assistantsResponse.assistants || [];
-                                  for (const assistant of assistants) {
-                                      const assistantId = assistant.name.split('/').pop()!;
-                                      const assistantConfig = { ...appConfig, assistantId };
-                                      try {
-                                          const agentsResponse = (await api.listResources('agents', assistantConfig)) || {};
-                                          if (agentsResponse.agents) {
-                                              agentsList.push(...agentsResponse.agents);
-                                          }
-                                      } catch (agentErr: unknown) {
-                                          console.warn(`Could not list agents for assistant ${assistantId}:`, agentErr);
-                                          failures.push({
-                                              id: `agents-${assistantId}`,
-                                              name: `Assistant ${assistantId}`,
-                                              resourceType: 'Assistant Agents',
-                                              status: getStatusCode(agentErr),
-                                              error: toErrorMessage(agentErr),
-                                              reason: `Could not list agents for assistant '${assistantId}': ${toErrorMessage(agentErr)}`,
-                                          });
-                                      }
-                                  }
-                              } catch (astErr: unknown) {
-                                  console.warn(`Could not list assistants for app ${appId}:`, astErr);
-                                  failures.push({
-                                      id: `assistants-${appId}`,
-                                      name: `Engine App ${appId}`,
-                                      resourceType: 'Engine Assistants',
-                                      status: getStatusCode(astErr),
-                                      error: toErrorMessage(astErr),
-                                      reason: `Could not list assistants for app '${appId}': ${toErrorMessage(astErr)}`,
-                                  });
-                              }
-                          }
-                      } catch (engErr: unknown) {
-                          console.warn(`Could not list engines for collection ${collectionId}:`, engErr);
-                          failures.push({
-                              id: `engines-${collectionId}`,
-                              name: `Collection ${collectionId}`,
-                              resourceType: 'Engines',
-                              status: getStatusCode(engErr),
-                              error: toErrorMessage(engErr),
-                              reason: `Could not list engines for collection '${collectionId}': ${toErrorMessage(engErr)}`,
-                          });
-                      }
-                  }
-              } catch (colErr: unknown) {
-                  console.warn(`Could not list collections for location ${discoveryLocation}:`, colErr);
-                  failures.push({
-                      id: `collections-${discoveryLocation}`,
-                      name: `Collections (${discoveryLocation})`,
-                      resourceType: 'Collections',
-                      status: getStatusCode(colErr),
-                      error: toErrorMessage(colErr),
-                      reason: `Could not list collections for location '${discoveryLocation}': ${toErrorMessage(colErr)}`,
-                  });
+                const appEnginesResponse =
+                  (await api.listResources('engines', locationConfig)) || {};
+                const appEngines = appEnginesResponse.engines || [];
+                for (const appEngine of appEngines) {
+                  const appId = appEngine.name.split('/').pop();
+                  if (appId) enginesToScan.push({ loc: discoveryLocation, appId });
+                }
+              } catch (engErr: unknown) {
+                console.warn(`Could not list engines for location ${discoveryLocation}:`, engErr);
+                failures.push({
+                  id: `engines-${discoveryLocation}`,
+                  name: `Engines (${discoveryLocation})`,
+                  resourceType: 'Engines',
+                  status: getStatusCode(engErr),
+                  error: toErrorMessage(engErr),
+                  reason: `Could not list engines for location '${discoveryLocation}': ${toErrorMessage(engErr)}`,
+                });
               }
+            },
+            { signal: abortController.signal },
+          );
+
+          if (abortController.signal.aborted) {
+            return {
+              agents: agentsList,
+              warnings: failures.map((f) => f.reason || f.name),
+            };
           }
-          return agentsList;
-      })();
+
+          await mapWithQuotaLimit(
+            enginesToScan,
+            DEFAULT_BACKGROUND_CONCURRENCY,
+            async ({ loc, appId }) => {
+              const appConfig = {
+                ...apiConfig,
+                appLocation: loc,
+                collectionId: 'default_collection',
+                appId,
+              };
+              try {
+                const assistantsResponse =
+                  (await api.listResources('assistants', appConfig)) || {};
+                const assistants = assistantsResponse.assistants || [];
+                for (const assistant of assistants) {
+                  if (abortController.signal.aborted) return;
+                  const assistantId = assistant.name.split('/').pop()!;
+                  const assistantConfig = { ...appConfig, assistantId };
+                  try {
+                    const agentsResponse =
+                      (await api.listResources('agents', assistantConfig)) || {};
+                    if (agentsResponse.agents) {
+                      agentsList.push(...agentsResponse.agents);
+                    }
+                  } catch (agentErr: unknown) {
+                    console.warn(`Could not list agents for assistant ${assistantId}:`, agentErr);
+                    failures.push({
+                      id: `agents-${assistantId}`,
+                      name: `Assistant ${assistantId}`,
+                      resourceType: 'Assistant Agents',
+                      status: getStatusCode(agentErr),
+                      error: toErrorMessage(agentErr),
+                      reason: `Could not list agents for assistant '${assistantId}': ${toErrorMessage(agentErr)}`,
+                    });
+                  }
+                }
+              } catch (astErr: unknown) {
+                console.warn(`Could not list assistants for app ${appId}:`, astErr);
+                failures.push({
+                  id: `assistants-${appId}`,
+                  name: `Engine App ${appId}`,
+                  resourceType: 'Engine Assistants',
+                  status: getStatusCode(astErr),
+                  error: toErrorMessage(astErr),
+                  reason: `Could not list assistants for app '${appId}': ${toErrorMessage(astErr)}`,
+                });
+              }
+            },
+            { signal: abortController.signal },
+          );
+
+          return {
+            agents: agentsList,
+            warnings: failures.map((f) => f.reason || f.name),
+          };
+        },
+        { forceRefresh },
+      ).then((snapshot) => snapshot.agents);
 
       const [authResults, allAgents] = await Promise.all([
         Promise.all(authPromises),
@@ -492,7 +539,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
 
             {view === 'list' && (
                 <button 
-                    onClick={fetchData} 
+                    onClick={() => fetchData(true)} 
                     disabled={isLoading}
                     className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500"
                 >
@@ -523,7 +570,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
         <div className="mb-6">
           <PartialResultsBanner
             partialFailures={partialFailures}
-            onRetry={fetchData}
+            onRetry={() => fetchData(true)}
           />
         </div>
       )}

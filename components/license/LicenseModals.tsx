@@ -220,31 +220,58 @@ export const LicenseModals: React.FC<LicenseModalsProps> = ({
         isOpen={isBulkConfirmOpen}
         onClose={onCloseBulkConfirm}
         onConfirm={onConfirmBulkAction}
-        title={`Confirm Bulk ${bulkActionConfig === 'DELETE' ? 'Deletion' : 'Revocation'}`}
+        title={
+          bulkActionConfig === 'DELETE'
+            ? 'Confirm Bulk Deletion'
+            : bulkActionConfig === 'REVOKE'
+              ? 'Confirm Bulk Revocation'
+              : 'Confirm Bulk License Assignment'
+        }
         resourceType="User License"
         resources={Array.from(selectedUsers).map((u) => ({ name: u }))}
-        confirmKeyword={bulkActionConfig === 'DELETE' ? 'DELETE' : 'REVOKE'}
+        confirmKeyword={
+          bulkActionConfig === 'DELETE'
+            ? 'DELETE'
+            : bulkActionConfig === 'REVOKE'
+              ? 'REVOKE'
+              : 'ASSIGN'
+        }
         confirmButtonText={
           bulkActionConfig === 'DELETE'
             ? `Delete ${selectedUsers.size} Licenses`
-            : `Revoke ${selectedUsers.size} Licenses`
+            : bulkActionConfig === 'REVOKE'
+              ? `Revoke ${selectedUsers.size} Licenses`
+              : `Assign License to ${selectedUsers.size} Users`
         }
         description={
           bulkActionConfig === 'DELETE'
             ? `You are about to permanently delete license assignments for ${selectedUsers.size} user${
                 selectedUsers.size === 1 ? '' : 's'
               }.`
-            : `You are about to revoke license access for ${selectedUsers.size} user${
-                selectedUsers.size === 1 ? '' : 's'
-              }.`
+            : bulkActionConfig === 'REVOKE'
+              ? `You are about to revoke license access for ${selectedUsers.size} user${
+                  selectedUsers.size === 1 ? '' : 's'
+                }.`
+              : `You are about to overwrite the assigned Gemini Enterprise license SKU for ${selectedUsers.size} user${
+                  selectedUsers.size === 1 ? '' : 's'
+                }.`
         }
-        consequences={[
-          `This will ${bulkActionConfig === 'DELETE' ? 'permanently delete' : 'revoke'} license bindings for ${
-            selectedUsers.size
-          } selected user${selectedUsers.size === 1 ? '' : 's'}.`,
-          'Affected users will immediately lose access to Gemini Enterprise licenses assigned through this configuration.',
-          'This action modifies Cloud IAM permissions directly in Google Cloud and cannot be automatically rolled back.',
-        ]}
+        consequences={
+          bulkActionConfig === 'DELETE' || bulkActionConfig === 'REVOKE'
+            ? [
+                `This will ${bulkActionConfig === 'DELETE' ? 'permanently delete' : 'revoke'} license bindings for ${
+                  selectedUsers.size
+                } selected user${selectedUsers.size === 1 ? '' : 's'}.`,
+                'Affected users will immediately lose access to Gemini Enterprise licenses assigned through this configuration.',
+                'This action modifies Cloud IAM permissions directly in Google Cloud and cannot be automatically rolled back.',
+              ]
+            : [
+                `This will assign or overwrite the target license configuration for ${selectedUsers.size} selected user${
+                  selectedUsers.size === 1 ? '' : 's'
+                }.`,
+                'Existing license SKU assignments on those user records will be replaced immediately.',
+              ]
+        }
         onExport={onExportBulkUsersCsv}
         exportButtonText="Export Selected Users (CSV)"
         isLoading={isBulkActionLoading}

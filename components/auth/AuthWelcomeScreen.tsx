@@ -94,52 +94,108 @@ export const AuthWelcomeScreen: React.FC<AuthWelcomeScreenProps> = ({
   const [showOAuthSettings, setShowOAuthSettings] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
 
+  const step1Done = isGapiReady;
+  const step2Done = Boolean(projectNumber);
+  const step3Validated = Boolean(apiValidationResult);
+
   return (
-    <div className="flex items-center justify-center h-screen bg-gray-900 text-gray-100 font-sans p-4 overflow-y-auto">
-      <div className="w-full max-w-3xl p-8 space-y-6 bg-gray-800 rounded-xl shadow-2xl border border-gray-700 my-8">
-        <div className="text-center">
-          <div className="flex justify-center mb-4 text-blue-400">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-12 w-12"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+    <div className="min-h-screen bg-[#0b0f19] text-gray-100 font-sans flex flex-col overflow-y-auto">
+      {/* Persistent Top Enterprise Chrome */}
+      <header className="w-full border-b border-gray-800/90 bg-gray-950/80 px-4 sm:px-6 h-14 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2.5">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-6 w-6 text-blue-500 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+            />
+          </svg>
+          <span className="text-sm sm:text-base font-display font-bold text-white tracking-tight">
+            Gemini Enterprise
+          </span>
+          <span className="hidden sm:inline-block text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-950/80 text-blue-300 border border-blue-800/60">
+            Control Plane Readiness Gate
+          </span>
+        </div>
+
+        {isGapiReady && (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
+              <span className="truncate max-w-[180px] sm:max-w-[260px] font-medium">
+                {userProfile?.email || userProfile?.name || 'CLI Access Token Active'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="text-xs font-medium text-gray-300 hover:text-white px-2.5 py-1 rounded-lg bg-gray-800/90 hover:bg-gray-700 border border-gray-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-              />
-            </svg>
+              Switch Account / Sign Out
+            </button>
           </div>
-          <h1 className="text-3xl font-bold text-white">
+        )}
+      </header>
+
+      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10 my-auto">
+        <div className="text-center max-w-2xl mx-auto mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-display font-bold text-white tracking-tight">
             Welcome to Gemini Enterprise Manager
           </h1>
+          <p className="mt-2 text-xs sm:text-sm text-gray-400">
+            Authenticate your cloud identity, bind a target GCP project, and verify Discovery Engine &amp; Vertex AI readiness before launching the control plane.
+          </p>
+
+          {/* 3-Step Horizontal Readiness Stepper */}
+          <ol aria-label="Onboarding progress" className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-left">
+            <li className={`p-3 rounded-xl border ${step1Done ? 'bg-emerald-950/20 border-emerald-800/60' : 'bg-blue-950/30 border-blue-700/70'}`}>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                Step 01 · {step1Done ? 'Complete' : 'Active'}
+              </div>
+              <div className="text-xs font-semibold text-white mt-0.5">Identity &amp; Credentials</div>
+            </li>
+            <li className={`p-3 rounded-xl border ${!step1Done ? 'bg-gray-900/50 border-gray-800' : step2Done ? 'bg-emerald-950/20 border-emerald-800/60' : 'bg-blue-950/30 border-blue-700/70'}`}>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                Step 02 · {!step1Done ? 'Pending' : step2Done ? 'Selected' : 'Active'}
+              </div>
+              <div className="text-xs font-semibold text-white mt-0.5 truncate">
+                {projectNumber ? `Project: ${projectNumber}` : 'Target GCP Project'}
+              </div>
+            </li>
+            <li className={`p-3 rounded-xl border ${step3Validated ? 'bg-emerald-950/20 border-emerald-800/60' : step2Done ? 'bg-blue-950/20 border-blue-800/50' : 'bg-gray-900/50 border-gray-800'}`}>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                Step 03 · {step3Validated ? 'Verified' : 'Optional Preflight'}
+              </div>
+              <div className="text-xs font-semibold text-white mt-0.5">API &amp; Service Readiness</div>
+            </li>
+          </ol>
         </div>
 
         {!isGapiReady ? (
-          <div className="space-y-4">
-            <p className="text-center text-gray-400">
-              Please authenticate to access and manage your Google Cloud Gemini
-              Enterprise resources.
-            </p>
-
-            <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700 space-y-3">
-              <h3 className="text-sm font-semibold text-white">
+          <div className="w-full max-w-2xl mx-auto p-6 sm:p-8 space-y-5 bg-gray-900/90 rounded-2xl shadow-2xl border border-gray-800">
+            <div className="p-4 sm:p-5 bg-gray-850 rounded-xl border border-gray-700/80 space-y-3">
+              <h2 className="text-sm font-semibold text-white">
                 Sign In with Google
-              </h3>
+              </h2>
               <p className="text-xs text-gray-400">
                 Sign in using your Google account to automatically grant access
                 to Discovery Engine and related APIs.
               </p>
               <button
+                type="button"
                 onClick={onGoogleSignIn}
                 disabled={isGapiLoading || isTokenValidating}
-                className="w-full py-2.5 px-4 bg-white hover:bg-gray-100 text-gray-900 font-medium text-sm rounded-md shadow flex items-center justify-center gap-3 transition-colors disabled:bg-gray-600 disabled:text-gray-400"
+                className="w-full py-2.5 px-4 bg-white hover:bg-gray-100 text-gray-900 font-semibold text-sm rounded-lg shadow flex items-center justify-center gap-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:bg-gray-600 disabled:text-gray-300"
               >
-                <svg className="w-4 h-4" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
                   <path
                     fill="#4285F4"
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -161,23 +217,22 @@ export const AuthWelcomeScreen: React.FC<AuthWelcomeScreenProps> = ({
               </button>
             </div>
 
-            <div className="relative flex py-2 items-center">
-              <div className="flex-grow border-t border-gray-700"></div>
-              <span className="flex-shrink mx-4 text-xs text-gray-500 uppercase">
-                Or use Access Token
+            <div className="relative flex py-1 items-center">
+              <div className="flex-grow border-t border-gray-800"></div>
+              <span className="flex-shrink mx-4 text-xs text-gray-400 uppercase tracking-wider font-medium">
+                Or use CLI Access Token
               </span>
-              <div className="flex-grow border-t border-gray-700"></div>
+              <div className="flex-grow border-t border-gray-800"></div>
             </div>
 
-            <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700 space-y-3">
-              <h3 className="text-sm font-semibold text-white">
+            <div className="p-4 sm:p-5 bg-gray-850 rounded-xl border border-gray-700/80 space-y-3">
+              <h2 className="text-sm font-semibold text-white">
                 Manual Access Token
-              </h3>
+              </h2>
               <p className="text-xs text-gray-400">
-                If you cannot use Google Sign-In, paste an access token obtained
-                via the Google Cloud SDK:
+                Paste a short-lived bearer token generated via the Google Cloud SDK:
               </p>
-              <div className="flex items-center justify-between bg-gray-950 px-2.5 py-1.5 rounded border border-gray-700">
+              <div className="flex items-center justify-between bg-gray-950 px-3 py-2 rounded-lg border border-gray-800">
                 <code className="text-xs text-blue-300 font-mono">
                   gcloud auth print-access-token
                 </code>
@@ -188,7 +243,7 @@ export const AuthWelcomeScreen: React.FC<AuthWelcomeScreenProps> = ({
                     setTokenCopied(true);
                     setTimeout(() => setTokenCopied(false), 2000);
                   }}
-                  className="text-[11px] text-blue-400 hover:text-blue-300 px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 border border-gray-600 transition-colors"
+                  className="text-[11px] font-medium text-blue-300 hover:text-white px-2.5 py-1 rounded bg-blue-950/60 hover:bg-blue-900/70 border border-blue-700/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   aria-label="Copy gcloud auth command"
                 >
                   {tokenCopied ? 'Copied!' : 'Copy'}
@@ -205,175 +260,217 @@ export const AuthWelcomeScreen: React.FC<AuthWelcomeScreenProps> = ({
               <div className="pt-2 border-t border-gray-800">
                 <button
                   type="button"
+                  aria-expanded={showOAuthSettings}
                   onClick={() => setShowOAuthSettings(!showOAuthSettings)}
-                  className="text-xs text-gray-400 hover:text-gray-200 flex items-center gap-1 focus:outline-none"
+                  className="text-xs text-gray-400 hover:text-gray-200 flex items-center gap-1.5 rounded px-1 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
-                  <span>{showOAuthSettings ? '▲' : '▼'}</span>
+                  <svg
+                    className={`w-3.5 h-3.5 transition-transform ${showOAuthSettings ? 'rotate-90' : ''}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
                   <span>Advanced: Configure OAuth Client ID</span>
                 </button>
 
-                <div
-                  className={`mt-2 space-y-2 overflow-hidden transition-all duration-200 ${showOAuthSettings ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}
-                >
-                  <p className="text-[11px] text-gray-500">
-                    If you are hosting this on a custom domain, provide your
-                    custom OAuth Client ID authorized for that origin.
-                  </p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder={DEFAULT_GOOGLE_CLIENT_ID}
-                      value={
-                        googleClientId === DEFAULT_GOOGLE_CLIENT_ID
-                          ? ''
-                          : googleClientId
-                      }
-                      onChange={(e) => {
-                        const val = e.target.value.trim();
-                        if (val) {
-                          localStorage.setItem('custom-google-client-id', val);
-                          setGoogleClientId(val);
-                        } else {
-                          localStorage.removeItem('custom-google-client-id');
-                          fetch('/config.json')
-                            .then((res) => res.json())
-                            .then((data) => {
-                              setGoogleClientId(
-                                data?.GOOGLE_CLIENT_ID ||
-                                  DEFAULT_GOOGLE_CLIENT_ID,
-                              );
-                            })
-                            .catch(() =>
-                              setGoogleClientId(DEFAULT_GOOGLE_CLIENT_ID),
-                            );
+                {showOAuthSettings && (
+                  <div className="mt-2.5 space-y-2 animate-fade-in">
+                    <p className="text-[11px] text-gray-400">
+                      If hosting on a custom domain, provide your custom OAuth Client ID authorized for that origin.
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        aria-label="Custom OAuth Client ID"
+                        placeholder={DEFAULT_GOOGLE_CLIENT_ID}
+                        value={
+                          googleClientId === DEFAULT_GOOGLE_CLIENT_ID
+                            ? ''
+                            : googleClientId
                         }
-                      }}
-                      className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-blue-500 flex-1 font-mono"
-                    />
-                    {googleClientId !== DEFAULT_GOOGLE_CLIENT_ID && (
-                      <button
-                        onClick={() => {
-                          localStorage.removeItem('custom-google-client-id');
-                          fetch('/config.json')
-                            .then((res) => res.json())
-                            .then((data) => {
-                              setGoogleClientId(
-                                data?.GOOGLE_CLIENT_ID ||
-                                  DEFAULT_GOOGLE_CLIENT_ID,
+                        onChange={(e) => {
+                          const val = e.target.value.trim();
+                          if (val) {
+                            localStorage.setItem('custom-google-client-id', val);
+                            setGoogleClientId(val);
+                          } else {
+                            localStorage.removeItem('custom-google-client-id');
+                            fetch('/config.json')
+                              .then((res) => res.json())
+                              .then((data) => {
+                                setGoogleClientId(
+                                  data?.GOOGLE_CLIENT_ID ||
+                                    DEFAULT_GOOGLE_CLIENT_ID,
+                                );
+                              })
+                              .catch(() =>
+                                setGoogleClientId(DEFAULT_GOOGLE_CLIENT_ID),
                               );
-                            })
-                            .catch(() =>
-                              setGoogleClientId(DEFAULT_GOOGLE_CLIENT_ID),
-                            );
+                          }
                         }}
-                        className="text-[10px] bg-red-900/30 text-red-300 hover:bg-red-900/50 px-2 py-1 rounded border border-red-800"
-                      >
-                        Clear
-                      </button>
-                    )}
+                        className="bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 flex-1 font-mono"
+                      />
+                      {googleClientId !== DEFAULT_GOOGLE_CLIENT_ID && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            localStorage.removeItem('custom-google-client-id');
+                            fetch('/config.json')
+                              .then((res) => res.json())
+                              .then((data) => {
+                                setGoogleClientId(
+                                  data?.GOOGLE_CLIENT_ID ||
+                                    DEFAULT_GOOGLE_CLIENT_ID,
+                                );
+                              })
+                              .catch(() =>
+                                setGoogleClientId(DEFAULT_GOOGLE_CLIENT_ID),
+                              );
+                          }}
+                          className="text-xs bg-red-900/30 text-red-300 hover:bg-red-900/50 px-2.5 py-1 rounded-lg border border-red-800"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
 
             {isGapiLoading && (
-              <div className="flex items-center justify-center p-4 text-sm text-blue-300">
+              <div role="status" className="flex items-center justify-center p-3 text-sm text-blue-300">
                 <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-400 mr-3"></div>
                 Initializing Google API Client... Please wait.
               </div>
             )}
             {isTokenValidating && (
-              <div className="flex items-center justify-center p-4 text-sm text-blue-300">
+              <div role="status" className="flex items-center justify-center p-3 text-sm text-blue-300">
                 <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-400 mr-3"></div>
                 Validating access token permissions...
               </div>
             )}
             {gapiError && (
-              <div className="p-4 text-sm text-center text-red-300 bg-red-900/30 rounded-lg border border-red-800">
+              <div role="alert" className="p-4 text-sm text-center text-red-300 bg-red-900/30 rounded-lg border border-red-800">
                 {gapiError}
               </div>
             )}
           </div>
         ) : (
-          <>
-            <div className="p-4 text-center text-green-300 bg-green-900/30 rounded-lg border border-green-700">
-              API Client Initialized &amp; Token Validated Successfully!
-            </div>
-            <p className="text-center text-gray-400 text-xs">
-              Step 2: Set your Project and validate required APIs, service
-              agents, and caller permissions.
-            </p>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Column (Sticky): Project Context & Launch Gatekeeper */}
+            <div className="lg:col-span-5 lg:sticky lg:top-6 space-y-4">
+              <div className="p-5 sm:p-6 bg-gray-900/90 rounded-2xl border border-gray-800 shadow-xl space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-base font-display font-bold text-white">
+                    GCP Project Context
+                  </h2>
+                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
+                    Token Verified
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Step 2: Set your Project and validate required APIs, service agents, and caller permissions.
+                </p>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+                    Project ID / Number
+                  </label>
+                  <ProjectInput
+                    value={projectNumber}
+                    onChange={onSetProjectNumber}
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">
-                Project ID / Number
-              </label>
-              <ProjectInput
-                value={projectNumber}
-                onChange={onSetProjectNumber}
-              />
-            </div>
+                <div className="pt-2 border-t border-gray-800 space-y-2.5">
+                  <button
+                    type="button"
+                    onClick={onEnterApp}
+                    disabled={!projectNumber || isApiEnablingLoading}
+                    className="w-full px-4 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-500 shadow-lg shadow-blue-950/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:bg-gray-700 disabled:text-gray-400 disabled:shadow-none transition-colors flex items-center justify-center gap-2"
+                  >
+                    <span>Enter Application</span>
+                    <span aria-hidden="true">→</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onValidateApis}
+                    disabled={
+                      !projectNumber ||
+                      isApiValidationLoading ||
+                      isApiEnablingLoading
+                    }
+                    className="w-full px-4 py-2.5 bg-gray-800 text-gray-200 border border-gray-700 text-xs sm:text-sm font-semibold rounded-xl hover:bg-gray-750 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 flex items-center justify-center transition-colors"
+                  >
+                    {isApiValidationLoading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-400 mr-2"></div>
+                        Validating Diagnostics...
+                      </>
+                    ) : (
+                      'Validate APIs & Permissions'
+                    )}
+                  </button>
+                </div>
 
-            <div className="flex flex-col sm:flex-row gap-4">
-              <button
-                onClick={onValidateApis}
-                disabled={
-                  !projectNumber ||
-                  isApiValidationLoading ||
-                  isApiEnablingLoading
-                }
-                className="w-full px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-600 flex items-center justify-center"
-              >
-                {isApiValidationLoading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-                    Validating Diagnostics...
-                  </>
-                ) : (
-                  'Validate APIs & Permissions'
+                {gapiError && (
+                  <div role="alert" className="p-3 text-xs text-red-300 bg-red-900/30 border border-red-800 rounded-lg">
+                    {gapiError}
+                  </div>
                 )}
-              </button>
-              <button
-                onClick={onEnterApp}
-                disabled={!projectNumber || isApiEnablingLoading}
-                className="w-full px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-600"
-              >
-                Enter Application
-              </button>
+              </div>
+
+              <div className="px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-800/80 text-[11px] text-gray-400 flex items-center gap-2.5">
+                <span className="text-blue-400 shrink-0" aria-hidden="true">🔒</span>
+                <span>In-memory session handling — OAuth access tokens are never persisted to backend servers.</span>
+              </div>
             </div>
-            {gapiError && (
-              <div className="p-4 text-sm text-center text-red-300 bg-red-900/30 rounded-lg">
-                {gapiError}
-              </div>
-            )}
-            <ApiValidationPanel
-              projectNumber={projectNumber}
-              apiValidationResult={apiValidationResult}
-              serviceAgentValidation={serviceAgentValidation}
-              userPermissionsValidation={userPermissionsValidation}
-              projectEnrollment={projectEnrollment}
-              isGrantingServiceAgent={isGrantingServiceAgent}
-              serviceAgentActionFeedback={serviceAgentActionFeedback}
-              onGrantServiceAgent={onGrantServiceAgent}
-              apisToEnable={apisToEnable}
-              onToggleApiToEnable={onToggleApiToEnable}
-              onToggleAllApisToEnable={onToggleAllApisToEnable}
-              isApiEnablingLoading={isApiEnablingLoading}
-              onEnableApis={onEnableApis}
-            />
-            {(isApiEnablingLoading || apiEnablementLogs.length > 0) && (
-              <div className="mt-4">
-                <h4 className="text-sm font-semibold text-gray-300 mb-2">
-                  API Enablement Log
-                </h4>
-                <pre className="bg-gray-900 text-xs text-gray-300 p-3 rounded-md h-32 overflow-y-auto font-mono">
-                  {apiEnablementLogs.join('\n')}
-                </pre>
-              </div>
-            )}
-          </>
+
+            {/* Right Column: Live Preflight Validation Diagnostics */}
+            <div className="lg:col-span-7 space-y-4">
+              {!apiValidationResult && !isApiValidationLoading ? (
+                <div className="p-6 sm:p-8 bg-gray-900/60 rounded-2xl border border-gray-800/90 text-center space-y-2">
+                  <h2 className="text-sm font-semibold text-gray-200">
+                    Preflight Readiness Diagnostics
+                  </h2>
+                  <p className="text-xs text-gray-400 max-w-md mx-auto leading-relaxed">
+                    Click <strong className="text-gray-200">Validate APIs &amp; Permissions</strong> on the left to audit required GCP APIs, Discovery Engine service agent bindings, and caller IAM permissions—or click <strong className="text-gray-200">Enter Application</strong> to open the console directly.
+                  </p>
+                </div>
+              ) : null}
+
+              <ApiValidationPanel
+                projectNumber={projectNumber}
+                apiValidationResult={apiValidationResult}
+                serviceAgentValidation={serviceAgentValidation}
+                userPermissionsValidation={userPermissionsValidation}
+                projectEnrollment={projectEnrollment}
+                isGrantingServiceAgent={isGrantingServiceAgent}
+                serviceAgentActionFeedback={serviceAgentActionFeedback}
+                onGrantServiceAgent={onGrantServiceAgent}
+                apisToEnable={apisToEnable}
+                onToggleApiToEnable={onToggleApiToEnable}
+                onToggleAllApisToEnable={onToggleAllApisToEnable}
+                isApiEnablingLoading={isApiEnablingLoading}
+                onEnableApis={onEnableApis}
+              />
+              {(isApiEnablingLoading || apiEnablementLogs.length > 0) && (
+                <div className="p-4 bg-gray-900/90 rounded-xl border border-gray-800">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-300 mb-2">
+                    API Enablement Log
+                  </h3>
+                  <pre className="bg-gray-950 text-xs text-gray-300 p-3 rounded-lg h-32 overflow-y-auto custom-scrollbar font-mono">
+                    {apiEnablementLogs.join('\n')}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
         )}
-      </div>
+      </main>
     </div>
   );
 };

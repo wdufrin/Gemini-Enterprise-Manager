@@ -38,6 +38,7 @@ export interface ConnectedDataStorePermissionsProps {
   engine: AppEngine;
   config: Config;
   projectNumber: string;
+  currentUserEmail?: string;
 }
 
 export interface ConnectorEntity {

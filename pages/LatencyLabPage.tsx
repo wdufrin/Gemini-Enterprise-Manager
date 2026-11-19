@@ -700,17 +700,18 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
       );
 
       let pausedSkillNote = '';
+      let temporarilyDisabledSkill: { name: string; displayName?: string } | null = null;
       if (existingEnabledSkill && typeof api.disableAgent === 'function') {
         setAbProgressText(
           `Temporarily disabling deployed Skill "${existingEnabledSkill.displayName}" for clean Baseline...`,
         );
         await api.disableAgent(existingEnabledSkill.name, currentEngineConfig);
+        temporarilyDisabledSkill = existingEnabledSkill;
         setAgents((prev) =>
           prev.map((a) =>
             a.name === existingEnabledSkill.name ? { ...a, state: 'DISABLED' } : a,
           ),
         );
-        pausedSkillNote = ` (Deployed Skill "${existingEnabledSkill.displayName}" was temporarily disabled for a clean Before-Skill baseline.)`;
       }
 
       const byomcpUriSet = new Set(
@@ -720,13 +721,33 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
         (uri) => !byomcpUriSet.has(uri),
       );
 
-      const baseline = await runSkillBenchmarkPhase(
-        cleanQueries,
-        currentEngineConfig,
-        skillDraft,
-        validScopedDataStoreResources,
-        (step) => setAbProgressText(`Baseline: ${step}`),
-      );
+      let baseline: Awaited<ReturnType<typeof runSkillBenchmarkPhase>>;
+      try {
+        baseline = await runSkillBenchmarkPhase(
+          cleanQueries,
+          currentEngineConfig,
+          skillDraft,
+          validScopedDataStoreResources,
+          (step) => setAbProgressText(`Baseline: ${step}`),
+        );
+      } finally {
+        if (temporarilyDisabledSkill && typeof api.enableAgent === 'function') {
+          try {
+            setAbProgressText(
+              `Restoring deployed Skill "${temporarilyDisabledSkill.displayName}" to ENABLED...`,
+            );
+            await api.enableAgent(temporarilyDisabledSkill.name, currentEngineConfig);
+            setAgents((prev) =>
+              prev.map((a) =>
+                a.name === temporarilyDisabledSkill!.name ? { ...a, state: 'ENABLED' } : a,
+              ),
+            );
+            pausedSkillNote = ` (Deployed Skill "${temporarilyDisabledSkill.displayName}" was temporarily disabled during Baseline and automatically restored to ENABLED.)`;
+          } catch (restoreErr: unknown) {
+            pausedSkillNote = ` (WARNING: Failed to restore Skill "${temporarilyDisabledSkill.displayName}" to ENABLED: ${toErrorMessage(restoreErr)})`;
+          }
+        }
+      }
       setAbBaseline(baseline);
       const comparison = diagnoseSkillPerformanceAndMistakes(
         skillDraft,

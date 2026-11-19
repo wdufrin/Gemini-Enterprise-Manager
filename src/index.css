@@ -2,6 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Sleek Obsidian Scrollbars for Nav Rails, Modals & Code Panes */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(71, 85, 105, 0.55);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(100, 116, 139, 0.85);
+}
+
 /* Responsive Data Table Container Queries & Sticky Actions */
 .gem-table-container {
   container-type: inline-size;
@@ -9,49 +33,49 @@
   max-inline-size: 100%;
 }
 
-@container (max-width: 679px) {
+@container (max-width: 739px) {
   .gem-col-md {
     display: none;
   }
 }
 
-@container (max-width: 899px) {
+@container (max-width: 1019px) {
   .gem-col-lg {
     display: none;
   }
 }
 
-@container (max-width: 1119px) {
+@container (max-width: 1239px) {
   .gem-col-xl {
     display: none;
   }
 }
 
-@container (max-width: 1319px) {
+@container (max-width: 1419px) {
   .gem-col-2xl {
     display: none;
   }
 }
 
-@container (min-width: 680px) {
+@container (min-width: 740px) {
   .gem-hide-md {
     display: none;
   }
 }
 
-@container (min-width: 900px) {
+@container (min-width: 1020px) {
   .gem-hide-lg {
     display: none;
   }
 }
 
-@container (min-width: 1120px) {
+@container (min-width: 1240px) {
   .gem-hide-xl {
     display: none;
   }
 }
 
-@container (min-width: 1320px) {
+@container (min-width: 1420px) {
   .gem-hide-2xl {
     display: none;
   }
@@ -62,9 +86,9 @@
   position: sticky;
   inset-inline-end: 0;
   z-index: 20;
-  background-color: #1f2937; /* gray-800 */
-  border-inline-start: 1px solid rgba(55, 65, 81, 0.75);
-  box-shadow: -6px 0 12px -6px rgba(0, 0, 0, 0.55);
+  background-color: #18202f; /* gray-850 */
+  border-inline-start: 1px solid rgba(55, 65, 81, 0.85);
+  box-shadow: -8px 0 14px -6px rgba(0, 0, 0, 0.65);
 }
 
 .gem-sticky-action-td {
@@ -72,8 +96,8 @@
   inset-inline-end: 0;
   z-index: 10;
   background-color: #1f2937; /* gray-800 */
-  border-inline-start: 1px solid rgba(55, 65, 81, 0.65);
-  box-shadow: -6px 0 12px -6px rgba(0, 0, 0, 0.45);
+  border-inline-start: 1px solid rgba(55, 65, 81, 0.75);
+  box-shadow: -8px 0 14px -6px rgba(0, 0, 0, 0.55);
   transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -89,14 +113,17 @@ tr.gem-row-selected:hover > .gem-sticky-action-td {
   background-color: #1e3a8a; /* blue-900 */
 }
 
-/* WCAG 2.1.1 / 2.3.3: Motion Sensitivity Guard */
+/* WCAG 2.1.1 / 2.3.3: Motion Sensitivity Guard (preserves slow status spinner visibility) */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  ::before,
-  ::after {
+  *:not(.animate-spin),
+  *:not(.animate-spin)::before,
+  *:not(.animate-spin)::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  .animate-spin {
+    animation-duration: 2.5s !important;
   }
 }

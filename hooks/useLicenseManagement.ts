@@ -460,14 +460,57 @@ export function useLicenseManagement(projectNumber: string) {
     }));
   };
 
+  const filteredUserLicenses = useMemo(() => {
+    return filterUserLicenses(
+      userLicenses,
+      {
+        filterPrincipal,
+        filterStatus,
+        filterConfig,
+        filterDateOperator,
+        filterDateValue,
+      },
+      licenseNames
+    );
+  }, [userLicenses, filterPrincipal, filterStatus, filterConfig, filterDateOperator, filterDateValue, licenseNames]);
+
+  const sortedUserLicenses = useMemo(() => {
+    return sortUserLicenses(filteredUserLicenses, sortConfig, licenseNames);
+  }, [filteredUserLicenses, sortConfig, licenseNames]);
+
+  const totalLicensesUsed = useMemo(() => {
+    return userLicenses.filter((l) => l.licenseAssignmentState === 'ASSIGNED').length;
+  }, [userLicenses]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedUserLicenses.length / pageSize));
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const paginatedUserLicenses = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return sortedUserLicenses.slice(startIndex, startIndex + pageSize);
+  }, [sortedUserLicenses, currentPage, pageSize]);
+
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const pagePrincipals = paginatedUserLicenses
+      .map((l) => l.userPrincipal)
+      .filter(Boolean) as string[];
     if (e.target.checked) {
-      const allVisiblePrincipals = sortedUserLicenses
-        .map((l) => l.userPrincipal)
-        .filter(Boolean) as string[];
-      setSelectedUsers(new Set(allVisiblePrincipals));
+      setSelectedUsers((prev) => {
+        const next = new Set(prev);
+        pagePrincipals.forEach((p) => next.add(p));
+        return next;
+      });
     } else {
-      setSelectedUsers(new Set());
+      setSelectedUsers((prev) => {
+        const next = new Set(prev);
+        pagePrincipals.forEach((p) => next.delete(p));
+        return next;
+      });
     }
   };
 
@@ -483,11 +526,7 @@ export function useLicenseManagement(projectNumber: string) {
 
   const handleBulkActionClick = () => {
     if (selectedUsers.size === 0 || !projectNumber || !bulkActionConfig) return;
-    if (bulkActionConfig === 'REVOKE' || bulkActionConfig === 'DELETE') {
-      setIsBulkConfirmOpen(true);
-      return;
-    }
-    void executeBulkAction();
+    setIsBulkConfirmOpen(true);
   };
 
   const exportSelectedUsersCsv = () => {
@@ -567,41 +606,6 @@ export function useLicenseManagement(projectNumber: string) {
       setIsBulkActionLoading(false);
     }
   };
-
-  const filteredUserLicenses = useMemo(() => {
-    return filterUserLicenses(
-      userLicenses,
-      {
-        filterPrincipal,
-        filterStatus,
-        filterConfig,
-        filterDateOperator,
-        filterDateValue,
-      },
-      licenseNames
-    );
-  }, [userLicenses, filterPrincipal, filterStatus, filterConfig, filterDateOperator, filterDateValue, licenseNames]);
-
-  const sortedUserLicenses = useMemo(() => {
-    return sortUserLicenses(filteredUserLicenses, sortConfig, licenseNames);
-  }, [filteredUserLicenses, sortConfig, licenseNames]);
-
-  const totalLicensesUsed = useMemo(() => {
-    return userLicenses.filter((l) => l.licenseAssignmentState === 'ASSIGNED').length;
-  }, [userLicenses]);
-
-  const totalPages = Math.max(1, Math.ceil(sortedUserLicenses.length / pageSize));
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [totalPages, currentPage]);
-
-  const paginatedUserLicenses = useMemo(() => {
-    const startIndex = (currentPage - 1) * pageSize;
-    return sortedUserLicenses.slice(startIndex, startIndex + pageSize);
-  }, [sortedUserLicenses, currentPage, pageSize]);
 
   return {
     apiConfig,

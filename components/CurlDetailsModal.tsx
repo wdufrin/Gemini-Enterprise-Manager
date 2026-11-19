@@ -70,9 +70,13 @@ const CurlDetailsModal: React.FC<CurlDetailsModalProps> = ({
 
     const matchedItem = useMemo(() => {
         if (historyItem) return historyItem;
-        if (!curlCommand || !debugContext?.apiHistory?.length) return undefined;
-        return debugContext.apiHistory.find((item) => item.curlCommand === curlCommand);
-    }, [historyItem, curlCommand, debugContext?.apiHistory]);
+        if (!isOpen || !curlCommand) return undefined;
+        const liveHistory = debugContext?.getApiHistory
+            ? debugContext.getApiHistory()
+            : debugContext?.apiHistory;
+        if (!liveHistory?.length) return undefined;
+        return liveHistory.find((item) => item.curlCommand === curlCommand);
+    }, [historyItem, isOpen, curlCommand, debugContext]);
 
     const resolvedMethod = method ?? matchedItem?.method;
     const resolvedUrl = url ?? matchedItem?.url;
@@ -188,13 +192,13 @@ const CurlDetailsModal: React.FC<CurlDetailsModalProps> = ({
                 {/* Left Pane: Outbound API Request & cURL */}
                 <div
                     data-testid="curl-modal-request-pane"
-                    className="flex flex-col bg-gray-900/60 border border-gray-700 rounded-lg p-3.5"
+                    className="flex flex-col min-w-0 bg-gray-900/60 border border-gray-700 rounded-lg p-3.5"
                 >
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-start justify-between gap-3 mb-2">
                         <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wider text-blue-300">
+                            <h3 className="text-xs font-semibold uppercase tracking-wider text-blue-300">
                                 Outbound API Request (Source)
-                            </h4>
+                            </h3>
                             <p className="text-xs text-gray-400">
                                 The following cURL command represents the API request:
                             </p>
@@ -247,13 +251,13 @@ const CurlDetailsModal: React.FC<CurlDetailsModalProps> = ({
                 {/* Right Pane: Live Backend Response */}
                 <div
                     data-testid="curl-modal-response-pane"
-                    className="flex flex-col bg-gray-900/60 border border-gray-700 rounded-lg p-3.5"
+                    className="flex flex-col min-w-0 bg-gray-900/60 border border-gray-700 rounded-lg p-3.5"
                 >
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-start justify-between gap-3 mb-2">
                         <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+                            <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
                                 Live Backend Response (GCP Result)
-                            </h4>
+                            </h3>
                             <p className="text-xs text-gray-400">
                                 Real-time HTTP response returned by Google Cloud:
                             </p>

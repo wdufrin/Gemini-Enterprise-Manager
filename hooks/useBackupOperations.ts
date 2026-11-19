@@ -401,8 +401,24 @@ export function useBackupOperations({
 
     if (useModal) {
       if (!assistant.agents || assistant.agents.length === 0) {
-        addLog('No agents found in assistant backup; restoring assistant settings directly...');
-        return processRestoreAssistant(backupData, false);
+        addLog(
+          'No agents found in assistant backup; awaiting confirmation before restoring assistant settings...'
+        );
+        setRestoreConfirmData({
+          section: 'Assistant',
+          items: [
+            {
+              name: assistant.name,
+              displayName:
+                assistant.displayName ||
+                assistant.name.split('/').pop() ||
+                'Assistant Settings',
+            },
+          ],
+          originalData: backupData,
+          processor: (data) => processRestoreAssistant(data, false),
+        });
+        return outcome;
       }
       const processor = async (data: { assistant?: { name?: string; displayName?: string; generationConfig?: Record<string, unknown>; agents?: Agent[] } }) => {
         const agentsToRestore = data.assistant?.agents || [];

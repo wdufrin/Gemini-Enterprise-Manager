@@ -44,8 +44,17 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
         setShowGatePopover(false);
       }
     };
+    const handleKeyDownGlobal = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowGatePopover(false);
+      }
+    };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDownGlobal);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDownGlobal);
+    };
   }, [showGatePopover]);
 
   const handleResolve = async () => {
@@ -76,15 +85,31 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Escape') {
       e.preventDefault();
-      handleResolve();
+      setInputValue(projectId || projectNumber);
+      setError(null);
+      setIsEditing(false);
     }
   };
 
   if (isEditing) {
     return (
-      <div className="relative flex items-center space-x-2">
+      <form
+        className="relative flex items-center space-x-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleResolve();
+        }}
+        onBlur={(e) => {
+          const nextFocused = e.relatedTarget as Node | null;
+          if (!e.currentTarget.contains(nextFocused) && !isLoading) {
+            setInputValue(projectId || projectNumber);
+            setIsEditing(false);
+            setError(null);
+          }
+        }}
+      >
         <input
           type="text"
           value={inputValue}
@@ -93,34 +118,24 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
             if (error) setError(null);
           }}
           onKeyDown={handleKeyDown}
+          aria-label="Active GCP Project ID or Number"
           placeholder="Project ID or Number"
-          className={`bg-gray-700 border ${error ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-600 focus:border-blue-500 focus:ring-blue-500/20'} rounded-md px-2 py-1 text-sm text-gray-200 focus:ring-2 outline-none w-48 transition-colors`}
+          className={`bg-gray-800 border ${error ? 'border-red-500 focus:ring-red-500/20' : 'border-gray-600 focus:border-blue-500 focus:ring-blue-500/20'} rounded-md px-2.5 py-1 text-xs sm:text-sm text-gray-100 focus:ring-2 outline-none w-44 sm:w-56 font-mono transition-colors`}
           autoFocus
-          onBlur={() => { 
-            setTimeout(() => {
-              if (!isLoading) {
-                setIsEditing(false);
-                setError(null);
-              }
-            }, 150);
-          }}
         />
         <button
-          onMouseDown={(e) => {
-            e.preventDefault();
-            handleResolve();
-          }}
+          type="submit"
           disabled={isLoading}
-          className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded transition-colors"
+          className="text-xs bg-blue-600 hover:bg-blue-500 text-white font-semibold px-2.5 py-1 rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-50"
         >
           {isLoading ? '...' : 'Set'}
         </button>
         {error && (
-          <div className="absolute top-full left-0 mt-1 bg-red-950/90 border border-red-900/50 text-red-200 text-xs px-2.5 py-1.5 rounded-lg shadow-lg z-50 font-medium animate-fade-in whitespace-nowrap">
+          <div role="alert" className="absolute top-full left-0 mt-1 bg-red-950/95 border border-red-800 text-red-200 text-xs px-2.5 py-1.5 rounded-lg shadow-lg z-50 font-medium animate-fade-in whitespace-nowrap">
             {error}
           </div>
         )}
-      </div>
+      </form>
     );
   }
 
@@ -144,18 +159,18 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
     <div className="relative flex items-center gap-2 min-w-0" ref={popoverRef}>
       <button
         type="button"
-        className="flex items-center space-x-1.5 group cursor-pointer text-left bg-transparent border-0 p-0 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded min-w-0"
+        className="flex items-center space-x-1.5 group cursor-pointer text-left bg-gray-900/70 hover:bg-gray-800 border border-gray-700/80 hover:border-gray-600 px-2.5 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg min-w-0 transition-colors"
         onClick={() => setIsEditing(true)}
         aria-label={`Active project: ${projectId || 'Not Set'}. Click to change.`}
       >
-        <span className="text-xs font-medium text-gray-400 group-hover:text-gray-300 shrink-0">Project:</span>
-        <div className="flex items-baseline gap-1 min-w-0" title="Click to change">
-          <span className="text-xs sm:text-sm font-bold text-white group-hover:text-blue-300 font-mono truncate max-w-[160px] xl:max-w-[240px]">{projectId || 'Not Set'}</span>
+        <span className="text-[11px] font-medium text-gray-400 group-hover:text-gray-300 hidden sm:inline shrink-0">Project:</span>
+        <div className="flex items-baseline gap-1.5 min-w-0" title={projectId && projectNumber ? `${projectId} (${projectNumber}) — Click to switch` : 'Click to set project'}>
+          <span className="text-xs font-semibold text-white group-hover:text-blue-300 font-mono truncate max-w-[140px] sm:max-w-[220px] xl:max-w-[280px]">{projectId || 'Not Set'}</span>
           {projectNumber && projectId && projectNumber !== projectId && (
-            <span className="text-[11px] text-gray-500 font-mono hidden lg:inline shrink-0">({projectNumber})</span>
+            <span className="text-[11px] text-gray-400 font-mono hidden 2xl:inline shrink-0">({projectNumber})</span>
           )}
         </div>
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-gray-500 group-hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" viewBox="0 0 20 20" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-gray-400 group-hover:text-blue-300 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
           <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
         </svg>
       </button>
@@ -164,8 +179,9 @@ const HeaderProjectInput: React.FC<HeaderProjectInputProps> = ({ projectId, proj
         <button
           type="button"
           onClick={() => setShowGatePopover((prev) => !prev)}
+          aria-expanded={showGatePopover}
           title="View Project Visibility & Allowlist Feature Gates"
-          className={`hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors shrink-0 ${tierBadgeClasses}`}
+          className={`hidden xl:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${tierBadgeClasses}`}
         >
           <span className={`w-1.5 h-1.5 rounded-full ${isGoogleInternal ? 'bg-purple-400' : isTrustedTester ? 'bg-blue-400' : 'bg-gray-400'}`} />
           <span>{tierLabel}</span>

@@ -96,11 +96,14 @@ const QueryTooltip: React.FC<{ query: string }> = ({ query }) => {
 
     return (
         <div className="relative inline-block" ref={tooltipRef}>
-            <button 
-                className="cursor-help text-gray-500 hover:text-blue-400 transition-colors focus:outline-none"
+            <button
+                type="button"
+                aria-label="View BigQuery SQL query"
+                aria-expanded={isVisible}
+                className="cursor-help text-gray-400 hover:text-blue-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded p-0.5"
                 onClick={() => setIsVisible(!isVisible)}
             >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
             </button>
@@ -131,14 +134,16 @@ const CustomXAxisTick = (props: any) => {
     const { x, y, payload } = props;
     if (x === null || y === null || isNaN(x) || isNaN(y) || !payload) return null;
     const parts = (payload.value || '').split('|');
+    const shortName = parts[0] && parts[0].length > 14 ? `${parts[0].slice(0, 13)}…` : (parts[0] || '');
+    const shortId = parts[1] && parts[1].length > 14 ? `${parts[1].slice(0, 13)}…` : parts[1];
     return (
         <g transform={`translate(${x},${y})`}>
-            <text x={0} y={0} dy={16} textAnchor="middle" fill="#9CA3AF" fontSize={11}>
-                {parts[0] || ''}
+            <text x={0} y={0} dy={16} textAnchor="middle" fill="#CBD5E1" fontSize={11}>
+                {shortName}
             </text>
-            {parts[1] && (
-                <text x={0} y={0} dy={30} textAnchor="middle" fill="#6B7280" fontSize={9}>
-                    {parts[1]}
+            {shortId && (
+                <text x={0} y={0} dy={30} textAnchor="middle" fill="#94A3B8" fontSize={9}>
+                    {shortId}
                 </text>
             )}
         </g>

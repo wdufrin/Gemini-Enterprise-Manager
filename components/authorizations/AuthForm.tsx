@@ -26,10 +26,10 @@ interface AuthFormProps {
 }
 
 const initialFormData = {
-    authId: 'your-auth-id',
+    authId: '',
     authProvider: 'google', // 'google' | 'microsoft'
     tenantId: '', // For Microsoft
-    oauthClientId: 'your-oauth-client-id',
+    oauthClientId: '',
     oauthClientSecret: '', // Start empty
     scopes: 'https://www.googleapis.com/auth/cloud-platform',
     oauthTokenUri: 'https://oauth2.googleapis.com/token',
@@ -37,11 +37,11 @@ const initialFormData = {
     authorizationUri: '', // Will be populated by effect
 };
 
-const FormField: React.FC<{ name: keyof typeof initialFormData; label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean; type?: string; helpText?: string; disabled?: boolean; }> = 
-({ name, label, value, onChange, required = false, type = 'text', helpText, disabled = false }) => (
+const FormField: React.FC<{ name: keyof typeof initialFormData; label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean; type?: string; helpText?: string; disabled?: boolean; placeholder?: string; }> = 
+({ name, label, value, onChange, required = false, type = 'text', helpText, disabled = false, placeholder }) => (
     <div>
-        <label htmlFor={name} className="block text-sm font-medium text-gray-300">{label}</label>
-        <input type={type} name={name} id={name} value={value} onChange={onChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white disabled:bg-gray-800 disabled:text-gray-400 disabled:cursor-not-allowed" required={required} disabled={disabled} />
+        <label htmlFor={name} className="block text-xs font-semibold uppercase tracking-wider text-gray-300 mb-1">{label}</label>
+        <input type={type} name={name} id={name} value={value} onChange={onChange} placeholder={placeholder} className="block w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg shadow-sm text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 disabled:bg-gray-800/70 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors" required={required} disabled={disabled} />
         {helpText && <p className="mt-1 text-xs text-gray-400">{helpText}</p>}
     </div>
 );
@@ -60,11 +60,13 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
 
     const constructAuthUri = useCallback((provider: string, clientId: string, redirectUri: string, scopes: string, tenantId?: string) => {
       const encodedScopes = encodeURIComponent(scopes.split(',').join(' '));
+      const encodedClientId = encodeURIComponent(clientId);
+      const encodedRedirectUri = encodeURIComponent(redirectUri);
         if (provider === 'microsoft' && tenantId) {
-            return `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodedScopes}&response_mode=query&prompt=consent`;
+            return `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/authorize?client_id=${encodedClientId}&response_type=code&redirect_uri=${encodedRedirectUri}&scope=${encodedScopes}&response_mode=query&prompt=consent`;
         }
         // Default to Google
-      return `https://accounts.google.com/o/oauth2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&scope=${encodedScopes}&response_type=code&access_type=offline&prompt=consent`;
+      return `https://accounts.google.com/o/oauth2/auth?client_id=${encodedClientId}&redirect_uri=${encodedRedirectUri}&scope=${encodedScopes}&response_type=code&access_type=offline&prompt=consent`;
   }, []);
 
   useEffect(() => {
@@ -344,17 +346,18 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Column 1: The Form */}
             <form id="auth-form" onSubmit={handleSubmit} className="space-y-4">
-                  <FormField name="authId" label="Authorization ID" value={formData.authId} onChange={handleChange} required disabled={!!authToEdit} helpText={!authToEdit ? 'Enter a unique ID or paste the full resource name.' : 'The full resource name of the authorization.'} />
+                  <FormField name="authId" label="Authorization ID" value={formData.authId} onChange={handleChange} placeholder="e.g. my-google-oauth" required disabled={!!authToEdit} helpText={!authToEdit ? 'Enter a unique ID or paste the full resource name.' : 'The full resource name of the authorization.'} />
 
 
                   {authToEdit && (
                       <div>
-                          <label className="block text-sm font-medium text-gray-300">Region</label>
+                          <label htmlFor="auth-region-display" className="block text-xs font-semibold uppercase tracking-wider text-gray-300 mb-1">Region</label>
                           <input
+                              id="auth-region-display"
                               type="text"
                               value={authToEdit.name.match(/locations\/([a-zA-Z0-9-]+)\//)?.[1] || 'unknown'}
                               disabled
-                              className="mt-1 block w-full bg-gray-800 border-gray-700 rounded-md shadow-sm text-sm text-gray-400 cursor-not-allowed"
+                              className="block w-full px-3 py-2 bg-gray-800/70 border border-gray-700 rounded-lg shadow-sm text-sm text-gray-400 cursor-not-allowed"
                           />
                       </div>
                   )}
@@ -393,12 +396,12 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
                       <FormField name="tenantId" label="Tenant ID" value={formData.tenantId} onChange={handleChange} required={formData.authProvider === 'microsoft'} helpText="Your Microsoft Entra ID Directory (tenant) ID." />
                   )}
 
-                <FormField name="oauthClientId" label="OAuth 2.0 Client ID" value={formData.oauthClientId} onChange={handleChange} required />
+                <FormField name="oauthClientId" label="OAuth 2.0 Client ID" value={formData.oauthClientId} onChange={handleChange} placeholder="e.g. 1234567890-abc.apps.googleusercontent.com" required />
                 <FormField name="oauthClientSecret" label="OAuth 2.0 Client Secret" value={formData.oauthClientSecret} onChange={handleChange} required={!authToEdit} type="password" helpText={authToEdit ? 'Leave blank to keep existing secret. Enter a new value to update.' : ''} />
                 
                 <div>
-                    <div className="flex items-center space-x-2">
-                        <label htmlFor="scopes" className="block text-sm font-medium text-gray-300">OAuth 2.0 Scopes</label>
+                    <div className="flex items-center space-x-2 mb-1">
+                        <label htmlFor="scopes" className="block text-xs font-semibold uppercase tracking-wider text-gray-300">OAuth 2.0 Scopes</label>
                         <div 
                             className="relative"
                             onMouseEnter={() => setShowScopesTooltip(true)}
@@ -406,14 +409,19 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
                         >
                             <button
                                 type="button"
-                                className="text-gray-400 hover:text-white"
+                                aria-label="Show common OAuth 2.0 scopes"
+                                aria-expanded={showScopesTooltip}
+                                onClick={() => setShowScopesTooltip((prev) => !prev)}
+                                onFocus={() => setShowScopesTooltip(true)}
+                                onBlur={() => setShowScopesTooltip(false)}
+                                className="text-gray-400 hover:text-white rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                                 </svg>
                             </button>
                             {showScopesTooltip && (
-                                <div className="absolute z-10 w-80 p-3 mt-2 text-sm text-white transform -translate-x-1/2 left-1/2 bg-gray-700 rounded-lg shadow-lg bottom-full mb-2">
+                                <div role="tooltip" className="absolute z-10 w-80 p-3 mt-2 text-sm text-white transform -translate-x-1/2 left-1/2 bg-gray-800 border border-gray-700 rounded-lg shadow-xl bottom-full mb-2">
                                     <p className="font-semibold">Common OAuth Scopes:</p>
                                     <ul className="list-disc list-inside mt-2 space-y-1 text-xs">
                                         <li><code>https://www.googleapis.com/auth/cloud-platform</code> (Broad access)</li>
@@ -434,7 +442,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
                         id="scopes"
                         value={formData.scopes}
                         onChange={handleChange}
-                        className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white"
+                        className="block w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg shadow-sm text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
                         required
                     />
                     <p className="mt-1 text-xs text-gray-400">Comma-separated list of scopes.</p>
@@ -442,9 +450,9 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
 
                 <FormField name="redirectUri" label="OAuth Redirect URI" value={formData.redirectUri} onChange={handleChange} />
                 
-                <div className="p-3 bg-gray-900/50 rounded-md border border-gray-700">
+                <div className="p-3.5 bg-gray-900/60 rounded-lg border border-gray-700/80">
                     <div className="flex items-center justify-between mb-2">
-                        <label htmlFor="authorizationUri" className="block text-sm font-medium text-gray-300">Authorization URI</label>
+                        <label htmlFor="authorizationUri" className="block text-xs font-semibold uppercase tracking-wider text-gray-300">Authorization URI</label>
                         <label className="flex items-center cursor-pointer text-xs text-blue-300 hover:text-blue-200">
                             <input 
                                 type="checkbox" 
@@ -461,7 +469,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
                         id="authorizationUri"
                         value={formData.authorizationUri}
                         onChange={handleChange}
-                        className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
+                        className="block w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg shadow-sm text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 disabled:bg-gray-800/70 disabled:text-gray-400 disabled:cursor-not-allowed font-mono"
                         disabled={autoGenerateUri}
                         required
                     />

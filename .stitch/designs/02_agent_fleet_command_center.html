@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={theme:{extend:{colors:{background:"#0B0F19",surface:"#0B0F19","surface-container-lowest":"#070A11","surface-container-low":"#111827","surface-container":"#161F32","surface-container-high":"#1E293B","surface-container-highest":"#283548","on-surface":"#F1F5F9","on-surface-variant":"#94A3B8","outline":"#334155","outline-variant":"#1E293B",primary:"#38BDF8","on-primary":"#082F49","primary-container":"#0284C7","on-primary-container":"#F0F9FF",secondary:"#818CF8","on-secondary":"#1E1B4B","secondary-container":"#4338CA","on-secondary-container":"#EEF2FF",tertiary:"#34D399","on-tertiary":"#022C22","tertiary-container":"#059669","on-tertiary-container":"#ECFDF5",error:"#F87171","on-error":"#450A0A"},fontFamily:{body:["Inter","system-ui","sans-serif"],headline:["Inter","system-ui","sans-serif"]}}}}</script></head><body class="bg-background font-body text-on-surface antialiased"><aside class="fixed left-0 top-0 h-full w-64 bg-surface-container-low z-50 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.4)]"><div class="flex flex-col h-[calc(100%-4rem)]"><div class="h-14 px-4 flex items-center gap-3 bg-surface-container-low shrink-0"><div class="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center"><span class="material-symbols-outlined text-primary text-[20px]">hub</span></div><div class="flex flex-col min-w-0"><span class="text-xs font-semibold tracking-wider text-on-surface uppercase truncate">Gemini Enterprise</span><span class="text-[10px] text-on-surface-variant uppercase tracking-widest">Control Plane</span></div></div><div class="flex-1 overflow-y-auto px-3 py-2 space-y-5"><nav class="space-y-4" data-active-classes="bg-surface-container-high text-on-surface font-medium"><div class="space-y-1"><span class="px-2 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider block">Agent Management</span><a aria-current="page" class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-colors bg-surface-container-high text-on-surface font-medium" data-path="agent-fleet" href="#"><span class="material-symbols-outlined text-[16px]">smart_toy</span><span>Agent Fleet</span></a><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="agent-builder" href="#"><span class="material-symbols-outlined text-[16px]">terminal</span><span>Agent Builder</span></a><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="multi-agent-mesh" href="#"><span class="material-symbols-outlined text-[16px]">device_hub</span><span>Multi-Agent Mesh</span></a></div><div class="space-y-1"><span class="px-2 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider block">Knowledge &amp; Resources</span><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="data-stores" href="#"><span class="material-symbols-outlined text-[16px]">database</span><span>Data Stores</span></a><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="vertex-search-connectors" href="#"><span class="material-symbols-outlined text-[16px]">travel_explore</span><span>Vertex Connectors</span></a><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="tool-registry" href="#"><span class="material-symbols-outlined text-[16px]">handyman</span><span>Tool Registry</span></a></div><div class="space-y-1"><span class="px-2 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider block">Testing &amp; Analysis</span><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="evaluation-and-benchmarks" href="#"><span class="material-symbols-outlined text-[16px]">speed</span><span>Evaluation &amp; Benchmarks</span></a><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="playground" href="#"><span class="material-symbols-outlined text-[16px]">sports_esports</span><span>Playground</span></a><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="execution-logs" href="#"><span class="material-symbols-outlined text-[16px]">receipt_long</span><span>Execution Logs</span></a></div><div class="space-y-1"><span class="px-2 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider block">Security &amp; Access</span><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="iam-and-governance" href="#"><span class="material-symbols-outlined text-[16px]">shield</span><span>IAM &amp; Governance</span></a><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="audit-trail" href="#"><span class="material-symbols-outlined text-[16px]">history</span><span>Audit Trail</span></a><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="safety-filters" href="#"><span class="material-symbols-outlined text-[16px]">security</span><span>Safety Filters</span></a></div><div class="space-y-1"><span class="px-2 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider block">System</span><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="endpoint-quotas" href="#"><span class="material-symbols-outlined text-[16px]">query_stats</span><span>Endpoint Quotas</span></a><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="billing-and-allocation" href="#"><span class="material-symbols-outlined text-[16px]">account_balance_wallet</span><span>Billing &amp; Allocation</span></a><a class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="settings" href="#"><span class="material-symbols-outlined text-[16px]">settings</span><span>Settings</span></a></div></nav></div></div><div class="h-16 px-3 bg-surface-container-low flex items-center justify-between shadow-[0_-1px_6px_rgba(0,0,0,0.2)]"><button class="flex items-center gap-1.5 text-xs text-on-surface-variant hover:text-on-surface py-1.5 px-2 rounded hover:bg-surface-container transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">terminal</span><span>cURL History</span></button><button aria-label="Collapse navigation rail" class="p-1.5 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" type="button"><span class="material-symbols-outlined text-[18px]">dock_to_right</span></button></div></aside><div class="pl-64"><header class="fixed top-0 left-64 right-0 h-14 bg-surface/90 backdrop-blur-md shadow-[0_1px_8px_rgba(0,0,0,0.3)] z-40 px-4 flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="flex items-center gap-1.5 text-xs text-on-surface-variant shrink-0"><span class="text-on-surface-variant hover:text-on-surface cursor-pointer">Gemini Enterprise</span><span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span><span class="text-on-surface-variant hover:text-on-surface cursor-pointer">Agent Management</span><span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span><span class="text-on-surface font-medium truncate">Agent Fleet</span></div><div class="hidden xl:flex items-center gap-2 bg-surface-container-low px-2.5 py-1 rounded-full"><span class="material-symbols-outlined text-primary text-[14px]">layers</span><span class="text-xs text-on-surface font-mono">gemini-ai-core-prod-882</span><span class="text-[10px] font-medium bg-secondary-container/60 text-on-secondary-container px-1.5 py-0.5 rounded-full">Trusted Tester</span></div></div><div class="flex-1 max-w-md mx-2"><button class="w-full flex items-center justify-between px-3 py-1.5 rounded-lg bg-surface-container-low text-on-surface-variant text-xs hover:bg-surface-container transition-colors shadow-inner" type="button"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px]">search</span><span>Quick Jump to resources, tools, logs...</span></div><kbd class="px-1.5 py-0.5 rounded text-[10px] bg-surface-container-high text-on-surface font-mono">⌘K</kbd></button></div><div class="flex items-center gap-3 shrink-0"><div class="flex items-center gap-1.5 bg-surface-container-low px-2 py-1 rounded-md text-[11px] text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="hidden sm:inline text-on-surface font-medium">Operational</span></div><button class="text-xs text-on-surface-variant hover:text-on-surface flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-container-low transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">chat_bubble</span><span class="hidden sm:inline">Feedback</span></button><div class="flex items-center gap-2 pl-2"><span class="text-xs text-on-surface-variant hidden md:inline font-mono truncate max-w-[140px]">alex.vance@acme-cloud.internal</span><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="w-full pt-14 bg-background min-h-screen"><div class="flex flex-col w-full">
+<!-- Top Command Center Context Bar -->
+<div class="px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-container-lowest/80 backdrop-blur-md">
+<div class="flex flex-col gap-1.5">
+<div class="flex items-center gap-3">
+<h1 class="text-xl font-headline font-semibold text-on-surface tracking-tight">Agent Fleet Command Center</h1>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
+          28 Active Agents
+        </span>
+<div class="flex items-center gap-2 pl-3">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-tertiary"></span>
+</span>
+<span class="text-xs font-mono text-on-surface-variant">Fleet Runtime: <span class="text-tertiary font-semibold">Healthy</span> (99.98% uptime)</span>
+</div>
+</div>
+<p class="text-xs text-on-surface-variant">Manage centralized Vertex AI, Agent Development Kit (ADK), and A2A autonomous mesh deployments.</p>
+</div>
+<!-- Top Action Controls -->
+<div class="flex items-center gap-2 shrink-0">
+<div class="inline-flex items-center bg-surface-container rounded-lg p-0.5 shadow-sm">
+<button class="p-1.5 text-on-surface-variant hover:text-on-surface rounded transition-colors" title="Sync Status" type="button">
+<span class="material-symbols-outlined text-[18px]">sync</span>
+</button>
+<span class="text-[11px] font-mono text-on-surface-variant px-2">Auto (30s)</span>
+</div>
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-xs font-medium text-on-surface transition-colors shadow-sm" type="button">
+<span class="material-symbols-outlined text-[16px]">file_download</span>
+<span>Export</span>
+</button>
+<!-- Primary CTA with dropdown option -->
+<div class="relative inline-flex rounded-lg shadow-sm">
+<button class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-l-lg bg-primary text-on-primary text-xs font-semibold hover:bg-primary/90 transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">add</span>
+<span>Register New Agent</span>
+</button>
+<button class="px-2 py-1.5 rounded-r-lg bg-primary-container text-on-primary-container hover:bg-primary-container/80 transition-colors" title="Registration Options" type="button">
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Main Fleet Workspace -->
+<div class="p-6 space-y-6">
+<!-- KPI Summary Cards -->
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+<!-- Card 1 -->
+<div class="bg-surface-container-low rounded-xl p-4 shadow-sm flex flex-col justify-between hover:bg-surface-container/60 transition-colors group">
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-on-surface-variant uppercase tracking-wider">Total Registered Agents</span>
+<span class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-[18px]">smart_toy</span>
+</span>
+</div>
+<div class="mt-3 flex items-baseline gap-2">
+<span class="text-3xl font-headline font-bold text-on-surface">28</span>
+<span class="text-xs font-semibold text-tertiary flex items-center">
+<span class="material-symbols-outlined text-[14px]">arrow_upward</span> +3 this wk
+          </span>
+</div>
+<div class="mt-3 flex items-center gap-1.5 text-[11px] font-mono text-on-surface-variant">
+<span class="text-on-surface">14</span> Discovery Engine <span class="opacity-40">•</span> <span class="text-on-surface">8</span> ADK <span class="opacity-40">•</span> <span class="text-on-surface">4</span> A2A
+        </div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface-container-low rounded-xl p-4 shadow-sm flex flex-col justify-between hover:bg-surface-container/60 transition-colors group">
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-on-surface-variant uppercase tracking-wider">Published to All Users</span>
+<span class="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center text-secondary group-hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-[18px]">public</span>
+</span>
+</div>
+<div class="mt-3 flex items-baseline gap-2">
+<span class="text-3xl font-headline font-bold text-on-surface">19</span>
+<span class="text-xs font-mono text-on-surface-variant">68% domain coverage</span>
+</div>
+<div class="mt-3 w-full bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-secondary h-full rounded-full" style="width: 68%;"></div>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface-container-low rounded-xl p-4 shadow-sm flex flex-col justify-between hover:bg-surface-container/60 transition-colors group">
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-on-surface-variant uppercase tracking-wider">Attached Data Stores</span>
+<span class="w-8 h-8 rounded-lg bg-tertiary/10 flex items-center justify-center text-tertiary group-hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-[18px]">database</span>
+</span>
+</div>
+<div class="mt-3 flex items-baseline gap-2">
+<span class="text-3xl font-headline font-bold text-on-surface">42</span>
+<span class="text-xs font-mono text-tertiary">Indexed &amp; Grounded</span>
+</div>
+<div class="mt-3 text-[11px] font-mono text-on-surface-variant truncate">
+          BigQuery, Vertex Search &amp; PDF Repos
+        </div>
+</div>
+<!-- Card 4 -->
+<div class="bg-surface-container-low rounded-xl p-4 shadow-sm flex flex-col justify-between hover:bg-surface-container/60 transition-colors group">
+<div class="flex items-center justify-between">
+<span class="text-xs font-medium text-on-surface-variant uppercase tracking-wider">Security &amp; Governance</span>
+<span class="w-8 h-8 rounded-lg bg-error/10 flex items-center justify-center text-error group-hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-[18px]">warning</span>
+</span>
+</div>
+<div class="mt-3 flex items-baseline gap-2">
+<span class="text-3xl font-headline font-bold text-error">2</span>
+<span class="text-xs font-medium text-error flex items-center gap-0.5">
+            Warnings Flagged
+          </span>
+</div>
+<div class="mt-3 text-[11px] font-mono text-on-surface-variant flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span> 1 Missing IAM <span class="opacity-40">•</span> 1 Outdated Core
+        </div>
+</div>
+</div>
+<!-- Filter & Action Toolbar -->
+<div class="bg-surface-container-low rounded-xl p-3 shadow-sm space-y-3">
+<div class="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+<!-- Search -->
+<div class="relative flex-1">
+<span class="material-symbols-outlined absolute left-3 top-2.5 text-[18px] text-on-surface-variant">search</span>
+<input class="w-full bg-surface-container rounded-lg pl-9 pr-12 py-2 text-xs text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:bg-surface-container-high transition-colors" placeholder="Filter by agent name, resource ID, or tags... (Press /)" type="text"/>
+<kbd class="absolute right-3 top-2.5 px-1.5 py-0.5 rounded text-[10px] bg-surface-container-high text-on-surface font-mono">/</kbd>
+</div>
+<!-- Filter Selectors -->
+<div class="flex flex-wrap items-center gap-2 shrink-0">
+<select class="bg-surface-container hover:bg-surface-container-high text-on-surface text-xs rounded-lg px-3 py-2 focus:outline-none transition-colors cursor-pointer">
+<option>All Runtimes (ADK, A2A, Discovery)</option>
+<option>ADK Runtime (Python/Go)</option>
+<option>A2A Mesh Router</option>
+<option>Discovery Engine</option>
+<option>Cloud Run Custom</option>
+</select>
+<select class="bg-surface-container hover:bg-surface-container-high text-on-surface text-xs rounded-lg px-3 py-2 focus:outline-none transition-colors cursor-pointer">
+<option>All Locations (us-central1, europe)</option>
+<option>us-central1 (Iowa)</option>
+<option>europe-west4 (Eemshaven)</option>
+<option>global (Multi-Region)</option>
+</select>
+<select class="bg-surface-container hover:bg-surface-container-high text-on-surface text-xs rounded-lg px-3 py-2 focus:outline-none transition-colors cursor-pointer">
+<option>All Scopes (Public, Domain, Private)</option>
+<option>Domain-Wide (acme-cloud)</option>
+<option>Public Org</option>
+<option>Workspace Restricted</option>
+<option>Draft / Private</option>
+</select>
+</div>
+</div>
+<!-- Quick Filter Chips & Bulk Action Trigger -->
+<div class="flex flex-wrap items-center justify-between gap-2 pt-2">
+<div class="flex flex-wrap items-center gap-1.5">
+<span class="text-[11px] font-mono text-on-surface-variant mr-1">Active Filters:</span>
+<button class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors" type="button">
+<span>Latency &gt; 1.2s</span>
+<span class="material-symbols-outlined text-[14px] text-on-surface-variant">close</span>
+</button>
+<button class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-error/15 text-error font-medium transition-colors" type="button">
+<span>Policy Flagged (2)</span>
+<span class="material-symbols-outlined text-[14px]">close</span>
+</button>
+<button class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors" type="button">
+<span>Grounding: Vertex Search</span>
+<span class="material-symbols-outlined text-[14px] text-on-surface-variant">close</span>
+</button>
+<button class="text-xs text-primary hover:underline ml-2" type="button">Clear all</button>
+</div>
+<!-- Bulk Action Capsule -->
+<div class="flex items-center gap-2 bg-surface-container px-2 py-1 rounded-lg">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-primary text-on-primary">2 selected</span>
+<select class="bg-transparent text-xs text-on-surface focus:outline-none cursor-pointer">
+<option>Bulk Actions...</option>
+<option>Disable Selected</option>
+<option>Export Configurations</option>
+<option>Batch Assign IAM Policy</option>
+</select>
+<button class="px-2 py-1 bg-surface-container-high hover:bg-surface-container-highest text-xs text-on-surface font-medium rounded transition-colors" type="button">Apply</button>
+</div>
+</div>
+</div>
+<!-- Primary Split Workspace (Table + Drawer) -->
+<div class="flex flex-col 2xl:flex-row gap-6 items-start">
+<!-- Left Column (65% width equivalent) - High Density Fleet Table -->
+<div class="w-full 2xl:w-[65%] bg-surface-container-low rounded-xl shadow-md overflow-hidden flex flex-col">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-lowest/60 text-[11px] font-mono text-on-surface-variant uppercase tracking-wider">
+<th class="p-3 w-10 text-center">
+<input checked="" class="rounded bg-surface-container-high text-primary focus:ring-0 focus:ring-offset-0 cursor-pointer" type="checkbox"/>
+</th>
+<th class="py-3 px-3">Agent &amp; Resource ID</th>
+<th class="py-3 px-3">Runtime</th>
+<th class="py-3 px-3">Sharing Scope</th>
+<th class="py-3 px-3">Grounding &amp; Tools</th>
+<th class="py-3 px-3">Telemetry / QPS</th>
+<th class="py-3 px-3">Modified</th>
+<th class="py-3 px-3 text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container-high/40 text-xs">
+<!-- ROW 1 (SELECTED / ACTIVE INSPECT) -->
+<tr class="bg-primary/5 hover:bg-primary/10 transition-colors group cursor-pointer">
+<td class="p-3 text-center">
+<input checked="" class="rounded bg-surface-container text-primary focus:ring-0 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-3.5 px-3">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<div class="flex flex-col min-w-0">
+<span class="font-semibold text-primary group-hover:underline">Customer Intelligence Copilot</span>
+<span class="font-mono text-[10px] text-on-surface-variant truncate max-w-[200px]">projects/492019482103/.../cust-intel-prod-v2</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-3">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-primary/20 text-primary">
+<span class="material-symbols-outlined text-[13px]">code</span> ADK v2.4
+                  </span>
+</td>
+<td class="py-3.5 px-3">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] bg-tertiary/15 text-tertiary font-medium">
+                    Domain-wide
+                  </span>
+</td>
+<td class="py-3.5 px-3 font-mono text-[11px] text-on-surface-variant">
+<span class="text-on-surface font-medium">4</span> Stores <span class="opacity-40">•</span> <span class="text-on-surface font-medium">6</span> Tools
+                </td>
+<td class="py-3.5 px-3 font-mono text-[11px]">
+<div class="text-on-surface">420ms <span class="text-on-surface-variant">avg</span></div>
+<div class="text-[10px] text-on-surface-variant">84.2 QPM</div>
+</td>
+<td class="py-3.5 px-3 font-mono text-[11px] text-on-surface-variant">
+                  12m ago
+                </td>
+<td class="py-3.5 px-3 text-right">
+<div class="inline-flex items-center gap-1">
+<button class="px-2 py-1 rounded bg-primary text-on-primary text-[11px] font-medium shadow-sm">Inspect</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container" title="Playground">
+<span class="material-symbols-outlined text-[16px]">sports_esports</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container" title="IAM">
+<span class="material-symbols-outlined text-[16px]">shield</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container">
+<span class="material-symbols-outlined text-[16px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- ROW 2 -->
+<tr class="bg-surface-container-low/40 hover:bg-surface-container transition-colors group cursor-pointer">
+<td class="p-3 text-center">
+<input checked="" class="rounded bg-surface-container text-primary focus:ring-0 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-3.5 px-3">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<div class="flex flex-col min-w-0">
+<span class="font-medium text-on-surface group-hover:text-primary">Internal HR Policy Assistant</span>
+<span class="font-mono text-[10px] text-on-surface-variant truncate max-w-[200px]">.../agents/hr-assist-prod-01</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-3">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-secondary/20 text-secondary">
+<span class="material-symbols-outlined text-[13px]">bolt</span> Discovery
+                  </span>
+</td>
+<td class="py-3.5 px-3">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] bg-secondary-container/40 text-on-secondary-container font-medium">
+                    All Users (Public)
+                  </span>
+</td>
+<td class="py-3.5 px-3 font-mono text-[11px] text-on-surface-variant">
+<span class="text-on-surface font-medium">2</span> Stores (PDFs)
+                </td>
+<td class="py-3.5 px-3 font-mono text-[11px]">
+<div class="text-on-surface">210ms <span class="text-on-surface-variant">avg</span></div>
+<div class="text-[10px] text-on-surface-variant">14.5 QPM</div>
+</td>
+<td class="py-3.5 px-3 font-mono text-[11px] text-on-surface-variant">
+                  2h ago
+                </td>
+<td class="py-3.5 px-3 text-right">
+<div class="inline-flex items-center gap-1">
+<button class="px-2 py-1 rounded hover:bg-surface-container-high text-on-surface-variant text-[11px] font-medium">Inspect</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container" title="Playground">
+<span class="material-symbols-outlined text-[16px]">sports_esports</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container" title="IAM">
+<span class="material-symbols-outlined text-[16px]">shield</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container">
+<span class="material-symbols-outlined text-[16px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- ROW 3 -->
+<tr class="bg-surface-container-low/40 hover:bg-surface-container transition-colors group cursor-pointer">
+<td class="p-3 text-center">
+<input class="rounded bg-surface-container text-primary focus:ring-0 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-3.5 px-3">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<div class="flex flex-col min-w-0">
+<span class="font-medium text-on-surface group-hover:text-primary">SecOps Threat Synthesizer (A2A)</span>
+<span class="font-mono text-[10px] text-on-surface-variant truncate max-w-[200px]">.../agents/secops-mesh-node-04</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-3">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-primary/20 text-primary">
+<span class="material-symbols-outlined text-[13px]">share</span> A2A Mesh
+                  </span>
+</td>
+<td class="py-3.5 px-3">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] bg-surface-container-high text-on-surface-variant font-medium">
+                    Workspace (Tier 1)
+                  </span>
+</td>
+<td class="py-3.5 px-3 font-mono text-[11px] text-on-surface-variant">
+<span class="text-on-surface font-medium">8</span> Tools <span class="opacity-40">•</span> <span class="text-on-surface font-medium">1</span> Mesh Sub
+                </td>
+<td class="py-3.5 px-3 font-mono text-[11px]">
+<div class="text-on-surface">980ms <span class="text-on-surface-variant">avg</span></div>
+<div class="text-[10px] text-on-surface-variant">112 QPM</div>
+</td>
+<td class="py-3.5 px-3 font-mono text-[11px] text-on-surface-variant">
+                  Yesterday
+                </td>
+<td class="py-3.5 px-3 text-right">
+<div class="inline-flex items-center gap-1">
+<button class="px-2 py-1 rounded hover:bg-surface-container-high text-on-surface-variant text-[11px] font-medium">Inspect</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container" title="Playground">
+<span class="material-symbols-outlined text-[16px]">sports_esports</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container" title="IAM">
+<span class="material-symbols-outlined text-[16px]">shield</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container">
+<span class="material-symbols-outlined text-[16px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- ROW 4 (POLICY WARNING) -->
+<tr class="bg-surface-container-low/40 hover:bg-surface-container transition-colors group cursor-pointer">
+<td class="p-3 text-center">
+<input class="rounded bg-surface-container text-primary focus:ring-0 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-3.5 px-3">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-error animate-pulse"></span>
+<div class="flex flex-col min-w-0">
+<span class="font-medium text-on-surface group-hover:text-primary">Financial Analysis &amp; Model Agent</span>
+<span class="font-mono text-[10px] text-on-surface-variant truncate max-w-[200px]">.../agents/fin-q3-forecast-v1</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-3">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-surface-container-high text-on-surface">
+<span class="material-symbols-outlined text-[13px]">cloud</span> Cloud Run
+                  </span>
+</td>
+<td class="py-3.5 px-3">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] bg-surface-container-high text-on-surface-variant font-medium">
+                    Private / Draft
+                  </span>
+</td>
+<td class="py-3.5 px-3 font-mono text-[11px] text-on-surface-variant">
+<span class="text-on-surface font-medium">1</span> BigQuery DS
+                </td>
+<td class="py-3.5 px-3 font-mono text-[11px]">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-error/20 text-error font-medium">
+                    IAM Policy Missing
+                  </span>
+</td>
+<td class="py-3.5 px-3 font-mono text-[11px] text-on-surface-variant">
+                  3d ago
+                </td>
+<td class="py-3.5 px-3 text-right">
+<div class="inline-flex items-center gap-1">
+<button class="px-2 py-1 rounded hover:bg-surface-container-high text-on-surface-variant text-[11px] font-medium">Inspect</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container" title="Playground">
+<span class="material-symbols-outlined text-[16px]">sports_esports</span>
+</button>
+<button class="p-1 rounded text-error hover:bg-error/10" title="Resolve IAM Warning">
+<span class="material-symbols-outlined text-[16px]">warning</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container">
+<span class="material-symbols-outlined text-[16px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- ROW 5 -->
+<tr class="bg-surface-container-low/40 hover:bg-surface-container transition-colors group cursor-pointer">
+<td class="p-3 text-center">
+<input class="rounded bg-surface-container text-primary focus:ring-0 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-3.5 px-3">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<div class="flex flex-col min-w-0">
+<span class="font-medium text-on-surface group-hover:text-primary">DevRel Docs Search &amp; Answer</span>
+<span class="font-mono text-[10px] text-on-surface-variant truncate max-w-[200px]">.../agents/devrel-docsearch-09</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-3">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-secondary/20 text-secondary">
+<span class="material-symbols-outlined text-[13px]">bolt</span> Discovery
+                  </span>
+</td>
+<td class="py-3.5 px-3">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] bg-secondary-container/40 text-on-secondary-container font-medium">
+                    Public Domain
+                  </span>
+</td>
+<td class="py-3.5 px-3 font-mono text-[11px] text-on-surface-variant">
+<span class="text-on-surface font-medium">3</span> Data Stores
+                </td>
+<td class="py-3.5 px-3 font-mono text-[11px]">
+<div class="text-on-surface">185ms <span class="text-on-surface-variant">avg</span></div>
+<div class="text-[10px] text-on-surface-variant">240 QPM</div>
+</td>
+<td class="py-3.5 px-3 font-mono text-[11px] text-on-surface-variant">
+                  4d ago
+                </td>
+<td class="py-3.5 px-3 text-right">
+<div class="inline-flex items-center gap-1">
+<button class="px-2 py-1 rounded hover:bg-surface-container-high text-on-surface-variant text-[11px] font-medium">Inspect</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container" title="Playground">
+<span class="material-symbols-outlined text-[16px]">sports_esports</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container" title="IAM">
+<span class="material-symbols-outlined text-[16px]">shield</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container">
+<span class="material-symbols-outlined text-[16px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Table Footer / Pagination -->
+<div class="p-3 bg-surface-container-lowest/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-on-surface-variant font-mono">
+<div class="flex items-center gap-2">
+<span>Showing 1-5 of 28 agents</span>
+<span class="opacity-40">•</span>
+<div class="flex items-center gap-1">
+<span>Rows per page:</span>
+<select class="bg-surface-container text-on-surface rounded px-1.5 py-0.5 text-xs focus:outline-none">
+<option>25</option>
+<option>50</option>
+<option>100</option>
+</select>
+</div>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-1 rounded hover:bg-surface-container disabled:opacity-30" disabled="">
+<span class="material-symbols-outlined text-[18px]">first_page</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container disabled:opacity-30" disabled="">
+<span class="material-symbols-outlined text-[18px]">chevron_left</span>
+</button>
+<span class="px-2 py-0.5 rounded bg-surface-container-high text-on-surface font-semibold">1</span>
+<button class="px-2 py-0.5 rounded hover:bg-surface-container">2</button>
+<button class="px-2 py-0.5 rounded hover:bg-surface-container">3</button>
+<button class="p-1 rounded hover:bg-surface-container">
+<span class="material-symbols-outlined text-[18px]">chevron_right</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container">
+<span class="material-symbols-outlined text-[18px]">last_page</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Right Column (35% width equivalent) - Agent Inspector Drawer -->
+<div class="w-full 2xl:w-[35%] bg-surface-container-low rounded-xl shadow-xl flex flex-col overflow-hidden">
+<!-- Inspector Header -->
+<div class="p-4 bg-surface-container-low flex flex-col gap-3">
+<div class="flex items-start justify-between">
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<h2 class="text-base font-headline font-semibold text-on-surface">Customer Intelligence Copilot</h2>
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+</div>
+<span class="text-xs font-mono text-on-surface-variant">cust-intel-prod-v2 • Online (Serving v2.4.1)</span>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Minimize">
+<span class="material-symbols-outlined text-[18px]">minimize</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Close Panel">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</div>
+<!-- Quick Actions Bar -->
+<div class="flex items-center gap-2 pt-1">
+<button class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-on-primary text-xs font-medium hover:bg-primary/90 transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[15px]">sports_esports</span>
+<span>Open Playground</span>
+</button>
+<button class="inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-medium transition-colors">
+<span class="material-symbols-outlined text-[15px]">edit</span>
+<span>Edit</span>
+</button>
+<button class="p-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Duplicate Agent">
+<span class="material-symbols-outlined text-[16px]">content_copy</span>
+</button>
+</div>
+</div>
+<!-- Inspector Tabs -->
+<div class="flex items-center px-4 bg-surface-container-lowest/60 text-xs font-medium overflow-x-auto">
+<button class="py-2.5 px-3 text-primary relative">
+            Overview
+            <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"></div>
+</button>
+<button class="py-2.5 px-3 text-on-surface-variant hover:text-on-surface transition-colors">
+            Grounding Data Stores (4)
+          </button>
+<button class="py-2.5 px-3 text-on-surface-variant hover:text-on-surface transition-colors">
+            IAM &amp; Sharing
+          </button>
+<button class="py-2.5 px-3 text-on-surface-variant hover:text-on-surface transition-colors">
+            Live REST / cURL
+          </button>
+</div>
+<!-- Inspector Drawer Body -->
+<div class="p-4 space-y-4 max-h-[750px] overflow-y-auto">
+<!-- Agent Specs Card -->
+<div class="bg-surface-container rounded-lg p-3 space-y-2.5 shadow-sm">
+<div class="flex items-center justify-between">
+<span class="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Core Configuration</span>
+<span class="text-[11px] font-mono text-tertiary bg-tertiary/10 px-1.5 py-0.5 rounded">Active Deployment</span>
+</div>
+<div class="grid grid-cols-2 gap-2 text-xs">
+<div class="p-2 rounded bg-surface-container-low">
+<span class="text-[10px] text-on-surface-variant font-mono uppercase block">Model Endpoint</span>
+<span class="font-mono font-medium text-on-surface">gemini-1.5-pro-002</span>
+</div>
+<div class="p-2 rounded bg-surface-container-low">
+<span class="text-[10px] text-on-surface-variant font-mono uppercase block">Sampling Temp</span>
+<span class="font-mono font-medium text-on-surface">0.20 (Deterministic)</span>
+</div>
+<div class="p-2 rounded bg-surface-container-low">
+<span class="text-[10px] text-on-surface-variant font-mono uppercase block">Max Context Window</span>
+<span class="font-mono font-medium text-on-surface">4,096 tokens</span>
+</div>
+<div class="p-2 rounded bg-surface-container-low">
+<span class="text-[10px] text-on-surface-variant font-mono uppercase block">Safety Guardrails</span>
+<span class="font-mono font-medium text-tertiary">Strict (Enterprise)</span>
+</div>
+</div>
+<!-- System Prompt Snippet -->
+<div class="pt-1">
+<span class="text-[10px] text-on-surface-variant font-mono uppercase block mb-1">System Instruction Summary</span>
+<div class="p-2 rounded bg-surface-container-lowest font-mono text-[11px] text-on-surface-variant line-clamp-2">
+                "You are the Acme Customer Intelligence Copilot. Synthesize user queries strictly against verified Zendesk tickets, BigQuery telemetry, and official KB docs..."
+              </div>
+</div>
+</div>
+<!-- Grounding & Connectors -->
+<div class="bg-surface-container rounded-lg p-3 space-y-2 shadow-sm">
+<div class="flex items-center justify-between">
+<span class="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Connected Grounding Datastores</span>
+<button class="text-xs text-primary hover:underline">+ Attach Store</button>
+</div>
+<div class="space-y-1.5 text-xs">
+<div class="flex items-center justify-between p-2 rounded bg-surface-container-low">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">search</span>
+<div class="flex flex-col">
+<span class="font-medium text-on-surface">Vertex Search: Support Hub</span>
+<span class="text-[10px] font-mono text-on-surface-variant">42k docs • Sync 14m ago</span>
+</div>
+</div>
+<span class="text-[11px] font-mono text-tertiary">Synced</span>
+</div>
+<div class="flex items-center justify-between p-2 rounded bg-surface-container-low">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-secondary">database</span>
+<div class="flex flex-col">
+<span class="font-medium text-on-surface">BigQuery: telemetry_2024</span>
+<span class="text-[10px] font-mono text-on-surface-variant">Read-only SQL Connector</span>
+</div>
+</div>
+<span class="text-[11px] font-mono text-tertiary">Active</span>
+</div>
+</div>
+</div>
+<!-- Routing & Mesh Connections -->
+<div class="bg-surface-container rounded-lg p-3 space-y-2 shadow-sm">
+<span class="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Mesh Routing &amp; Hand-offs</span>
+<div class="p-2.5 rounded bg-surface-container-low space-y-2 font-mono text-xs">
+<div class="flex items-center gap-2">
+<span class="text-[10px] text-on-surface-variant uppercase w-20">Upstream:</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface text-[11px]">Executive Dispatcher</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-[10px] text-on-surface-variant uppercase w-20">Downstream:</span>
+<div class="flex flex-wrap gap-1">
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface text-[11px]">Billing Agent</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface text-[11px]">Tech Escalation Node</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Live Endpoint Snippet with Quick Copy -->
+<div class="bg-surface-container rounded-lg p-3 space-y-1.5 shadow-sm">
+<div class="flex items-center justify-between">
+<span class="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Live Endpoint URI</span>
+<button class="inline-flex items-center gap-1 text-[11px] text-primary hover:underline">
+<span class="material-symbols-outlined text-[13px]">content_copy</span> Copy URI
+              </button>
+</div>
+<div class="p-2 rounded bg-surface-container-lowest font-mono text-[11px] text-on-surface-variant break-all select-all">
+              POST https://us-central1-aiplatform.googleapis.com/v1/projects/492019482103/locations/us-central1/agents/cust-intel-prod-v2:streamQuery
+            </div>
+</div>
+<!-- Danger Zone Box -->
+<div class="bg-error/5 rounded-lg p-3 space-y-2 shadow-sm">
+<div class="flex items-center gap-1.5 text-error">
+<span class="material-symbols-outlined text-[16px]">gpp_maybe</span>
+<span class="text-xs font-semibold uppercase tracking-wider">Danger Zone</span>
+</div>
+<p class="text-[11px] text-on-surface-variant">
+              Deprecating an agent removes live API access for down-mesh dependents. Deletion requires admin override.
+            </p>
+<div class="flex items-center gap-2 pt-1">
+<button class="px-2.5 py-1 rounded bg-surface-container-high hover:bg-surface-container-highest text-error text-xs font-medium transition-colors">
+                Deprecate Agent
+              </button>
+<button class="px-2.5 py-1 rounded bg-error/20 hover:bg-error/30 text-error text-xs font-medium transition-colors">
+                Delete Agent...
+              </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div></main></div></body></html>

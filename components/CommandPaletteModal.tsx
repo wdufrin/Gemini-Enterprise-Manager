@@ -231,6 +231,14 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
         badge: showCurlPreview ? 'ON' : 'OFF',
         action: () => setShowCurlPreview(!showCurlPreview),
       },
+      {
+        id: 'action-open-docs',
+        label: 'Open User Guide & Documentation',
+        category: 'Quick Actions',
+        description: 'View in-app setup guides, architecture documentation, and troubleshooting manuals',
+        keywords: ['docs', 'help', 'manual', 'user guide', 'documentation'],
+        action: () => window.dispatchEvent(new CustomEvent('gem:open-user-guide')),
+      },
       ...(onOpenFeedback
         ? [
             {
@@ -262,6 +270,14 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
   useEffect(() => {
     setSelectedIndex(0);
   }, [query]);
+
+  useEffect(() => {
+    if (!isOpen || !modalRef.current) return;
+    const activeOption = modalRef.current.querySelector<HTMLElement>(`[data-palette-index="${selectedIndex}"]`);
+    if (activeOption && typeof activeOption.scrollIntoView === 'function') {
+      activeOption.scrollIntoView({ block: 'nearest' });
+    }
+  }, [selectedIndex, isOpen]);
 
   if (!isOpen) return null;
 
@@ -342,6 +358,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
                   <button
                     key={item.id}
                     type="button"
+                    data-palette-index={idx}
                     onMouseEnter={() => setSelectedIndex(idx)}
                     onClick={() => {
                       item.action();

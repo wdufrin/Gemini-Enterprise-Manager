@@ -257,7 +257,7 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
 
   const modalRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const { apiHistory } = useGlobalDebug();
+  const { apiHistory, getApiHistory } = useGlobalDebug();
   const { toast } = useToast();
 
   useModalA11y({
@@ -278,10 +278,10 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
     [projectId, projectNumber]
   );
 
-  const recentEndpoints = useMemo(
-    () => apiHistory.slice(0, 5).map((h) => ({ method: h.method, url: h.url })),
-    [apiHistory]
-  );
+  const recentEndpoints = useMemo(() => {
+    const latest = isOpen && getApiHistory ? getApiHistory() : apiHistory;
+    return latest.slice(0, 5).map((h) => ({ method: h.method, url: h.url }));
+  }, [apiHistory, getApiHistory, isOpen]);
 
   const payload = useMemo(
     () =>

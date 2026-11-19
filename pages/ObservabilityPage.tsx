@@ -78,7 +78,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
     const [showDataDictionary, setShowDataDictionary] = useState(false);
     const [showPolicyModal, setShowPolicyModal] = useState(false);
     const [isTablesExpanded, setIsTablesExpanded] = useState(false);
-    const [isSinksExpanded, setIsSinksExpanded] = useState(true);
+    const [isSinksExpanded, setIsSinksExpanded] = useState(false);
 
     const queryCache = useRef<Map<string, ObservabilityDashboardMetrics>>(new Map());
 
@@ -790,70 +790,69 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
     const tableObjectCount = datasetObjects.length - viewObjectCount;
 
     return (
-        <div className="flex-1 overflow-auto bg-gray-900 border-l border-gray-800 custom-scrollbar">
-            <div className="p-8 max-w-7xl mx-auto">
-                <div className="mb-8 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div className="flex-1 overflow-auto bg-[#0b0f19] custom-scrollbar">
+            <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+                <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                     <div>
-                        <h1 className="text-3xl font-bold text-white tracking-tight">Observability</h1>
-                        <p className="mt-2 text-sm text-gray-400">
-                            Monitor and analyze your agent activities and performance.
+                        <h1 className="text-2xl font-display font-bold text-white tracking-tight">Observability &amp; Telemetry</h1>
+                        <p className="mt-1 text-xs sm:text-sm text-gray-400">
+                            Monitor Cloud Logging sinks, BigQuery analytics, and agent latency percentiles.
                         </p>
                     </div>
-                    <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap shrink-0">
                         <button
                             type="button"
                             onClick={() => setShowPolicyModal(true)}
-                            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-gray-800 hover:bg-gray-700 text-purple-400 hover:text-purple-300 border border-gray-700 hover:border-gray-600 transition-all shadow-sm"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gray-900 hover:bg-gray-800 text-purple-300 hover:text-purple-200 border border-gray-800 hover:border-gray-700 transition-all shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                             title="Open Agent Observability Policy & Telemetry Coverage Hub"
                         >
-                            <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10c0-1.718-.433-3.333-1.2-4.782" />
                             </svg>
-                            <span>Agent Telemetry Policy & Coverage</span>
-                            <span className="text-[10px] bg-purple-900/80 text-purple-200 px-1.5 py-0.2 rounded border border-purple-700/60 font-bold">
+                            <span>Policy &amp; Coverage</span>
+                            <span className="text-[10px] bg-purple-900/80 text-purple-200 px-1.5 py-0.5 rounded border border-purple-700/60 font-bold">
                                 Policy Hub
                             </span>
                         </button>
                         <button
                             type="button"
                             onClick={() => setShowDataDictionary(true)}
-                            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-gray-800 hover:bg-gray-700 text-blue-400 hover:text-blue-300 border border-gray-700 hover:border-gray-600 transition-all shadow-sm"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gray-900 hover:bg-gray-800 text-blue-300 hover:text-blue-200 border border-gray-800 hover:border-gray-700 transition-all shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                             title="Open Observability Data Dictionary & Tables Reference"
                         >
-                            <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                             </svg>
-                            <span>Data Dictionary & Tables Reference</span>
+                            <span>Data Dictionary</span>
                         </button>
                         <CloudConsoleButton url={`https://console.cloud.google.com/logs/query?project=${projectNumber}`} />
                     </div>
                 </div>
                 
-                <div className="mt-6 bg-gray-800 p-5 rounded-lg border border-gray-700">
+                <div className="mt-3 bg-gray-900/90 p-3.5 sm:p-4 rounded-xl border border-gray-800">
                     <div className="flex flex-wrap justify-between items-center gap-3">
-                        <div>
-                            <div className="flex items-center gap-2.5">
-                                <h2 className="text-lg font-semibold text-white">Log Router Sinks & Tables</h2>
-                                <span className="text-xs text-gray-400 bg-gray-900 border border-gray-700 px-2 py-0.5 rounded font-mono">
-                                    {bqSinks.length} sink{bqSinks.length !== 1 ? 's' : ''}
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                            <h2 className="text-sm font-semibold text-white">Log Router Sinks &amp; Tables</h2>
+                            <span className="text-[11px] text-gray-300 bg-gray-950 border border-gray-800 px-2 py-0.5 rounded font-mono">
+                                {bqSinks.length} sink{bqSinks.length !== 1 ? 's' : ''}
+                            </span>
+                            {!isSinksExpanded && activeSink && (
+                                <span className="text-xs text-gray-400 font-mono truncate max-w-[260px]">
+                                    ({activeSink.name})
                                 </span>
-                            </div>
-                            <p className="text-xs text-gray-400 mt-0.5">
-                                {isSinksExpanded
-                                    ? 'Click any BigQuery sink below to switch the active dataset.'
-                                    : `Selected sink: ${activeSink?.name || 'None'}`}
-                            </p>
+                            )}
                         </div>
                         <div className="flex items-center gap-2.5">
                             {activeSink && (
-                                <span className="text-xs text-gray-400 bg-gray-900 border border-gray-700 px-2.5 py-1 rounded">
-                                    Active Dataset: <code className="text-green-400 font-mono font-semibold">{datasetId}</code>
+                                <span className="text-xs text-gray-300 bg-gray-950 border border-gray-800 px-2.5 py-1 rounded-lg">
+                                    Dataset: <code className="text-emerald-400 font-mono font-semibold">{datasetId}</code>
                                 </span>
                             )}
                             <button
                                 type="button"
+                                aria-expanded={isSinksExpanded}
                                 onClick={() => setIsSinksExpanded(prev => !prev)}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-gray-900 hover:bg-gray-750 text-gray-300 hover:text-white border border-gray-700 transition-colors"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-gray-800 hover:bg-gray-750 text-gray-200 hover:text-white border border-gray-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                             >
                                 <span>{isSinksExpanded ? 'Hide Sinks' : 'Switch Sink'}</span>
                                 <svg
@@ -861,6 +860,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                                     fill="none"
                                     viewBox="0 0 24 24"
                                     stroke="currentColor"
+                                    aria-hidden="true"
                                 >
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                                 </svg>
@@ -883,7 +883,8 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                             <button
                                 type="button"
                                 onClick={() => setError(null)}
-                                className="text-gray-400 hover:text-white font-bold ml-2 text-sm"
+                                aria-label="Dismiss error"
+                                className="text-gray-400 hover:text-white font-bold ml-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-1"
                                 title="Dismiss error"
                             >
                                 ×
@@ -921,13 +922,15 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                                                 );
 
                                                 return (
-                                                    <div
+                                                    <button
+                                                        type="button"
                                                         key={sink.name}
+                                                        aria-pressed={Boolean(isActive)}
                                                         onClick={() => {
                                                             setSelectedSinkName(sink.name);
                                                             setIsTablesExpanded(false);
                                                         }}
-                                                        className={`p-3 rounded-lg border transition-all cursor-pointer select-none ${
+                                                        className={`w-full text-left p-3 rounded-lg border transition-all cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                                                             isActive
                                                                 ? 'border-blue-500 bg-blue-950/30 ring-1 ring-blue-500/80 shadow-md shadow-blue-950/40'
                                                                 : 'border-gray-700 bg-gray-900/70 hover:border-gray-500 hover:bg-gray-800/60'
@@ -973,7 +976,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                                                                 </span>
                                                             </div>
                                                         </div>
-                                                    </div>
+                                                    </button>
                                                 );
                                             })}
                                         </div>
@@ -1048,39 +1051,28 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                     )}
                 </div>
 
-                {/* Telemetry Coverage Insight Card */}
-                <div className="mt-4 p-4 rounded-xl border border-purple-800/50 bg-purple-950/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="flex items-start gap-3">
-                        <span className="p-2 bg-purple-900/60 rounded-lg border border-purple-700/50 text-purple-300 mt-0.5 shrink-0">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
+                {/* Compact Telemetry Coverage Callout */}
+                <div className="mt-3 px-3.5 py-2.5 rounded-xl border border-gray-800 bg-gray-900/60 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 text-xs min-w-0">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 font-semibold shrink-0">
+                            Coverage: ~65% App / ~35% Agent OTel
                         </span>
-                        <div className="text-xs">
-                            <div className="text-white font-semibold flex items-center gap-2 flex-wrap">
-                                <span>Agent Telemetry Coverage Notice:</span>
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-900/80 text-purple-200 border border-purple-700/60 font-bold">
-                                    App Level (~65%) vs Agent Level (~35%)
-                                </span>
-                            </div>
-                            <p className="text-gray-300 mt-1 leading-relaxed">
-                                BigQuery sinks record user sessions and assistant queries, but internal agent reasoning, tool payloads, and prompt traces require per-agent OpenTelemetry. Newly created no-code agents in Google Cloud Console start with telemetry disabled by default.
-                            </p>
-                        </div>
+                        <span className="text-gray-400 truncate">
+                            Per-agent prompt &amp; tool traces require OpenTelemetry policy enablement.
+                        </span>
                     </div>
                     <button
                         type="button"
                         onClick={() => setShowPolicyModal(true)}
-                        className="text-xs text-white font-semibold px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 transition-colors whitespace-nowrap shadow-sm shrink-0 flex items-center gap-1.5"
+                        className="text-xs text-indigo-300 hover:text-white font-semibold px-2.5 py-1 rounded-lg bg-indigo-950/50 hover:bg-indigo-900/70 border border-indigo-800/60 transition-colors whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                     >
-                        <span>Manage Policy & Auto-Enabler</span>
-                        <span>→</span>
+                        Manage Policy &amp; Auto-Enabler →
                     </button>
                 </div>
 
-                <div className="mt-8">
+                <div className="mt-5">
                     {/* Dashboard Mode Tabs */}
-                    <div className="flex flex-wrap border-b border-gray-700 mb-6" role="tablist" aria-label="Observability dashboard views">
+                    <div className="flex flex-wrap border-b border-gray-800 mb-4" role="tablist" aria-label="Observability dashboard views">
                         <button
                             type="button"
                             role="tab"
@@ -1147,11 +1139,13 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                                     )}
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <span className="text-xs text-gray-400">Time Range:</span>
+                                    <label htmlFor="observability-time-range" className="text-xs text-gray-400">Time Range:</label>
                                     <select
+                                        id="observability-time-range"
+                                        aria-label="Observability Time Range"
                                         value={timeRange}
                                         onChange={(e) => setTimeRange(parseInt(e.target.value, 10))}
-                                        className="text-xs bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+                                        className="text-xs bg-gray-800 text-white border border-gray-700 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
                                     >
                                         <option value={1}>1 Day</option>
                                         <option value={7}>7 Days</option>

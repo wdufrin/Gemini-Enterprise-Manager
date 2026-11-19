@@ -297,12 +297,14 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                     <th scope="col" className="px-3 xl:px-5 py-3 border-b border-gray-700 bg-gray-700 w-10 text-center">
                       <input
                         type="checkbox"
-                        aria-label="Select all users"
+                        aria-label="Select all users on current page"
                         className="rounded border-gray-500 bg-gray-600 text-blue-500 focus:ring-blue-500 h-4 w-4"
                         onChange={handleSelectAll}
                         checked={
-                          sortedUserLicenses.length > 0 &&
-                          selectedUsers.size === sortedUserLicenses.filter((l) => Boolean(l.userPrincipal)).length
+                          paginatedUserLicenses.some((l) => Boolean(l.userPrincipal)) &&
+                          paginatedUserLicenses
+                            .filter((l) => Boolean(l.userPrincipal))
+                            .every((l) => Boolean(l.userPrincipal) && selectedUsers.has(l.userPrincipal!))
                         }
                       />
                     </th>

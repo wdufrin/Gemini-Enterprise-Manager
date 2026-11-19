@@ -78,11 +78,11 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             <h2 id={titleId} className="text-xl font-bold text-white">{title}</h2>
         </header>
 
-        <main className="p-6">
+        <div className="p-6">
           <div className="text-sm text-gray-300">
             {children}
           </div>
-        </main>
+        </div>
 
         <footer className="p-4 bg-gray-900/50 border-t border-gray-700 flex justify-end space-x-3">
           <button

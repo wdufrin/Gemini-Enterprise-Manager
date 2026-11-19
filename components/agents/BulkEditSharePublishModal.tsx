@@ -224,8 +224,18 @@ const BulkEditSharePublishModal: React.FC<BulkEditSharePublishModalProps> = ({
     preventClose: isSubmitting,
   });
 
+  const wasOpenRef = useRef(false);
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      return;
+    }
+    if (wasOpenRef.current) {
+      return;
+    }
+    wasOpenRef.current = true;
+
     if (initialSelectedAgentNames && initialSelectedAgentNames.size > 0) {
       const valid = new Set(
         Array.from(initialSelectedAgentNames).filter((name) =>

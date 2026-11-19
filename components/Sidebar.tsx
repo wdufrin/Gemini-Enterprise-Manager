@@ -27,6 +27,8 @@ interface SidebarProps {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   onOpenFeedback?: () => void;
+  isMobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }
 
 const NavItem: React.FC<{
@@ -36,43 +38,51 @@ const NavItem: React.FC<{
   icon: React.ReactElement;
   onShowInfo: (infoKey: string) => void;
   isCollapsed: boolean;
-}> = ({ page, currentPage, setCurrentPage, icon, onShowInfo, isCollapsed }) => {
+  onCloseMobile?: () => void;
+}> = ({ page, currentPage, setCurrentPage, icon, onShowInfo, isCollapsed, onCloseMobile }) => {
   const isCurrent = currentPage === page;
+
+  const handleSelect = () => {
+    setCurrentPage(page);
+    onCloseMobile?.();
+  };
 
   if (isCollapsed) {
     return (
-      <div className="flex justify-center w-full mb-1.5 px-2 relative group">
+      <div className="flex justify-center w-full mb-1 px-2 relative group">
         <button
           type="button"
-          onClick={() => setCurrentPage(page)}
+          onClick={handleSelect}
           aria-label={page}
-          className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors duration-200 focus:outline-none ${
+          aria-current={isCurrent ? 'page' : undefined}
+          className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
             isCurrent
-              ? 'bg-blue-600 text-white shadow-md'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-950/50'
               : 'text-gray-400 hover:bg-gray-800 hover:text-white'
           }`}
           title={page}
         >
-          <span className="w-5 h-5 flex-shrink-0">{icon}</span>
+          <span className="w-5 h-5 flex-shrink-0" aria-hidden="true">{icon}</span>
         </button>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center w-full min-w-0 group mb-1">
+    <div className="relative flex items-center w-full min-w-0 group mb-0.5">
       <button
         type="button"
-        onClick={() => setCurrentPage(page)}
+        onClick={handleSelect}
+        aria-current={isCurrent ? 'page' : undefined}
         title={page}
-        className={`flex items-center flex-1 min-w-0 pl-3 xl:pl-4 pr-2 py-2 text-sm font-medium rounded-l-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
+        className={`flex items-center w-full min-w-0 pl-3 pr-8 py-2 text-[13px] font-medium rounded-lg transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
           isCurrent
-            ? 'bg-blue-600 text-white'
-            : 'text-gray-400 hover:bg-gray-700 hover:text-white'
+            ? 'bg-blue-600/90 text-white shadow-sm'
+            : 'text-gray-300 hover:bg-gray-800/80 hover:text-white'
         }`}
       >
-        <span className="w-5 h-5 flex-shrink-0">{icon}</span>
-        <span className="ml-2.5 xl:ml-3 truncate">{page}</span>
+        <span className={`w-4 h-4 flex-shrink-0 ${isCurrent ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`} aria-hidden="true">{icon}</span>
+        <span className="ml-2.5 truncate">{page}</span>
       </button>
       <button
         type="button"
@@ -81,22 +91,22 @@ const NavItem: React.FC<{
           onShowInfo(page);
         }}
         aria-label={`Show API commands for ${page}`}
-        className={`shrink-0 px-2 py-2 h-full rounded-r-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
+        className={`absolute right-1.5 p-1 rounded-md opacity-0 group-hover:opacity-100 focus-within:opacity-100 focus-visible:opacity-100 transition-opacity duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
           isCurrent
-            ? 'bg-purple-600 text-purple-200 hover:bg-purple-500 hover:text-white'
-            : 'text-gray-500 hover:bg-gray-700 hover:text-white'
+            ? 'text-blue-100 hover:bg-blue-500 hover:text-white'
+            : 'text-gray-400 hover:bg-gray-700 hover:text-white'
         }`}
         title={`Show API commands for ${page}`}
       >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
         </svg>
       </button>
     </div>
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowInfo, isCollapsed, onToggleCollapse, onOpenFeedback }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowInfo, isCollapsed, onToggleCollapse, onOpenFeedback, isMobileOpen = false, onCloseMobile }) => {
   const { showCurlPreview, setShowCurlPreview, apiHistory, clearHistory } = useGlobalDebug();
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<ApiHistoryItem | null>(null);
   const [filterGet, setFilterGet] = useState(false);
@@ -150,79 +160,109 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
   ];
 
   return (
-    <aside className={`${isCollapsed ? 'w-16' : 'w-56 xl:w-64'} bg-gray-900 border-r border-gray-800 flex flex-col h-screen overflow-hidden transition-all duration-300 ease-in-out shrink-0`}>
-      {/* Header */}
-      <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'px-3.5 py-3 xl:p-4'} bg-gray-900 border-b border-gray-800 shrink-0 h-14 xl:h-16 transition-all duration-300`}>
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 xl:h-8 xl:w-8 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-        </svg>
-        {!isCollapsed && (
-          <div className="flex flex-col ml-2.5 xl:ml-3 min-w-0 justify-center animate-fadeIn">
-            <span className="text-base xl:text-lg font-bold text-gray-100 tracking-tight leading-none truncate">Gemini Enterprise</span>
-            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.1118.401</span>
-          </div>
-        )}
-      </div>
-      
-      {/* Scrollable Navigation */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar p-2.5 space-y-4">
-        {navCategories.map((group, index) => (
-          <div key={index} className="space-y-1">
-            {!isCollapsed && (
-              <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5 animate-fadeIn truncate">
-                {group.title}
-              </h3>
+    <>
+      {isMobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-xs lg:hidden animate-fade-in"
+          onClick={onCloseMobile}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        aria-label="Application Sidebar"
+        className={`fixed inset-y-0 left-0 z-50 lg:static transition-all duration-200 ease-out ${
+          isMobileOpen
+            ? 'translate-x-0 w-64 lg:transform-none'
+            : '-translate-x-full lg:transform-none'
+        } ${isCollapsed ? 'lg:w-16' : 'lg:w-60 xl:w-64'} bg-[#0b0f19] border-r border-gray-800/90 flex flex-col h-screen overflow-hidden shrink-0`}
+      >
+        {/* Header */}
+        <div className={`flex items-center justify-between ${isCollapsed ? 'lg:justify-center px-3' : 'px-3.5 xl:px-4'} bg-[#0b0f19] border-b border-gray-800/90 shrink-0 h-14 transition-all duration-200`}>
+          <div className="flex items-center min-w-0">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+            </svg>
+            {(!isCollapsed || isMobileOpen) && (
+              <div className="flex flex-col ml-2.5 min-w-0 justify-center animate-fadeIn">
+                <span className="text-sm xl:text-base font-display font-bold text-gray-100 tracking-tight leading-none truncate">Gemini Enterprise</span>
+                <span className="text-[10px] text-gray-400 font-mono mt-1">Control Plane · v0.1119.402</span>
+              </div>
             )}
-            <div className="space-y-0.5">
-              {group.items.map(item => (
-                <NavItem
-                  key={item.page}
-                  page={item.page}
-                  currentPage={currentPage}
-                  setCurrentPage={setCurrentPage}
-                  icon={item.icon}
-                  onShowInfo={onShowInfo}
-                  isCollapsed={isCollapsed}
-                />
-              ))}
-            </div>
           </div>
-        ))}
-
-        {/* Debug Settings Section (Only shown when expanded) */}
-        {!isCollapsed && (
-          <div className="pt-4 border-t border-gray-800 mt-4 animate-fadeIn">
-            <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Settings & Debug
-            </h3>
-            <div className="px-3">
-              <label className="flex items-center space-x-3 cursor-pointer group">
-                <div className="relative">
-                  <input
-                    type="checkbox"
-                    className="sr-only peer"
-                    checked={showCurlPreview}
-                    onChange={(e) => setShowCurlPreview(e.target.checked)}
+          {isMobileOpen && onCloseMobile && (
+            <button
+              type="button"
+              onClick={onCloseMobile}
+              aria-label="Close navigation menu"
+              className="lg:hidden p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+        
+        {/* Scrollable Navigation */}
+        <nav aria-label="Primary Navigation" className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar px-2.5 py-3 space-y-3.5">
+          {navCategories.map((group, index) => (
+            <div key={index} className="space-y-1">
+              {(!isCollapsed || isMobileOpen) && (
+                <h2 className="px-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 animate-fadeIn truncate">
+                  {group.title}
+                </h2>
+              )}
+              <div className="space-y-0.5">
+                {group.items.map(item => (
+                  <NavItem
+                    key={item.page}
+                    page={item.page}
+                    currentPage={currentPage}
+                    setCurrentPage={setCurrentPage}
+                    icon={item.icon}
+                    onShowInfo={onShowInfo}
+                    isCollapsed={isCollapsed && !isMobileOpen}
+                    onCloseMobile={onCloseMobile}
                   />
-                  <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                </div>
-                <span className="text-sm font-medium text-gray-400 group-hover:text-gray-300">
-                  Show Interaction Details
-                </span>
-              </label>
-              <p className="text-[10px] text-gray-600 mt-1 ml-1 mb-2">
-                Records outgoing REST requests and cURL commands in History.
-              </p>
+                ))}
+              </div>
             </div>
+          ))}
+
+          {/* Debug Settings Section (Only shown when expanded) */}
+          {(!isCollapsed || isMobileOpen) && (
+            <div className="pt-3 border-t border-gray-800/90 mt-3 animate-fadeIn">
+              <h2 className="px-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                Settings &amp; Debug
+              </h2>
+              <div className="px-3">
+                <label className="flex items-center space-x-2.5 cursor-pointer group">
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={showCurlPreview}
+                      onChange={(e) => setShowCurlPreview(e.target.checked)}
+                    />
+                    <div className="w-8 h-4 bg-gray-700 peer-focus:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                  </div>
+                  <span className="text-xs font-medium text-gray-300 group-hover:text-white">
+                    cURL Request History
+                  </span>
+                </label>
+                <p className="text-[11px] text-gray-400 mt-1 mb-2 leading-snug">
+                  Records outgoing REST calls and cURL snippets.
+                </p>
+              </div>
 
             {/* API History List */}
             {showCurlPreview && apiHistory.length > 0 && (
               <div className="mt-4 px-3">
                 <div className="flex justify-between items-center mb-2">
                   <div className="flex items-center gap-2">
-                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
                       History ({filteredHistory.length})
-                    </h4>
+                    </h3>
                     <button
                       type="button"
                       onClick={() => setFilterGet(!filterGet)}
@@ -276,25 +316,29 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
         )}
 
         {/* Footer padding to ensure last items are clickable */}
-        <div className="h-4"></div>
-      </div>
+        <div className="h-2"></div>
+      </nav>
 
-      {/* Footer Actions: Feedback & Collapse/Expand Toggle */}
-      <div className="p-3 border-t border-gray-800 shrink-0 bg-gray-900/40 space-y-1.5">
-        {onOpenFeedback && (
+      {/* Compact Footer Actions */}
+      <div className="p-2.5 border-t border-gray-800/90 shrink-0 bg-[#0b0f19] flex items-center gap-1.5">
+        {onOpenFeedback && (!isCollapsed || isMobileOpen) && (
           <button
             type="button"
-            onClick={onOpenFeedback}
+            onClick={() => {
+              onCloseMobile?.();
+              onOpenFeedback();
+            }}
             aria-label="Report Issue or Feedback"
             title="Report Issue or Feedback (PII-Sanitized GitHub Issue)"
-            className="w-full flex items-center justify-center py-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-800 hover:border-gray-700"
+            className="flex-1 flex items-center justify-center py-1.5 px-2 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-800 hover:border-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 min-w-0"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              className="h-4 w-4 text-blue-400 shrink-0"
+              className="h-3.5 w-3.5 text-blue-400 shrink-0"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -303,11 +347,9 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
                 d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
               />
             </svg>
-            {!isCollapsed && (
-              <span className="ml-2 text-xs font-semibold select-none animate-fadeIn">
-                Report Issue / Feedback
-              </span>
-            )}
+            <span className="ml-1.5 text-[11px] font-medium truncate">
+              Feedback
+            </span>
           </button>
         )}
 
@@ -315,30 +357,31 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
           type="button"
           onClick={onToggleCollapse}
           aria-label={isCollapsed ? "Expand Navigation" : "Collapse Navigation"}
-          className="w-full flex items-center justify-center py-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-800 hover:border-gray-700"
+          className={`hidden lg:flex items-center justify-center py-1.5 px-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-800 hover:border-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${isCollapsed ? 'w-full' : 'shrink-0'}`}
           title={isCollapsed ? "Expand Navigation" : "Collapse Navigation"}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            className={`h-5 w-5 transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''}`}
+            className={`h-4 w-4 transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
+            aria-hidden="true"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
           </svg>
-          {!isCollapsed && <span className="ml-2 text-xs font-semibold select-none animate-fadeIn">Collapse Navigation</span>}
         </button>
       </div>
+      </aside>
 
       <CurlDetailsModal
         isOpen={!!selectedHistoryItem}
         onClose={() => setSelectedHistoryItem(null)}
         curlCommand={selectedHistoryItem?.curlCommand || ''}
+        historyItem={selectedHistoryItem}
         title={`API Details: ${selectedHistoryItem?.method} ${selectedHistoryItem?.url.split('/').pop()?.split('?')[0]}`}
       />
-
-    </aside>
+    </>
   );
 };
 

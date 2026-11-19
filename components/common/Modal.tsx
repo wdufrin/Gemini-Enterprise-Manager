@@ -15,6 +15,7 @@
  */
 
 import React, { useRef, useId } from 'react';
+import { createPortal } from 'react-dom';
 import { useModalA11y } from '../../hooks/useModalA11y';
 
 export type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | 'full';
@@ -89,9 +90,9 @@ export const Modal: React.FC<ModalProps> = ({
     }
   };
 
-  return (
+  const modalContent = (
     <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-xs flex justify-center items-center z-50 p-4 animate-fade-in"
+      className="fixed inset-0 bg-black/80 backdrop-blur-xs flex justify-center items-center z-[70] p-4 animate-fade-in"
       aria-modal="true"
       role="dialog"
       aria-labelledby={title ? titleId : undefined}
@@ -104,7 +105,7 @@ export const Modal: React.FC<ModalProps> = ({
         tabIndex={-1}
       >
         {(title || showCloseButton) && (
-          <header className="px-6 py-4 border-b border-gray-700 flex justify-between items-center bg-gray-800/80 shrink-0">
+          <div className="px-6 py-4 border-b border-gray-700 flex justify-between items-center bg-gray-800/80 shrink-0">
             <div className="flex items-center gap-3 min-w-0">
               {headerIcon && <div className="shrink-0">{headerIcon}</div>}
               <div className="min-w-0">
@@ -137,21 +138,27 @@ export const Modal: React.FC<ModalProps> = ({
                 </button>
               )}
             </div>
-          </header>
+          </div>
         )}
 
-        <main className={`overflow-y-auto flex-1 ${bodyClassName}`}>
+        <div className={`overflow-y-auto flex-1 custom-scrollbar ${bodyClassName}`}>
           {children}
-        </main>
+        </div>
 
         {footer && (
-          <footer className="px-6 py-4 bg-gray-900/60 border-t border-gray-700 flex justify-end items-center gap-3 shrink-0">
+          <div className="px-6 py-4 bg-gray-900/60 border-t border-gray-700 flex justify-end items-center gap-3 shrink-0">
             {footer}
-          </footer>
+          </div>
         )}
       </div>
     </div>
   );
+
+  if (typeof document !== 'undefined' && document.body) {
+    return createPortal(modalContent, document.body);
+  }
+
+  return modalContent;
 };
 
 export default Modal;

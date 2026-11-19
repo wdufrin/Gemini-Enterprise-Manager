@@ -27,19 +27,22 @@ interface HelpButtonProps {
 const HelpButton: React.FC<HelpButtonProps> = ({ onNavigateToPage }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Global keyboard shortcut to open User Guide from anywhere (Ctrl+K or Cmd+K)
+  // Global keyboard shortcut to open User Guide (Ctrl+/ or Cmd+/) + Command Palette custom event
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // If user presses Ctrl+K or Cmd+K
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        // Prevent default browser search focus
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
         e.preventDefault();
-        setIsModalOpen(true);
+        setIsModalOpen((prev) => !prev);
       }
     };
+    const handleOpenEvent = () => setIsModalOpen(true);
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('gem:open-user-guide', handleOpenEvent);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('gem:open-user-guide', handleOpenEvent);
+    };
   }, []);
 
   return (
@@ -47,16 +50,16 @@ const HelpButton: React.FC<HelpButtonProps> = ({ onNavigateToPage }) => {
       <button
         type="button"
         onClick={() => setIsModalOpen(true)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-gray-700 transition-colors relative group focus:outline-none focus:ring-2 focus:ring-blue-500 border border-transparent hover:border-gray-600"
-        title="Open User Guide & Documentation (Ctrl+K)"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-gray-700 transition-colors relative group focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 border border-transparent hover:border-gray-600"
+        title="Open User Guide & Documentation (⌘/ or Ctrl+/)"
         aria-label="Open User Guide & Documentation"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
         </svg>
         <span className="hidden lg:inline text-xs font-medium text-gray-300">Docs</span>
-        <kbd className="hidden xl:inline-block px-1 py-0.2 text-[10px] font-mono text-gray-400 bg-gray-800 border border-gray-700 rounded ml-0.5">
-          Ctrl+K
+        <kbd className="hidden 2xl:inline-block px-1.5 py-0.5 text-[10px] font-mono text-gray-400 bg-gray-800 border border-gray-700 rounded ml-0.5">
+          ⌘/
         </kbd>
       </button>
 

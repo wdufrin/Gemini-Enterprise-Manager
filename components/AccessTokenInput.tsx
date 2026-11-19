@@ -65,16 +65,16 @@ const AccessTokenInput: React.FC<AccessTokenInputProps> = ({ accessToken, setAcc
 
   if (accessToken) {
     return (
-      <div className="flex items-center space-x-2.5 w-full md:w-auto shrink-0">
-        <span className="flex items-center text-xs xl:text-sm text-green-400 whitespace-nowrap shrink-0">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-          </svg>
-          Token Active
+      <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-xs font-medium text-emerald-300 whitespace-nowrap shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
+          <span className="hidden sm:inline">Token Active</span>
+          <span className="sm:hidden">Active</span>
         </span>
         <button
+          type="button"
           onClick={handleReset}
-          className="px-3 py-1.5 bg-yellow-600 text-white text-xs xl:text-sm font-semibold rounded-md hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-yellow-500 whitespace-nowrap shrink-0"
+          className="px-2.5 py-1 bg-gray-800/90 hover:bg-gray-700 text-gray-300 hover:text-amber-300 border border-gray-700 hover:border-amber-500/40 text-xs font-medium rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 whitespace-nowrap shrink-0 transition-colors"
         >
           Reset Token
         </button>
@@ -93,20 +93,25 @@ const AccessTokenInput: React.FC<AccessTokenInputProps> = ({ accessToken, setAcc
       <div className="relative">
          <button
             type="button"
+            aria-label="How to obtain a GCP access token"
+            aria-expanded={showTooltip}
+            onClick={() => setShowTooltip((prev) => !prev)}
             onMouseEnter={() => setShowTooltip(true)}
             onMouseLeave={() => setShowTooltip(false)}
-            className="text-gray-400 hover:text-white"
+            onFocus={() => setShowTooltip(true)}
+            onBlur={() => setShowTooltip(false)}
+            className="p-1 text-gray-400 hover:text-white rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
             </svg>
         </button>
         {showTooltip && (
-            <div className="absolute z-10 w-64 p-2 mt-2 text-sm leading-tight text-white transform md:-translate-x-full bg-gray-700 rounded-lg shadow-lg top-full right-0 md:right-auto">
+            <div role="tooltip" className="absolute z-20 w-64 p-2.5 mt-2 text-xs leading-relaxed text-gray-100 transform md:-translate-x-full bg-gray-900 border border-gray-700 rounded-lg shadow-xl top-full right-0 md:right-auto">
                 <p>To use this application, you need a GCP access token.</p>
-                <p className="mt-2">Run the following command in your terminal:</p>
-                <code className="block p-2 mt-1 text-xs bg-gray-800 rounded">gcloud auth print-access-token</code>
-                <p className="mt-1">Then, paste the output token here.</p>
+                <p className="mt-1.5 text-gray-400">Run in your terminal:</p>
+                <code className="block p-2 mt-1 text-xs font-mono text-blue-300 bg-gray-950 border border-gray-800 rounded">gcloud auth print-access-token</code>
+                <p className="mt-1.5 text-gray-400">Then paste the output token here.</p>
             </div>
         )}
       </div>
@@ -123,15 +128,16 @@ const AccessTokenInput: React.FC<AccessTokenInputProps> = ({ accessToken, setAcc
       <input
         type="password"
         name="gcpAccessToken"
+        aria-label="GCP Access Token"
         autoComplete="new-password"
         value={tokenInput}
         onChange={(e) => setTokenInput(e.target.value)}
         placeholder="Paste GCP Access Token"
-        className="flex-grow bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500"
+        className="flex-grow min-w-0 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
       />
       <button
         type="submit"
-        className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500"
+        className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 focus-visible:ring-blue-500 shrink-0 transition-colors"
       >
         Set Token
       </button>

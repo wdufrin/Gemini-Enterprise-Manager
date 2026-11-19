@@ -722,8 +722,13 @@ describe('useGroupLicensing & Cloud Run group licensing trigger', () => {
     expect(screen.queryByText(/stale-old-tier@example\.com/)).not.toBeInTheDocument();
     expect(screen.queryByText(/stale-projnum-group@example\.com/)).not.toBeInTheDocument();
 
-    // Click Update Groups in GCS -> uploads only config/entitlements.json without Cloud Build
+    // Click Update Groups in GCS -> opens DestructiveConfirmModal before overwriting config/entitlements.json
     fireEvent.click(screen.getByRole('button', { name: 'Update Groups in GCS' }));
+    expect(uploadSpy).not.toHaveBeenCalled();
+
+    const confirmInput = screen.getByPlaceholderText('Type my-staging-bucket to confirm');
+    fireEvent.change(confirmInput, { target: { value: 'my-staging-bucket' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Overwrite entitlements.json' }));
 
     await waitFor(() => {
       expect(uploadSpy).toHaveBeenCalledTimes(1);

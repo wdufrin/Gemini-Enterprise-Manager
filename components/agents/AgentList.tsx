@@ -71,12 +71,12 @@ const AGENT_LIST_COLUMNS: ColumnDefinition[] = [
   { key: 'state', label: 'Status', defaultVisible: true },
   { key: 'owner', label: 'Agent Owner', defaultVisible: true, responsiveClass: 'gem-col-lg' },
   { key: 'sharing', label: 'Sharing Scope', defaultVisible: true, responsiveClass: 'gem-col-md' },
-  { key: 'agentType', label: 'Agent Type', defaultVisible: true, responsiveClass: 'gem-col-lg' },
-  { key: 'agentOrigin', label: 'Origin', defaultVisible: false, responsiveClass: 'gem-col-xl' },
+  { key: 'agentType', label: 'Agent Type', defaultVisible: true, responsiveClass: 'gem-col-xl' },
+  { key: 'agentOrigin', label: 'Origin', defaultVisible: false, responsiveClass: 'gem-col-2xl' },
   { key: 'description', label: 'Description', defaultVisible: false, responsiveClass: 'gem-col-2xl' },
   { key: 'name', label: 'Agent ID', defaultVisible: true, responsiveClass: 'gem-col-2xl' },
   { key: 'createTime', label: 'Created On', defaultVisible: false, responsiveClass: 'gem-col-2xl' },
-  { key: 'updateTime', label: 'Last Modified', defaultVisible: true, responsiveClass: 'gem-col-xl' },
+  { key: 'updateTime', label: 'Last Modified', defaultVisible: true, responsiveClass: 'gem-col-2xl' },
 ];
 
 const DEFAULT_VISIBLE_COLUMNS: Record<AgentListColumnKey, boolean> = AGENT_LIST_COLUMNS.reduce(
@@ -315,9 +315,48 @@ const AgentList: React.FC<AgentListProps> = ({
     assistantId: 'default_assistant',
   };
 
+  const allUsersCount = useMemo(
+    () => agents.filter((a) => getAgentSharingScope(a) === 'ALL_USERS').length,
+    [agents]
+  );
+
   return (
-    <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
-      <div className="p-4 flex flex-wrap justify-between items-center gap-3 border-b border-gray-700">
+    <div className="space-y-4">
+      {agents.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-gray-900/90 border border-gray-800 rounded-xl p-3.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Total Registered</div>
+            <div className="mt-1 flex items-baseline justify-between">
+              <span className="text-2xl font-display font-bold text-white tabular-nums">{agents.length}</span>
+              <span className="text-[11px] text-blue-300 font-mono">{availableTypes.length} runtime{availableTypes.length === 1 ? '' : 's'}</span>
+            </div>
+          </div>
+          <div className="bg-gray-900/90 border border-gray-800 rounded-xl p-3.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Enabled &amp; Serving</div>
+            <div className="mt-1 flex items-baseline justify-between">
+              <span className="text-2xl font-display font-bold text-emerald-400 tabular-nums">{statusCounts.ENABLED}</span>
+              <span className="text-[11px] text-gray-400">{statusCounts.DISABLED} disabled</span>
+            </div>
+          </div>
+          <div className="bg-gray-900/90 border border-gray-800 rounded-xl p-3.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Published Org-Wide</div>
+            <div className="mt-1 flex items-baseline justify-between">
+              <span className="text-2xl font-display font-bold text-blue-400 tabular-nums">{allUsersCount}</span>
+              <span className="text-[11px] text-gray-400">{Math.round((allUsersCount / agents.length) * 100)}% coverage</span>
+            </div>
+          </div>
+          <div className="bg-gray-900/90 border border-gray-800 rounded-xl p-3.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Private / Draft</div>
+            <div className="mt-1 flex items-baseline justify-between">
+              <span className="text-2xl font-display font-bold text-amber-300 tabular-nums">{statusCounts.PRIVATE}</span>
+              <span className="text-[11px] text-gray-400">Owner-scoped</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-gray-900/90 border border-gray-800 shadow-xl rounded-xl overflow-hidden">
+      <div className="p-4 flex flex-wrap justify-between items-center gap-3 border-b border-gray-800">
         <div>
           <h2 className="text-xl font-bold text-white">Registered Agents</h2>
           <p className="text-xs text-gray-400 mt-0.5">
@@ -446,8 +485,9 @@ const AgentList: React.FC<AgentListProps> = ({
           )}
 
           <button
+            type="button"
             onClick={onRegisterNew}
-            className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-green-500 whitespace-nowrap shrink-0"
+            className="px-4 py-2 bg-blue-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 whitespace-nowrap shrink-0 transition-colors"
           >
             Register New Agent
           </button>
@@ -691,7 +731,9 @@ const AgentList: React.FC<AgentListProps> = ({
                             const isEnabled = agent.state === 'ENABLED';
                             const statusProps = {
                                 text: isEnabled ? 'Enabled' : 'Disabled',
-                                colorClasses: isEnabled ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-red-500 text-white hover:bg-red-600',
+                                colorClasses: isEnabled
+                                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25'
+                                  : 'bg-red-500/15 text-red-300 border border-red-500/30 hover:bg-red-500/25',
                             };
                             statusButton = (
                                 isToggling ? (
@@ -701,8 +743,9 @@ const AgentList: React.FC<AgentListProps> = ({
                                     </div>
                                 ) : (
                                     <button
+                                        type="button"
                                         onClick={() => onToggleAgentStatus(agent)}
-                                        className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors whitespace-nowrap ${statusProps.colorClasses}`}
+                                        className={`px-2.5 py-0.5 text-xs font-semibold rounded-full transition-colors whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${statusProps.colorClasses}`}
                                         disabled={isToggling || isDeleting}
                                     >
                                         {statusProps.text}
@@ -710,7 +753,7 @@ const AgentList: React.FC<AgentListProps> = ({
                                 )
                             );
                         } else {
-                            statusButton = <span className="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-500 text-black whitespace-nowrap">Private</span>
+                            statusButton = <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 whitespace-nowrap">Private</span>
                         }
 
                         return (
@@ -906,6 +949,7 @@ const AgentList: React.FC<AgentListProps> = ({
         agents={filteredAgents}
         config={fallbackConfig}
       />
+      </div>
     </div>
   );
 };

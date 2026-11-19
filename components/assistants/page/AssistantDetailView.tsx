@@ -324,6 +324,7 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
                 engine={selectedRow.engine}
                 config={currentConfig}
                 projectNumber={projectNumber}
+                currentUserEmail={userProfile?.email}
               />
             )}
 

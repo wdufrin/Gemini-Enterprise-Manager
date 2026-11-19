@@ -30,6 +30,11 @@ import CloudConsoleButton from '../components/CloudConsoleButton';
 import { usePersistedConfig } from '../hooks/usePersistedConfig';
 import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
+import {
+  DEFAULT_BACKGROUND_CONCURRENCY,
+  invalidateProjectAgentsUsageCache,
+  mapWithQuotaLimit,
+} from '../utils/quotaGuard';
 
 type ViewMode = 'list' | 'form' | 'details' | 'bulk-datasources';
 
@@ -56,6 +61,13 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   // Monotonic sequence counters to invalidate in-flight requests when Location, Project, or App changes
   const appsFetchSeqRef = useRef(0);
   const agentsFetchSeqRef = useRef(0);
+  const hydrationAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      hydrationAbortRef.current?.abort();
+    };
+  }, []);
 
   // Configuration state with persistent sessionStorage
   const [config, setConfig] = usePersistedConfig(
@@ -123,6 +135,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     // Invalidate any in-flight agent fetch/hydration when Location or Engine changes
+    hydrationAbortRef.current?.abort();
     agentsFetchSeqRef.current += 1;
     setIsLoading(false);
     setIsHydratingAgents(false);
@@ -143,6 +156,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   };
   
   const handleProjectNumberChange = (newValue: string) => {
+    hydrationAbortRef.current?.abort();
     agentsFetchSeqRef.current += 1;
     appsFetchSeqRef.current += 1;
     setIsLoading(false);
@@ -187,16 +201,25 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             if (fetchSeq !== appsFetchSeqRef.current) return;
             const fetchedApps = response.engines || [];
             setApps(fetchedApps);
-            // Auto-select if there is only one option and we are still on the same location
+            // Quota-conscious auto-selection:
+            // - Auto-select automatically ONLY when the location has a single engine (zero ambiguity).
+            // - When multiple engines exist, preserve any previously selected valid engine in sessionStorage,
+            //   or clear stale selection from another location without firing 30+ hydration RPCs on an unrequested engine.
             if (fetchedApps.length === 1) {
                 const singleAppId = fetchedApps[0].name.split('/').pop();
                 if (singleAppId) {
                     setConfig(prev =>
-                        prev.appLocation === targetLocation
+                        prev.appLocation === targetLocation && !prev.appId
                             ? { ...prev, appId: singleAppId }
                             : prev
                     );
                 }
+            } else if (fetchedApps.length > 1) {
+                setConfig(prev => {
+                    if (prev.appLocation !== targetLocation || !prev.appId) return prev;
+                    const stillExists = fetchedApps.some(a => a.name.split('/').pop() === prev.appId);
+                    return stillExists ? prev : { ...prev, appId: '' };
+                });
             }
         } catch (err) {
             if (fetchSeq !== appsFetchSeqRef.current) return;
@@ -212,6 +235,10 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   }, [projectNumber, config.appLocation, config.collectionId, setConfig]);
 
   const fetchAgents = useCallback(async () => {
+    hydrationAbortRef.current?.abort();
+    const abortController = new AbortController();
+    hydrationAbortRef.current = abortController;
+
     const fetchSeq = ++agentsFetchSeqRef.current;
     const requestConfig = { ...apiConfig };
 
@@ -310,30 +337,32 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
 
         if (agentsNeedingView.length > 0) {
           const failedAgentNames: string[] = [];
-          const viewTask = Promise.all(
-            agentsNeedingView.map(async (agent) => {
-              try {
-                return await api.getAgentView(agent.name, requestConfig);
-              } catch (viewErr: unknown) {
-                const label = agent.displayName || agent.name.split('/').pop() || agent.name;
-                const reason = viewErr instanceof Error ? viewErr.message : String(viewErr);
-                failedAgentNames.push(`${label}: ${reason}`);
-                return null;
-              }
-            })
-          ).then(agentViewResults => {
-            if (fetchSeq !== agentsFetchSeqRef.current) return;
-            if (failedAgentNames.length > 0) {
-              setHydrationWarning(
-                `Partial metadata hydration: Could not fetch runtime AgentView (:getView) for ${failedAgentNames.length} agent(s) (${failedAgentNames.join(', ')}). Displaying locally inferred agent types.`
-              );
-            }
+          const viewTask = mapWithQuotaLimit(
+            agentsNeedingView,
+            DEFAULT_BACKGROUND_CONCURRENCY,
+            (agent) => api.getAgentView(agent.name, requestConfig),
+            { signal: abortController.signal },
+          ).then(({ outcomes, shortCircuited }) => {
+            if (fetchSeq !== agentsFetchSeqRef.current || abortController.signal.aborted) return;
             const viewByName = new Map<string, { agentType?: string; agentOrigin?: string }>();
-            agentsNeedingView.forEach((a, idx) => {
-              if (agentViewResults[idx]?.agentView) {
-                viewByName.set(a.name, agentViewResults[idx]!.agentView);
+            outcomes.forEach((res, idx) => {
+              const agent = agentsNeedingView[idx];
+              if (res.status === 'fulfilled' && res.value?.agentView) {
+                viewByName.set(agent.name, res.value.agentView);
+              } else if (res.status === 'rejected') {
+                const label = agent.displayName || agent.name.split('/').pop() || agent.name;
+                const reason = res.reason instanceof Error ? res.reason.message : String(res.reason);
+                failedAgentNames.push(`${label}: ${reason}`);
               }
             });
+            if (failedAgentNames.length > 0 || shortCircuited) {
+              const quotaSuffix = shortCircuited
+                ? ' Remaining background :getView calls were paused to protect GCP project quotas.'
+                : '';
+              setHydrationWarning(
+                `Partial metadata hydration: Could not fetch runtime AgentView (:getView) for ${failedAgentNames.length} agent(s) (${failedAgentNames.join(', ')}). Displaying locally inferred agent types.${quotaSuffix}`,
+              );
+            }
             if (viewByName.size === 0) return;
 
             setAgents(prev =>
@@ -351,25 +380,26 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
           hydrationTasks.push(viewTask);
         }
 
-        // Background-hydrate per-agent IAM policy (:getIamPolicy) for all registered agents
-        // so roles/discoveryengine.owner (and roles/discoveryengine.agentOwner) is resolved per agent.
+        // Background-hydrate per-agent IAM policy (:getIamPolicy) with bounded concurrency (2)
+        // and automatic 429 circuit-breaking so customer Discovery Engine quotas are never flooded.
         if (agentsNeedingIamOwner.length > 0) {
-          const iamTask = Promise.all(
-            agentsNeedingIamOwner.map(async (agent) => {
-              try {
-                return await api.getAgentIamPolicy(agent.name, requestConfig);
-              } catch {
-                // Non-fatal: caller may lack getIamPolicy permission on individual agent resources
-                return null;
-              }
-            })
-          ).then(policyResults => {
-            if (fetchSeq !== agentsFetchSeqRef.current) return;
+          const iamTask = mapWithQuotaLimit(
+            agentsNeedingIamOwner,
+            DEFAULT_BACKGROUND_CONCURRENCY,
+            (agent) => api.getAgentIamPolicy(agent.name, requestConfig),
+            { signal: abortController.signal },
+          ).then(({ outcomes, shortCircuited }) => {
+            if (fetchSeq !== agentsFetchSeqRef.current || abortController.signal.aborted) return;
+            if (shortCircuited) {
+              setHydrationWarning(prev =>
+                prev ||
+                'Paused remaining per-agent IAM ownership (:getIamPolicy) lookups because Discovery Engine returned a quota/rate-limit (429) or auth error.',
+              );
+            }
             const policyByName = new Map<string, IamPolicy>();
-            agentsNeedingIamOwner.forEach((a, idx) => {
-              const policy = policyResults[idx];
-              if (policy?.bindings) {
-                policyByName.set(a.name, policy);
+            outcomes.forEach((res, idx) => {
+              if (res.status === 'fulfilled' && res.value?.bindings) {
+                policyByName.set(agentsNeedingIamOwner[idx].name, res.value);
               }
             });
             if (policyByName.size === 0) return;
@@ -581,6 +611,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   };
 
   const handleFormSuccess = () => {
+    invalidateProjectAgentsUsageCache(projectNumber);
     setViewMode('list');
     fetchAgents();
   };
@@ -691,6 +722,13 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         return (
           <>
             {error && !isLoading && <div className="text-center text-red-400 p-4 mb-4 bg-red-900/20 rounded-lg">{error}</div>}
+            {!config.appId && !isLoadingApps && apps.length > 1 && !error && (
+              <div className="mb-4 px-4 py-3 rounded-xl bg-blue-950/25 border border-blue-800/50 text-xs text-blue-200 flex items-center justify-between gap-3">
+                <span>
+                  Found <strong>{apps.length}</strong> Gemini Enterprise engines in <code>{config.appLocation}</code>. Select an engine above to load its registered agents without unnecessary background API calls.
+                </span>
+              </div>
+            )}
             <AgentList
               agents={sortedAgents}
               config={apiConfig}
@@ -739,9 +777,12 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         </div>
       )}
 
-      <div className="bg-gray-800 p-4 rounded-lg shadow-md">
-        <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-semibold text-white">Configuration</h2>
+      <div className="bg-gray-900/90 border border-gray-800 p-4 rounded-xl shadow-md">
+        <div className="flex flex-wrap justify-between items-center gap-3 mb-3">
+            <div>
+              <h1 className="text-lg sm:text-xl font-display font-bold text-white tracking-tight">Agent Fleet Command Center</h1>
+              <p className="text-xs text-gray-400">Govern, inspect, test, and share Discovery Engine, ADK, and A2A agents.</p>
+            </div>
             <CloudConsoleButton 
                 url={config.appId ? 
                     `https://console.cloud.google.com/gemini-enterprise/locations/${config.appLocation}/engines/${config.appId}/agentic/agents?project=${projectNumber}` : 
@@ -750,21 +791,21 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             />
         </div>
         <div className="flex flex-col lg:flex-row lg:items-end gap-3 xl:gap-4">
-          <div className="flex-1 min-w-[220px]">
-            <label className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Project ID / Number</label>
+          <div className="flex-1 min-w-0">
+            <label className="block text-xs font-medium text-gray-400 mb-1 whitespace-nowrap">Project ID / Number</label>
             <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} />
           </div>
           <div className="w-full sm:w-36 shrink-0">
-            <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Location</label>
-            <select name="appLocation" value={config.appLocation} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[38px]">
+            <label htmlFor="appLocation" className="block text-xs font-medium text-gray-400 mb-1 whitespace-nowrap">Location</label>
+            <select id="appLocation" name="appLocation" value={config.appLocation} onChange={handleConfigChange} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 w-full h-[38px]">
               <option value="global">global</option>
               <option value="us">us</option>
               <option value="eu">eu</option>
             </select>
           </div>
-          <div className="flex-1 min-w-[200px]">
-            <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Gemini Enterprise ID</label>
-            <select name="appId" value={config.appId} onChange={handleConfigChange} disabled={isLoadingApps || apps.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[38px] disabled:bg-gray-700/50">
+          <div className="flex-1 min-w-0">
+            <label htmlFor="appId" className="block text-xs font-medium text-gray-400 mb-1 whitespace-nowrap">Gemini Enterprise ID</label>
+            <select id="appId" name="appId" value={config.appId} onChange={handleConfigChange} disabled={isLoadingApps || apps.length === 0} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 w-full h-[38px] disabled:bg-gray-800/50 disabled:text-gray-400">
               <option value="">{isLoadingApps ? 'Loading...' : '-- Select Gemini Enterprise --'}</option>
               {apps.map(a => {
                   const appId = a.name.split('/').pop() || '';

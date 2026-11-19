@@ -1,0 +1,32 @@
+{
+  "projectId": "13879585810428878861",
+  "title": "Gemini Enterprise Manager \u2014 UI/UX Redesign",
+  "designSystem": {
+    "assetId": "assets/6119699697984568805",
+    "displayName": "Gemini Enterprise Obsidian",
+    "designMdPath": ".stitch/DESIGN.md"
+  },
+  "screens": [
+    {
+      "id": "9ecb562104054543bbb06b7a84200a08",
+      "title": "Project Readiness Gate",
+      "deviceType": "DESKTOP",
+      "html": ".stitch/designs/01_readiness_gate.html",
+      "screenshot": ".stitch/designs/01_readiness_gate.png"
+    },
+    {
+      "id": "5d3e1f400bd74b0e9f4cafe7b3d83335",
+      "title": "Enterprise AI Agent Fleet Command Center",
+      "deviceType": "DESKTOP",
+      "html": ".stitch/designs/02_agent_fleet_command_center.html",
+      "screenshot": ".stitch/designs/02_agent_fleet_command_center.png"
+    },
+    {
+      "id": "f06bcf61420149b2aadb577cd701ca99",
+      "title": "Observability & Telemetry Hub",
+      "deviceType": "DESKTOP",
+      "html": ".stitch/designs/03_observability_telemetry_hub.html",
+      "screenshot": ".stitch/designs/03_observability_telemetry_hub.png"
+    }
+  ]
+}

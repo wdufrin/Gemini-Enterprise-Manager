@@ -68,11 +68,12 @@ const ProjectInput: React.FC<ProjectInputProps> = ({ value, onChange }) => {
         <div className="flex items-center space-x-2">
             <input
                 type="text"
+                aria-label="Project ID or Number"
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Project ID or Number"
-                className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 h-[38px] text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full min-w-0"
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 h-[38px] text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 w-full min-w-0 font-mono"
             />
              <button
                 type="button"

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   BROAD_PROJECT_ROLES,
   buildCustomRestrictedRoleName,
@@ -27,19 +27,30 @@ interface IsolateUserModalProps {
   isolateModalTarget: IsolateTarget | null;
   projectId: string;
   isIsolating: boolean;
+  currentUserEmail?: string;
   onClose: () => void;
-  onConfirm: (members: string[], grantNotebookLm?: boolean) => Promise<void>;
+  onConfirm: (
+    members: string[],
+    grantNotebookLm?: boolean,
+    allowSelfIsolation?: boolean
+  ) => Promise<void>;
 }
 
 export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
   isolateModalTarget,
   projectId,
   isIsolating,
+  currentUserEmail,
   onClose,
   onConfirm,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [grantNotebookLm, setGrantNotebookLm] = useState(true);
+  const [acknowledgeSelfLockout, setAcknowledgeSelfLockout] = useState(false);
+
+  useEffect(() => {
+    setAcknowledgeSelfLockout(false);
+  }, [isolateModalTarget]);
 
   useModalA11y({
     isOpen: !!isolateModalTarget,
@@ -49,6 +60,13 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
   });
 
   if (!isolateModalTarget) return null;
+
+  const normalizedAdminEmail = currentUserEmail?.trim().toLowerCase() || '';
+  const isSelfIncluded =
+    normalizedAdminEmail.length > 0 &&
+    isolateModalTarget.members.some(
+      (m) => m.replace(/^user:/i, '').trim().toLowerCase() === normalizedAdminEmail
+    );
 
   const customEndUserRoleName = buildCustomRestrictedRoleName(projectId, 'endUser');
   const rolesToDisplay =
@@ -134,6 +152,35 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
           <div className="pt-2 border-t border-gray-800 text-[11px] text-blue-300 bg-blue-950/30 p-2.5 rounded border border-blue-900/50">
             👉 <strong>Next Step:</strong> After stripping bypass roles and granting <code>customRestrictedEndUser</code>, the provisioner wizard below will open automatically so you can grant access to the App Engine and specific DataStores/Connectors!
           </div>
+
+          {isSelfIncluded ? (
+            <div
+              role="alert"
+              className="p-3 rounded-lg bg-red-950/60 border border-red-700/80 text-red-200 space-y-2 text-[11px]"
+            >
+              <p className="font-semibold text-red-300">
+                Self-Lockout Guard: Your active account ({currentUserEmail}) is selected!
+              </p>
+              <p>
+                Stripping project-wide Discovery Engine roles from your own signed-in identity can immediately revoke your administrative visibility in this console.
+              </p>
+              <label className="flex items-start gap-2 cursor-pointer text-red-100 pt-1">
+                <input
+                  type="checkbox"
+                  checked={acknowledgeSelfLockout}
+                  onChange={(e) => setAcknowledgeSelfLockout(e.target.checked)}
+                  className="mt-0.5 rounded bg-gray-900 border-red-500 text-red-600 focus:ring-red-500"
+                />
+                <span>
+                  I understand isolating my own account ({currentUserEmail}) may lock me out of project-wide Discovery Engine administration.
+                </span>
+              </label>
+            </div>
+          ) : (
+            <p className="text-[11px] text-amber-300/90 bg-amber-950/25 border border-amber-800/50 rounded p-2">
+              Caution: Never isolate your own active administrator account unless another project owner can restore your IAM bindings.
+            </p>
+          )}
         </div>
 
         <div className="flex justify-end gap-3 pt-2">
@@ -147,9 +194,15 @@ export const IsolateUserModal: React.FC<IsolateUserModalProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => onConfirm(isolateModalTarget.members, grantNotebookLm)}
-            disabled={isIsolating}
-            className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 disabled:opacity-50"
+            onClick={() =>
+              onConfirm(
+                isolateModalTarget.members,
+                grantNotebookLm,
+                isSelfIncluded ? acknowledgeSelfLockout : false
+              )
+            }
+            disabled={isIsolating || (isSelfIncluded && !acknowledgeSelfLockout)}
+            className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isIsolating ? (
               <>

@@ -14,9 +14,15 @@
  * limitations under the License.
  */
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { ReasoningEngine, Config, Agent, CloudRunService } from "../types";
 import * as api from "../services/apiService";
+import {
+  DEFAULT_BACKGROUND_CONCURRENCY,
+  getOrLoadProjectAgentsUsage,
+  invalidateProjectAgentsUsageCache,
+  mapWithQuotaLimit,
+} from "../utils/quotaGuard";
 
 export type ResourceType =
   | "Agent Engine"
@@ -79,6 +85,17 @@ export function useAgentEngines(projectNumber: string, location: string) {
   const [engineToClearSessions, setEngineToClearSessions] =
     useState<ReasoningEngine | null>(null);
   const [isClearingSessions, setIsClearingSessions] = useState(false);
+  const [isLoadingSessionCounts, setIsLoadingSessionCounts] = useState(false);
+
+  const backgroundAbortRef = useRef<AbortController | null>(null);
+  const sessionAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      backgroundAbortRef.current?.abort();
+      sessionAbortRef.current?.abort();
+    };
+  }, []);
 
   const apiConfig: Omit<Config, "accessToken"> = useMemo(
     () => ({
@@ -185,40 +202,42 @@ export function useAgentEngines(projectNumber: string, location: string) {
     });
   }, [resources, sortColumn, sortDirection, agentsByResource]);
 
-  const fetchResources = useCallback(async () => {
-    if (!projectNumber || !location) {
-      setResources([]);
-      setError("Project ID/Number and Location are required to list resources.");
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    setPermissionWarnings([]);
-    setResources([]);
-    setAllAgents([]);
-    setSelectedIds(new Set());
+  const fetchResources = useCallback(
+    async (options?: { forceRefresh?: boolean }) => {
+      backgroundAbortRef.current?.abort();
+      sessionAbortRef.current?.abort();
 
-    try {
-      const unifiedList: UnifiedResource[] = [];
-      const errors: string[] = [];
+      if (!projectNumber || !location) {
+        setResources([]);
+        setError("Project ID/Number and Location are required to list resources.");
+        return;
+      }
+
+      const abortController = new AbortController();
+      backgroundAbortRef.current = abortController;
+
+      setIsLoading(true);
+      setError(null);
+      setPermissionWarnings([]);
+      setResources([]);
+      setAllAgents([]);
+      setSelectedIds(new Set());
 
       try {
-        const reResponse = await api.listReasoningEngines(apiConfig);
-        const engines = reResponse.reasoningEngines || [];
+        const unifiedList: UnifiedResource[] = [];
+        const errors: string[] = [];
 
-        if (engines.length > 0) {
-          const sessionPromises = engines.map((engine) =>
-            api
-              .listReasoningEngineSessions(engine.name, apiConfig)
-              .then((res) => ({
-                name: engine.name,
-                count: res.sessions?.length || 0,
-              }))
-              .catch(() => ({ name: engine.name, count: undefined })),
-          );
-          const sessionCounts = await Promise.all(sessionPromises);
-          const countMap = new Map(sessionCounts.map((s) => [s.name, s.count]));
+        // Phase 1: Fetch Reasoning Engines and Cloud Run services in parallel (only 2 API calls)
+        // Session counts are intentionally NOT fetched eagerly per-engine on mount to avoid N+1 Vertex AI quota bursts.
+        const [reSettled, crSettled] = await Promise.allSettled([
+          api.listReasoningEngines(apiConfig),
+          api.listCloudRunServices(apiConfig, location),
+        ]);
 
+        if (abortController.signal.aborted) return;
+
+        if (reSettled.status === "fulfilled") {
+          const engines = reSettled.value.reasoningEngines || [];
           engines.forEach((engine) => {
             unifiedList.push({
               id: engine.name,
@@ -227,113 +246,197 @@ export function useAgentEngines(projectNumber: string, location: string) {
               type: "Agent Engine",
               location: location,
               data: engine,
-              sessionCount: countMap.get(engine.name),
+              sessionCount: undefined,
             });
           });
+        } else {
+          const reason = reSettled.reason;
+          errors.push(
+            `Agent Engines: ${reason instanceof Error ? reason.message : String(reason)}`,
+          );
         }
-      } catch (e: any) {
-        errors.push(`Agent Engines: ${e.message}`);
-      }
 
-      try {
-        const crResponse = await api.listCloudRunServices(apiConfig, location);
-        const services = crResponse.services || [];
-        services.forEach((service) => {
-          const analysis = analyzeCloudRunService(service);
-          if (!analysis.isA2a) return;
-          unifiedList.push({
-            id: service.name,
-            shortId: service.name.split("/").pop()!,
-            displayName: analysis.displayName,
-            type: "Cloud Run (A2A)",
-            location: location,
-            data: service,
-            uri: service.uri,
+        if (crSettled.status === "fulfilled") {
+          const services = crSettled.value.services || [];
+          services.forEach((service) => {
+            const analysis = analyzeCloudRunService(service);
+            if (!analysis.isA2a) return;
+            unifiedList.push({
+              id: service.name,
+              shortId: service.name.split("/").pop()!,
+              displayName: analysis.displayName,
+              type: "Cloud Run (A2A)",
+              location: location,
+              data: service,
+              uri: service.uri,
+            });
           });
-        });
-      } catch (e: any) {
-        console.warn("Cloud Run fetch failed", e);
-      }
+        } else {
+          console.warn("Cloud Run fetch failed", crSettled.reason);
+        }
 
-      setResources(unifiedList);
-      if (errors.length > 0) setError(errors.join(" | "));
+        setResources(unifiedList);
+        if (errors.length > 0) setError(errors.join(" | "));
+        setIsLoading(false);
 
-      const warnings: string[] = [];
-      try {
-        const agentsList: Agent[] = [];
-        const discoveryLocations = ["global", "us", "eu"];
-        await Promise.all(
-          discoveryLocations.map(async (loc) => {
-            const locConfig = { ...apiConfig, appLocation: loc };
-            try {
-              const collections =
-                (await api.listResources("collections", locConfig))
-                  .collections || [];
-              for (const col of collections) {
-                const colConfig = {
-                  ...locConfig,
-                  collectionId: col.name.split("/").pop()!,
+        // Phase 2: Non-blocking, cached, quota-throttled "Used By Agents" lookup across default_collection only
+        // (Gemini Enterprise engines live exclusively in default_collection; skipping DataConnector collections eliminates dozens of wasted RPCs.)
+        void getOrLoadProjectAgentsUsage(
+          projectNumber,
+          async () => {
+            const agentsList: Agent[] = [];
+            const warnings: string[] = [];
+            const discoveryLocations = ["global", "us", "eu"];
+
+            const enginesByLoc: Array<{ loc: string; appId: string }> = [];
+            await mapWithQuotaLimit(
+              discoveryLocations,
+              DEFAULT_BACKGROUND_CONCURRENCY,
+              async (loc) => {
+                const locConfig = {
+                  ...apiConfig,
+                  appLocation: loc,
+                  collectionId: "default_collection",
                 };
                 try {
                   const engines =
-                    (await api.listResources("engines", colConfig)).engines ||
-                    [];
+                    (await api.listResources("engines", locConfig))?.engines || [];
                   for (const eng of engines) {
-                    const engConfig = {
-                      ...colConfig,
-                      appId: eng.name.split("/").pop()!,
-                    };
-                    const assistants =
-                      (await api.listResources("assistants", engConfig))
-                        .assistants || [];
-                    for (const ast of assistants) {
-                      const astConfig = {
-                        ...engConfig,
-                        assistantId: ast.name.split("/").pop()!,
-                      };
-                      const res = await api.listResources("agents", astConfig);
-                      if (res.agents) agentsList.push(...res.agents);
-                    }
+                    const appId = eng.name.split("/").pop();
+                    if (appId) enginesByLoc.push({ loc, appId });
                   }
-                } catch (e: any) {
-                  const msg = `Could not enumerate agents in collection "${col.name.split("/").pop()}" (${loc}): ${e?.message || String(e)}. "Used By" status may be incomplete.`;
-                  warnings.push(msg);
-                  console.warn(
-                    `[AgentEngines] Failed to enumerate agents under collection ` +
-                      `"${col.name}" in "${loc}". Agent list may be incomplete.`,
-                    e,
+                } catch (e: unknown) {
+                  const errMsg = e instanceof Error ? e.message : String(e);
+                  warnings.push(
+                    `Could not list Discovery Engine apps in "${loc}": ${errMsg}. "Used By" status may be incomplete.`,
                   );
                 }
-              }
-            } catch (e: any) {
-              const msg = `Could not list Discovery Engine collections in "${loc}": ${e?.message || String(e)}. "Used By" status may be incomplete.`;
-              warnings.push(msg);
-              console.warn(
-                `[AgentEngines] Failed to list collections in location "${loc}". ` +
-                  `Agent list may be incomplete.`,
-                e,
-              );
+              },
+              { signal: abortController.signal },
+            );
+
+            if (abortController.signal.aborted) {
+              return { agents: agentsList, warnings };
             }
-          }),
+
+            await mapWithQuotaLimit(
+              enginesByLoc,
+              DEFAULT_BACKGROUND_CONCURRENCY,
+              async ({ loc, appId }) => {
+                const engConfig = {
+                  ...apiConfig,
+                  appLocation: loc,
+                  collectionId: "default_collection",
+                  appId,
+                };
+                try {
+                  const assistants =
+                    (await api.listResources("assistants", engConfig))?.assistants || [];
+                  for (const ast of assistants) {
+                    if (abortController.signal.aborted) return;
+                    const astConfig = {
+                      ...engConfig,
+                      assistantId: ast.name.split("/").pop()!,
+                    };
+                    const res = await api.listResources("agents", astConfig);
+                    if (res?.agents) agentsList.push(...res.agents);
+                  }
+                } catch (e: unknown) {
+                  const errMsg = e instanceof Error ? e.message : String(e);
+                  warnings.push(
+                    `Could not enumerate agents for engine "${appId}" (${loc}): ${errMsg}. "Used By" status may be incomplete.`,
+                  );
+                }
+              },
+              { signal: abortController.signal },
+            );
+
+            return { agents: agentsList, warnings };
+          },
+          { forceRefresh: options?.forceRefresh },
+        )
+          .then((snapshot) => {
+            if (abortController.signal.aborted) return;
+            setAllAgents(snapshot.agents);
+            if (snapshot.warnings.length > 0) {
+              setPermissionWarnings(snapshot.warnings);
+            }
+          })
+          .catch((e: unknown) => {
+            if (abortController.signal.aborted) return;
+            const errMsg = e instanceof Error ? e.message : String(e);
+            setPermissionWarnings([
+              `Failed to fetch agent usage data: ${errMsg}`,
+            ]);
+          });
+      } catch (err: unknown) {
+        if (!abortController.signal.aborted) {
+          setError(err instanceof Error ? err.message : "Failed to fetch resources.");
+          setIsLoading(false);
+        }
+      }
+    },
+    [apiConfig, location, projectNumber],
+  );
+
+  const loadSessionCounts = useCallback(async () => {
+    const agentEngines = resources.filter((r) => r.type === "Agent Engine");
+    if (agentEngines.length === 0) return;
+
+    sessionAbortRef.current?.abort();
+    const controller = new AbortController();
+    sessionAbortRef.current = controller;
+    setIsLoadingSessionCounts(true);
+
+    try {
+      const { outcomes, shortCircuited } = await mapWithQuotaLimit(
+        agentEngines,
+        DEFAULT_BACKGROUND_CONCURRENCY,
+        async (res) => {
+          const sessionRes = await api.listReasoningEngineSessions(
+            res.id,
+            apiConfig,
+          );
+          return {
+            id: res.id,
+            count: sessionRes.sessions?.length || 0,
+          };
+        },
+        { signal: controller.signal },
+      );
+
+      if (controller.signal.aborted) return;
+
+      const countMap = new Map<string, number>();
+      outcomes.forEach((outcome) => {
+        if (outcome.status === "fulfilled" && outcome.value) {
+          countMap.set(outcome.value.id, outcome.value.count);
+        }
+      });
+
+      if (countMap.size > 0) {
+        setResources((prev) =>
+          prev.map((r) =>
+            countMap.has(r.id) ? { ...r, sessionCount: countMap.get(r.id) } : r,
+          ),
         );
-        setAllAgents(agentsList);
-      } catch (e: any) {
-        warnings.push(`Failed to fetch agent usage data: ${e?.message || String(e)}`);
-        console.warn("Failed to fetch usage data", e);
       }
-      if (warnings.length > 0) {
-        setPermissionWarnings(warnings);
+      if (shortCircuited) {
+        setPermissionWarnings((prev) => [
+          ...prev,
+          "Paused remaining session count lookups because Vertex AI returned a quota/rate-limit (429) or auth error.",
+        ]);
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to fetch resources.");
     } finally {
-      setIsLoading(false);
+      if (sessionAbortRef.current === controller) {
+        setIsLoadingSessionCounts(false);
+      }
     }
-  }, [apiConfig, location, projectNumber]);
+  }, [apiConfig, resources]);
 
   useEffect(() => {
     if (projectNumber) {
-      fetchResources();
+      void fetchResources();
     }
   }, [projectNumber, location, fetchResources]);
 
@@ -437,7 +540,8 @@ export function useAgentEngines(projectNumber: string, location: string) {
     setIsDeleting(false);
     setIsDeleteModalOpen(false);
     setSelectedIds(new Set());
-    await fetchResources();
+    invalidateProjectAgentsUsageCache(projectNumber);
+    await fetchResources({ forceRefresh: true });
   };
 
   const handleConfirmClearSessions = async () => {
@@ -484,6 +588,8 @@ export function useAgentEngines(projectNumber: string, location: string) {
     engineToClearSessions,
     setEngineToClearSessions,
     isClearingSessions,
+    isLoadingSessionCounts,
+    loadSessionCounts,
     sortColumn,
     sortDirection,
     apiConfig,

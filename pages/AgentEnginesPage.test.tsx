@@ -109,6 +109,17 @@ describe('AgentEnginesPage, EngineDetails & DirectQueryChatWindow (F6: Module 5 
 
     expect(screen.getByText('Configuration')).toBeInTheDocument();
     expect(await screen.findByText('SupplyChain_ADK_Runtime')).toBeInTheDocument();
+
+    // Quota guard: mounting AgentEnginesPage must NOT eagerly fan out listReasoningEngineSessions per runtime
+    // or enumerate DataConnector collections via listResources('collections')
+    expect(api.listReasoningEngineSessions).not.toHaveBeenCalled();
+    expect(api.listResources).not.toHaveBeenCalledWith('collections', expect.anything());
+
+    // Clicking "Load Session Counts" explicitly fetches session counts on demand
+    fireEvent.click(screen.getByRole('button', { name: /Load Session Counts/i }));
+    await waitFor(() => {
+      expect(api.listReasoningEngineSessions).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('auto-fetches active sessions on mount in EngineDetails and surfaces session fetch errors with Retry', async () => {

@@ -30,6 +30,22 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex^="-"])'
 ].join(', ');
 
+// Track stacked open modal containers so only the topmost dialog traps Tab and handles Escape
+const activeModalStack: HTMLElement[] = [];
+
+function isElementVisible(el: HTMLElement): boolean {
+  if ((el as HTMLButtonElement).disabled || el.getAttribute('aria-hidden') === 'true') {
+    return false;
+  }
+  if (el.classList.contains('hidden') || el.closest('.hidden') || el.closest('[aria-hidden="true"]')) {
+    return false;
+  }
+  if (el.style.display === 'none' || el.style.visibility === 'hidden') {
+    return false;
+  }
+  return true;
+}
+
 export interface UseModalA11yOptions {
   isOpen: boolean;
   onClose: () => void;
@@ -55,9 +71,13 @@ export function useModalA11y({
 }: UseModalA11yOptions): void {
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
 
-  // Track the element focused prior to modal open
+  // Track the element focused prior to modal open & register on activeModalStack
   useEffect(() => {
     if (isOpen) {
+      const containerEl = containerRef.current;
+      if (containerEl && !activeModalStack.includes(containerEl)) {
+        activeModalStack.push(containerEl);
+      }
       previousActiveElementRef.current = document.activeElement as HTMLElement | null;
       const originalOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
@@ -67,7 +87,9 @@ export function useModalA11y({
         if (initialFocusRef?.current) {
           initialFocusRef.current.focus();
         } else if (containerRef.current) {
-          const focusable = containerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+          const focusable = Array.from(
+            containerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+          ).filter(isElementVisible);
           if (focusable.length > 0) {
             focusable[0].focus();
           } else {
@@ -78,19 +100,35 @@ export function useModalA11y({
 
       return () => {
         clearTimeout(focusTimer);
-        document.body.style.overflow = originalOverflow;
-        if (previousActiveElementRef.current && typeof previousActiveElementRef.current.focus === 'function') {
+        if (containerEl) {
+          const idx = activeModalStack.lastIndexOf(containerEl);
+          if (idx !== -1) activeModalStack.splice(idx, 1);
+        }
+        if (activeModalStack.length === 0) {
+          document.body.style.overflow = originalOverflow;
+        }
+        if (
+          previousActiveElementRef.current &&
+          document.contains(previousActiveElementRef.current) &&
+          typeof previousActiveElementRef.current.focus === 'function'
+        ) {
           previousActiveElementRef.current.focus();
         }
       };
     }
   }, [isOpen, initialFocusRef, containerRef]);
 
-  // Handle keyboard events (Escape and Tab focus trap)
+  // Handle keyboard events (Escape and Tab focus trap — topmost modal only)
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      const currentContainer = containerRef.current;
+      const topmostModal = activeModalStack[activeModalStack.length - 1];
+      if (currentContainer && topmostModal && topmostModal !== currentContainer) {
+        return;
+      }
+
       if (e.key === 'Escape') {
         if (!preventClose) {
           e.preventDefault();
@@ -101,19 +139,11 @@ export function useModalA11y({
       }
 
       if (e.key === 'Tab') {
-        if (!containerRef.current) return;
+        if (!currentContainer) return;
 
         const focusables = Array.from(
-          containerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-        ).filter((el) => {
-          if ((el as HTMLButtonElement).disabled || el.getAttribute('aria-hidden') === 'true') {
-            return false;
-          }
-          if (el.style.display === 'none' || el.style.visibility === 'hidden') {
-            return false;
-          }
-          return true;
-        });
+          currentContainer.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+        ).filter(isElementVisible);
 
         if (focusables.length === 0) {
           e.preventDefault();
@@ -124,12 +154,12 @@ export function useModalA11y({
         const lastElement = focusables[focusables.length - 1];
 
         if (e.shiftKey) {
-          if (document.activeElement === firstElement || !containerRef.current.contains(document.activeElement)) {
+          if (document.activeElement === firstElement || !currentContainer.contains(document.activeElement)) {
             e.preventDefault();
             lastElement.focus();
           }
         } else {
-          if (document.activeElement === lastElement || !containerRef.current.contains(document.activeElement)) {
+          if (document.activeElement === lastElement || !currentContainer.contains(document.activeElement)) {
             e.preventDefault();
             firstElement.focus();
           }

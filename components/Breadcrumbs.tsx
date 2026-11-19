@@ -24,7 +24,7 @@ interface BreadcrumbsProps {
 
 const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ currentPage, context }) => {
   const items = [
-    { label: 'Agent Space', active: false },
+    { label: 'Control Plane', active: false },
     { label: currentPage, active: !context }
   ];
 
@@ -47,7 +47,8 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ currentPage, context }) => {
             )}
             <span
               title={item.label}
-              className={`inline-block truncate max-w-[160px] lg:max-w-[240px] xl:max-w-[320px] text-sm font-medium ${item.active ? 'text-white' : 'text-gray-400'}`}
+              aria-current={item.active ? 'page' : undefined}
+              className={`inline-block truncate max-w-[140px] sm:max-w-[180px] lg:max-w-[240px] xl:max-w-[320px] text-xs sm:text-sm font-medium ${item.active ? 'text-white font-semibold' : 'text-gray-400'}`}
             >
               {item.label}
             </span>

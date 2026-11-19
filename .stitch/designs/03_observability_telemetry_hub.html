@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={theme:{extend:{colors:{background:"#0B0F19",surface:"#0B0F19","surface-container-lowest":"#070A11","surface-container-low":"#111827","surface-container":"#161F32","surface-container-high":"#1E293B","surface-container-highest":"#283548","on-surface":"#F1F5F9","on-surface-variant":"#94A3B8","outline":"#334155","outline-variant":"#1E293B",primary:"#38BDF8","on-primary":"#082F49","primary-container":"#0284C7","on-primary-container":"#F0F9FF",secondary:"#818CF8","on-secondary":"#1E1B4B","secondary-container":"#4338CA","on-secondary-container":"#EEF2FF",tertiary:"#34D399","on-tertiary":"#022C22","tertiary-container":"#059669","on-tertiary-container":"#ECFDF5",error:"#F87171","on-error":"#450A0A"},fontFamily:{body:["Inter","system-ui","sans-serif"],headline:["Inter","system-ui","sans-serif"]}}}}</script></head><body class="bg-background font-body text-on-surface antialiased"><aside class="fixed left-0 top-0 h-full w-64 bg-surface-container-low z-50 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.4)]"><div class="flex flex-col h-[calc(100%-4rem)]"><div class="h-14 px-4 flex items-center gap-3 bg-surface-container-low shrink-0"><div class="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center"><span class="material-symbols-outlined text-primary text-[20px]">hub</span></div><div class="flex flex-col min-w-0"><span class="text-xs font-semibold tracking-wider text-on-surface uppercase truncate">Gemini Enterprise</span><span class="text-[10px] text-on-surface-variant uppercase tracking-widest">Control Plane</span></div></div><div class="flex-1 overflow-y-auto px-3 py-2 space-y-5"><nav class="space-y-4" data-active-classes="bg-surface-container-high text-on-surface font-medium"><div class="space-y-1"><span class="px-2 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider block">Agent Management</span><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="enterprise-ai-agent-fleet-command-center" href="#">Agent Fleet</a><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="agent-builder" href="#">Agent Builder</a><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="multi-agent-mesh" href="#">Multi-Agent Mesh</a></div><div class="space-y-1"><span class="px-2 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider block">Knowledge &amp; Resources</span><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="data-stores" href="#">Data Stores</a><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="vertex-connectors" href="#">Vertex Connectors</a><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="tool-registry" href="#">Tool Registry</a></div><div class="space-y-1"><span class="px-2 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider block">Testing &amp; Analysis</span><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="evaluation-and-benchmarks" href="#">Evaluation &amp; Benchmarks</a><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="playground" href="#">Playground</a><a aria-current="page" class="flex items-center px-2.5 py-1.5 rounded-md transition-colors bg-surface-container-high text-on-surface font-medium" data-path="observability-and-telemetry" href="#">Observability &amp; Telemetry</a></div><div class="space-y-1"><span class="px-2 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider block">Security &amp; Access</span><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="iam-and-governance" href="#">IAM &amp; Governance</a><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="audit-trail" href="#">Audit Trail</a><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="safety-filters" href="#">Safety Filters</a></div><div class="space-y-1"><span class="px-2 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider block">System</span><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="endpoint-quotas" href="#">Endpoint Quotas</a><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="billing-and-allocation" href="#">Billing &amp; Allocation</a><a class="flex items-center px-2.5 py-1.5 rounded-md text-xs text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="settings" href="#">Settings</a></div></nav></div></div><div class="h-16 px-3 bg-surface-container-low flex items-center justify-between shadow-[0_-1px_6px_rgba(0,0,0,0.2)]"><button class="flex items-center gap-1.5 text-xs text-on-surface-variant hover:text-on-surface py-1.5 px-2 rounded hover:bg-surface-container transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">terminal</span><span>cURL History</span></button><button aria-label="Collapse navigation rail" class="p-1.5 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" type="button"><span class="material-symbols-outlined text-[18px]">dock_to_right</span></button></div></aside><div class="pl-64"><header class="fixed top-0 left-64 right-0 h-14 bg-surface/90 backdrop-blur-md shadow-[0_1px_8px_rgba(0,0,0,0.3)] z-40 px-4 flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><div class="flex items-center gap-1.5 text-xs text-on-surface-variant shrink-0"><span class="text-on-surface-variant hover:text-on-surface cursor-pointer">Gemini Enterprise</span><span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span><span class="text-on-surface-variant hover:text-on-surface cursor-pointer">Agent Management</span><span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span><span class="text-on-surface font-medium truncate">Agent Fleet</span></div><div class="hidden xl:flex items-center gap-2 bg-surface-container-low px-2.5 py-1 rounded-full"><span class="material-symbols-outlined text-primary text-[14px]">layers</span><span class="text-xs text-on-surface font-mono">gemini-ai-core-prod-882</span><span class="text-[10px] font-medium bg-secondary-container/60 text-on-secondary-container px-1.5 py-0.5 rounded-full">Trusted Tester</span></div></div><div class="flex-1 max-w-md mx-2"><button class="w-full flex items-center justify-between px-3 py-1.5 rounded-lg bg-surface-container-low text-on-surface-variant text-xs hover:bg-surface-container transition-colors shadow-inner" type="button"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px]">search</span><span>Quick Jump to resources, tools, logs...</span></div><kbd class="px-1.5 py-0.5 rounded text-[10px] bg-surface-container-high text-on-surface font-mono">⌘K</kbd></button></div><div class="flex items-center gap-3 shrink-0"><div class="flex items-center gap-1.5 bg-surface-container-low px-2 py-1 rounded-md text-[11px] text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="hidden sm:inline text-on-surface font-medium">Operational</span></div><button class="text-xs text-on-surface-variant hover:text-on-surface flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-container-low transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">chat_bubble</span><span class="hidden sm:inline">Feedback</span></button><div class="flex items-center gap-2 pl-2"><span class="text-xs text-on-surface-variant hidden md:inline font-mono truncate max-w-[140px]">alex.vance@acme-cloud.internal</span><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="w-full pt-14 bg-background min-h-screen"><div class="flex flex-col w-full">
+<!-- Content Container with strict dark telemetry styling -->
+<div class="p-6 space-y-6 max-w-[1720px] mx-auto w-full">
+<!-- 1. Header & Controls Section -->
+<header class="flex flex-col gap-4">
+<div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+<div>
+<div class="flex items-center gap-3">
+<h1 class="text-2xl font-semibold tracking-tight text-on-surface">Enterprise AI Observability &amp; Telemetry</h1>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-medium bg-primary/10 text-primary">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+              SRE Cluster Mesh v3.14
+            </span>
+</div>
+<p class="text-xs text-on-surface-variant mt-1 leading-relaxed max-w-4xl">
+            Unified telemetry streaming from Cloud Logging sinks, BigQuery analytics, and Vertex AI latency probes across active multi-agent mesh.
+          </p>
+</div>
+<!-- Secondary Action Buttons -->
+<div class="flex items-center gap-2.5 shrink-0">
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-xs font-medium transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40" type="button">
+<span class="material-symbols-outlined text-[16px] text-primary">download</span>
+<span>Export Telemetry (Parquet/CSV)</span>
+</button>
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-xs font-medium transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40" type="button">
+<span class="material-symbols-outlined text-[16px] text-primary">notifications_active</span>
+<span>Configure Alerts &amp; Budgets</span>
+</button>
+</div>
+</div>
+<!-- Quick Controls & Infrastructure Bar -->
+<div class="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-xl bg-surface-container shadow-md">
+<!-- Left Pill Group -->
+<div class="flex flex-wrap items-center gap-2.5">
+<!-- Project Switcher -->
+<div class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-container-low text-xs">
+<span class="material-symbols-outlined text-primary text-[15px]">deployed_code</span>
+<span class="font-mono font-medium text-on-surface">gemini-ai-core-prod-882</span>
+<span class="text-[10px] text-on-surface-variant font-mono bg-surface-container px-1.5 py-0.5 rounded">us-central1</span>
+</div>
+<!-- Time Range Selector -->
+<div aria-label="Time range selector" class="inline-flex p-0.5 rounded-lg bg-surface-container-low" role="group">
+<button class="px-2.5 py-1 text-xs font-medium rounded-md text-on-surface-variant hover:text-on-surface transition-colors" type="button">1h</button>
+<button class="px-2.5 py-1 text-xs font-medium rounded-md bg-surface-container-highest text-primary shadow-sm" type="button">24h</button>
+<button class="px-2.5 py-1 text-xs font-medium rounded-md text-on-surface-variant hover:text-on-surface transition-colors" type="button">7d</button>
+<button class="px-2.5 py-1 text-xs font-medium rounded-md text-on-surface-variant hover:text-on-surface transition-colors" type="button">30d</button>
+<button class="px-2.5 py-1 text-xs font-medium rounded-md text-on-surface-variant hover:text-on-surface transition-colors" type="button">Custom</button>
+</div>
+<div class="hidden md:block w-px h-5 bg-outline/40"></div>
+<!-- BigQuery Sink Status -->
+<div class="flex items-center gap-2 px-2.5 py-1 rounded-full bg-surface-container-low text-xs">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-tertiary"></span>
+</span>
+<span class="text-on-surface-variant text-[11px]">BigQuery Sink:</span>
+<span class="font-medium text-on-surface text-[11px]">Streaming (0.4s lag)</span>
+</div>
+<!-- Cloud Logging Sink -->
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-low text-xs">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+<span class="text-on-surface-variant text-[11px]">Logging Sink:</span>
+<span class="font-medium text-on-surface text-[11px]">Synced</span>
+</div>
+</div>
+<!-- Right: Live Polling Toggle -->
+<div class="flex items-center gap-3">
+<label class="flex items-center gap-2.5 cursor-pointer select-none">
+<span class="text-xs text-on-surface-variant font-medium">Live Polling (10s)</span>
+<div class="relative">
+<input aria-label="Toggle live polling" checked="" class="sr-only peer" id="live-poll-toggle" type="checkbox"/>
+<div class="w-9 h-5 bg-surface-container-high peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</div>
+</label>
+</div>
+</div>
+</header>
+<!-- 2. Executive KPI Row (4 Cards) -->
+<section aria-label="Executive Key Performance Indicators" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+<!-- KPI 1: Invocations -->
+<div class="relative overflow-hidden p-4 rounded-xl bg-surface-container shadow-md flex flex-col justify-between group hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between">
+<div>
+<span class="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Total Agent Invocations</span>
+<div class="text-2xl font-bold tracking-tight text-on-surface mt-1 font-headline">4.82M</div>
+</div>
+<span class="inline-flex items-center gap-1 text-[11px] font-medium text-tertiary bg-tertiary/10 px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px]">arrow_upward</span>
+            +14.2%
+          </span>
+</div>
+<div class="mt-4 flex items-end justify-between">
+<div class="text-xs text-on-surface-variant">
+<span class="font-mono text-on-surface font-medium">Avg 55.8</span> req/sec
+            <span class="block text-[10px] text-on-surface-variant/70">Peak: 142.4 req/s</span>
+</div>
+<!-- Sparkline Chart -->
+<div aria-hidden="true" class="w-24 h-8">
+<svg class="w-full h-full text-primary" fill="none" stroke="currentColor" viewbox="0 0 100 32">
+<path d="M0 26 L12 24 L24 28 L36 18 L48 20 L60 12 L72 15 L84 7 L100 3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2"></path>
+<path d="M0 26 L12 24 L24 28 L36 18 L48 20 L60 12 L72 15 L84 7 L100 3 L100 32 L0 32 Z" fill="currentColor" fill-opacity="0.12"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- KPI 2: P95 Latency -->
+<div class="relative overflow-hidden p-4 rounded-xl bg-surface-container shadow-md flex flex-col justify-between group hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between">
+<div>
+<span class="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">P95 Latency (End-to-End)</span>
+<div class="text-2xl font-bold tracking-tight text-on-surface mt-1 font-headline">412ms</div>
+</div>
+<span class="inline-flex items-center gap-1 text-[11px] font-medium text-tertiary bg-tertiary/10 px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px]">arrow_downward</span>
+            -38ms
+          </span>
+</div>
+<div class="mt-4 space-y-2">
+<div class="flex items-center justify-between text-[11px] font-mono">
+<span class="text-on-surface-variant">p50: <strong class="text-on-surface">185ms</strong></span>
+<span class="text-on-surface-variant">p99: <strong class="text-error">1,140ms</strong></span>
+</div>
+<div class="flex items-center justify-between text-[11px] pt-1 bg-surface-container-low px-2 py-1 rounded-md">
+<span class="text-on-surface-variant">SLA Target: &lt; 600ms</span>
+<span class="inline-flex items-center gap-1 text-tertiary font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+              Healthy
+            </span>
+</div>
+</div>
+</div>
+<!-- KPI 3: Estimated Token Spend -->
+<div class="relative overflow-hidden p-4 rounded-xl bg-surface-container shadow-md flex flex-col justify-between group hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-1.5">
+<span class="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Estimated Token Spend</span>
+<!-- Tooltip Trigger -->
+<div class="relative group/tip inline-flex">
+<span class="material-symbols-outlined text-[14px] text-on-surface-variant/70 hover:text-primary cursor-help">info</span>
+<div class="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/tip:flex flex-col w-64 p-2 bg-surface-container-highest text-[10px] text-on-surface rounded-lg shadow-xl z-30 pointer-events-none leading-relaxed">
+<span class="font-semibold text-primary mb-0.5">Billing Calculation</span>
+                Estimates calculated from Vertex AI baseline pricing tier ($0.00125/1k prompt, $0.00375/1k completion); excludes custom fine-tuning charges.
+              </div>
+</div>
+</div>
+<span class="inline-flex items-center gap-1 text-[11px] font-medium text-on-surface-variant bg-surface-container-low px-2 py-0.5 rounded-full">
+            +8.5% DoD
+          </span>
+</div>
+<div class="mt-2">
+<div class="text-2xl font-bold tracking-tight text-on-surface font-headline">$1,428.60</div>
+<div class="mt-3 flex items-center justify-between text-[11px] text-on-surface-variant font-mono">
+<span>Total: 1.48B tokens</span>
+<span class="text-primary font-medium">62% P / 38% C</span>
+</div>
+<!-- Split Progress Bar -->
+<div class="w-full h-1.5 bg-surface-container-low rounded-full overflow-hidden mt-1 flex">
+<div class="h-full bg-primary" style="width: 62%" title="Prompt Tokens: 920M"></div>
+<div class="h-full bg-secondary" style="width: 38%" title="Completion Tokens: 560M"></div>
+</div>
+</div>
+</div>
+<!-- KPI 4: Guardrail Blocks -->
+<div class="relative overflow-hidden p-4 rounded-xl bg-surface-container shadow-md flex flex-col justify-between group hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between">
+<div>
+<span class="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Model Armor &amp; Guardrails</span>
+<div class="text-2xl font-bold tracking-tight text-on-surface mt-1 font-headline">312 Blocks</div>
+</div>
+<span class="inline-flex items-center gap-1 text-[11px] font-medium text-tertiary bg-tertiary/10 px-2 py-0.5 rounded-full">
+            99.99% Clean
+          </span>
+</div>
+<div class="mt-3 grid grid-cols-3 gap-1.5 text-center">
+<div class="bg-surface-container-low p-1.5 rounded-lg">
+<div class="text-xs font-mono font-semibold text-on-surface">214</div>
+<div class="text-[9px] text-on-surface-variant truncate" title="PII Redaction">PII Redact</div>
+</div>
+<div class="bg-surface-container-low p-1.5 rounded-lg">
+<div class="text-xs font-mono font-semibold text-on-surface">78</div>
+<div class="text-[9px] text-on-surface-variant truncate" title="Prompt Injection">Injection</div>
+</div>
+<div class="bg-surface-container-low p-1.5 rounded-lg">
+<div class="text-xs font-mono font-semibold text-on-surface">20</div>
+<div class="text-[9px] text-on-surface-variant truncate" title="Jailbreak Heuristic">Jailbreak</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 3. Primary Analytics Grid (Two Columns: 60% / 40%) -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+<!-- Left Column: Dual-mode Time-Series Request Volume & Percentiles (7 Cols / ~58-60%) -->
+<div class="lg:col-span-7 space-y-4">
+<div class="p-5 rounded-xl bg-surface-container shadow-md">
+<!-- Chart Header & Interactive Controls -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+<div>
+<h2 class="text-sm font-semibold tracking-tight text-on-surface">Request Volume &amp; Latency Percentiles</h2>
+<p class="text-[11px] text-on-surface-variant">24-hour continuous sampling across all gateway proxies</p>
+</div>
+<div class="flex items-center gap-3">
+<!-- Legend -->
+<div class="hidden sm:flex items-center gap-3 text-[11px] text-on-surface-variant font-mono">
+<span class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-sm bg-primary/40"></span>Vol
+                </span>
+<span class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-primary"></span>p50
+                </span>
+<span class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-amber-400"></span>p95
+                </span>
+<span class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-error"></span>p99
+                </span>
+</div>
+<!-- View Switcher Toggle -->
+<div class="inline-flex p-0.5 rounded-lg bg-surface-container-low" role="tablist">
+<button aria-controls="panel-chart" aria-selected="true" class="px-2.5 py-1 text-xs font-medium rounded-md bg-surface-container-highest text-primary shadow-sm" id="btn-chart-view" role="tab" type="button">Chart View</button>
+<button aria-controls="panel-table" aria-selected="false" class="px-2.5 py-1 text-xs font-medium rounded-md text-on-surface-variant hover:text-on-surface transition-colors" id="btn-table-view" role="tab" type="button">Data Table</button>
+</div>
+</div>
+</div>
+<!-- Chart View Container -->
+<div class="block w-full" id="panel-chart">
+<div class="relative w-full h-72 select-none">
+<!-- Background Grid Lines -->
+<div class="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-20">
+<div class="border-b border-outline w-full flex justify-between text-[9px] font-mono text-on-surface-variant pr-2"><span>1,200ms</span><span>300k reqs</span></div>
+<div class="border-b border-outline w-full flex justify-between text-[9px] font-mono text-on-surface-variant pr-2"><span>900ms</span><span>225k reqs</span></div>
+<div class="border-b border-outline w-full flex justify-between text-[9px] font-mono text-on-surface-variant pr-2"><span>600ms</span><span>150k reqs</span></div>
+<div class="border-b border-outline w-full flex justify-between text-[9px] font-mono text-on-surface-variant pr-2"><span>300ms</span><span>75k reqs</span></div>
+<div class="w-full flex justify-between text-[9px] font-mono text-on-surface-variant pr-2"><span>0ms</span><span>0</span></div>
+</div>
+<!-- Inline SVG Graph -->
+<svg class="w-full h-full overflow-visible" preserveaspectratio="none" viewbox="0 0 600 240">
+<defs>
+<lineargradient id="volGradient" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#38bdf8" stop-opacity="0.35"></stop>
+<stop offset="100%" stop-color="#38bdf8" stop-opacity="0.02"></stop>
+</lineargradient>
+</defs>
+<!-- Hourly Request Volume Bars -->
+<g class="bars opacity-85">
+<rect fill="url(#volGradient)" height="90" rx="2" width="14" x="25" y="140"></rect>
+<rect fill="url(#volGradient)" height="70" rx="2" width="14" x="70" y="160"></rect>
+<rect fill="url(#volGradient)" height="55" rx="2" width="14" x="115" y="175"></rect>
+<rect fill="url(#volGradient)" height="80" rx="2" width="14" x="160" y="150"></rect>
+<rect fill="url(#volGradient)" height="120" rx="2" width="14" x="205" y="110"></rect>
+<rect fill="url(#volGradient)" height="160" rx="2" width="14" x="250" y="70"></rect>
+<rect fill="url(#volGradient)" height="175" rx="2" width="14" x="295" y="55"></rect>
+<rect class="stroke-primary stroke-1" fill="url(#volGradient)" height="185" rx="2" width="14" x="340" y="45"></rect>
+<rect fill="url(#volGradient)" height="170" rx="2" width="14" x="385" y="60"></rect>
+<rect fill="url(#volGradient)" height="140" rx="2" width="14" x="430" y="90"></rect>
+<rect fill="url(#volGradient)" height="110" rx="2" width="14" x="475" y="120"></rect>
+<rect fill="url(#volGradient)" height="95" rx="2" width="14" x="520" y="135"></rect>
+<rect fill="url(#volGradient)" height="125" rx="2" width="14" x="565" y="105"></rect>
+</g>
+<!-- p99 Latency Line (Red) -->
+<path d="M 32 180 C 80 185, 120 190, 167 175 C 210 160, 255 120, 302 90 C 347 60, 390 110, 437 130 C 480 150, 530 160, 572 140" fill="none" stroke="#ef4444" stroke-dasharray="3 3" stroke-width="2.5"></path>
+<!-- p95 Latency Line (Amber) -->
+<path d="M 32 200 C 80 205, 120 200, 167 195 C 210 180, 255 145, 302 125 C 347 110, 390 145, 437 165 C 480 180, 530 190, 572 175" fill="none" stroke="#f59e0b" stroke-width="2.5"></path>
+<!-- p50 Latency Line (Primary Cyan) -->
+<path d="M 32 215 C 80 218, 120 216, 167 212 C 210 205, 255 185, 302 175 C 347 168, 390 185, 437 195 C 480 205, 530 210, 572 202" fill="none" stroke="#38bdf8" stroke-width="3"></path>
+<!-- Interactive Vertical Hover Marker on Hour 14:00 (x=347) -->
+<g class="hover-guide">
+<line stroke="#94a3b8" stroke-dasharray="4 2" stroke-opacity="0.8" stroke-width="1.2" x1="347" x2="347" y1="20" y2="230"></line>
+<circle cx="347" cy="60" fill="#ef4444" r="4.5" stroke="#0B0F19" stroke-width="2"></circle>
+<circle cx="347" cy="110" fill="#f59e0b" r="4.5" stroke="#0B0F19" stroke-width="2"></circle>
+<circle cx="347" cy="168" fill="#38bdf8" r="4.5" stroke="#0B0F19" stroke-width="2"></circle>
+</g>
+</svg>
+<!-- Simulated Interactive Floating Tooltip -->
+<div class="absolute left-[54%] top-[12%] -translate-x-1/2 p-2.5 rounded-lg bg-surface-container-highest/95 backdrop-blur-md shadow-2xl text-[11px] font-mono pointer-events-none z-20">
+<div class="flex items-center justify-between gap-4 pb-1 border-b border-outline/40">
+<span class="text-on-surface font-semibold">14:00 UTC (Peak Hour)</span>
+<span class="text-primary font-bold">248,190 reqs</span>
+</div>
+<div class="pt-1.5 space-y-1">
+<div class="flex items-center justify-between gap-3">
+<span class="text-on-surface-variant flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>p50 Latency:</span>
+<span class="text-on-surface font-semibold">178ms</span>
+</div>
+<div class="flex items-center justify-between gap-3">
+<span class="text-on-surface-variant flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>p95 Latency:</span>
+<span class="text-amber-400 font-semibold">395ms</span>
+</div>
+<div class="flex items-center justify-between gap-3">
+<span class="text-on-surface-variant flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-error"></span>p99 Latency:</span>
+<span class="text-error font-semibold">1,020ms</span>
+</div>
+</div>
+</div>
+</div>
+<!-- X-Axis Timeline Labels -->
+<div class="flex justify-between text-[10px] font-mono text-on-surface-variant mt-2 pt-2 border-t border-outline/30 px-2">
+<span>02:00</span>
+<span>06:00</span>
+<span>10:00</span>
+<span class="text-primary font-bold">14:00 (Peak)</span>
+<span>18:00</span>
+<span>22:00</span>
+<span>Now</span>
+</div>
+</div>
+<!-- Accessible Data Table Container (Initially Hidden, Toggled via Tab) -->
+<div class="hidden overflow-x-auto w-full pt-1" id="panel-table" role="tabpanel">
+<table class="w-full text-left text-xs font-mono">
+<thead class="bg-surface-container-low text-on-surface-variant text-[11px] uppercase tracking-wider">
+<tr>
+<th class="py-2.5 px-3" scope="col">Hour (UTC)</th>
+<th class="py-2.5 px-3" scope="col">Req Volume</th>
+<th class="py-2.5 px-3" scope="col">p50 Latency</th>
+<th class="py-2.5 px-3" scope="col">p95 Latency</th>
+<th class="py-2.5 px-3" scope="col">p99 Latency</th>
+<th class="py-2.5 px-3" scope="col">Status</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline/20 text-on-surface">
+<tr class="hover:bg-surface-container-high">
+<td class="py-2 px-3 font-semibold">14:00 (Peak)</td>
+<td class="py-2 px-3">248,190</td>
+<td class="py-2 px-3 text-primary">178ms</td>
+<td class="py-2 px-3 text-amber-400">395ms</td>
+<td class="py-2 px-3 text-error">1,020ms</td>
+<td class="py-2 px-3"><span class="px-1.5 py-0.5 rounded text-[10px] bg-tertiary/10 text-tertiary">Normal</span></td>
+</tr>
+<tr class="hover:bg-surface-container-high">
+<td class="py-2 px-3">13:00</td>
+<td class="py-2 px-3">229,400</td>
+<td class="py-2 px-3 text-primary">172ms</td>
+<td class="py-2 px-3 text-amber-400">388ms</td>
+<td class="py-2 px-3 text-error">980ms</td>
+<td class="py-2 px-3"><span class="px-1.5 py-0.5 rounded text-[10px] bg-tertiary/10 text-tertiary">Normal</span></td>
+</tr>
+<tr class="hover:bg-surface-container-high">
+<td class="py-2 px-3">12:00</td>
+<td class="py-2 px-3">210,120</td>
+<td class="py-2 px-3 text-primary">169ms</td>
+<td class="py-2 px-3 text-amber-400">362ms</td>
+<td class="py-2 px-3 text-error">910ms</td>
+<td class="py-2 px-3"><span class="px-1.5 py-0.5 rounded text-[10px] bg-tertiary/10 text-tertiary">Normal</span></td>
+</tr>
+<tr class="hover:bg-surface-container-high">
+<td class="py-2 px-3">11:00</td>
+<td class="py-2 px-3">180,450</td>
+<td class="py-2 px-3 text-primary">164ms</td>
+<td class="py-2 px-3 text-amber-400">340ms</td>
+<td class="py-2 px-3 text-error">890ms</td>
+<td class="py-2 px-3"><span class="px-1.5 py-0.5 rounded text-[10px] bg-tertiary/10 text-tertiary">Normal</span></td>
+</tr>
+<tr class="hover:bg-surface-container-high">
+<td class="py-2 px-3">10:00</td>
+<td class="py-2 px-3">152,800</td>
+<td class="py-2 px-3 text-primary">160ms</td>
+<td class="py-2 px-3 text-amber-400">332ms</td>
+<td class="py-2 px-3 text-error">845ms</td>
+<td class="py-2 px-3"><span class="px-1.5 py-0.5 rounded text-[10px] bg-tertiary/10 text-tertiary">Normal</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<!-- Right Column: Top Agents by Token & Quota Consumption (5 Cols / ~40%) -->
+<div class="lg:col-span-5 space-y-4">
+<div class="p-5 rounded-xl bg-surface-container shadow-md flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between">
+<div>
+<h2 class="text-sm font-semibold tracking-tight text-on-surface">Top Agents by Token &amp; Quota Consumption</h2>
+<p class="text-[11px] text-on-surface-variant">Ranked by 24h token throughput against project TPM caps</p>
+</div>
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant">tune</span>
+</div>
+<!-- Agent List Breakdown -->
+<div class="mt-4 space-y-3.5">
+<!-- Agent 1: Customer Intelligence -->
+<div class="p-3 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between gap-2">
+<div class="min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="text-xs font-semibold text-on-surface truncate">Customer Intelligence Copilot</span>
+<span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-container-highest text-primary">ADK v2.4</span>
+</div>
+<span class="text-[10px] text-on-surface-variant font-mono block">cust-intel-prod-v2</span>
+</div>
+<div class="text-right shrink-0">
+<span class="text-xs font-semibold text-on-surface font-mono">582M tokens</span>
+<span class="text-[10px] text-on-surface-variant block font-mono">$562.10</span>
+</div>
+</div>
+<!-- Quota Bar -->
+<div class="mt-2">
+<div class="flex justify-between text-[10px] font-mono text-on-surface-variant mb-1">
+<span>TPM Quota Utilized</span>
+<span class="text-amber-400 font-medium">78% (Warning Threshold)</span>
+</div>
+<div class="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-amber-400 rounded-full" style="width: 78%"></div>
+</div>
+</div>
+</div>
+<!-- Agent 2: HR Policy Assistant -->
+<div class="p-3 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between gap-2">
+<div class="min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="text-xs font-semibold text-on-surface truncate">Internal HR Policy Assistant</span>
+<span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-container-highest text-on-surface-variant">Discovery</span>
+</div>
+<span class="text-[10px] text-on-surface-variant font-mono block">hr-assist-prod-01</span>
+</div>
+<div class="text-right shrink-0">
+<span class="text-xs font-semibold text-on-surface font-mono">340M tokens</span>
+<span class="text-[10px] text-on-surface-variant block font-mono">$294.50</span>
+</div>
+</div>
+<div class="mt-2">
+<div class="flex justify-between text-[10px] font-mono text-on-surface-variant mb-1">
+<span>TPM Quota Utilized</span>
+<span class="text-tertiary font-medium">42% (Optimal)</span>
+</div>
+<div class="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full" style="width: 42%"></div>
+</div>
+</div>
+</div>
+<!-- Agent 3: SecOps Threat Synthesizer -->
+<div class="p-3 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between gap-2">
+<div class="min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="text-xs font-semibold text-on-surface truncate">SecOps Threat Synthesizer</span>
+<span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-secondary-container/50 text-secondary">A2A Mesh</span>
+</div>
+<span class="text-[10px] text-on-surface-variant font-mono block">secops-mesh-node-04</span>
+</div>
+<div class="text-right shrink-0">
+<span class="text-xs font-semibold text-on-surface font-mono">295M tokens</span>
+<span class="text-[10px] text-on-surface-variant block font-mono">$310.80</span>
+</div>
+</div>
+<div class="mt-2">
+<div class="flex justify-between text-[10px] font-mono text-on-surface-variant mb-1">
+<span>TPM Quota Utilized</span>
+<span class="text-primary font-medium">61% (Nominal)</span>
+</div>
+<div class="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full" style="width: 61%"></div>
+</div>
+</div>
+</div>
+<!-- Agent 4: DevRel Docs Search -->
+<div class="p-3 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between gap-2">
+<div class="min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="text-xs font-semibold text-on-surface truncate">DevRel Docs Search &amp; Answer</span>
+<span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-container-highest text-on-surface-variant">Discovery</span>
+</div>
+<span class="text-[10px] text-on-surface-variant font-mono block">devrel-docsearch-09</span>
+</div>
+<div class="text-right shrink-0">
+<span class="text-xs font-semibold text-on-surface font-mono">165M tokens</span>
+<span class="text-[10px] text-on-surface-variant block font-mono">$148.20</span>
+</div>
+</div>
+<div class="mt-2">
+<div class="flex justify-between text-[10px] font-mono text-on-surface-variant mb-1">
+<span>TPM Quota Utilized</span>
+<span class="text-tertiary font-medium">28% (Healthy)</span>
+</div>
+<div class="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full" style="width: 28%"></div>
+</div>
+</div>
+</div>
+<!-- Agent 5: Financial Model Agent -->
+<div class="p-3 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between gap-2">
+<div class="min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="text-xs font-semibold text-on-surface truncate">Financial Analysis &amp; Model Agent</span>
+<span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-error/10 text-error">Cloud Run</span>
+</div>
+<span class="text-[10px] text-on-surface-variant font-mono block">fin-q3-forecast-v1</span>
+</div>
+<div class="text-right shrink-0">
+<span class="text-xs font-semibold text-on-surface font-mono">98M tokens</span>
+<span class="text-[10px] text-on-surface-variant block font-mono">$113.00</span>
+</div>
+</div>
+<div class="mt-2">
+<div class="flex justify-between text-[10px] font-mono mb-1">
+<span class="text-on-surface-variant">TPM Quota Utilized</span>
+<span class="text-error font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">warning</span>
+                      89% Near Cap
+                    </span>
+</div>
+<div class="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-error rounded-full" style="width: 89%"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- 4. Bottom Trace & Sanitization Log Explorer -->
+<section aria-label="Distributed Traces and Sanitization Log" class="space-y-4 pt-2">
+<div class="p-5 rounded-xl bg-surface-container shadow-md">
+<!-- Header & Omnibar Filter -->
+<div class="flex flex-col gap-3">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+<div>
+<h2 class="text-sm font-semibold tracking-tight text-on-surface flex items-center gap-2">
+<span>Distributed Invocations &amp; Security Traces</span>
+<span class="text-[10px] px-2 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-mono">Live BQ Stream</span>
+</h2>
+<p class="text-[11px] text-on-surface-variant">Detailed execution spans with Model Armor inspection payload details</p>
+</div>
+<div class="flex items-center gap-2 text-xs">
+<span class="text-on-surface-variant">Auto-refresh:</span>
+<span class="font-mono text-primary font-medium">10s</span>
+</div>
+</div>
+<!-- Omnibar Input -->
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">filter_list</span>
+<input class="w-full pl-10 pr-24 py-2 bg-surface-container-low rounded-lg text-xs text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:ring-1 focus:ring-primary shadow-inner font-mono" placeholder="Filter traces by Agent ID, Trace ID, User Principal, status:200, or blocked:true..." type="text"/>
+<div class="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+<kbd class="px-1.5 py-0.5 rounded text-[10px] bg-surface-container-high text-on-surface-variant font-mono">ESC</kbd>
+</div>
+</div>
+<!-- Filter Chips -->
+<div class="flex flex-wrap items-center gap-2 pt-1">
+<button class="px-2.5 py-1 rounded-full text-xs font-medium bg-surface-container-highest text-primary" type="button">All Traces (4.82M)</button>
+<button class="px-2.5 py-1 rounded-full text-xs font-medium bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" type="button">Blocked / Guardrail (312)</button>
+<button class="px-2.5 py-1 rounded-full text-xs font-medium bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" type="button">High Latency &gt; 1s (4.1k)</button>
+<button class="px-2.5 py-1 rounded-full text-xs font-medium bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" type="button">Model Armor Triggered (292)</button>
+</div>
+</div>
+<!-- Traces Table -->
+<div class="overflow-x-auto w-full mt-4">
+<table class="w-full text-left text-xs font-mono">
+<thead class="bg-surface-container-low text-on-surface-variant text-[10px] uppercase tracking-wider">
+<tr>
+<th class="py-2.5 px-3" scope="col">Timestamp (UTC)</th>
+<th class="py-2.5 px-3" scope="col">Trace ID &amp; Agent</th>
+<th class="py-2.5 px-3" scope="col">Principal / Caller</th>
+<th class="py-2.5 px-3" scope="col">Latency</th>
+<th class="py-2.5 px-3" scope="col">Tokens (In / Out)</th>
+<th class="py-2.5 px-3" scope="col">Model Armor Status</th>
+<th class="py-2.5 px-3 text-right" scope="col">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline/10 text-on-surface">
+<!-- Row 1 (EXPANDED INSPECTION ROW) -->
+<tr class="bg-surface-container-high/60">
+<td class="py-3 px-3 align-top whitespace-nowrap text-on-surface-variant">14:02:18.914</td>
+<td class="py-3 px-3 align-top">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-primary">expand_more</span>
+<span class="font-semibold text-primary">tr-9482-ai-c148</span>
+</div>
+<span class="text-[11px] text-on-surface-variant pl-5 block">SecOps Threat Synthesizer</span>
+</td>
+<td class="py-3 px-3 align-top text-on-surface-variant">
+<span class="truncate max-w-[140px] block" title="mesh-worker-secops@gcp-sa.iam.gserviceaccount.com">mesh-worker-secops...</span>
+<span class="text-[10px] text-outline font-mono">TokenBearer IAM</span>
+</td>
+<td class="py-3 px-3 align-top">
+<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-400/10 text-amber-400">842ms (p95)</span>
+</td>
+<td class="py-3 px-3 align-top">
+<span class="text-on-surface">1,412</span> / <span class="text-on-surface-variant">420</span>
+</td>
+<td class="py-3 px-3 align-top">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-400/10 text-amber-400">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                    Sanitized (PII Masked)
+                  </span>
+</td>
+<td class="py-3 px-3 align-top text-right whitespace-nowrap">
+<button class="text-primary hover:text-on-primary-container p-1 rounded hover:bg-surface-container-highest transition-colors" title="Collapse Trace" type="button">
+<span class="material-symbols-outlined text-[16px]">close_fullscreen</span>
+</button>
+<button class="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-container-highest transition-colors" title="View in Cloud Logging" type="button">
+<span class="material-symbols-outlined text-[16px]">open_in_new</span>
+</button>
+</td>
+</tr>
+<!-- Row 1 EXPANDED DRAWER CONTENT -->
+<tr class="bg-surface-container-lowest/80">
+<td class="p-4" colspan="7">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg bg-surface-container-low p-4">
+<!-- Left: Sanitization Details -->
+<div class="space-y-2">
+<div class="flex items-center justify-between">
+<span class="text-[11px] font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px]">security</span>
+                          Model Armor Security &amp; Sanitization Policy
+                        </span>
+<span class="text-[10px] text-tertiary bg-tertiary/10 px-1.5 py-0.5 rounded font-mono">Action: Masked &amp; Passed</span>
+</div>
+<div class="text-[11px] text-on-surface-variant space-y-1.5 bg-surface-container p-3 rounded">
+<div class="flex justify-between">
+<span class="text-outline">Policy Rule Triggered:</span>
+<span class="text-on-surface font-semibold font-mono">VERTEX_PII_RULE_CREDENTIAL_MASK</span>
+</div>
+<div class="flex justify-between">
+<span class="text-outline">Confidence Score:</span>
+<span class="text-on-surface font-mono">0.9942</span>
+</div>
+<div class="flex justify-between">
+<span class="text-outline">Pattern Match:</span>
+<span class="text-amber-400 font-mono">[REDACTED_API_KEY] (Entropy &gt; 4.6)</span>
+</div>
+<div class="pt-2 border-t border-outline/30 text-[10px]">
+<span class="text-on-surface-variant">Sanitized Context Preview:</span>
+<p class="font-mono text-on-surface mt-1 p-1.5 bg-surface-container-lowest rounded">
+                            "Target endpoint evaluated with auth token bearer <span class="text-amber-400 font-bold">[REDACTED_API_KEY]</span> returning 403 authorization error on secondary sync."
+                          </p>
+</div>
+</div>
+</div>
+<!-- Right: JSON Payload Snippet -->
+<div class="space-y-2">
+<div class="flex items-center justify-between">
+<span class="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider font-mono">
+                          Trace Execution Metadata (BigQuery View)
+                        </span>
+<button class="text-[10px] text-primary hover:underline font-mono" type="button">Copy JSON</button>
+</div>
+<pre class="text-[10px] font-mono text-on-surface bg-surface-container-lowest p-3 rounded overflow-x-auto max-h-40 leading-relaxed text-slate-300"><code>{
+  "traceId": "tr-9482-ai-c148",
+  "agentId": "secops-mesh-node-04",
+  "latencyMs": 842,
+  "model": "gemini-1.5-pro-002",
+  "groundingPassCount": 3,
+  "bigQuerySinkTimestamp": "2025-05-18T14:02:19.124Z",
+  "cacheHit": false,
+  "quotaRemainingTpm": 412900,
+  "routingRegion": "us-central1"
+}</code></pre>
+</div>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="py-2.5 px-3 text-on-surface-variant">14:02:17.340</td>
+<td class="py-2.5 px-3">
+<span class="font-medium text-on-surface">tr-9482-ai-c147</span>
+<span class="text-[10px] text-on-surface-variant block">Customer Intelligence Copilot</span>
+</td>
+<td class="py-2.5 px-3 text-on-surface-variant">
+<span class="truncate max-w-[140px] block">app-client-gateway@internal</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="px-2 py-0.5 rounded text-[10px] bg-surface-container text-primary font-medium">182ms (p50)</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="text-on-surface">810</span> / <span class="text-on-surface-variant">194</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="inline-flex items-center gap-1 text-[10px] font-medium text-tertiary">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                    Passed / Clean
+                  </span>
+</td>
+<td class="py-2.5 px-3 text-right whitespace-nowrap">
+<button class="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-container-high transition-colors" title="Inspect Trace" type="button">
+<span class="material-symbols-outlined text-[16px]">visibility</span>
+</button>
+<button class="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-container-high transition-colors" title="View in Cloud Logging" type="button">
+<span class="material-symbols-outlined text-[16px]">open_in_new</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 (Blocked Injection) -->
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="py-2.5 px-3 text-on-surface-variant">14:02:15.109</td>
+<td class="py-2.5 px-3">
+<span class="font-medium text-error">tr-9482-ai-c146</span>
+<span class="text-[10px] text-on-surface-variant block">DevRel Docs Search &amp; Answer</span>
+</td>
+<td class="py-2.5 px-3 text-on-surface-variant">
+<span class="truncate max-w-[140px] block">anonymous-portal-session</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="px-2 py-0.5 rounded text-[10px] bg-surface-container text-on-surface-variant">42ms (Short-Circuit)</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="text-on-surface">340</span> / <span class="text-on-surface-variant">0</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-error/10 text-error">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+                    Blocked: Prompt Injection
+                  </span>
+</td>
+<td class="py-2.5 px-3 text-right whitespace-nowrap">
+<button class="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-container-high transition-colors" title="Inspect Trace" type="button">
+<span class="material-symbols-outlined text-[16px]">visibility</span>
+</button>
+<button class="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-container-high transition-colors" title="View in Cloud Logging" type="button">
+<span class="material-symbols-outlined text-[16px]">open_in_new</span>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="py-2.5 px-3 text-on-surface-variant">14:02:14.780</td>
+<td class="py-2.5 px-3">
+<span class="font-medium text-on-surface">tr-9482-ai-c145</span>
+<span class="text-[10px] text-on-surface-variant block">Internal HR Policy Assistant</span>
+</td>
+<td class="py-2.5 px-3 text-on-surface-variant">
+<span class="truncate max-w-[140px] block">staff-user-892@corp.internal</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="px-2 py-0.5 rounded text-[10px] bg-surface-container text-primary font-medium">210ms (p50)</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="text-on-surface">620</span> / <span class="text-on-surface-variant">312</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="inline-flex items-center gap-1 text-[10px] font-medium text-tertiary">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                    Passed / Clean
+                  </span>
+</td>
+<td class="py-2.5 px-3 text-right whitespace-nowrap">
+<button class="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-container-high transition-colors" title="Inspect Trace" type="button">
+<span class="material-symbols-outlined text-[16px]">visibility</span>
+</button>
+<button class="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-container-high transition-colors" title="View in Cloud Logging" type="button">
+<span class="material-symbols-outlined text-[16px]">open_in_new</span>
+</button>
+</td>
+</tr>
+<!-- Row 5 (p99 tail latency) -->
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="py-2.5 px-3 text-on-surface-variant">14:02:11.205</td>
+<td class="py-2.5 px-3">
+<span class="font-medium text-on-surface">tr-9482-ai-c144</span>
+<span class="text-[10px] text-on-surface-variant block">Financial Analysis &amp; Model Agent</span>
+</td>
+<td class="py-2.5 px-3 text-on-surface-variant">
+<span class="truncate max-w-[140px] block">cron-daily-finance-calc</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-error/10 text-error">1,120ms (p99)</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="text-on-surface">8,400</span> / <span class="text-on-surface-variant">2,150</span>
+</td>
+<td class="py-2.5 px-3">
+<span class="inline-flex items-center gap-1 text-[10px] font-medium text-tertiary">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                    Passed / Clean
+                  </span>
+</td>
+<td class="py-2.5 px-3 text-right whitespace-nowrap">
+<button class="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-container-high transition-colors" title="Inspect Trace" type="button">
+<span class="material-symbols-outlined text-[16px]">visibility</span>
+</button>
+<button class="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-container-high transition-colors" title="View in Cloud Logging" type="button">
+<span class="material-symbols-outlined text-[16px]">open_in_new</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination & Stream Status Footer -->
+<div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-outline/30 text-xs text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span>Showing 1-5 of 4,821,902 traces</span>
+<span class="text-outline">•</span>
+<span class="font-mono text-[11px]">Stream buffer lag: 42ms</span>
+</div>
+<div class="flex items-center gap-1">
+<button class="px-2.5 py-1 rounded bg-surface-container-low text-on-surface-variant/40 cursor-not-allowed" disabled="" type="button">Previous</button>
+<span class="px-2.5 py-1 text-primary font-mono font-medium">1</span>
+<button class="px-2.5 py-1 rounded bg-surface-container-low hover:bg-surface-container-high text-on-surface transition-colors" type="button">2</button>
+<button class="px-2.5 py-1 rounded bg-surface-container-low hover:bg-surface-container-high text-on-surface transition-colors" type="button">3</button>
+<span class="px-1 text-outline">...</span>
+<button class="px-2.5 py-1 rounded bg-surface-container-low hover:bg-surface-container-high text-on-surface transition-colors" type="button">964</button>
+<button class="px-2.5 py-1 rounded bg-surface-container-low hover:bg-surface-container-high text-on-surface transition-colors" type="button">Next</button>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Interactive Logic for Tab Switching between Chart View & Data Table -->
+<script>
+    (function initObservabilityView() {
+      const btnChart = document.getElementById('btn-chart-view');
+      const btnTable = document.getElementById('btn-table-view');
+      const panelChart = document.getElementById('panel-chart');
+      const panelTable = document.getElementById('panel-table');
+
+      if (!btnChart || !btnTable || !panelChart || !panelTable) return;
+
+      btnChart.addEventListener('click', () => {
+        btnChart.classList.add('bg-surface-container-highest', 'text-primary', 'shadow-sm');
+        btnChart.classList.remove('text-on-surface-variant');
+        btnChart.setAttribute('aria-selected', 'true');
+
+        btnTable.classList.remove('bg-surface-container-highest', 'text-primary', 'shadow-sm');
+        btnTable.classList.add('text-on-surface-variant');
+        btnTable.setAttribute('aria-selected', 'false');
+
+        panelChart.classList.remove('hidden');
+        panelTable.classList.add('hidden');
+      });
+
+      btnTable.addEventListener('click', () => {
+        btnTable.classList.add('bg-surface-container-highest', 'text-primary', 'shadow-sm');
+        btnTable.classList.remove('text-on-surface-variant');
+        btnTable.setAttribute('aria-selected', 'true');
+
+        btnChart.classList.remove('bg-surface-container-highest', 'text-primary', 'shadow-sm');
+        btnChart.classList.add('text-on-surface-variant');
+        btnChart.setAttribute('aria-selected', 'false');
+
+        panelTable.classList.remove('hidden');
+        panelChart.classList.add('hidden');
+      });
+    })();
+  </script>
+</div></main></div></body></html>

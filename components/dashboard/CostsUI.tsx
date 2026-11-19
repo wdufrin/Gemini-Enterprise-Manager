@@ -348,7 +348,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
 
     // Monitoring State
     const [usageMetrics, setUsageMetrics] = useState<Record<string, number | undefined> | null>(null);
-    const [, setIsFetchingMetrics] = useState(false);
+    const [isFetchingMetrics, setIsFetchingMetrics] = useState(false);
     const [metricsError, setMetricsError] = useState<string | null>(null);
 
     // Fetch Billing Accounts
@@ -692,11 +692,15 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             </div>
             <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 mt-auto">
                 {isUnavailable ? (
-                    <span className="text-lg font-medium text-amber-400">Unavailable</span>
+                    isFetchingMetrics ? (
+                        <span className="text-base font-medium text-blue-300 animate-pulse">Loading...</span>
+                    ) : (
+                        <span className="text-lg font-medium text-amber-400">Unavailable</span>
+                    )
                 ) : (
-                    <span className="text-2xl xl:text-3xl font-bold text-blue-400">{usage.toLocaleString()}</span>
+                    <span className="text-2xl xl:text-3xl font-bold text-blue-400 tabular-nums">{usage.toLocaleString()}</span>
                 )}
-                <span className="text-gray-500 text-sm font-medium whitespace-nowrap">/ {noLicenses ? '-' : value.toLocaleString()}</span>
+                <span className="text-gray-400 text-sm font-medium whitespace-nowrap tabular-nums">/ {noLicenses ? '-' : value.toLocaleString()}</span>
                 {unit && <span className="text-gray-400 text-xs xl:text-sm whitespace-nowrap">{unit}</span>}
             </div>
             {showSingleUserCap && (
@@ -718,8 +722,8 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     ></div>
                 </div>
             )}
-            {isUnavailable && (
-                <p className="mt-2 text-[11px] text-gray-500">Requires monitoring.timeSeries.list &amp; serviceconsumermanagement.quota.get</p>
+            {isUnavailable && !isFetchingMetrics && (
+                <p className="mt-2 text-[11px] text-gray-400">Requires monitoring.timeSeries.list &amp; serviceconsumermanagement.quota.get</p>
             )}
         </div>
         );

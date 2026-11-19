@@ -58,6 +58,8 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
     engineToClearSessions,
     setEngineToClearSessions,
     isClearingSessions,
+    isLoadingSessionCounts,
+    loadSessionCounts,
     sortColumn,
     sortDirection,
     apiConfig,
@@ -179,13 +181,29 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
           </div>
         </div>
         {viewMode === "list" && (
-          <button
-            onClick={fetchResources}
-            disabled={isLoading}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500"
-          >
-            {isLoading ? "Loading..." : "Refresh Resources"}
-          </button>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => fetchResources({ forceRefresh: true })}
+              disabled={isLoading}
+              className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-500 disabled:bg-gray-600 transition-colors"
+            >
+              {isLoading ? "Loading..." : "Refresh Resources"}
+            </button>
+            {resources.some((r) => r.type === "Agent Engine") && (
+              <button
+                type="button"
+                onClick={loadSessionCounts}
+                disabled={isLoading || isLoadingSessionCounts}
+                title="Queries active session counts across Agent Engines (throttled to protect Vertex AI project quotas)"
+                className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 text-xs font-semibold rounded-lg disabled:opacity-50 transition-colors"
+              >
+                {isLoadingSessionCounts
+                  ? "Loading Sessions..."
+                  : "Load Session Counts"}
+              </button>
+            )}
+          </div>
         )}
       </div>
 

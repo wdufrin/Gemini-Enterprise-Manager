@@ -178,9 +178,9 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
                     d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
                   />
                 </svg>
-                <h4 className="text-sm font-bold text-white">
+                <h3 className="text-sm font-bold text-white">
                   Project Visibility &amp; Allowlist Feature Gates
-                </h4>
+                </h3>
               </div>
               <span
                 className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border self-start sm:self-auto ${
@@ -271,9 +271,9 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
                     d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
                   />
                 </svg>
-                <h4 className="text-sm font-bold text-white">
+                <h3 className="text-sm font-bold text-white">
                   Discovery Engine Service Agent
-                </h4>
+                </h3>
               </div>
               <span
                 className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border self-start sm:self-auto ${
@@ -293,7 +293,7 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
             </div>
 
             <div className="text-xs text-gray-300 space-y-1 bg-gray-950/60 p-3 rounded border border-gray-800 font-mono break-all">
-              <span className="text-gray-500 block text-[11px] font-sans">
+              <span className="text-gray-400 block text-[11px] font-sans">
                 Expected Service Identity:
               </span>
               <span className="text-blue-300">
@@ -407,9 +407,9 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
                     d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
                   />
                 </svg>
-                <h4 className="text-sm font-bold text-white">
+                <h3 className="text-sm font-bold text-white">
                   Caller / User Permissions Audit
-                </h4>
+                </h3>
               </div>
               <span
                 className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border self-start sm:self-auto ${
@@ -478,7 +478,7 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
                         {cat}
                       </span>
                       <span
-                        className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
                           isAllGranted
                             ? 'bg-green-900/60 text-green-300'
                             : 'bg-yellow-900/60 text-yellow-300'
@@ -570,7 +570,7 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
         apiValidationResult && (
           <div className="p-4 bg-gray-900/60 rounded-lg border border-gray-700/80 space-y-3">
             <div className="flex justify-between items-center">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   className="h-5 w-5 text-green-400"
@@ -587,16 +587,16 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
                 </svg>
                 Required Google Cloud APIs (
                 {apiValidationResult.enabled.length} of 13 Enabled)
-              </h4>
+              </h3>
             </div>
 
             {apiValidationResult.disabled.length > 0 && (
               <div className="mb-4 space-y-2">
                 <div className="flex justify-between items-center">
                   <div>
-                    <h5 className="font-bold text-red-400 text-xs">
+                    <h4 className="font-bold text-red-400 text-xs">
                       Disabled APIs ({apiValidationResult.disabled.length})
-                    </h5>
+                    </h4>
                     <p className="text-[11px] text-red-300">
                       These APIs must be enabled for Gemini Enterprise to
                       function properly.
@@ -640,9 +640,9 @@ export const ApiValidationPanel: React.FC<ApiValidationPanelProps> = ({
 
             {apiValidationResult.enabled.length > 0 && (
               <div>
-                <h5 className="font-bold text-green-400 text-xs mb-2">
+                <h4 className="font-bold text-green-400 text-xs mb-2">
                   Enabled APIs ({apiValidationResult.enabled.length})
-                </h5>
+                </h4>
                 {renderList(apiValidationResult.enabled, true)}
               </div>
             )}
