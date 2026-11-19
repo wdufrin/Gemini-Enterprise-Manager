@@ -15,7 +15,7 @@
  */
 
 import React from 'react';
-import { CustomParamItem } from './types';
+import { CustomParamItem, getByomcpAdvancedBridge } from './types';
 
 interface AdvancedParamsSectionProps {
   refreshInterval: string;
@@ -26,6 +26,14 @@ interface AdvancedParamsSectionProps {
   onAddCustomParam: () => void;
   onUpdateCustomParam: (index: number, field: 'key' | 'value', val: string) => void;
   onRemoveCustomParam: (index: number) => void;
+  useAgentGatewayEgress?: boolean;
+  setUseAgentGatewayEgress?: (val: boolean) => void;
+  agentGatewayEngine?: string;
+  setAgentGatewayEngine?: (val: string) => void;
+  egressFqdns?: string;
+  setEgressFqdns?: (val: string) => void;
+  serviceDirectoryServiceName?: string;
+  setServiceDirectoryServiceName?: (val: string) => void;
 }
 
 export const AdvancedParamsSection: React.FC<AdvancedParamsSectionProps> = ({
@@ -37,7 +45,34 @@ export const AdvancedParamsSection: React.FC<AdvancedParamsSectionProps> = ({
   onAddCustomParam,
   onUpdateCustomParam,
   onRemoveCustomParam,
+  useAgentGatewayEgress: gatewayEgressProp,
+  setUseAgentGatewayEgress: setGatewayEgressProp,
+  agentGatewayEngine: gatewayEngineProp,
+  setAgentGatewayEngine: setGatewayEngineProp,
+  egressFqdns: egressFqdnsProp,
+  setEgressFqdns: setEgressFqdnsProp,
+  serviceDirectoryServiceName: serviceDirProp,
+  setServiceDirectoryServiceName: setServiceDirProp,
 }) => {
+  const bridge = getByomcpAdvancedBridge(
+    setRefreshInterval,
+    setStaticIpEnabled,
+    onAddCustomParam
+  );
+  const useAgentGatewayEgress =
+    gatewayEgressProp ?? bridge?.useAgentGatewayEgress ?? false;
+  const setUseAgentGatewayEgress =
+    setGatewayEgressProp ?? bridge?.setUseAgentGatewayEgress;
+  const agentGatewayEngine = gatewayEngineProp ?? bridge?.agentGatewayEngine ?? '';
+  const setAgentGatewayEngine =
+    setGatewayEngineProp ?? bridge?.setAgentGatewayEngine;
+  const egressFqdns = egressFqdnsProp ?? bridge?.egressFqdns ?? '';
+  const setEgressFqdns = setEgressFqdnsProp ?? bridge?.setEgressFqdns;
+  const serviceDirectoryServiceName =
+    serviceDirProp ?? bridge?.serviceDirectoryServiceName ?? '';
+  const setServiceDirectoryServiceName =
+    setServiceDirProp ?? bridge?.setServiceDirectoryServiceName;
+
   return (
     <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-800 space-y-4">
       <div className="border-b border-gray-800 pb-2">
@@ -81,6 +116,100 @@ export const AdvancedParamsSection: React.FC<AdvancedParamsSectionProps> = ({
           >
             {staticIpEnabled ? 'Enabled' : 'Disabled'}
           </button>
+        </div>
+      </div>
+
+      {/* VPC-SC & Private Connectivity (Agent Gateway & Service Directory) */}
+      <div
+        data-testid="byomcp-vpc-private-connectivity-section"
+        className="pt-3 border-t border-gray-800 space-y-3"
+      >
+        <div>
+          <h5 className="text-xs font-bold text-teal-300 uppercase tracking-wider">
+            VPC-SC &amp; Private Connectivity (Agent Gateway / Service Directory)
+          </h5>
+          <p className="text-[11px] text-gray-400">
+            Configure private network egress via Agent Gateway or PSC Service Directory for internal MCP servers.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="flex items-start gap-2.5 p-3 bg-gray-950 rounded border border-gray-800 cursor-pointer hover:border-gray-700 md:col-span-2">
+            <input
+              type="checkbox"
+              data-testid="byomcp-agent-gateway-egress-checkbox"
+              checked={useAgentGatewayEgress}
+              onChange={(e) => setUseAgentGatewayEgress?.(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-gray-600 bg-gray-900 text-teal-500 focus:ring-teal-500"
+            />
+            <div>
+              <div className="text-xs font-semibold text-gray-200">
+                Enable Agent Gateway Private Egress{' '}
+                <span className="text-purple-400 font-mono text-[10px]">
+                  (use_agent_gateway_egress)
+                </span>
+              </div>
+              <div className="text-[11px] text-gray-400">
+                Routes BYOMCP traffic through a private Agent Gateway engine inside your VPC perimeter.
+              </div>
+            </div>
+          </label>
+
+          <div>
+            <label
+              htmlFor="byomcp-agent-gateway-engine"
+              className="block text-xs font-semibold text-gray-300 mb-1"
+            >
+              Agent Gateway Engine{' '}
+              <span className="text-purple-400 font-mono text-[10px]">(agent_gateway_engine)</span>
+            </label>
+            <input
+              id="byomcp-agent-gateway-engine"
+              type="text"
+              value={agentGatewayEngine}
+              onChange={(e) => setAgentGatewayEngine?.(e.target.value)}
+              placeholder="projects/my-proj/locations/us-central1/reasoningEngines/gw-1"
+              className="w-full bg-gray-950 border border-gray-700 rounded p-2 text-xs text-white font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="byomcp-egress-fqdns"
+              className="block text-xs font-semibold text-gray-300 mb-1"
+            >
+              Allowed Egress FQDNs{' '}
+              <span className="text-purple-400 font-mono text-[10px]">(egress_fqdns)</span>
+            </label>
+            <input
+              id="byomcp-egress-fqdns"
+              type="text"
+              value={egressFqdns}
+              onChange={(e) => setEgressFqdns?.(e.target.value)}
+              placeholder="mcp.internal.corp.com, api.internal.corp.com"
+              className="w-full bg-gray-950 border border-gray-700 rounded p-2 text-xs text-white font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <label
+              htmlFor="byomcp-service-directory-name"
+              className="block text-xs font-semibold text-gray-300 mb-1"
+            >
+              Service Directory Service Name (VPC-SC){' '}
+              <span className="text-purple-400 font-mono text-[10px]">
+                (actionConfig.serviceName)
+              </span>
+            </label>
+            <input
+              id="byomcp-service-directory-name"
+              type="text"
+              value={serviceDirectoryServiceName}
+              onChange={(e) => setServiceDirectoryServiceName?.(e.target.value)}
+              placeholder="projects/my-proj/locations/us-central1/namespaces/prod-ns/services/mcp-psc"
+              className="w-full bg-gray-950 border border-gray-700 rounded p-2 text-xs text-white font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
+            />
+          </div>
         </div>
       </div>
 

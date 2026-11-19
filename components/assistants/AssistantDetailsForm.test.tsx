@@ -21,6 +21,16 @@ import AssistantDetailsForm from './AssistantDetailsForm';
 import { Assistant, Config } from '../../types';
 import * as api from '../../services/apiService';
 
+const mockEnrollmentState = {
+  isGoogleInternal: false,
+  isTrustedTester: false,
+  isNotebookLmApiUser: false,
+};
+
+vi.mock('../../context/ProjectEnrollmentContext', () => ({
+  useProjectEnrollment: () => mockEnrollmentState,
+}));
+
 vi.mock('../../services/apiService', () => ({
   fetchModelArmorTemplates: vi.fn(),
   getEngine: vi.fn(),
@@ -66,9 +76,12 @@ const readPolicy = (): Record<string, unknown> => {
   return JSON.parse(textarea.value);
 };
 
-describe('AssistantDetailsForm - Model Armor failure mode', () => {
+describe('AssistantDetailsForm - Model Armor failure mode & Screening Scope', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEnrollmentState.isGoogleInternal = false;
+    mockEnrollmentState.isTrustedTester = false;
+    mockEnrollmentState.isNotebookLmApiUser = false;
     mockedApi.fetchModelArmorTemplates.mockResolvedValue({ templates: [{ name: TEMPLATE_NAME }] });
     mockedApi.getEngine.mockResolvedValue({
       name: 'projects/test-project/locations/global/collections/default_collection/engines/test-engine',
@@ -76,6 +89,13 @@ describe('AssistantDetailsForm - Model Armor failure mode', () => {
       solutionType: 'SOLUTION_TYPE_CHAT',
     });
     mockedApi.getEngineIamPolicy.mockResolvedValue({ bindings: [] });
+  });
+
+  it('displays the Assistant Model Armor screening scope warning banner', async () => {
+    renderForm();
+    expect(await screen.findByText(/Assistant Model Armor Screening Scope:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Workflow Builder agents/i)).toBeInTheDocument();
+    expect(screen.getByText(/Dialogflow/i)).toBeInTheDocument();
   });
 
   it('defaults to FAIL_CLOSED for an assistant with no Model Armor config', async () => {
@@ -87,8 +107,6 @@ describe('AssistantDetailsForm - Model Armor failure mode', () => {
   it('reports an unset failureMode as FAIL_CLOSED, matching the API default', async () => {
     renderForm({
       ...baseAssistant,
-      // A real deployment that never set failureMode: the API treats this as
-      // FAIL_CLOSED, so the UI must not display FAIL_OPEN.
       customerPolicy: { modelArmorConfig: { userPromptTemplate: TEMPLATE_NAME } },
     } as Assistant);
 
@@ -117,7 +135,6 @@ describe('AssistantDetailsForm - Model Armor failure mode', () => {
     await waitFor(() => {
       const policy = readPolicy() as { modelArmorConfig?: Record<string, string> };
       expect(policy.modelArmorConfig?.userPromptTemplate).toBe(TEMPLATE_NAME);
-      // The regression this guards: it used to write FAIL_OPEN here.
       expect(policy.modelArmorConfig?.failureMode).toBe('FAIL_CLOSED');
     });
   });
@@ -128,7 +145,6 @@ describe('AssistantDetailsForm - Model Armor failure mode', () => {
       customerPolicy: { modelArmorConfig: { userPromptTemplate: TEMPLATE_NAME } },
     } as Assistant);
 
-    // Touching an unrelated Model Armor control used to stamp FAIL_OPEN in.
     const outputSelect = await screen.findByLabelText('Output Template (Model Responses)');
     await waitFor(() => expect(screen.getAllByRole('option', { name: /safe-input/ }).length).toBeGreaterThan(0));
     fireEvent.change(outputSelect, { target: { value: TEMPLATE_NAME } });
@@ -158,9 +174,293 @@ describe('AssistantDetailsForm - Model Armor failure mode', () => {
   });
 });
 
+describe('AssistantDetailsForm - Retention Presets, cURL Parity, GenerationConfig & Safety Policies', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEnrollmentState.isGoogleInternal = false;
+    mockEnrollmentState.isTrustedTester = false;
+    mockEnrollmentState.isNotebookLmApiUser = false;
+    mockedApi.fetchModelArmorTemplates.mockResolvedValue({ templates: [] });
+    mockedApi.getEngine.mockResolvedValue({
+      name: 'projects/test-project-123/locations/global/collections/default_collection/engines/test-engine-id',
+      displayName: 'Test Engine',
+      solutionType: 'SOLUTION_TYPE_CHAT',
+      sessionConfig: { sessionTtl: { days: 30 } },
+    });
+    mockedApi.getEngineIamPolicy.mockResolvedValue({ bindings: [] });
+    mockedApi.updateAssistant.mockImplementation(async (_name, payload) => ({
+      ...baseAssistant,
+      ...payload,
+    } as Assistant));
+    mockedApi.updateEngine.mockResolvedValue({} as any);
+  });
+
+  it('maintains cURL preview parity with performUpdate for chat retention without mutating Assistant.customerPolicy', async () => {
+    renderForm();
+
+    // Wait for getEngine to populate retention = 30
+    const retentionInput = (await screen.findByLabelText(/Chat History Retention/i)) as HTMLInputElement;
+    await waitFor(() => expect(retentionInput.value).toBe('30'));
+
+    // Click preset button 90 days
+    fireEvent.click(screen.getByRole('button', { name: '90 days' }));
+    expect(retentionInput.value).toBe('90');
+
+    // cURL preview MUST contain Engine PATCH (sessionConfig.sessionTtl) and MUST NOT contain Update Assistant or chatHistoryRetentionDays
+    const curlBlock = document.querySelector('pre')?.textContent || '';
+    expect(curlBlock).toContain('updateMask=sessionConfig.sessionTtl');
+    expect(curlBlock).toContain('"days": 90');
+    expect(curlBlock).not.toContain('chatHistoryRetentionDays');
+    expect(curlBlock).not.toContain('# Update Assistant');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(mockedApi.updateAssistant).not.toHaveBeenCalled();
+      expect(mockedApi.updateEngine).toHaveBeenCalledWith(
+        'test-engine-id',
+        { sessionConfig: { sessionTtl: { days: 90 } } },
+        ['sessionConfig.sessionTtl'],
+        mockConfig,
+      );
+    });
+  });
+
+  it('supports sessionTtl: { indefinite: true } when isGoogleInternal is true and hides it otherwise', async () => {
+    const { unmount } = renderForm();
+    await screen.findByLabelText(/Chat History Retention/i);
+    expect(screen.queryByRole('button', { name: /Indefinite/i })).not.toBeInTheDocument();
+    unmount();
+
+    mockEnrollmentState.isGoogleInternal = true;
+    renderForm();
+
+    const indefiniteBtn = await screen.findByRole('button', { name: /Indefinite \(Google Internal\)/i });
+    fireEvent.click(indefiniteBtn);
+
+    const curlBlock = document.querySelector('pre')?.textContent || '';
+    expect(curlBlock).toContain('"indefinite": true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => {
+      expect(mockedApi.updateEngine).toHaveBeenCalledWith(
+        'test-engine-id',
+        { sessionConfig: { sessionTtl: { indefinite: true } } },
+        ['sessionConfig.sessionTtl'],
+        mockConfig,
+      );
+    });
+  });
+
+  it('persists generationConfig.defaultLanguage and defaultModelId via granular updateMask without wiping systemInstruction', async () => {
+    renderForm({
+      ...baseAssistant,
+      generationConfig: {
+        systemInstruction: { additionalSystemInstruction: 'Keep concise enterprise tone.' },
+      },
+    } as Assistant);
+
+    const langInput = await screen.findByLabelText(/Default Language/i);
+    const modelInput = screen.getByLabelText(/Default Model ID/i);
+
+    fireEvent.change(langInput, { target: { name: 'defaultLanguage', value: 'fr-FR' } });
+    fireEvent.change(modelInput, { target: { name: 'defaultModelId', value: 'gemini-2.5-pro' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(mockedApi.updateAssistant).toHaveBeenCalledWith(
+        baseAssistant.name,
+        {
+          generationConfig: {
+            defaultLanguage: 'fr-FR',
+            defaultModelId: 'gemini-2.5-pro',
+          },
+        },
+        ['generationConfig.defaultLanguage', 'generationConfig.defaultModelId'],
+        mockConfig,
+      );
+    });
+  });
+
+  it('defaults knowledgeCatalogEnabled to true when undefined and includes knowledgeCatalogEnabled in updateMask when toggled', async () => {
+    renderForm(baseAssistant);
+
+    fireEvent.click(await screen.findByText('Feature Management'));
+    const kcCheckbox = screen.getByRole('checkbox', {
+      name: /Dataplex Knowledge Catalog Integration — Preview/i,
+    }) as HTMLInputElement;
+    expect(kcCheckbox.checked).toBe(true);
+
+    fireEvent.click(kcCheckbox);
+    expect(kcCheckbox.checked).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(mockedApi.updateAssistant).toHaveBeenCalledWith(
+        baseAssistant.name,
+        { knowledgeCatalogEnabled: false },
+        ['knowledgeCatalogEnabled'],
+        mockConfig,
+      );
+    });
+  });
+
+  it('syncs bannedPhrases bi-directionally with customerPolicy JSON and rejects empty/whitespace banned phrases', async () => {
+    renderForm();
+
+    const phraseInput = await screen.findByLabelText('Phrase to Block');
+    const matchSelect = screen.getByLabelText('Match Type');
+    const diacriticsCheckbox = screen.getByLabelText('Ignore Diacritics');
+    const addBtn = screen.getByRole('button', { name: 'Add Phrase' });
+
+    // Adversarial: empty and whitespace-only phrases must be rejected
+    fireEvent.change(phraseInput, { target: { value: '    ' } });
+    fireEvent.click(addBtn);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Banned phrase cannot be empty or whitespace only/i);
+    expect(readPolicy()).toEqual({});
+
+    // Valid phrase addition
+    fireEvent.change(phraseInput, { target: { value: 'project-nightfall' } });
+    fireEvent.change(matchSelect, { target: { value: 'WORD_BOUNDARY_STRING_MATCH' } });
+    fireEvent.click(diacriticsCheckbox);
+    fireEvent.click(addBtn);
+
+    expect(screen.queryByText(/Banned phrase cannot be empty/i)).not.toBeInTheDocument();
+    expect(readPolicy()).toEqual({
+      bannedPhrases: [
+        {
+          phrase: 'project-nightfall',
+          matchType: 'WORD_BOUNDARY_STRING_MATCH',
+          ignoreDiacritics: true,
+        },
+      ],
+    });
+    expect(screen.getByText('project-nightfall')).toBeInTheDocument();
+
+    // Bi-directional sync from raw JSON editor -> UI list
+    const jsonEditor = screen.getByLabelText('Customer Policy (JSON Editor)');
+    fireEvent.change(jsonEditor, {
+      target: {
+        name: 'customerPolicy',
+        value: JSON.stringify({
+          bannedPhrases: [{ phrase: 'confidential-omega', matchType: 'SIMPLE_STRING_MATCH' }],
+        }),
+      },
+    });
+    expect(await screen.findByText('confidential-omega')).toBeInTheDocument();
+
+    // Remove phrase cleans customerPolicy back to {}
+    fireEvent.click(screen.getByRole('button', { name: /Remove banned phrase confidential-omega/i }));
+    expect(readPolicy()).toEqual({});
+
+    // Adversarial: raw JSON injection of whitespace-only phrase is blocked on Save
+    fireEvent.change(jsonEditor, {
+      target: {
+        name: 'customerPolicy',
+        value: JSON.stringify({ bannedPhrases: [{ phrase: '   ' }] }),
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    expect(await screen.findByText(/Banned phrases cannot contain empty or whitespace-only entries/i)).toBeInTheDocument();
+    expect(mockedApi.updateAssistant).not.toHaveBeenCalled();
+  });
+
+  it('validates SDP dataProtectionPolicy format and blocks malformed contentPolicies paths', async () => {
+    renderForm();
+
+    const sdpInput = await screen.findByLabelText(/Sensitive Data Protection \(SDP\) Content Policy/i);
+
+    // Adversarial: malformed SDP resource path
+    fireEvent.change(sdpInput, { target: { value: 'projects/test-project-123/templates/wrong-resource' } });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /Expected: projects\/\{project\}\/locations\/\{location\}\/contentPolicies\/\{id\}/i,
+    );
+    expect(readPolicy()).toEqual({});
+
+    // Attempting to save while SDP input is invalid must reject without calling updateAssistant
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => {
+      expect(mockedApi.updateAssistant).not.toHaveBeenCalled();
+    });
+
+    // Valid SDP resource path syncs cleanly
+    const validSdp = 'projects/test-project-123/locations/global/contentPolicies/enterprise-pii-policy';
+    fireEvent.change(sdpInput, { target: { value: validSdp } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(readPolicy()).toEqual({
+      dataProtectionPolicy: {
+        sensitiveDataProtectionPolicy: {
+          policy: validSdp,
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => {
+      expect(mockedApi.updateAssistant).toHaveBeenCalledWith(
+        baseAssistant.name,
+        {
+          customerPolicy: {
+            dataProtectionPolicy: {
+              sensitiveDataProtectionPolicy: {
+                policy: validSdp,
+              },
+            },
+          },
+        },
+        ['customerPolicy'],
+        mockConfig,
+      );
+    });
+  });
+
+  it('exposes agentReasoningHidden, mapsGroundingType, and defaultMapsGroundingToggleOff for Trusted Tester projects', async () => {
+    mockEnrollmentState.isTrustedTester = true;
+    renderForm();
+
+    // 1. agentReasoningHidden in Customer Policy
+    const hideReasoningCheckbox = await screen.findByRole('checkbox', {
+      name: /Hide Agent Reasoning \/ AI Thinking Traces/i,
+    });
+    fireEvent.click(hideReasoningCheckbox);
+    expect(readPolicy()).toEqual({ agentReasoningHidden: true });
+
+    // 2. Maps Grounding controls in Trusted Tester section
+    fireEvent.click(screen.getByText('Advanced Configuration (Trusted Tester)'));
+    const mapsSelect = screen.getByLabelText('Maps Grounding Type');
+    fireEvent.change(mapsSelect, {
+      target: { name: 'mapsGroundingType', value: 'MAPS_GROUNDING_TYPE_GOOGLE_MAPS' },
+    });
+    const defaultMapsOff = screen.getByRole('checkbox', {
+      name: /Default Maps Grounding to Off/i,
+    });
+    fireEvent.click(defaultMapsOff);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(mockedApi.updateAssistant).toHaveBeenCalledWith(
+        baseAssistant.name,
+        {
+          mapsGroundingType: 'MAPS_GROUNDING_TYPE_GOOGLE_MAPS',
+          defaultMapsGroundingToggleOff: true,
+          customerPolicy: { agentReasoningHidden: true },
+        },
+        ['mapsGroundingType', 'defaultMapsGroundingToggleOff', 'customerPolicy'],
+        mockConfig,
+      );
+    });
+  });
+});
+
 describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEnrollmentState.isGoogleInternal = false;
+    mockEnrollmentState.isTrustedTester = false;
+    mockEnrollmentState.isNotebookLmApiUser = false;
     mockedApi.fetchModelArmorTemplates.mockResolvedValue({ templates: [] });
     mockedApi.getEngine.mockResolvedValue({
       name: 'projects/test-project-123/locations/global/collections/default_collection/engines/test-engine-id',
@@ -239,7 +539,6 @@ describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () =
       },
     } as any);
 
-    // Simulate customRestrictedEndUser missing (404) so it gets auto-created
     mockedApi.getCustomRole.mockImplementationOnce(async () => {
       const notFound: any = new Error('Role not found');
       notFound.status = 404;
@@ -295,7 +594,6 @@ describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () =
       expect(screen.getByText('alice@example.com')).toBeInTheDocument();
     });
 
-    // Switch App Role selector to Delegated Admin (agentspaceAdmin) and verify customRestrictedAdmin is granted
     fireEvent.change(screen.getByLabelText('App Role'), {
       target: { value: 'roles/discoveryengine.agentspaceAdmin' },
     });
@@ -437,7 +735,6 @@ describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () =
       { timeout: 3000 }
     );
 
-    // Concurrent serviceAgent binding must be preserved alongside newly granted GA custom + NotebookLM roles
     expect(liveProjectPolicy.bindings).toEqual([
       {
         role: 'roles/viewer',
@@ -458,5 +755,3 @@ describe('AssistantDetailsForm - App-level IAM Permissions (GA alignment)', () =
     ]);
   });
 });
-
-

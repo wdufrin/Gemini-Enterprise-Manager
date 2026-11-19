@@ -16,7 +16,11 @@
 
 import React from 'react';
 import InfoTooltip from '../InfoTooltip';
-import { AssistantDetailsFormProps, ALL_REASONING_ENGINE_LOCATIONS } from './form/types';
+import {
+  AssistantDetailsFormProps,
+  ALL_REASONING_ENGINE_LOCATIONS,
+  RETENTION_PRESET_DAYS,
+} from './form/types';
 import { useAssistantDetailsForm } from '../../hooks/useAssistantDetailsForm';
 import { ModelArmorSection } from './form/ModelArmorSection';
 import { AssistantIamSection } from './form/AssistantIamSection';
@@ -67,6 +71,41 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
           </select>
         </div>
 
+        {/* GA Generation Config: Default Language & Default Model ID */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="defaultLanguage" className="flex items-center text-sm font-medium text-gray-300">
+              Default Language (Optional)
+              <InfoTooltip text="Optional BCP-47 language code for assistant responses (generationConfig.defaultLanguage), e.g. 'en', 'en-US', 'fr', 'ja'." />
+            </label>
+            <input
+              type="text"
+              id="defaultLanguage"
+              name="defaultLanguage"
+              value={form.formData.defaultLanguage}
+              onChange={form.handleChange}
+              placeholder="e.g. en, en-US, fr, ja"
+              className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white px-3 py-2 placeholder-gray-500 text-sm"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="defaultModelId" className="flex items-center text-sm font-medium text-gray-300">
+              Default Model ID (Optional)
+              <InfoTooltip text="Optional default foundation model ID for assistant responses (generationConfig.defaultModelId), e.g. 'gemini-2.5-pro' or 'gemini-2.5-flash'." />
+            </label>
+            <input
+              type="text"
+              id="defaultModelId"
+              name="defaultModelId"
+              value={form.formData.defaultModelId}
+              onChange={form.handleChange}
+              placeholder="e.g. gemini-2.5-pro, gemini-2.5-flash"
+              className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white px-3 py-2 placeholder-gray-500 text-sm"
+            />
+          </div>
+        </div>
+
         <div>
           <div className="flex items-center justify-between">
             <label htmlFor="additionalSystemInstruction" className="flex items-center text-sm font-medium text-gray-300">
@@ -99,7 +138,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         <div>
           <label htmlFor="chatHistoryRetentionDays" className="flex items-center text-sm font-medium text-gray-300">
             Chat History Retention (Days)
-            <InfoTooltip text="Number of days to retain chat history. stored in Customer Policy." />
+            <InfoTooltip text="Number of days to retain user chat sessions (persisted on Engine.sessionConfig.sessionTtl)." />
           </label>
           <input
             type="number"
@@ -108,9 +147,48 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
             value={form.formData.chatHistoryRetentionDays}
             onChange={form.handleChange}
             min="1"
-            placeholder="e.g. 30"
+            placeholder={
+              form.formData.chatHistoryRetentionIndefinite
+                ? 'Indefinite retention enabled (Google Internal)'
+                : 'e.g. 30'
+            }
             className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white px-3 py-2"
           />
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-gray-400 mr-1">Presets:</span>
+            {RETENTION_PRESET_DAYS.map((days) => {
+              const isActive =
+                !form.formData.chatHistoryRetentionIndefinite &&
+                form.formData.chatHistoryRetentionDays === String(days);
+              return (
+                <button
+                  key={days}
+                  type="button"
+                  onClick={() => form.handleRetentionPresetSelect(days)}
+                  className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+                    isActive
+                      ? 'bg-blue-600 text-white border-blue-500'
+                      : 'bg-gray-700/70 text-gray-300 border-gray-600 hover:bg-gray-600'
+                  }`}
+                >
+                  {days === 1 ? '1 day' : `${days} days`}
+                </button>
+              );
+            })}
+            {form.isGoogleInternal && (
+              <button
+                type="button"
+                onClick={form.handleRetentionIndefiniteSelect}
+                className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+                  form.formData.chatHistoryRetentionIndefinite
+                    ? 'bg-purple-600 text-white border-purple-500'
+                    : 'bg-purple-950/50 text-purple-300 border-purple-800/60 hover:bg-purple-900/60'
+                }`}
+              >
+                Indefinite (Google Internal)
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Model Armor & Customer Policy */}
@@ -125,6 +203,15 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
           handleInputTemplateChange={form.handleInputTemplateChange}
           handleOutputTemplateChange={form.handleOutputTemplateChange}
           handleFailureModeChange={form.handleFailureModeChange}
+          bannedPhrases={form.bannedPhrases}
+          onAddBannedPhrase={form.handleAddBannedPhrase}
+          onRemoveBannedPhrase={form.handleRemoveBannedPhrase}
+          sdpPolicy={form.sdpPolicy}
+          sdpPolicyError={form.sdpPolicyError}
+          onSdpPolicyChange={form.handleSdpPolicyChange}
+          showAgentReasoningControl={form.isGoogleInternal || form.isTrustedTester}
+          agentReasoningHidden={form.agentReasoningHidden}
+          onAgentReasoningHiddenChange={form.handleAgentReasoningHiddenChange}
         />
 
         {/* Feature Management & Advanced Config */}
@@ -133,6 +220,10 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
           disableLocationContext={form.formData.disableLocationContext}
           defaultWebGroundingToggleOff={form.formData.defaultWebGroundingToggleOff}
           webGroundingType={form.formData.webGroundingType}
+          knowledgeCatalogEnabled={form.formData.knowledgeCatalogEnabled}
+          mapsGroundingType={form.formData.mapsGroundingType}
+          defaultMapsGroundingToggleOff={form.formData.defaultMapsGroundingToggleOff}
+          isTrustedTesterOverride={form.isTrustedTester}
           vertexAiSearchToolConfig={form.formData.vertexAiSearchToolConfig}
           handleChange={form.handleChange}
         />

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AppEngine, Config, GcsBucket } from '../../types';
+import { AppEngine, Config } from '../../types';
 import * as api from '../../services/apiService';
 import { BigQueryDataset, BigQueryAccessEntry } from '../../services/api/bigquery';
 import { toErrorMessage } from '../../utils/errors';
@@ -15,6 +15,33 @@ interface AuditLoggingModalProps {
     projectNumber: string;
 }
 
+export function validateArtifactGcsBucket(rawUri: string): string | null {
+    const trimmed = rawUri.trim();
+    if (!trimmed) return null;
+    if (!trimmed.startsWith('gs://')) {
+        return 'Artifact GCS Bucket URI must start with "gs://" (e.g., gs://my-audit-artifacts-bucket).';
+    }
+    const rest = trimmed.slice('gs://'.length);
+    if (!rest || rest.startsWith('/')) {
+        return 'Artifact GCS Bucket URI must specify a valid bucket name after "gs://".';
+    }
+    const slashIdx = rest.indexOf('/');
+    const bucketName = slashIdx === -1 ? rest : rest.slice(0, slashIdx);
+    const objectPrefix = slashIdx === -1 ? '' : rest.slice(slashIdx + 1);
+    if (
+        bucketName.length < 3 ||
+        bucketName.length > 222 ||
+        !/^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/.test(bucketName) ||
+        bucketName.includes('..')
+    ) {
+        return `Invalid GCS bucket name "${bucketName}". Bucket names must be at least 3 characters using lowercase letters, numbers, hyphens, underscores, or dots, and start/end with a letter or number.`;
+    }
+    if (/\s/.test(objectPrefix)) {
+        return 'Artifact GCS Bucket URI cannot contain whitespace.';
+    }
+    return null;
+}
+
 const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, config, engine, onUpdateSuccess, projectNumber: _projectNumber }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [step, setStep] = useState(1);
@@ -24,6 +51,8 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
     // Engine states (Observability)
     const [observabilityEnabled, setObservabilityEnabled] = useState(false);
     const [sensitiveLoggingEnabled, setSensitiveLoggingEnabled] = useState(false);
+    const [userPrincipalLoggingEnabled, setUserPrincipalLoggingEnabled] = useState(false);
+    const [artifactGcsBucket, setArtifactGcsBucket] = useState('');
     const [enforceOnAgents, setEnforceOnAgents] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
@@ -46,13 +75,14 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
             const obs = Boolean(engine.observabilityConfig?.observabilityEnabled);
             setObservabilityEnabled(obs);
             setSensitiveLoggingEnabled(Boolean(engine.observabilityConfig?.sensitiveLoggingEnabled));
+            setUserPrincipalLoggingEnabled(Boolean(engine.observabilityConfig?.userPrincipalLoggingEnabled));
+            setArtifactGcsBucket(engine.observabilityConfig?.artifactGcsBucket || '');
             setEnforceOnAgents(obs);
             setStatus(null);
             setError(null);
             setStep(1);
         }
     }, [isOpen, engine]);
-
 
     useEffect(() => {
         if (isOpen && step === 4) {
@@ -79,14 +109,34 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
     }, [isOpen, step, config.projectId]);
 
     const handleSaveEngineConfig = async () => {
-        setIsSaving(true);
         setError(null);
+        setStatus(null);
+
+        const bucketErr = validateArtifactGcsBucket(artifactGcsBucket);
+        if (bucketErr) {
+            setError(bucketErr);
+            return;
+        }
+
+        setIsSaving(true);
         try {
+            const trimmedBucket = artifactGcsBucket.trim();
+            const hadPrincipalFlag = engine.observabilityConfig?.userPrincipalLoggingEnabled !== undefined;
+            const hadBucket = Boolean(engine.observabilityConfig?.artifactGcsBucket);
+
+            const observabilityConfig: NonNullable<AppEngine['observabilityConfig']> = {
+                observabilityEnabled,
+                sensitiveLoggingEnabled,
+                ...(userPrincipalLoggingEnabled || hadPrincipalFlag
+                    ? { userPrincipalLoggingEnabled }
+                    : {}),
+                ...(trimmedBucket || hadBucket
+                    ? { artifactGcsBucket: trimmedBucket }
+                    : {}),
+            };
+
             const payload: Partial<AppEngine> = {
-                observabilityConfig: {
-                    observabilityEnabled,
-                    sensitiveLoggingEnabled
-                }
+                observabilityConfig,
             };
             const updated = await api.updateEngine(engine.name, payload, ['observabilityConfig'], config);
             onUpdateSuccess(updated);
@@ -97,10 +147,13 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                     const res = await api.listResources('agents', config);
                     const agentList = res.agents || [];
                     if (agentList.length > 0) {
-                        const bulkRes = await api.bulkEnforceAgentsObservability(agentList, config, {
+                        const childObsConfig: NonNullable<AppEngine['observabilityConfig']> = {
                             observabilityEnabled: true,
                             sensitiveLoggingEnabled,
-                        });
+                            ...(userPrincipalLoggingEnabled ? { userPrincipalLoggingEnabled: true } : {}),
+                            ...(trimmedBucket ? { artifactGcsBucket: trimmedBucket } : {}),
+                        };
+                        const bulkRes = await api.bulkEnforceAgentsObservability(agentList, config, childObsConfig);
                         agentFeedback = ` Also enforced telemetry on ${bulkRes.updated} child agent(s) (${bulkRes.alreadyCompliant} already compliant).`;
                     }
                 } catch (agentErr) {
@@ -200,6 +253,10 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
     const logsUrl = `https://console.cloud.google.com/logs/query;query=logName%3D%22projects%2F${config.projectId}%2Flogs%2Fdiscoveryengine.googleapis.com%252Fgemini_enterprise_user_activity%22%20OR%20logName%3D~%22projects%2F${config.projectId}%2Flogs%2Fdiscoveryengine.googleapis.com%252Fgen_ai.*%22?project=${config.projectId}`;
 
     if (!isOpen) return null;
+
+    const inlineBucketError = artifactGcsBucket.trim()
+        ? validateArtifactGcsBucket(artifactGcsBucket)
+        : null;
 
     return (
         <div
@@ -318,6 +375,7 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                                         setObservabilityEnabled(checked);
                                         if (!checked) {
                                             setSensitiveLoggingEnabled(false);
+                                            setUserPrincipalLoggingEnabled(false);
                                             setEnforceOnAgents(false);
                                         } else {
                                             setEnforceOnAgents(true);
@@ -344,6 +402,51 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                                     Enable Sensitive Data Logging
                                     <InfoTooltip text="WARNING: Sensitive data isn't filtered out of the audit logs when this is enabled." />
                                 </label>
+                            </div>
+
+                            <div className={`flex items-center space-x-3 pl-6 transition-opacity ${observabilityEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <input
+                                    type="checkbox"
+                                    id="userPrincipalLoggingEnabledModal"
+                                    checked={userPrincipalLoggingEnabled}
+                                    onChange={(e) => setUserPrincipalLoggingEnabled(e.target.checked)}
+                                    disabled={!observabilityEnabled}
+                                    className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+                                />
+                                <label htmlFor="userPrincipalLoggingEnabledModal" className="flex items-center flex-wrap gap-1.5 text-xs font-medium text-gray-300 cursor-pointer">
+                                    <span>Log User IAM Principal when Sensitive Logging is Off (Preview)</span>
+                                    <span className="text-[10px] bg-blue-950/80 text-blue-300 px-1.5 py-0.5 rounded border border-blue-800/60">
+                                        v1alpha
+                                    </span>
+                                    <InfoTooltip text="Records the authenticated user's IAM principal for identity auditing while keeping prompt and response payloads redacted when Sensitive Data Logging is disabled." />
+                                </label>
+                            </div>
+
+                            <div className={`pl-6 space-y-1.5 transition-opacity ${observabilityEnabled ? 'opacity-100' : 'opacity-70'}`}>
+                                <label htmlFor="artifactGcsBucketModal" className="flex items-center gap-1.5 text-xs font-medium text-gray-300">
+                                    <span>Artifact GCS Bucket URI (Optional — Preview)</span>
+                                    <span className="text-[10px] bg-blue-950/80 text-blue-300 px-1.5 py-0.5 rounded border border-blue-800/60">
+                                        v1alpha
+                                    </span>
+                                    <InfoTooltip text="Optional Cloud Storage bucket URI (gs://bucket-name) where large multimodal or binary observability artifacts are offloaded." />
+                                </label>
+                                <input
+                                    type="text"
+                                    id="artifactGcsBucketModal"
+                                    value={artifactGcsBucket}
+                                    onChange={(e) => {
+                                        setArtifactGcsBucket(e.target.value);
+                                        if (error) setError(null);
+                                    }}
+                                    disabled={isSaving}
+                                    placeholder="gs://my-observability-artifacts-bucket"
+                                    className="w-full bg-gray-700 border border-gray-600 rounded text-white text-xs font-mono px-3 py-2 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                                />
+                                {inlineBucketError && (
+                                    <p role="alert" className="text-[11px] text-red-400">
+                                        {inlineBucketError}
+                                    </p>
+                                )}
                             </div>
 
                             <div className={`pt-3 border-t border-gray-700/60 flex items-start space-x-3 transition-opacity ${observabilityEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
@@ -511,7 +614,7 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                         </div>
                     </div>
                 )}
-                {error && <div className="p-3 bg-red-900/30 text-red-300 text-xs rounded-md border border-red-800 mt-4 whitespace-pre-wrap">{error}</div>}
+                {error && <div role="alert" className="p-3 bg-red-900/30 text-red-300 text-xs rounded-md border border-red-800 mt-4 whitespace-pre-wrap">{error}</div>}
                 {status && <div className="p-3 bg-blue-900/30 text-blue-300 text-xs rounded-md border border-blue-800 mt-4">{status}</div>}
             </div>
         </div>

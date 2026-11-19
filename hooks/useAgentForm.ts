@@ -35,6 +35,7 @@ export function useAgentForm(
     reasoningEngineLocation: 'us-central1',
     reasoningEngineId: '',
     authIds: [''],
+    agentAuthorization: '',
     starterPrompts: [''],
     a2aUrl: '',
     a2aOrg: 'My Organization',
@@ -150,6 +151,9 @@ export function useAgentForm(
         authIds: (agentToEdit.authorizationConfig?.toolAuthorizations || agentToEdit.authorizations || [])
           .map(a => a.split('/').pop() || '')
           .filter(id => id) || [''],
+        agentAuthorization:
+          (agentToEdit.authorizationConfig as { agentAuthorization?: string } | undefined)
+            ?.agentAuthorization || '',
         starterPrompts: agentToEdit.starterPrompts && agentToEdit.starterPrompts.length > 0
           ? agentToEdit.starterPrompts.map(p => p.text)
           : [''],
@@ -207,6 +211,20 @@ export function useAgentForm(
       const matched = authorizations.find(a => a.name === id || a.name.endsWith(`/${id}`));
       return matched ? matched.name : `projects/${projectId}/locations/global/authorizations/${id}`;
     });
+
+    const rawAgentAuthTrimmed =
+      agentType === 'a2a' ? (formData.agentAuthorization || '').trim() : '';
+    const resolvedAgentAuthorization = rawAgentAuthTrimmed
+      ? (() => {
+          const matched = authorizations.find(
+            a => a.name === rawAgentAuthTrimmed || a.name.endsWith(`/${rawAgentAuthTrimmed}`)
+          );
+          if (matched) return matched.name;
+          return rawAgentAuthTrimmed.startsWith('projects/')
+            ? rawAgentAuthTrimmed
+            : `projects/${projectId}/locations/global/authorizations/${rawAgentAuthTrimmed}`;
+        })()
+      : undefined;
 
     let agentDefinitionPayload: Partial<Agent> = {};
 
@@ -292,10 +310,22 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
         const originalAuthIds = (agentToEdit.authorizationConfig?.toolAuthorizations || agentToEdit.authorizations || [])
           .map(a => a.split('/').pop() || '')
           .filter(Boolean);
-        if (JSON.stringify(originalAuthIds) !== JSON.stringify(validAuthIds)) {
+        const originalAgentAuth =
+          (agentToEdit.authorizationConfig as { agentAuthorization?: string } | undefined)
+            ?.agentAuthorization || '';
+        const nextAgentAuth = resolvedAgentAuthorization || '';
+        if (
+          JSON.stringify(originalAuthIds) !== JSON.stringify(validAuthIds) ||
+          originalAgentAuth !== nextAgentAuth
+        ) {
           updateMask.push('authorization_config');
           payload.authorizationConfig = {
-            toolAuthorizations: resolvedToolAuthorizations,
+            ...(resolvedToolAuthorizations.length > 0 || originalAuthIds.length > 0
+              ? { toolAuthorizations: resolvedToolAuthorizations }
+              : {}),
+            ...(resolvedAgentAuthorization
+              ? { agentAuthorization: resolvedAgentAuthorization }
+              : {}),
           };
         }
       }
@@ -352,9 +382,14 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
         ...agentDefinitionPayload,
       };
 
-      if (resolvedToolAuthorizations.length > 0) {
+      if (resolvedToolAuthorizations.length > 0 || resolvedAgentAuthorization) {
         createPayload.authorizationConfig = {
-          toolAuthorizations: resolvedToolAuthorizations,
+          ...(resolvedToolAuthorizations.length > 0
+            ? { toolAuthorizations: resolvedToolAuthorizations }
+            : {}),
+          ...(resolvedAgentAuthorization
+            ? { agentAuthorization: resolvedAgentAuthorization }
+            : {}),
         };
       }
 
@@ -618,6 +653,20 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
       return matched ? matched.name : (id.startsWith('projects/') ? id : `projects/${config.projectId}/locations/global/authorizations/${id}`);
     });
 
+    const rawSubmitAgentAuth =
+      agentType === 'a2a' ? (formData.agentAuthorization || '').trim() : '';
+    const resolvedAgentAuthorization = rawSubmitAgentAuth
+      ? (() => {
+          const matched = authorizations.find(
+            a => a.name === rawSubmitAgentAuth || a.name.endsWith(`/${rawSubmitAgentAuth}`)
+          );
+          if (matched) return matched.name;
+          return rawSubmitAgentAuth.startsWith('projects/')
+            ? rawSubmitAgentAuth
+            : `projects/${config.projectId}/locations/global/authorizations/${rawSubmitAgentAuth}`;
+        })()
+      : undefined;
+
     try {
       if (agentToEdit) {
         const sourceAgent = fullEditingAgent || agentToEdit;
@@ -638,10 +687,24 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
             };
           }
         } else {
-          const hadExistingAuth = (agentToEdit.authorizationConfig?.toolAuthorizations?.length ?? 0) > 0;
-          if (resolvedToolAuthorizations.length > 0 || hadExistingAuth) {
+          const hadExistingToolAuth = (agentToEdit.authorizationConfig?.toolAuthorizations?.length ?? 0) > 0;
+          const hadExistingAgentAuth = Boolean(
+            (agentToEdit.authorizationConfig as { agentAuthorization?: string } | undefined)
+              ?.agentAuthorization
+          );
+          if (
+            resolvedToolAuthorizations.length > 0 ||
+            hadExistingToolAuth ||
+            resolvedAgentAuthorization ||
+            hadExistingAgentAuth
+          ) {
             agentPayload.authorizationConfig = {
-              toolAuthorizations: resolvedToolAuthorizations,
+              ...(resolvedToolAuthorizations.length > 0 || hadExistingToolAuth
+                ? { toolAuthorizations: resolvedToolAuthorizations }
+                : {}),
+              ...(resolvedAgentAuthorization
+                ? { agentAuthorization: resolvedAgentAuthorization }
+                : {}),
             };
           }
         }
@@ -655,9 +718,14 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
           ...agentDefinitionPayload,
         };
 
-        if (resolvedToolAuthorizations.length > 0) {
+        if (resolvedToolAuthorizations.length > 0 || resolvedAgentAuthorization) {
           createPayload.authorizationConfig = {
-            toolAuthorizations: resolvedToolAuthorizations,
+            ...(resolvedToolAuthorizations.length > 0
+              ? { toolAuthorizations: resolvedToolAuthorizations }
+              : {}),
+            ...(resolvedAgentAuthorization
+              ? { agentAuthorization: resolvedAgentAuthorization }
+              : {}),
           };
         }
 

@@ -26,6 +26,11 @@ export interface AgentFormProps {
 
 export type AgentType = 'reasoning_engine' | 'a2a' | 'no_code';
 
+export const A2A_3LO_AUTH_MANAGER_CALLBACK_URL =
+  'https://vertexaisearch.cloud.google.com/validateUserId';
+
+export const A2UI_EXTENSION_URI = 'https://a2ui.org/specification/v0_9';
+
 export interface AgentFormData {
   displayName: string;
   description: string;
@@ -36,6 +41,7 @@ export interface AgentFormData {
   reasoningEngineLocation: string;
   reasoningEngineId: string;
   authIds: string[];
+  agentAuthorization?: string;
   starterPrompts: string[];
   a2aUrl: string;
   a2aOrg: string;

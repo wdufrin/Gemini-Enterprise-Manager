@@ -308,6 +308,91 @@ export const createRegistrySkillRevision = async (
   return resolveRegistryOperationIfNeeded<RegistrySkillRevision>(raw, projectId, pollOptions);
 };
 
+/**
+ * Restores a historical skill revision in Cloud Agent Registry (GA Nov 12, 2026):
+ * - Validates `skillName` and `revision.name` (rejecting empty or malformed resource names).
+ * - Hydrates the full revision via `getRegistrySkillRevision` when `archiveUploadSource` / `gcsSource`
+ *   is not already populated on the passed revision object.
+ * - If inline `archiveUploadSource.archiveContent` or `gcsSource.uri` is present, publishes a new
+ *   latest revision via `createRegistrySkillRevision` AND promotes it via `updateRegistrySkill(..., ['defaultRevision'])`.
+ * - If the revision is stored in Agent Registry without inline bytes/URI, promotes `revision.name`
+ *   directly via `updateRegistrySkill(skillName, { defaultRevision: revision.name }, ['defaultRevision'], config)`.
+ */
+export const restoreRegistrySkillRevision = async (
+  skillName: string,
+  revision: RegistrySkillRevision,
+  config: Config,
+  pollOptions?: RegistryOperationPollOptions,
+): Promise<RegistrySkill> => {
+  const trimmedSkillName = (skillName || "").trim();
+  if (
+    !trimmedSkillName ||
+    /\s|\.\./.test(trimmedSkillName) ||
+    (trimmedSkillName.startsWith("projects/") && !trimmedSkillName.includes("/skills/"))
+  ) {
+    throw new Error(
+      `Invalid skill resource name "${String(skillName)}". Expected projects/{project}/locations/{location}/skills/{skill} or a valid skill ID.`,
+    );
+  }
+
+  const trimmedRevName = (revision?.name || "").trim();
+  if (
+    !trimmedRevName ||
+    /\s|\.\./.test(trimmedRevName) ||
+    !trimmedRevName.includes("/revisions/")
+  ) {
+    throw new Error(
+      `Invalid skill revision resource name "${String(revision?.name)}". Expected projects/{project}/locations/{location}/skills/{skill}/revisions/{revision}.`,
+    );
+  }
+
+  type RevisionWithSources = RegistrySkillRevision & {
+    gcsSource?: { uri?: string };
+  };
+
+  const initialRev = revision as RevisionWithSources;
+  const hasInlineArchive = Boolean(initialRev.archiveUploadSource?.archiveContent?.trim());
+  const hasGcsSource = Boolean(initialRev.gcsSource?.uri?.trim());
+
+  const hydratedRev: RevisionWithSources =
+    hasInlineArchive || hasGcsSource
+      ? initialRev
+      : ((await getRegistrySkillRevision(trimmedRevName, config)) as RevisionWithSources);
+
+  const archiveContent = hydratedRev?.archiveUploadSource?.archiveContent?.trim();
+  const gcsUri = hydratedRev?.gcsSource?.uri?.trim();
+
+  if (archiveContent || gcsUri) {
+    const createPayload: Record<string, unknown> = archiveContent
+      ? { archiveUploadSource: { archiveContent } }
+      : { gcsSource: { uri: gcsUri } };
+
+    const createdRevision = await createRegistrySkillRevision(
+      trimmedSkillName,
+      createPayload,
+      config,
+      undefined,
+      pollOptions,
+    );
+    const targetRevisionName = createdRevision?.name?.trim() || trimmedRevName;
+    return updateRegistrySkill(
+      trimmedSkillName,
+      { defaultRevision: targetRevisionName },
+      ["defaultRevision"],
+      config,
+      pollOptions,
+    );
+  }
+
+  return updateRegistrySkill(
+    trimmedSkillName,
+    { defaultRevision: trimmedRevName },
+    ["defaultRevision"],
+    config,
+    pollOptions,
+  );
+};
+
 export const listRegistryFindings = async (
   config: Config,
   filter?: string,

@@ -25,6 +25,7 @@ export const PAGE_ROUTES: Record<Page, string> = {
   [Page.AGENT_ENGINES]: '/runtimes',
   [Page.A2A_TESTER]: '/a2a-tester',
   [Page.AGENT_BUILDER]: '/builder',
+  [Page.DEV_TOOLS]: '/dev-tools',
   [Page.CLOUD_RUN_AGENTS]: '/cloud-run',
   [Page.DIALOGFLOW_AGENTS]: '/dialogflow',
   [Page.CHAT]: '/chat',

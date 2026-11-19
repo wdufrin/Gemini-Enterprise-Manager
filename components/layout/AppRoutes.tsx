@@ -28,6 +28,7 @@ const BackupPage = React.lazy(() => import('../../pages/BackupPage'));
 const ModelArmorPage = React.lazy(() => import('../../pages/ModelArmorPage'));
 const ObservabilityPage = React.lazy(() => import('../../pages/ObservabilityPage'));
 const AgentBuilderPage = React.lazy(() => import('../../pages/AgentBuilderPage'));
+const DevToolsPage = React.lazy(() => import('../../pages/DevToolsPage'));
 const ArchitecturePage = React.lazy(() => import('../../pages/ArchitecturePage'));
 const AssistantPage = React.lazy(() => import('../../pages/AssistantPage'));
 const LicensePage = React.lazy(() => import('../../pages/LicensePage'));
@@ -86,6 +87,8 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
       return <Navigate to="/runtimes" replace />;
     case Page.AGENT_BUILDER:
       return <AgentBuilderPage {...projectProps} context={pageContext} onBuildTriggered={onBuildTriggered} />;
+    case Page.DEV_TOOLS:
+      return <DevToolsPage {...projectProps} />;
     case Page.CHAT:
       return <AssistantPage {...projectProps} context={pageContext} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={onBuildTriggered} onNavigate={onNavigate} />;
     case Page.DATA_STORES:

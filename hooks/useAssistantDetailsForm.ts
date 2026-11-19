@@ -25,7 +25,14 @@ import {
 } from '../types';
 import * as api from '../services/apiService';
 import { ModelArmorTemplate } from '../services/apiService';
-import { AssistantFormData } from '../components/assistants/form/types';
+import { getCachedProjectEnrollment } from '../services/api/project';
+import { useProjectEnrollment } from '../context/ProjectEnrollmentContext';
+import {
+  AssistantFormData,
+  BannedPhraseItem,
+  BannedPhraseMatchType,
+  SDP_CONTENT_POLICY_REGEX,
+} from '../components/assistants/form/types';
 import { toErrorMessage } from '../utils/errors';
 import {
   addMemberToRoles,
@@ -43,22 +50,66 @@ const isAppLevelIamRole = (role: string): boolean =>
   role === 'roles/discoveryengine.agentspaceViewer' ||
   role === 'roles/discoveryengine.user';
 
+const SDP_FORMAT_ERROR =
+  'Invalid Sensitive Data Protection policy format. Expected: projects/{project}/locations/{location}/contentPolicies/{id}';
+
+function parsePolicySafe(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function extractSdpPolicyFromObj(policyObj: Record<string, unknown> | null): string {
+  if (!policyObj) return '';
+  const dp = policyObj.dataProtectionPolicy as
+    | { sensitiveDataProtectionPolicy?: { policy?: unknown } }
+    | undefined;
+  const pol = dp?.sensitiveDataProtectionPolicy?.policy;
+  return typeof pol === 'string' ? pol : '';
+}
+
 export function useAssistantDetailsForm(
   assistant: Assistant,
   config: Config,
   onUpdateSuccess: (updatedAssistant: Assistant) => void,
 ) {
+  const {
+    isGoogleInternal: ctxGoogleInternal,
+    isTrustedTester: ctxTrustedTester,
+  } = useProjectEnrollment();
+  const cachedEnrollment = config.projectId
+    ? getCachedProjectEnrollment(config.projectId)
+    : undefined;
+  const isGoogleInternal = Boolean(
+    ctxGoogleInternal || cachedEnrollment?.googleInternal,
+  );
+  const isTrustedTester = Boolean(
+    ctxTrustedTester || cachedEnrollment?.trustedTester,
+  );
+
   const [formData, setFormData] = useState<AssistantFormData>({
     displayName: '',
     styleAndFormattingInstructions: '',
     additionalSystemInstruction: '',
+    defaultLanguage: '',
+    defaultModelId: '',
     webGroundingType: 'WEB_GROUNDING_TYPE_DISABLED',
+    mapsGroundingType: 'MAPS_GROUNDING_TYPE_DISABLED',
     customerPolicy: '{}',
     enableEndUserAgentCreation: false,
     disableLocationContext: false,
     defaultWebGroundingToggleOff: false,
+    defaultMapsGroundingToggleOff: false,
+    knowledgeCatalogEnabled: true,
     vertexAiSearchToolConfig: '{}',
     chatHistoryRetentionDays: '',
+    chatHistoryRetentionIndefinite: false,
   });
 
   const [agentConfigs, setAgentConfigs] = useState<VertexAiAgentConfig[]>([]);
@@ -66,9 +117,9 @@ export function useAssistantDetailsForm(
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const [availableEngines, setAvailableEngines] = useState<ReasoningEngine[]>([]);
-  const [isLoadingEngines, setIsLoadingEngines] = useState(false);
-  const [engineError, setEngineError] = useState<string | null>(null);
+  const [_availableEngines] = useState<ReasoningEngine[]>([]);
+  const [_isLoadingEngines] = useState(false);
+  const [_engineError] = useState<string | null>(null);
 
   const [currentEngine, setCurrentEngine] = useState<AppEngine | null>(null);
   const [iamPolicy, setIamPolicyLocal] = useState<IamPolicy | null>(null);
@@ -81,12 +132,14 @@ export function useAssistantDetailsForm(
   const [isIamDirty, setIsIamDirty] = useState(false);
   const [dataStoreAccessControlEnabled, setDataStoreAccessControlEnabled] = useState(false);
 
-  // Model Armor state variables
+  // Model Armor & Customer Policy structured state variables
   const [templates, setTemplates] = useState<ModelArmorTemplate[]>([]);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
   const [selectedInputTemplate, setSelectedInputTemplate] = useState('');
   const [selectedOutputTemplate, setSelectedOutputTemplate] = useState('');
   const [failureMode, setFailureMode] = useState('FAIL_CLOSED');
+  const [sdpPolicy, setSdpPolicy] = useState('');
+  const [sdpPolicyError, setSdpPolicyError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadTemplates = async () => {
@@ -118,10 +171,22 @@ export function useAssistantDetailsForm(
     setSelectedOutputTemplate(armorConfig.responseTemplate || '');
     setFailureMode(armorConfig.failureMode || 'FAIL_CLOSED');
 
-    const sessionConfig = currentEngine?.sessionConfig as { sessionTtl?: { days?: number } } | undefined;
-    const retention = sessionConfig?.sessionTtl?.days !== undefined
-      ? String(sessionConfig.sessionTtl.days)
-      : '';
+    const initialSdp = extractSdpPolicyFromObj(policyObj);
+    setSdpPolicy(initialSdp);
+    setSdpPolicyError(
+      initialSdp.trim() && !SDP_CONTENT_POLICY_REGEX.test(initialSdp.trim())
+        ? SDP_FORMAT_ERROR
+        : null,
+    );
+
+    const sessionConfig = currentEngine?.sessionConfig as
+      | { sessionTtl?: { days?: number; indefinite?: boolean } }
+      | undefined;
+    const isIndefinite = Boolean(sessionConfig?.sessionTtl?.indefinite);
+    const retention =
+      !isIndefinite && sessionConfig?.sessionTtl?.days !== undefined
+        ? String(sessionConfig.sessionTtl.days)
+        : '';
 
     const sysInstruction = assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '';
     const styleInstruction = assistant.styleAndFormattingInstructions || '';
@@ -140,53 +205,83 @@ export function useAssistantDetailsForm(
       displayName: assistant.displayName || '',
       styleAndFormattingInstructions: combinedInstructions,
       additionalSystemInstruction: combinedInstructions,
+      defaultLanguage: assistant.generationConfig?.defaultLanguage || '',
+      defaultModelId: assistant.generationConfig?.defaultModelId || '',
       webGroundingType: assistant.webGroundingType || 'WEB_GROUNDING_TYPE_DISABLED',
+      mapsGroundingType: assistant.mapsGroundingType || 'MAPS_GROUNDING_TYPE_DISABLED',
       customerPolicy: Object.keys(policyObj).length > 0 ? JSON.stringify(policyObj, null, 2) : '{}',
       enableEndUserAgentCreation: assistant.enableEndUserAgentCreation || false,
       disableLocationContext: assistant.disableLocationContext || false,
       defaultWebGroundingToggleOff: assistant.defaultWebGroundingToggleOff || false,
+      defaultMapsGroundingToggleOff: assistant.defaultMapsGroundingToggleOff || false,
+      knowledgeCatalogEnabled: assistant.knowledgeCatalogEnabled ?? true,
       vertexAiSearchToolConfig: assistant.vertexAiSearchToolConfig ? JSON.stringify(assistant.vertexAiSearchToolConfig, null, 2) : '{}',
       chatHistoryRetentionDays: retention,
+      chatHistoryRetentionIndefinite: isIndefinite,
     });
     setAgentConfigs(assistant.vertexAiAgentConfigs ? JSON.parse(JSON.stringify(assistant.vertexAiAgentConfigs)) : []);
   }, [assistant, currentEngine]);
+
+  const parsedCustomerPolicy = useMemo(
+    () => parsePolicySafe(formData.customerPolicy),
+    [formData.customerPolicy],
+  );
+
+  const bannedPhrases: BannedPhraseItem[] = useMemo(() => {
+    const raw = parsedCustomerPolicy?.bannedPhrases;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+      .map((item) => ({
+        phrase: typeof item.phrase === 'string' ? item.phrase : '',
+        matchType:
+          item.matchType === 'WORD_BOUNDARY_STRING_MATCH' ||
+          item.matchType === 'SIMPLE_STRING_MATCH'
+            ? item.matchType
+            : 'SIMPLE_STRING_MATCH',
+        ignoreDiacritics: Boolean(item.ignoreDiacritics),
+      }));
+  }, [parsedCustomerPolicy]);
+
+  const agentReasoningHidden = Boolean(parsedCustomerPolicy?.agentReasoningHidden);
+
+  const mutateCustomerPolicy = (mutator: (draft: Record<string, unknown>) => void) => {
+    const currentPolicy: Record<string, unknown> = parsePolicySafe(formData.customerPolicy)
+      ? JSON.parse(formData.customerPolicy || '{}')
+      : {};
+    mutator(currentPolicy);
+    setFormData((prev) => ({
+      ...prev,
+      customerPolicy: JSON.stringify(currentPolicy, null, 2),
+    }));
+  };
 
   const updateArmorPolicy = (
     inputVal: string,
     outputVal: string,
     failModeVal: string,
   ) => {
-    let currentPolicy: Record<string, unknown> = {};
-    try {
-      currentPolicy = JSON.parse(formData.customerPolicy || '{}');
-    } catch {
-      // Keep empty if invalid
-    }
-
-    if (inputVal || outputVal) {
-      const armorConfig: Record<string, string> = {
-        ...((currentPolicy.modelArmorConfig as Record<string, string>) || {}),
-      };
-      if (inputVal) {
-        armorConfig.userPromptTemplate = inputVal;
+    mutateCustomerPolicy((currentPolicy) => {
+      if (inputVal || outputVal) {
+        const armorConfig: Record<string, string> = {
+          ...((currentPolicy.modelArmorConfig as Record<string, string>) || {}),
+        };
+        if (inputVal) {
+          armorConfig.userPromptTemplate = inputVal;
+        } else {
+          delete armorConfig.userPromptTemplate;
+        }
+        if (outputVal) {
+          armorConfig.responseTemplate = outputVal;
+        } else {
+          delete armorConfig.responseTemplate;
+        }
+        armorConfig.failureMode = failModeVal;
+        currentPolicy.modelArmorConfig = armorConfig;
       } else {
-        delete armorConfig.userPromptTemplate;
+        delete currentPolicy.modelArmorConfig;
       }
-      if (outputVal) {
-        armorConfig.responseTemplate = outputVal;
-      } else {
-        delete armorConfig.responseTemplate;
-      }
-      armorConfig.failureMode = failModeVal;
-      currentPolicy.modelArmorConfig = armorConfig;
-    } else {
-      delete currentPolicy.modelArmorConfig;
-    }
-
-    setFormData(prev => ({
-      ...prev,
-      customerPolicy: JSON.stringify(currentPolicy, null, 2),
-    }));
+    });
   };
 
   const handleInputTemplateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -205,6 +300,92 @@ export function useAssistantDetailsForm(
     const val = e.target.value;
     setFailureMode(val);
     updateArmorPolicy(selectedInputTemplate, selectedOutputTemplate, val);
+  };
+
+  const handleAddBannedPhrase = (
+    phrase: string,
+    matchType: BannedPhraseMatchType,
+    ignoreDiacritics: boolean,
+  ): boolean => {
+    const trimmed = phrase.trim();
+    if (!trimmed) {
+      return false;
+    }
+    mutateCustomerPolicy((currentPolicy) => {
+      const existing = Array.isArray(currentPolicy.bannedPhrases)
+        ? [...currentPolicy.bannedPhrases]
+        : [];
+      existing.push({
+        phrase: trimmed,
+        matchType,
+        ignoreDiacritics,
+      });
+      currentPolicy.bannedPhrases = existing;
+    });
+    return true;
+  };
+
+  const handleRemoveBannedPhrase = (index: number) => {
+    mutateCustomerPolicy((currentPolicy) => {
+      if (!Array.isArray(currentPolicy.bannedPhrases)) return;
+      const next = currentPolicy.bannedPhrases.filter((_, i) => i !== index);
+      if (next.length > 0) {
+        currentPolicy.bannedPhrases = next;
+      } else {
+        delete currentPolicy.bannedPhrases;
+      }
+    });
+  };
+
+  const handleSdpPolicyChange = (val: string) => {
+    setSdpPolicy(val);
+    const trimmed = val.trim();
+    if (!trimmed) {
+      setSdpPolicyError(null);
+      mutateCustomerPolicy((currentPolicy) => {
+        delete currentPolicy.dataProtectionPolicy;
+      });
+      return;
+    }
+    if (!SDP_CONTENT_POLICY_REGEX.test(trimmed)) {
+      setSdpPolicyError(SDP_FORMAT_ERROR);
+      return;
+    }
+    setSdpPolicyError(null);
+    mutateCustomerPolicy((currentPolicy) => {
+      currentPolicy.dataProtectionPolicy = {
+        sensitiveDataProtectionPolicy: {
+          policy: trimmed,
+        },
+      };
+    });
+  };
+
+  const handleAgentReasoningHiddenChange = (hidden: boolean) => {
+    mutateCustomerPolicy((currentPolicy) => {
+      if (hidden) {
+        currentPolicy.agentReasoningHidden = true;
+      } else {
+        delete currentPolicy.agentReasoningHidden;
+      }
+    });
+  };
+
+  const handleRetentionPresetSelect = (days: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      chatHistoryRetentionDays: String(days),
+      chatHistoryRetentionIndefinite: false,
+    }));
+  };
+
+  const handleRetentionIndefiniteSelect = () => {
+    if (!isGoogleInternal) return;
+    setFormData((prev) => ({
+      ...prev,
+      chatHistoryRetentionDays: '',
+      chatHistoryRetentionIndefinite: true,
+    }));
   };
 
   const armorEnabled = Boolean(selectedInputTemplate || selectedOutputTemplate);
@@ -263,6 +444,33 @@ export function useAssistantDetailsForm(
       });
       return;
     }
+    if (e.target.name === 'chatHistoryRetentionDays') {
+      setFormData({
+        ...formData,
+        chatHistoryRetentionDays: value as string,
+        chatHistoryRetentionIndefinite: false,
+      });
+      return;
+    }
+    if (e.target.name === 'customerPolicy') {
+      const rawStr = value as string;
+      setFormData({ ...formData, customerPolicy: rawStr });
+      const parsed = parsePolicySafe(rawStr);
+      if (parsed) {
+        const armorConfig = (parsed.modelArmorConfig || {}) as Record<string, string>;
+        setSelectedInputTemplate(armorConfig.userPromptTemplate || '');
+        setSelectedOutputTemplate(armorConfig.responseTemplate || '');
+        setFailureMode(armorConfig.failureMode || 'FAIL_CLOSED');
+        const nextSdp = extractSdpPolicyFromObj(parsed);
+        setSdpPolicy(nextSdp);
+        setSdpPolicyError(
+          nextSdp.trim() && !SDP_CONTENT_POLICY_REGEX.test(nextSdp.trim())
+            ? SDP_FORMAT_ERROR
+            : null,
+        );
+      }
+      return;
+    }
     setFormData({ ...formData, [e.target.name]: value });
   };
 
@@ -284,15 +492,6 @@ export function useAssistantDetailsForm(
       appRole === 'roles/discoveryengine.agentspaceViewer';
     const customPersona = isDelegatedAdminOrViewer ? 'admin' : 'endUser';
 
-    // Align project-level baseline roles with Google Cloud GA standards:
-    // - Model A (App-Only mode, dataStoreAccessControlEnabled = false):
-    //   Predefined `roles/discoveryengine.agentspaceRestrictedUser` (includes NotebookLM, OAuth,
-    //   and dataStores.get/collections.get for all DataStores attached to allowed Apps).
-    //   (If delegating Admin/Viewer, uses `projects/{id}/roles/customRestrictedAdmin`).
-    // - Model B (App + DataStore Granular mode, dataStoreAccessControlEnabled = true):
-    //   Custom role `projects/{id}/roles/customRestrictedEndUser` + `roles/discoveryengine.notebookLmUser`
-    //   (or `customRestrictedAdmin` for delegated Admin/Viewer), strictly avoiding
-    //   `roles/discoveryengine.agentspaceRestrictedUser` so DataStore isolation is preserved.
     const targetProjectRoles = dataStoreAccessControlEnabled
       ? isDelegatedAdminOrViewer
         ? [buildCustomRestrictedRoleName(config.projectId, 'admin')]
@@ -311,10 +510,6 @@ export function useAssistantDetailsForm(
       setIamError(null);
       setIsLoadingIam(true);
 
-      // Step 1: Grant app-level Engine IAM role FIRST via full Read-Modify-Write with backoff.
-      // Discovery Engine `engines:setIamPolicy` can trigger backend updates to the GCP project's
-      // IAM policy (advancing the project ETag). Completing the Engine write *before* reading the
-      // Project IAM policy eliminates self-inflicted project ETag conflicts.
       if (config.appId) {
         const removalsToApply = Array.from(pendingRemovedIamMembers).filter(
           (m) => m !== memberString,
@@ -359,7 +554,6 @@ export function useAssistantDetailsForm(
         setIsIamDirty(true);
       }
 
-      // Step 2a: Ensure custom project role exists when required by GA DataStore / Delegated Admin standards
       if (
         needsCustomProjectRole &&
         config.projectId &&
@@ -376,8 +570,6 @@ export function useAssistantDetailsForm(
         });
       }
 
-      // Step 2b: Grant mandatory project-level baseline roles using full Read-Modify-Write
-      // with exponential backoff so concurrent project IAM changes automatically retry cleanly.
       await retryIamReadModifyWrite({
         getPolicy: () => api.getProjectIamPolicy(config.projectId),
         setPolicy: (p) => api.setProjectIamPolicy(config.projectId, p),
@@ -425,62 +617,159 @@ export function useAssistantDetailsForm(
     setIsIamDirty(true);
   };
 
-  const performUpdate = async () => {
-    setIsSubmitting(true);
-    setError(null);
-    setSuccess(null);
+  const buildDiff = (): {
+    payload: Partial<Assistant>;
+    updateMask: string[];
+    enginePayload: Partial<AppEngine> | null;
+    validationError?: string;
+  } => {
+    const payload: Partial<Assistant> = {};
+    const updateMask: string[] = [];
 
-    try {
-      const payload: Partial<Assistant> = {};
-      const updateMask: string[] = [];
+    const origSys = assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '';
+    const origStyle = assistant.styleAndFormattingInstructions || '';
+    const origCombined =
+      origSys && origStyle && origSys.trim() !== origStyle.trim()
+        ? `${origSys}\n\n${origStyle}`
+        : origSys || origStyle || '';
+    const origDefaultLang = assistant.generationConfig?.defaultLanguage || '';
+    const origDefaultModel = assistant.generationConfig?.defaultModelId || '';
 
-      const origSys = assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '';
-      const origStyle = assistant.styleAndFormattingInstructions || '';
-      const origCombined =
-        origSys && origStyle && origSys.trim() !== origStyle.trim()
-          ? `${origSys}\n\n${origStyle}`
-          : origSys || origStyle || '';
-      if (formData.additionalSystemInstruction !== origCombined) {
-        payload.generationConfig = {
-          systemInstruction: {
-            additionalSystemInstruction: formData.additionalSystemInstruction,
-          },
+    const sysChanged = formData.additionalSystemInstruction !== origCombined;
+    const langChanged = formData.defaultLanguage.trim() !== origDefaultLang;
+    const modelChanged = formData.defaultModelId.trim() !== origDefaultModel;
+
+    if (sysChanged || langChanged || modelChanged) {
+      payload.generationConfig = {};
+      if (sysChanged) {
+        payload.generationConfig.systemInstruction = {
+          additionalSystemInstruction: formData.additionalSystemInstruction,
         };
         updateMask.push('generationConfig.systemInstruction');
 
         payload.styleAndFormattingInstructions = formData.additionalSystemInstruction;
         updateMask.push('styleAndFormattingInstructions');
       }
-      if (formData.webGroundingType !== (assistant.webGroundingType || 'WEB_GROUNDING_TYPE_DISABLED')) {
-        payload.webGroundingType = formData.webGroundingType;
-        updateMask.push('webGroundingType');
+      if (langChanged) {
+        payload.generationConfig.defaultLanguage = formData.defaultLanguage.trim();
+        updateMask.push('generationConfig.defaultLanguage');
       }
-
-      let policyObj: Record<string, unknown>;
-      try {
-        policyObj = JSON.parse(formData.customerPolicy);
-      } catch {
-        setError('Customer Policy is not valid JSON.');
-        setIsSubmitting(false);
-        return;
+      if (modelChanged) {
+        payload.generationConfig.defaultModelId = formData.defaultModelId.trim();
+        updateMask.push('generationConfig.defaultModelId');
       }
+    }
 
-      const originalPolicyString = assistant.customerPolicy ? JSON.stringify(assistant.customerPolicy) : '{}';
-      const currentPolicyString = JSON.stringify(policyObj);
+    if (formData.webGroundingType !== (assistant.webGroundingType || 'WEB_GROUNDING_TYPE_DISABLED')) {
+      payload.webGroundingType = formData.webGroundingType;
+      updateMask.push('webGroundingType');
+    }
 
-      if (currentPolicyString !== originalPolicyString) {
-        payload.customerPolicy = policyObj;
-        updateMask.push('customerPolicy');
+    if (isTrustedTester) {
+      if (formData.mapsGroundingType !== (assistant.mapsGroundingType || 'MAPS_GROUNDING_TYPE_DISABLED')) {
+        payload.mapsGroundingType = formData.mapsGroundingType as Assistant['mapsGroundingType'];
+        updateMask.push('mapsGroundingType');
       }
+      if (formData.defaultMapsGroundingToggleOff !== (assistant.defaultMapsGroundingToggleOff || false)) {
+        payload.defaultMapsGroundingToggleOff = formData.defaultMapsGroundingToggleOff;
+        updateMask.push('defaultMapsGroundingToggleOff');
+      }
+    }
 
-      let engineUpdatePayload: Partial<AppEngine> | null = null;
-      const sessionConfig = currentEngine?.sessionConfig as { sessionTtl?: { days?: number } } | undefined;
-      const currentDays = sessionConfig?.sessionTtl?.days;
-      const newDays = formData.chatHistoryRetentionDays ? parseInt(formData.chatHistoryRetentionDays, 10) : undefined;
+    let policyObj: Record<string, unknown> | null = null;
+    try {
+      const parsed = JSON.parse(formData.customerPolicy);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {
+          payload,
+          updateMask,
+          enginePayload: null,
+          validationError: 'Customer Policy must be a JSON object.',
+        };
+      }
+      policyObj = parsed as Record<string, unknown>;
+    } catch {
+      return {
+        payload,
+        updateMask,
+        enginePayload: null,
+        validationError: 'Customer Policy is not valid JSON.',
+      };
+    }
 
-      if (newDays !== undefined && !isNaN(newDays)) {
-        if (newDays !== currentDays) {
-          engineUpdatePayload = {
+    if (sdpPolicy.trim() && !SDP_CONTENT_POLICY_REGEX.test(sdpPolicy.trim())) {
+      return {
+        payload,
+        updateMask,
+        enginePayload: null,
+        validationError: SDP_FORMAT_ERROR,
+      };
+    }
+
+    if (policyObj.dataProtectionPolicy !== undefined) {
+      const rawSdp = extractSdpPolicyFromObj(policyObj);
+      if (!rawSdp.trim() || !SDP_CONTENT_POLICY_REGEX.test(rawSdp.trim())) {
+        return {
+          payload,
+          updateMask,
+          enginePayload: null,
+          validationError: SDP_FORMAT_ERROR,
+        };
+      }
+    }
+
+    if (policyObj.bannedPhrases !== undefined) {
+      if (
+        !Array.isArray(policyObj.bannedPhrases) ||
+        policyObj.bannedPhrases.some(
+          (bp) =>
+            !bp ||
+            typeof bp !== 'object' ||
+            typeof (bp as { phrase?: unknown }).phrase !== 'string' ||
+            (bp as { phrase: string }).phrase.trim().length === 0,
+        )
+      ) {
+        return {
+          payload,
+          updateMask,
+          enginePayload: null,
+          validationError: 'Banned phrases cannot contain empty or whitespace-only entries.',
+        };
+      }
+    }
+
+    const originalPolicyString = assistant.customerPolicy ? JSON.stringify(assistant.customerPolicy) : '{}';
+    const currentPolicyString = JSON.stringify(policyObj);
+
+    if (currentPolicyString !== originalPolicyString) {
+      payload.customerPolicy = policyObj;
+      updateMask.push('customerPolicy');
+    }
+
+    let enginePayload: Partial<AppEngine> | null = null;
+    const sessionConfig = currentEngine?.sessionConfig as
+      | { sessionTtl?: { days?: number; indefinite?: boolean } }
+      | undefined;
+    const currentDays = sessionConfig?.sessionTtl?.days;
+    const currentIndefinite = Boolean(sessionConfig?.sessionTtl?.indefinite);
+
+    if (isGoogleInternal && formData.chatHistoryRetentionIndefinite) {
+      if (!currentIndefinite) {
+        enginePayload = {
+          sessionConfig: {
+            sessionTtl: {
+              indefinite: true,
+            },
+          },
+        };
+      }
+    } else {
+      const newDays = formData.chatHistoryRetentionDays
+        ? parseInt(formData.chatHistoryRetentionDays, 10)
+        : undefined;
+      if (newDays !== undefined && !isNaN(newDays) && newDays >= 1) {
+        if (currentIndefinite || newDays !== currentDays) {
+          enginePayload = {
             sessionConfig: {
               sessionTtl: {
                 days: newDays,
@@ -489,36 +778,62 @@ export function useAssistantDetailsForm(
           };
         }
       }
+    }
 
-      if (formData.enableEndUserAgentCreation !== (assistant.enableEndUserAgentCreation || false)) {
-        payload.enableEndUserAgentCreation = formData.enableEndUserAgentCreation;
-        updateMask.push('enableEndUserAgentCreation');
-      }
-      if (formData.disableLocationContext !== (assistant.disableLocationContext || false)) {
-        payload.disableLocationContext = formData.disableLocationContext;
-        updateMask.push('disableLocationContext');
-      }
-      if (formData.defaultWebGroundingToggleOff !== (assistant.defaultWebGroundingToggleOff || false)) {
-        payload.defaultWebGroundingToggleOff = formData.defaultWebGroundingToggleOff;
-        updateMask.push('defaultWebGroundingToggleOff');
-      }
+    if (formData.enableEndUserAgentCreation !== (assistant.enableEndUserAgentCreation || false)) {
+      payload.enableEndUserAgentCreation = formData.enableEndUserAgentCreation;
+      updateMask.push('enableEndUserAgentCreation');
+    }
+    if (formData.disableLocationContext !== (assistant.disableLocationContext || false)) {
+      payload.disableLocationContext = formData.disableLocationContext;
+      updateMask.push('disableLocationContext');
+    }
+    if (formData.defaultWebGroundingToggleOff !== (assistant.defaultWebGroundingToggleOff || false)) {
+      payload.defaultWebGroundingToggleOff = formData.defaultWebGroundingToggleOff;
+      updateMask.push('defaultWebGroundingToggleOff');
+    }
+    if (formData.knowledgeCatalogEnabled !== (assistant.knowledgeCatalogEnabled ?? true)) {
+      payload.knowledgeCatalogEnabled = formData.knowledgeCatalogEnabled;
+      updateMask.push('knowledgeCatalogEnabled');
+    }
 
-      if (formData.vertexAiSearchToolConfig !== (assistant.vertexAiSearchToolConfig ? JSON.stringify(assistant.vertexAiSearchToolConfig, null, 2) : '{}')) {
-        try {
-          payload.vertexAiSearchToolConfig = JSON.parse(formData.vertexAiSearchToolConfig);
-          updateMask.push('vertexAiSearchToolConfig');
-        } catch {
-          setError('Vertex AI Search Tool Config is not valid JSON.');
-          setIsSubmitting(false);
-          return;
-        }
+    const origSearchToolStr = assistant.vertexAiSearchToolConfig
+      ? JSON.stringify(assistant.vertexAiSearchToolConfig, null, 2)
+      : '{}';
+    if (formData.vertexAiSearchToolConfig !== origSearchToolStr) {
+      try {
+        payload.vertexAiSearchToolConfig = JSON.parse(formData.vertexAiSearchToolConfig);
+        updateMask.push('vertexAiSearchToolConfig');
+      } catch {
+        return {
+          payload,
+          updateMask,
+          enginePayload,
+          validationError: 'Vertex AI Search Tool Config is not valid JSON.',
+        };
       }
+    }
 
-      const originalConfigs = assistant.vertexAiAgentConfigs || [];
-      const configsChanged = JSON.stringify(agentConfigs) !== JSON.stringify(originalConfigs);
-      if (configsChanged) {
-        payload.vertexAiAgentConfigs = agentConfigs;
-        updateMask.push('vertexAiAgentConfigs');
+    const originalConfigs = assistant.vertexAiAgentConfigs || [];
+    if (JSON.stringify(agentConfigs) !== JSON.stringify(originalConfigs)) {
+      payload.vertexAiAgentConfigs = agentConfigs;
+      updateMask.push('vertexAiAgentConfigs');
+    }
+
+    return { payload, updateMask, enginePayload };
+  };
+
+  const performUpdate = async () => {
+    setIsSubmitting(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const { payload, updateMask, enginePayload, validationError } = buildDiff();
+      if (validationError) {
+        setError(validationError);
+        setIsSubmitting(false);
+        return;
       }
 
       let assistantUpdated = false;
@@ -531,8 +846,8 @@ export function useAssistantDetailsForm(
         assistantUpdated = true;
       }
 
-      if (engineUpdatePayload && config.appId) {
-        await api.updateEngine(config.appId, engineUpdatePayload, ['sessionConfig.sessionTtl.days'], config);
+      if (enginePayload && config.appId) {
+        await api.updateEngine(config.appId, enginePayload, ['sessionConfig.sessionTtl'], config);
         engineUpdated = true;
       }
 
@@ -584,7 +899,6 @@ export function useAssistantDetailsForm(
         setSuccess('No changes detected.');
       }
       setTimeout(() => setSuccess(null), 3000);
-
     } catch (err: unknown) {
       setError(toErrorMessage(err) || 'Failed to update assistant.');
     } finally {
@@ -598,105 +912,8 @@ export function useAssistantDetailsForm(
   };
 
   const curlCommand = useMemo(() => {
-    const payload: Partial<Assistant> = {};
-    const updateMask: string[] = [];
-
-    const origSys = assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '';
-    const origStyle = assistant.styleAndFormattingInstructions || '';
-    const origCombined =
-      origSys && origStyle && origSys.trim() !== origStyle.trim()
-        ? `${origSys}\n\n${origStyle}`
-        : origSys || origStyle || '';
-    if (formData.additionalSystemInstruction !== origCombined) {
-      payload.generationConfig = {
-        systemInstruction: {
-          additionalSystemInstruction: formData.additionalSystemInstruction,
-        },
-      };
-      updateMask.push('generationConfig.systemInstruction');
-
-      payload.styleAndFormattingInstructions = formData.additionalSystemInstruction;
-      updateMask.push('styleAndFormattingInstructions');
-    }
-    if (formData.webGroundingType !== (assistant.webGroundingType || 'WEB_GROUNDING_TYPE_DISABLED')) {
-      payload.webGroundingType = formData.webGroundingType;
-      updateMask.push('webGroundingType');
-    }
-
-    let policyObj: Record<string, unknown> | null = null;
-    try {
-      policyObj = JSON.parse(formData.customerPolicy);
-    } catch {
-      // Ignore parse errors for preview
-    }
-
-    if (policyObj) {
-      if (formData.chatHistoryRetentionDays) {
-        const days = parseInt(formData.chatHistoryRetentionDays, 10);
-        if (!isNaN(days)) {
-          policyObj.chatHistoryRetentionDays = days;
-        }
-      }
-    }
-
-    const originalPolicyString = assistant.customerPolicy ? JSON.stringify(assistant.customerPolicy) : '{}';
-    const currentPolicyString = JSON.stringify(policyObj);
-
-    if (policyObj && currentPolicyString !== originalPolicyString) {
-      payload.customerPolicy = policyObj;
-      updateMask.push('customerPolicy');
-    }
-
-    let enginePayload: Partial<AppEngine> | null = null;
-    const sessionConfig = currentEngine?.sessionConfig as { sessionTtl?: { days?: number } } | undefined;
-    const currentDays = sessionConfig?.sessionTtl?.days;
-    const newDays = formData.chatHistoryRetentionDays ? parseInt(formData.chatHistoryRetentionDays, 10) : undefined;
-
-    if (newDays !== undefined && !isNaN(newDays) && newDays !== currentDays) {
-      enginePayload = {
-        sessionConfig: {
-          sessionTtl: {
-            days: newDays,
-          },
-        },
-      };
-    }
-
-    if (formData.enableEndUserAgentCreation !== (assistant.enableEndUserAgentCreation || false)) {
-      payload.enableEndUserAgentCreation = formData.enableEndUserAgentCreation;
-      updateMask.push('enableEndUserAgentCreation');
-    }
-    if (formData.disableLocationContext !== (assistant.disableLocationContext || false)) {
-      payload.disableLocationContext = formData.disableLocationContext;
-      updateMask.push('disableLocationContext');
-    }
-    if (formData.defaultWebGroundingToggleOff !== (assistant.defaultWebGroundingToggleOff || false)) {
-      payload.defaultWebGroundingToggleOff = formData.defaultWebGroundingToggleOff;
-      updateMask.push('defaultWebGroundingToggleOff');
-    }
-
-    let searchToolConfigObj;
-    try {
-      searchToolConfigObj = JSON.parse(formData.vertexAiSearchToolConfig);
-    } catch (e) {
-      // Ignore
-    }
-    const originalSearchToolConfigString = assistant.vertexAiSearchToolConfig ? JSON.stringify(assistant.vertexAiSearchToolConfig) : '{}';
-    const currentSearchToolConfigString = JSON.stringify(searchToolConfigObj);
-
-    if (searchToolConfigObj && currentSearchToolConfigString !== originalSearchToolConfigString) {
-      payload.vertexAiSearchToolConfig = searchToolConfigObj;
-      updateMask.push('vertexAiSearchToolConfig');
-    }
-
-    const originalConfigsString = JSON.stringify(assistant.vertexAiAgentConfigs || []);
-    const currentConfigsString = JSON.stringify(agentConfigs);
-
-    if (originalConfigsString !== currentConfigsString) {
-      payload.vertexAiAgentConfigs = agentConfigs;
-      updateMask.push('vertexAiAgentConfigs');
-    }
-
+    const { payload, updateMask, enginePayload, validationError } = buildDiff();
+    if (validationError) return null;
     if (updateMask.length === 0 && !enginePayload) return null;
 
     const baseUrl = config.appLocation === 'global'
@@ -718,7 +935,17 @@ export function useAssistantDetailsForm(
     }
 
     return result;
-  }, [formData, agentConfigs, assistant, currentEngine, config]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    formData,
+    agentConfigs,
+    assistant,
+    currentEngine,
+    config,
+    isGoogleInternal,
+    isTrustedTester,
+    sdpPolicy,
+  ]);
 
   return {
     formData,
@@ -729,6 +956,8 @@ export function useAssistantDetailsForm(
     isSubmitting,
     error,
     success,
+    isGoogleInternal,
+    isTrustedTester,
     templates,
     isLoadingTemplates,
     selectedInputTemplate,
@@ -738,6 +967,16 @@ export function useAssistantDetailsForm(
     handleInputTemplateChange,
     handleOutputTemplateChange,
     handleFailureModeChange,
+    bannedPhrases,
+    handleAddBannedPhrase,
+    handleRemoveBannedPhrase,
+    sdpPolicy,
+    sdpPolicyError,
+    handleSdpPolicyChange,
+    agentReasoningHidden,
+    handleAgentReasoningHiddenChange,
+    handleRetentionPresetSelect,
+    handleRetentionIndefiniteSelect,
     iamPolicy,
     newMember,
     setNewMember,

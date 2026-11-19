@@ -19,6 +19,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ProjectEngineSelector from './ProjectEngineSelector';
 import * as api from '../../services/apiService';
+import { GEMINI_ENTERPRISE_LOCATION_IDS } from '../../utils/locations';
 
 vi.mock('../../services/apiService', () => ({
   listResources: vi.fn(),
@@ -29,7 +30,7 @@ describe('ProjectEngineSelector component', () => {
     vi.clearAllMocks();
   });
 
-  it('renders title, inputs, and calls onChange when project changes', () => {
+  it('renders title, inputs, and calls onChange when project changes', async () => {
     (api.listResources as any).mockResolvedValue({ engines: [] });
     const handleChange = vi.fn();
 
@@ -43,6 +44,10 @@ describe('ProjectEngineSelector component', () => {
       />
     );
 
+    await waitFor(() => {
+      expect(api.listResources).toHaveBeenCalled();
+    });
+
     expect(screen.getByText('Source Environment (Baseline)')).toBeDefined();
     expect(screen.getByText('Baseline Config')).toBeDefined();
 
@@ -55,6 +60,52 @@ describe('ProjectEngineSelector component', () => {
       location: 'global',
       engine: 'default_engine',
     });
+  });
+
+  it('uses GEMINI_ENTERPRISE_LOCATION_IDS with human-readable labels by default', async () => {
+    (api.listResources as any).mockResolvedValue({ engines: [] });
+    const handleChange = vi.fn();
+
+    render(
+      <ProjectEngineSelector
+        title="Default Locations Env"
+        value={{ project: '', location: 'global', engine: '' }}
+        onChange={handleChange}
+      />
+    );
+
+    const select = screen.getByLabelText('Region Location') as HTMLSelectElement;
+    const optionValues = Array.from(select.options).map((o) => o.value);
+    expect(optionValues).toEqual([...GEMINI_ENTERPRISE_LOCATION_IDS]);
+    expect(optionValues.length).toBeGreaterThan(3);
+
+    // Selecting a regional location emits its location ID
+    const nonGlobal = GEMINI_ENTERPRISE_LOCATION_IDS.find((id) => id !== 'global') || 'us';
+    fireEvent.change(select, { target: { value: nonGlobal } });
+    expect(handleChange).toHaveBeenCalledWith({
+      project: '',
+      location: nonGlobal,
+      engine: '',
+    });
+  });
+
+  it('preserves custom locations prop values and raw labels when explicitly provided', () => {
+    (api.listResources as any).mockResolvedValue({ engines: [] });
+    const customLocations = ['us-central1', 'europe-west4'];
+
+    render(
+      <ProjectEngineSelector
+        title="Custom Locations Env"
+        locations={customLocations}
+        value={{ project: '', location: 'us-central1', engine: '' }}
+        onChange={vi.fn()}
+      />
+    );
+
+    const select = screen.getByLabelText('Region Location') as HTMLSelectElement;
+    const options = Array.from(select.options);
+    expect(options.map((o) => o.value)).toEqual(customLocations);
+    expect(options.map((o) => o.textContent)).toEqual(customLocations);
   });
 
   it('fetches engines and allows selecting an engine from the list', async () => {
@@ -104,7 +155,6 @@ describe('ProjectEngineSelector component', () => {
 
     fireEvent.click(screen.getByText('Enter manually'));
 
-    // Now input is displayed instead of select
     expect(screen.getByPlaceholderText('default_engine')).toBeDefined();
     expect(screen.getByText('Select from list')).toBeDefined();
   });

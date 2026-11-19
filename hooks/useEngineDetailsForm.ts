@@ -27,6 +27,7 @@ import {
 import {
     EnterpriseModel,
     STANDARD_ENTERPRISE_MODELS,
+    VISION_IMAGE_MODEL_IDS,
     categorizeModel,
     formatModelDisplayName,
     getModelDefaultDescription,
@@ -34,12 +35,23 @@ import {
 } from '../components/assistants/engine-details/modelsCatalog';
 import {
     EngineControlsState,
+    FeaturePolicyFormEntry,
+    PolicyCapableFeatureKey,
     buildControlsUpdate,
     engineToControlsState,
     validateControlsState,
 } from '../components/assistants/engine-details/engineControls';
 import { getCachedProjectEnrollment } from '../services/api/project';
 import { isGoogleInternalEngineField } from '../services/api/discovery/engineFieldVisibility';
+
+const BASIC_EMAIL_PATTERN = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
+const AGENT_GATEWAY_RESOURCE_PATTERN = /^projects\/[^/\s]+\/locations\/[^/\s]+\/agentGateways\/[^/\s]+$/;
+
+const parseContactEmails = (raw: string): string[] =>
+    raw
+        .split(/[\n,]/)
+        .map(email => email.trim())
+        .filter(Boolean);
 
 interface UseEngineDetailsFormParams {
     engine: AppEngine;
@@ -55,12 +67,17 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         observabilityEnabled: false,
         sensitiveLoggingEnabled: false,
         marketplaceAgentVisibility: 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED',
+        procurementContactEmails: '',
+        defaultEgressAgentGateway: '',
         searchTier: 'SEARCH_TIER_STANDARD',
         searchAddOnLlm: false,
         requiredSubscriptionTier: 'SUBSCRIPTION_TIER_UNSPECIFIED',
         enableWebApp: false,
         enableAutocomplete: false,
         enableQualityFeedback: false,
+        sourceAdminDisplayNameEnabled: false,
+        enablePeopleSearch: false,
+        disableUserEventsCollection: false,
     });
     const [features, setFeatures] = useState<Record<string, boolean>>({});
     const [modelConfigs, setModelConfigs] = useState<Record<string, boolean>>({});
@@ -92,6 +109,22 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
     const handleEngineControlChange = useCallback(
         <K extends keyof EngineControlsState>(field: K, value: EngineControlsState[K]) => {
             setEngineControls(prev => ({ ...prev, [field]: value }));
+        },
+        [],
+    );
+
+    const handleFeaturePolicyChange = useCallback(
+        (featureKey: PolicyCapableFeatureKey, patch: Partial<FeaturePolicyFormEntry>) => {
+            setEngineControls(prev => ({
+                ...prev,
+                featurePolicies: {
+                    ...prev.featurePolicies,
+                    [featureKey]: {
+                        ...prev.featurePolicies[featureKey],
+                        ...patch,
+                    },
+                },
+            }));
         },
         [],
     );
@@ -136,8 +169,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             activeMap.set(m.id, { ...m });
         });
 
-        const uiSettings = widgetConfig?.uiSettings as { modelConfigInfo?: { resolvedModels?: Array<{ id?: string; name?: string; displayName?: string; modelId?: string; isPreview?: boolean; description?: string }> } } | undefined;
-        const apiModels = uiSettings?.modelConfigInfo?.resolvedModels;
+        const apiModels = widgetConfig?.uiSettings?.modelConfigInfo?.resolvedModels;
         if (apiModels && Array.isArray(apiModels)) {
             apiModels.forEach((m) => {
                 if (m.modelId) {
@@ -155,6 +187,8 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                         visibility: existing?.visibility || inferred.visibility,
                         visibilityNote: existing?.visibilityNote || inferred.visibilityNote,
                         isPartner: existing?.isPartner ?? inferred.isPartner,
+                        adminOverridable: m.adminView?.adminOverridable,
+                        supportedRegions: m.adminView?.regions,
                     });
                 }
             });
@@ -306,6 +340,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
 
             const skuId = (cfg.name.split('/').pop() || '').toLowerCase();
             const displayName = (cfg.displayName || '').toLowerCase();
+            const combined = `${skuId} ${displayName}`;
             
             if (tier === 'SUBSCRIPTION_TIER_SEARCH') {
                 return true;
@@ -314,14 +349,38 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 return skuId.includes('enterprise-plus') || displayName.includes('enterprise plus') || skuId.includes('search_and_assistant');
             }
             if (tier === 'SUBSCRIPTION_TIER_ENTERPRISE') {
-                return (skuId.includes('enterprise') && !skuId.includes('enterprise-plus')) || 
-                       (displayName.includes('enterprise') && !displayName.includes('enterprise plus'));
+                return ((skuId.includes('enterprise') && !skuId.includes('enterprise-plus') && !skuId.includes('emerging')) ||
+                        (displayName.includes('enterprise') && !displayName.includes('enterprise plus') && !displayName.includes('emerging')));
+            }
+            if (tier === 'SUBSCRIPTION_TIER_ENTERPRISE_EMERGING') {
+                return combined.includes('enterprise') && combined.includes('emerging');
+            }
+            if (tier === 'SUBSCRIPTION_TIER_EDU_GOV_EMERGING') {
+                return combined.includes('edu') && combined.includes('gov') && combined.includes('emerging');
+            }
+            if (tier === 'SUBSCRIPTION_TIER_EDU_PRO_EMERGING') {
+                return combined.includes('edu') && (combined.includes('pro') || combined.includes('plus')) && combined.includes('emerging');
+            }
+            if (tier === 'SUBSCRIPTION_TIER_EDU_EMERGING') {
+                return combined.includes('edu') && !combined.includes('pro') && !combined.includes('plus') && !combined.includes('gov') && combined.includes('emerging');
+            }
+            if (tier === 'SUBSCRIPTION_TIER_EDU_PRO') {
+                return combined.includes('edu') && (combined.includes('pro') || combined.includes('plus')) && !combined.includes('emerging');
+            }
+            if (tier === 'SUBSCRIPTION_TIER_EDU') {
+                return combined.includes('edu') && !combined.includes('pro') && !combined.includes('plus') && !combined.includes('emerging') && !combined.includes('gov');
+            }
+            if (tier === 'SUBSCRIPTION_TIER_NOTEBOOK_LM') {
+                return combined.includes('notebook');
             }
             if (tier === 'SUBSCRIPTION_TIER_AGENTSPACE_BUSINESS') {
                 return skuId.includes('business') || displayName.includes('business');
             }
             if (tier === 'SUBSCRIPTION_TIER_AGENTSPACE_STARTER') {
                 return skuId.includes('starter') || displayName.includes('starter');
+            }
+            if (tier === 'SUBSCRIPTION_TIER_FRONTLINE_STARTER') {
+                return combined.includes('frontline') && combined.includes('starter');
             }
             if (tier === 'SUBSCRIPTION_TIER_FRONTLINE_WORKER') {
                 return skuId.includes('frontline') || displayName.includes('frontline');
@@ -345,12 +404,17 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
             observabilityEnabled: engine.observabilityConfig?.observabilityEnabled || false,
             sensitiveLoggingEnabled: engine.observabilityConfig?.sensitiveLoggingEnabled || false,
             marketplaceAgentVisibility: engine.marketplaceAgentVisibility || 'MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED',
+            procurementContactEmails: (engine.procurementContactEmails || []).join(', '),
+            defaultEgressAgentGateway: engine.agentGatewaySetting?.defaultEgressAgentGateway?.name || '',
             searchTier: engine.searchEngineConfig?.searchTier || 'SEARCH_TIER_STANDARD',
             searchAddOnLlm: engine.searchEngineConfig?.searchAddOns?.includes('SEARCH_ADD_ON_LLM') || false,
             requiredSubscriptionTier: engine.searchEngineConfig?.requiredSubscriptionTier || 'SUBSCRIPTION_TIER_UNSPECIFIED',
             enableWebApp: originalWidgetConfig?.accessSettings?.enableWebApp || false,
             enableAutocomplete: originalWidgetConfig?.uiSettings?.enableAutocomplete || false,
             enableQualityFeedback: originalWidgetConfig?.uiSettings?.enableQualityFeedback || false,
+            sourceAdminDisplayNameEnabled: originalWidgetConfig?.uiSettings?.sourceAdminDisplayNameEnabled || false,
+            enablePeopleSearch: originalWidgetConfig?.uiSettings?.enablePeopleSearch || false,
+            disableUserEventsCollection: originalWidgetConfig?.uiSettings?.disableUserEventsCollection || false,
         });
 
         const currentFeatures: Record<string, boolean> = {};
@@ -362,12 +426,12 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 const effectivePositiveVal = engine.effectiveFeatures?.[positiveKey];
                 if (positiveVal === 'FEATURE_STATE_ON' || positiveVal === 'FEATURE_STATE_OFF') {
                     currentFeatures[f.key] = positiveVal === 'FEATURE_STATE_ON';
-                } else if (apiVal !== undefined) {
+                } else if (apiVal === 'FEATURE_STATE_ON' || apiVal === 'FEATURE_STATE_OFF') {
                     currentFeatures[f.key] = apiVal !== 'FEATURE_STATE_ON';
                 } else if (effectivePositiveVal === 'FEATURE_STATE_ON' || effectivePositiveVal === 'FEATURE_STATE_OFF') {
                     currentFeatures[f.key] = effectivePositiveVal === 'FEATURE_STATE_ON';
                 } else {
-                    currentFeatures[f.key] = true;
+                    currentFeatures[f.key] = Boolean(f.defaultOn);
                 }
             } else {
                 const disableKey = `disable-${f.key}`;
@@ -525,7 +589,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [config.projectId, config.appLocation, engine.name]);
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;
         setFormData(prev => ({ ...prev, [e.target.name]: value }));
     };
@@ -540,18 +604,33 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         }));
     };
 
-    const handleModelChange = (model: string) => {
+    const handleModelChange = useCallback((model: string) => {
+        const matched = activeModels.find(m => m.id === model);
+        if (matched?.adminOverridable === false) {
+            return;
+        }
         setModelConfigs(prev => {
             const nextVal = !prev[model];
             const updated = { ...prev, [model]: nextVal };
-            if (model === 'gemini-3.1-pro-preview') {
+            if (categorizeModel(model) === 'Vision & Image' && nextVal) {
+                VISION_IMAGE_MODEL_IDS.forEach(imgId => {
+                    if (imgId !== model) {
+                        updated[imgId] = false;
+                    }
+                });
+                Object.keys(updated).forEach(k => {
+                    if (k !== model && categorizeModel(k) === 'Vision & Image') {
+                        updated[k] = false;
+                    }
+                });
+            } else if (model === 'gemini-3.1-pro-preview') {
                 updated['gemini-3.1-pro'] = nextVal;
             } else if (model === 'gemini-3.1-pro') {
                 updated['gemini-3.1-pro-preview'] = nextVal;
             }
             return updated;
         });
-    };
+    }, [activeModels]);
 
     const handleAddCustomFeature = useCallback((key: string) => {
         const trimmed = key.trim();
@@ -576,10 +655,25 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         const trimmed = id.trim();
         if (!trimmed) return;
         setCustomModels(prev => prev.includes(trimmed) ? prev : [...prev, trimmed]);
-        setModelConfigs(prev => ({
-            ...prev,
-            [trimmed]: true
-        }));
+        setModelConfigs(prev => {
+            const updated: Record<string, boolean> = {
+                ...prev,
+                [trimmed]: true,
+            };
+            if (categorizeModel(trimmed) === 'Vision & Image') {
+                VISION_IMAGE_MODEL_IDS.forEach(imgId => {
+                    if (imgId !== trimmed) {
+                        updated[imgId] = false;
+                    }
+                });
+                Object.keys(updated).forEach(k => {
+                    if (k !== trimmed && categorizeModel(k) === 'Vision & Image') {
+                        updated[k] = false;
+                    }
+                });
+            }
+            return updated;
+        });
     }, []);
 
     const handleIdpChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
@@ -631,6 +725,35 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 updateMask.push('marketplaceAgentVisibility');
             }
 
+            const parsedProcurementEmails = parseContactEmails(formData.procurementContactEmails);
+            const invalidProcurementEmails = parsedProcurementEmails.filter(email => !BASIC_EMAIL_PATTERN.test(email));
+            if (invalidProcurementEmails.length > 0) {
+                throw new Error(
+                    `Invalid procurement contact email(s): ${invalidProcurementEmails.join(', ')}. Provide valid email addresses separated by commas or newlines.`,
+                );
+            }
+            const baselineProcurementEmails = (engine.procurementContactEmails || [])
+                .map(email => email.trim())
+                .filter(Boolean);
+            if (parsedProcurementEmails.join('\n') !== baselineProcurementEmails.join('\n')) {
+                payload.procurementContactEmails = parsedProcurementEmails;
+                updateMask.push('procurementContactEmails');
+            }
+
+            const trimmedGateway = formData.defaultEgressAgentGateway.trim();
+            if (trimmedGateway && !AGENT_GATEWAY_RESOURCE_PATTERN.test(trimmedGateway)) {
+                throw new Error(
+                    'Invalid Egress Agent Gateway resource name. Expected format: projects/{project}/locations/{location}/agentGateways/{id}.',
+                );
+            }
+            const baselineGateway = (engine.agentGatewaySetting?.defaultEgressAgentGateway?.name || '').trim();
+            if (trimmedGateway !== baselineGateway) {
+                payload.agentGatewaySetting = trimmedGateway
+                    ? { defaultEgressAgentGateway: { name: trimmedGateway } }
+                    : {};
+                updateMask.push('agentGatewaySetting');
+            }
+
             const currentObservability = engine.observabilityConfig?.observabilityEnabled || false;
             const currentSensitive = engine.observabilityConfig?.sensitiveLoggingEnabled || false;
 
@@ -679,7 +802,9 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 }
 
                 // Keep legacy positive/disable pairs synchronized in newFeaturesMap so backend
-                // SynchronizeLegacyFeatureToggles never rejects with INVALID_ARGUMENT.
+                // SynchronizeLegacyFeatureToggles never rejects with INVALID_ARGUMENT, and always
+                // write `disable-<key>` for positive-keyed legacy pairs (e.g. `projects`) because
+                // backend ResolveEffectiveFeaturesForEngine reads `disable-<key>` on non-SaaS engines.
                 if (f.isInverted) {
                     const posKey = f.key.replace(/^disable-/, '');
                     const posState = isEnabled ? 'FEATURE_STATE_ON' : 'FEATURE_STATE_OFF';
@@ -690,7 +815,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 } else if (legacyDisableSet.has(f.key)) {
                     const disKey = `disable-${f.key}`;
                     const disState = isEnabled ? 'FEATURE_STATE_OFF' : 'FEATURE_STATE_ON';
-                    if (newFeaturesMap[disKey] !== undefined && newFeaturesMap[disKey] !== disState) {
+                    if (newFeaturesMap[disKey] !== disState) {
                         newFeaturesMap[disKey] = disState;
                         featuresChanged = true;
                     }
@@ -804,8 +929,23 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                 const currentFeedback = formData.enableQualityFeedback;
                 const origFeedback = originalWidgetConfig.uiSettings?.enableQualityFeedback || false;
 
+                const currentSourceAdminDisplayName = formData.sourceAdminDisplayNameEnabled;
+                const origSourceAdminDisplayName = originalWidgetConfig.uiSettings?.sourceAdminDisplayNameEnabled || false;
+
+                const currentPeopleSearch = formData.enablePeopleSearch;
+                const origPeopleSearch = originalWidgetConfig.uiSettings?.enablePeopleSearch || false;
+
+                const currentDisableUserEvents = formData.disableUserEventsCollection;
+                const origDisableUserEvents = originalWidgetConfig.uiSettings?.disableUserEventsCollection || false;
+
                 const accessSettingsChanged = currentProvider !== origProvider || currentEnableWebApp !== origEnableWebApp;
-                const uiSettingsChanged = currentAutocomplete !== origAutocomplete || currentFeedback !== origFeedback || modelsChanged;
+                const uiSettingsChanged =
+                    currentAutocomplete !== origAutocomplete ||
+                    currentFeedback !== origFeedback ||
+                    currentSourceAdminDisplayName !== origSourceAdminDisplayName ||
+                    currentPeopleSearch !== origPeopleSearch ||
+                    currentDisableUserEvents !== origDisableUserEvents ||
+                    modelsChanged;
 
                 if (accessSettingsChanged || uiSettingsChanged) {
                     const updatePayload = {
@@ -818,6 +958,9 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
                             ...widgetConfig.uiSettings,
                             enableAutocomplete: currentAutocomplete,
                             enableQualityFeedback: currentFeedback,
+                            sourceAdminDisplayNameEnabled: currentSourceAdminDisplayName,
+                            enablePeopleSearch: currentPeopleSearch,
+                            disableUserEventsCollection: currentDisableUserEvents,
                             modelConfigs: newModelConfigsMap
                         }
                     };
@@ -891,6 +1034,7 @@ export function useEngineDetailsForm({ engine, config, onUpdateSuccess }: UseEng
         engineControlErrors,
         googleInternalEnrollment,
         handleEngineControlChange,
+        handleFeaturePolicyChange,
         isSupportedIdpForQrCode: isSupportedIdpForQrCode(),
         isSubscriptionTierActive,
         handleChange,

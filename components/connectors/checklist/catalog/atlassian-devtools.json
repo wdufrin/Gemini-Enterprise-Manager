@@ -434,6 +434,11 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/jira-dc/jira-dc-configuration",
       "sections": [
         {
@@ -904,6 +909,10 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/confluence-dc",
       "sections": [
         {
@@ -1048,8 +1057,13 @@
           "github"
         ]
       },
-      "supportsDataModeToggle": false,
+      "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/github/github-configuration",
       "sections": [
         {
@@ -3196,6 +3210,282 @@
               "label": "Query Per Second (QPS) Rate Limit Reviewed",
               "subLabel": "Verify per-data-store QPS limit aligns with your Twilio Documentation tenant API quota.",
               "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "DATABRICKS",
+      "vendorDisplayName": "Databricks (Unity Catalog / SQL / Genie)",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "databricks",
+          "databricks_sql",
+          "databricks_unity",
+          "databricks_genie"
+        ],
+        "nameSubstrings": [
+          "databricks",
+          "unity-catalog",
+          "unity_catalog",
+          "databricks-genie"
+        ]
+      },
+      "supportsDataModeToggle": true,
+      "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED",
+        "ACTIONS"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/databricks",
+      "sections": [
+        {
+          "id": "databricks_oauth_health",
+          "title": "Databricks Custom OAuth App Registration & Automated Health",
+          "stepNumber": 1,
+          "description": "Register a Custom OAuth Application in the Databricks Account Console, configure PKCE / OIDC endpoints and redirect URIs, and verify Discovery Engine health probes.",
+          "items": [
+            {
+              "id": "databricks_oauth_app",
+              "label": "Databricks Account Console Custom OAuth App Provisioned",
+              "subLabel": "In Databricks Account Console > Settings > App connections, create a Custom OAuth app with Access scope 'All APIs' (all-apis) and 'Generate a client secret' enabled.",
+              "codeSnippet": "all-apis offline_access",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "databricks_redirect_uri",
+              "label": "OAuth Redirect URL Registered",
+              "subLabel": "Register https://vertexaisearch.cloud.google.com/oauth-redirect (and https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html for Data Store setup) in the Databricks App connection Redirect URLs.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "databricks_workspace_url",
+              "label": "Workspace Instance URL & SQL Warehouse Configured",
+              "subLabel": "Specify the Databricks workspace URL (e.g., https://adb-123456.7.azuredatabricks.net or https://dbc-abc.cloud.databricks.com) and an active Serverless or Pro SQL Warehouse ID.",
+              "codeSnippet": "https://<workspace-host>/sql/1.0/warehouses/<warehouse-id>",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "databricks_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies Discovery Engine Service Agent and caller IAM permissions on the host GCP project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Databricks."
+              }
+            },
+            {
+              "id": "databricks_oauth_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted workspace instance parameters, actionConfig state, and absence of 401/OIDC token errors in GCP.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Databricks workspace parameters and checks for backend OAuth/OIDC errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "databricks_status_probe",
+              "label": "Connector State & Sync Health",
+              "subLabel": "Validates that the Databricks connector is ACTIVE in Discovery Engine with no failing sync or federated query operations.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks Databricks connector state and latest operation logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "databricks_uc_read_grants",
+          "title": "Unity Catalog, SQL Warehouse & Genie Read Privileges",
+          "stepNumber": 2,
+          "description": "Configure Unity Catalog securable privileges, SQL Warehouse CAN USE access, and AI/BI Genie space permissions.",
+          "items": [
+            {
+              "id": "databricks_uc_select",
+              "label": "Unity Catalog USE CATALOG, USE SCHEMA & SELECT Grants",
+              "subLabel": "Grant USE CATALOG, USE SCHEMA, and SELECT on target Unity Catalog catalogs, schemas, tables, and views.",
+              "codeSnippet": "GRANT USE CATALOG ON CATALOG main TO `users`;\nGRANT USE SCHEMA ON SCHEMA main.default TO `users`;\nGRANT SELECT ON SCHEMA main.default TO `users`;",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "databricks_warehouse_can_use",
+              "label": "SQL Warehouse CAN USE Permission",
+              "subLabel": "Grant CAN USE on the target SQL Warehouse to the integration principal (Ingestion) or querying end users (Federated).",
+              "codeSnippet": "CAN USE",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "databricks_genie_spaces",
+              "label": "Databricks AI/BI Genie Space CAN VIEW / CAN RUN Access (Optional)",
+              "subLabel": "When querying curated Databricks Genie spaces in Federated mode, grant CAN VIEW or CAN RUN on target Genie spaces.",
+              "codeSnippet": "CAN RUN",
+              "badge": "Optional",
+              "appliesToMode": "FEDERATED"
+            }
+          ]
+        },
+        {
+          "id": "databricks_actions_section",
+          "title": "Assistant Actions, Unity Catalog Functions & SQL Write Grants",
+          "stepNumber": 3,
+          "description": "Permissions required when invoking Unity Catalog functions, triggering Databricks Jobs, or executing write SQL actions.",
+          "items": [
+            {
+              "id": "databricks_action_redirect_uri",
+              "label": "Actions OAuth Redirect URI Allowlisted",
+              "subLabel": "Ensure https://vertexaisearch.cloud.google.com/oauth-redirect is configured in the Databricks Custom OAuth app.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "databricks_action_execute_modify",
+              "label": "EXECUTE on Unity Catalog Functions & MODIFY on Target Tables",
+              "subLabel": "Grant EXECUTE on Unity Catalog registered tool functions and MODIFY on tables where Assistant Actions perform writes.",
+              "codeSnippet": "GRANT EXECUTE ON FUNCTION main.tools.run_pipeline TO `users`;",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "SNOWFLAKE",
+      "vendorDisplayName": "Snowflake Federated",
+      "category": "Atlassian & DevTools",
+      "detectionPatterns": {
+        "dataSources": [
+          "snowflake",
+          "snowflake_federated",
+          "snowflake_cortex"
+        ],
+        "nameSubstrings": [
+          "snowflake",
+          "snowflake-federated",
+          "snowflake_federated"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": false,
+      "supportedModes": [
+        "FEDERATED"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/snowflake",
+      "sections": [
+        {
+          "id": "snowflake_oauth_health",
+          "title": "Snowflake OAuth Security Integration & Automated Health",
+          "stepNumber": 1,
+          "description": "Create a Snowflake Custom OAuth Security Integration, allowlist network policies if active, and verify Discovery Engine health probes.",
+          "items": [
+            {
+              "id": "snowflake_security_integration",
+              "label": "Snowflake Custom OAuth Security Integration Created",
+              "subLabel": "Run CREATE SECURITY INTEGRATION with TYPE = OAUTH, OAUTH_CLIENT = CUSTOM, OAUTH_ISSUE_REFRESH_TOKENS = TRUE, and retrieve client credentials via SYSTEM$SHOW_OAUTH_CLIENT_SECRETS.",
+              "codeSnippet": "CREATE SECURITY INTEGRATION gemini_enterprise_oauth\n  TYPE = OAUTH\n  ENABLED = TRUE\n  OAUTH_CLIENT = CUSTOM\n  OAUTH_CLIENT_TYPE = 'CONFIDENTIAL'\n  OAUTH_REDIRECT_URI = 'https://vertexaisearch.cloud.google.com/oauth-redirect'\n  OAUTH_ISSUE_REFRESH_TOKENS = TRUE;",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "snowflake_account_url",
+              "label": "Organization-Account URL & Network Policy Configured",
+              "subLabel": "Use the canonical https://<orgname>-<account_name>.snowflakecomputing.com URL (avoiding underscores where required by TLS) and allowlist Google Cloud egress IPs in Snowflake NETWORK POLICY if active.",
+              "codeSnippet": "https://<orgname>-<account_name>.snowflakecomputing.com",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "snowflake_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies Discovery Engine Service Agent and caller IAM permissions on the host GCP project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Snowflake."
+              }
+            },
+            {
+              "id": "snowflake_oauth_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted Snowflake account URL parameters and absence of 401/OAuth token errors in GCP.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies non-redacted Snowflake account endpoint parameters and checks for backend OAuth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "snowflake_status_probe",
+              "label": "Connector State Health",
+              "subLabel": "Validates that the Snowflake Federated connector is ACTIVE in Discovery Engine with no failing operations.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks Snowflake Federated connector state and latest operation logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "snowflake_rbac_grants",
+          "title": "Warehouse, Database, Schema & Cortex Search Role Grants (Read)",
+          "stepNumber": 2,
+          "description": "Ensure end-user Snowflake roles (note: ACCOUNTADMIN, SECURITYADMIN, and ORGADMIN are blocked by default in Snowflake OAuth) hold required read privileges.",
+          "items": [
+            {
+              "id": "snowflake_non_blocked_role",
+              "label": "Non-Blocked Default Role Assigned (Avoid ACCOUNTADMIN / SECURITYADMIN)",
+              "subLabel": "Snowflake blocks ACCOUNTADMIN, ORGADMIN, and SECURITYADMIN in OAuth flows by default. Grant federated access via a dedicated functional role (e.g., ANALYST_READER).",
+              "codeSnippet": "GRANT USAGE ON WAREHOUSE compute_wh TO ROLE analyst_reader;",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "snowflake_db_schema_select",
+              "label": "USAGE on Warehouse/Database/Schema & SELECT on Tables/Views",
+              "subLabel": "Grant USAGE on the target virtual warehouse, database, and schema, plus SELECT on tables, views, and dynamic tables.",
+              "codeSnippet": "GRANT USAGE ON DATABASE prod_db TO ROLE analyst_reader;\nGRANT USAGE ON ALL SCHEMAS IN DATABASE prod_db TO ROLE analyst_reader;\nGRANT SELECT ON ALL TABLES IN DATABASE prod_db TO ROLE analyst_reader;",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "snowflake_cortex_usage",
+              "label": "Cortex Search Service / Semantic Model USAGE (Optional)",
+              "subLabel": "If querying Snowflake Cortex Search services or Cortex Analyst semantic models, grant USAGE on the Cortex Search service and READ on the semantic model stage.",
+              "codeSnippet": "GRANT USAGE ON CORTEX SEARCH SERVICE prod_db.public.docs_search TO ROLE analyst_reader;",
+              "badge": "Optional",
+              "appliesToMode": "FEDERATED"
             }
           ]
         }

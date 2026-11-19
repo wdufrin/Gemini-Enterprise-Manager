@@ -35,6 +35,11 @@ import {
   isAgentExecutionConsentError,
   hasWorkflowExecutionConsentTriggers,
   formatAgentExecutionConsentError,
+  suspendAgent,
+  rejectAgent,
+  listAgentIamProposals,
+  approveAgentIamProposal,
+  rejectAgentIamProposal,
 } from './agents';
 import { Agent, Config } from '../../../types';
 
@@ -2212,6 +2217,164 @@ describe('Workflow execution consent & Entra ID ownership transfer handling', ()
       },
     ]);
     expect(bulkRes.outcomes[0].warning).toMatch(/Skipped :publish.*Agent execution consent not granted/i);
+  });
+});
+
+describe('agents API - Suspend/Reject Governance & AgentIamProposal Queue', () => {
+  const mockConfig: Config = {
+    projectId: 'test-project',
+    appLocation: 'global',
+    collectionId: 'default_collection',
+    appId: 'test-engine',
+    assistantId: 'default_assistant',
+  };
+
+  const fullAgentName =
+    'projects/test-project/locations/global/collections/default_collection/engines/test-engine/assistants/default_assistant/agents/gov-agent-1';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('suspendAgent and rejectAgent validate non-empty reasons and POST to :suspendAgent / :rejectAgent', async () => {
+    await expect(suspendAgent('gov-agent-1', '   ', mockConfig)).rejects.toThrow(
+      /Suspension reason is required/i,
+    );
+    await expect(rejectAgent('gov-agent-1', '', mockConfig)).rejects.toThrow(
+      /Rejection reason is required/i,
+    );
+    await expect(suspendAgent('', 'Valid reason', mockConfig)).rejects.toThrow(
+      /Agent resource name is required/i,
+    );
+    expect(core.gapiRequest).not.toHaveBeenCalled();
+
+    vi.mocked(core.gapiRequest).mockResolvedValueOnce({
+      name: fullAgentName,
+      state: 'SUSPENDED',
+      suspensionReason: 'Unapproved external webhook detected',
+    });
+
+    const suspended = await suspendAgent(
+      'gov-agent-1',
+      '  Unapproved external webhook detected  ',
+      mockConfig,
+    );
+    expect(suspended.state).toBe('SUSPENDED');
+    expect(core.gapiRequest).toHaveBeenCalledWith(
+      `https://discoveryengine.googleapis.com/v1alpha/${fullAgentName}:suspendAgent`,
+      'POST',
+      'test-project',
+      undefined,
+      {
+        name: fullAgentName,
+        suspensionReason: 'Unapproved external webhook detected',
+      },
+    );
+
+    vi.mocked(core.gapiRequest).mockResolvedValueOnce({
+      name: fullAgentName,
+      state: 'PRIVATE',
+      rejectionReason: 'Missing PII review sign-off',
+    });
+
+    const rejected = await rejectAgent(
+      fullAgentName,
+      'Missing PII review sign-off',
+      mockConfig,
+    );
+    expect((rejected as Agent & { rejectionReason?: string }).rejectionReason).toBe(
+      'Missing PII review sign-off',
+    );
+    expect(core.gapiRequest).toHaveBeenLastCalledWith(
+      `https://discoveryengine.googleapis.com/v1alpha/${fullAgentName}:rejectAgent`,
+      'POST',
+      'test-project',
+      undefined,
+      {
+        name: fullAgentName,
+        rejectionReason: 'Missing PII review sign-off',
+      },
+    );
+
+    // Negative check: rejectAgent must propagate backend 403 error without swallowing into withdrawAgent
+    vi.mocked(core.gapiRequest).mockRejectedValueOnce(
+      new Error('403 PERMISSION_DENIED: Caller lacks discoveryengine.agents.reject'),
+    );
+    await expect(rejectAgent(fullAgentName, 'Denied', mockConfig)).rejects.toThrow(
+      /403 PERMISSION_DENIED/,
+    );
+  });
+
+  it('lists, approves, and rejects AgentIamProposal resources and rejects malformed inputs', async () => {
+    const proposal1 = `${fullAgentName}/iamProposals/prop-1`;
+    const proposal2 = `${fullAgentName}/iamProposals/prop-2`;
+
+    // Negative / hostile input validation
+    await expect(listAgentIamProposals('   ', mockConfig)).rejects.toThrow(
+      /Valid agent resource name is required/i,
+    );
+    await expect(approveAgentIamProposal('projects/test-project/bad-path', mockConfig)).rejects.toThrow(
+      /Invalid AgentIamProposal resource name/i,
+    );
+    await expect(rejectAgentIamProposal(proposal1, '   ', mockConfig)).rejects.toThrow(
+      /Rejection reason is required/i,
+    );
+    expect(core.gapiRequest).not.toHaveBeenCalled();
+
+    // Paginated listAgentIamProposals
+    vi.mocked(core.gapiRequest)
+      .mockResolvedValueOnce({
+        iamProposals: [{ name: proposal1, state: 'PENDING' }],
+        nextPageToken: 'next-prop-token',
+      })
+      .mockResolvedValueOnce({
+        iamProposals: [{ name: proposal2, state: 'APPROVED' }],
+      });
+
+    const listed = await listAgentIamProposals('gov-agent-1', mockConfig);
+    expect(listed).toHaveLength(2);
+    expect(listed.map((p) => p.name)).toEqual([proposal1, proposal2]);
+    expect(vi.mocked(core.gapiRequest).mock.calls[0][0]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${fullAgentName}/iamProposals`,
+    );
+    expect(vi.mocked(core.gapiRequest).mock.calls[1][0]).toBe(
+      `https://discoveryengine.googleapis.com/v1alpha/${fullAgentName}/iamProposals?pageToken=next-prop-token`,
+    );
+
+    // Approve proposal
+    vi.mocked(core.gapiRequest).mockResolvedValueOnce({
+      name: proposal1,
+      state: 'APPROVED',
+    });
+    const approved = await approveAgentIamProposal(proposal1, mockConfig);
+    expect((approved as { state?: string }).state).toBe('APPROVED');
+    expect(core.gapiRequest).toHaveBeenLastCalledWith(
+      `https://discoveryengine.googleapis.com/v1alpha/${proposal1}:approve`,
+      'POST',
+      'test-project',
+      undefined,
+      {},
+    );
+
+    // Reject proposal with reason
+    vi.mocked(core.gapiRequest).mockResolvedValueOnce({
+      name: proposal1,
+      state: 'REJECTED',
+      rejectionReason: 'Group exceeds restricted scope policy',
+    });
+    const rejected = await rejectAgentIamProposal(
+      proposal1,
+      'Group exceeds restricted scope policy',
+      mockConfig,
+    );
+    expect((rejected as { state?: string }).state).toBe('REJECTED');
+    expect(core.gapiRequest).toHaveBeenLastCalledWith(
+      `https://discoveryengine.googleapis.com/v1alpha/${proposal1}:reject`,
+      'POST',
+      'test-project',
+      undefined,
+      { rejectionReason: 'Group exceeds restricted scope policy' },
+    );
   });
 });
 

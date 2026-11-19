@@ -19,8 +19,13 @@ import { Page } from '../types';
 import { pageToRoute, routeToPage, PAGE_ROUTES } from './routeUtils';
 
 describe('routeUtils', () => {
-  it('maps every Page enum member to a valid route string', () => {
-    Object.values(Page).forEach((page) => {
+  it('maps every Page enum member (including Page.DEV_TOOLS) to a valid bidirectional route string', () => {
+    const pages = Object.values(Page);
+    expect(pages).toContain(Page.DEV_TOOLS);
+    expect(pageToRoute(Page.DEV_TOOLS)).toBe('/dev-tools');
+    expect(routeToPage('/dev-tools')).toBe(Page.DEV_TOOLS);
+
+    pages.forEach((page) => {
       const route = pageToRoute(page);
       expect(route).toBeDefined();
       expect(route.startsWith('/')).toBe(true);
@@ -28,10 +33,18 @@ describe('routeUtils', () => {
     });
   });
 
-  it('normalizes trailing slashes and unknown routes', () => {
+  it('normalizes trailing slashes, query parameters, and hashes for /dev-tools and /licenses', () => {
+    expect(routeToPage('/dev-tools/')).toBe(Page.DEV_TOOLS);
+    expect(routeToPage('/dev-tools?location=us#mcp-governance')).toBe(Page.DEV_TOOLS);
     expect(routeToPage('/licenses/')).toBe(Page.LICENSE);
+  });
+
+  it('rejects unknown, empty, or malformed routes by safely falling back to Page.AGENTS', () => {
     expect(routeToPage('/unknown-route')).toBe(Page.AGENTS);
     expect(routeToPage('')).toBe(Page.AGENTS);
+    expect(routeToPage('   ')).toBe(Page.AGENTS);
+    expect(routeToPage('/dev-tools/extra-segment')).toBe(Page.AGENTS);
+    expect(routeToPage('//evil.example.com')).toBe(Page.AGENTS);
   });
 
   it('strips query strings and hashes, and maps /v_* views to Page.OBSERVABILITY', () => {

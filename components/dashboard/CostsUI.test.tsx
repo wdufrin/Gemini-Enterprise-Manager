@@ -6,6 +6,7 @@ import CostsUI, {
   calculateEditionQuotas,
   resolveEditionFromTier,
   DEFAULT_SINGLE_USER_MULTIPLIER,
+  EDITION_QUOTA_SPECS,
 } from './CostsUI';
 import GEQuotaUsagePage from '../../pages/GEQuotaUsagePage';
 import * as api from '../../services/apiService';
@@ -29,7 +30,7 @@ describe('CostsUI & GEQuotaUsagePage', () => {
     mockedApi.getCloudMonitoringMetrics.mockResolvedValue({ timeSeries: [] });
   });
 
-  it('calculates pooled quotas from Standard/Plus multipliers and renders tooltips on all QuotaCards', async () => {
+  it('calculates pooled quotas from Standard/Plus multipliers, omits shut-down Idea Generation, and renders tooltips on all 7 QuotaCards', async () => {
     mockedApi.getCloudMonitoringMetrics.mockResolvedValue({
       timeSeries: [
         {
@@ -39,6 +40,10 @@ describe('CostsUI & GEQuotaUsagePage', () => {
     } as never);
 
     const { container } = render(<GEQuotaUsagePage projectNumber="glm-prod-123" />);
+
+    // Shut-down Idea Generation Agent (removed July 2026) must not appear
+    expect(screen.queryByText(/Idea generation/i)).not.toBeInTheDocument();
+    expect('ideaGeneration' in EDITION_QUOTA_SPECS.Standard).toBe(false);
 
     const licenseInput = screen.getByRole('spinbutton', { name: /Number of User Licenses/i });
     fireEvent.change(licenseInput, { target: { value: '10' } });
@@ -63,7 +68,7 @@ describe('CostsUI & GEQuotaUsagePage', () => {
     expect(container.textContent).not.toContain('NaN');
   });
 
-  it('surfaces license-discovery-warning and monitoring permission error when regional APIs reject with 403', async () => {
+  it('surfaces license-discovery-warning and monitoring permission error across all 7 QuotaCards when regional APIs reject with 403', async () => {
     mockedApi.listLicenseConfigsUsageStats.mockRejectedValue(
       new Error('403 PERMISSION_DENIED: discoveryengine.licenseConfigs.list denied')
     );
@@ -80,10 +85,10 @@ describe('CostsUI & GEQuotaUsagePage', () => {
     expect(
       await screen.findByText(/Missing 'monitoring\.timeSeries\.list' permission/i)
     ).toBeInTheDocument();
-    expect(screen.getAllByText('Unavailable').length).toBe(8);
+    expect(screen.getAllByText('Unavailable').length).toBe(7);
   });
 
-  it('calculates single-user quota caps when enabled and updates dynamically with multiplier changes', async () => {
+  it('calculates daily single-user quota caps AND AI Developer Tools weekly single-user cap (GA Nov 13, 2026) dynamically', async () => {
     render(<CostsUI projectNumber="glm-prod-123" />);
     await waitFor(() => expect(mockedApi.listBillingAccounts).toHaveBeenCalled());
 
@@ -92,6 +97,7 @@ describe('CostsUI & GEQuotaUsagePage', () => {
 
     // Initially single-user limit badges are not rendered
     expect(screen.queryByTestId('single-user-cap-badge')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('devtools-single-user-weekly-cap')).not.toBeInTheDocument();
 
     // Enable Single-User Quota Limit (defaults to 10x)
     const toggle = screen.getByTestId('single-user-limit-toggle');
@@ -103,16 +109,20 @@ describe('CostsUI & GEQuotaUsagePage', () => {
     // On Standard with 100 seats and 10x multiplier:
     // Assistant queries per-user cap = 160 * 10 = 1,600 generations / day
     // Image generation per-user cap = 5 * 10 = 50 images / day
+    // AI Dev Tools weekly per-user cap = ($10 / 4) * 10 = $25 / week
     // Min users to exhaust pool = 100 / 10 = 10
     expect(screen.getByTestId('single-user-limit-summary')).toHaveTextContent(
       /Min 10 max-cap users required to exhaust daily pool/i
     );
     const capBadges = screen.getAllByTestId('single-user-cap-badge');
-    expect(capBadges.length).toBe(8);
+    expect(capBadges.length).toBe(7);
     expect(capBadges.some((el) => el.textContent?.includes('1,600 generations / day'))).toBe(true);
     expect(capBadges.some((el) => el.textContent?.includes('50 images / day'))).toBe(true);
 
-    // Change multiplier to 5x
+    const devToolsCapBadge = screen.getByTestId('devtools-single-user-weekly-cap');
+    expect(devToolsCapBadge).toHaveTextContent('$25 / week');
+
+    // Change multiplier to 5x -> AI Dev Tools weekly cap becomes $12.5 / week
     fireEvent.change(multiplierInput, { target: { value: '5' } });
     expect(screen.getByTestId('single-user-limit-summary')).toHaveTextContent(
       /Min 20 max-cap users required to exhaust daily pool/i
@@ -120,6 +130,40 @@ describe('CostsUI & GEQuotaUsagePage', () => {
     expect(
       screen.getAllByTestId('single-user-cap-badge').some((el) => el.textContent?.includes('800 generations / day'))
     ).toBe(true);
+    expect(screen.getByTestId('devtools-single-user-weekly-cap')).toHaveTextContent('$12.5 / week');
+
+    // Switch to Plus edition at 10x -> ($15 / 4) * 10 = $37.5 / week
+    fireEvent.change(multiplierInput, { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/Gemini Enterprise Edition/i), {
+      target: { value: 'Plus' },
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('devtools-single-user-weekly-cap')).toHaveTextContent('$37.5 / week');
+    });
+  });
+
+  it('supports Pay-As-You-Go (Consumption Only) edition ($0 seat, 0 base pooled quota) and resolves SUBSCRIPTION_TIER_CONSUMPTION_ONLY', async () => {
+    const paygQuotas = calculateEditionQuotas('Pay-As-You-Go (Consumption Only)', 50, true, 10);
+    expect(paygQuotas.tasksAndActions).toBe(0);
+    expect(paygQuotas.textAnswerGen).toBe(0);
+    expect(paygQuotas.storageGiB).toBe(0);
+    expect(paygQuotas.devToolsCreditsMonthlyUsd).toBe(0);
+    expect(paygQuotas.devToolsCreditsWeeklyUsd).toBe(0);
+    expect(paygQuotas.singleUserLimitActive).toBe(false);
+    expect(paygQuotas.singleUserCaps).toBeNull();
+
+    render(<CostsUI projectNumber="glm-prod-123" />);
+    await waitFor(() => expect(mockedApi.listBillingAccounts).toHaveBeenCalled());
+
+    const editionSelect = screen.getByLabelText(/Gemini Enterprise Edition/i);
+    fireEvent.change(editionSelect, { target: { value: 'Pay-As-You-Go (Consumption Only)' } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('payg-consumption-only-banner')).toHaveTextContent(
+        /SUBSCRIPTION_TIER_CONSUMPTION_ONLY/i
+      );
+      expect(screen.getByTestId('payg-consumption-only-banner')).toHaveTextContent(/\$0 monthly per-seat fee/i);
+    });
   });
 
   it('rejects malformed or hostile multiplier inputs (0, negative, float, NaN, empty) with explicit validation errors', () => {
@@ -182,21 +226,27 @@ describe('CostsUI & GEQuotaUsagePage', () => {
     expect(screen.queryByTestId('single-user-cap-badge')).not.toBeInTheDocument();
   });
 
-  it('caps single-user quota at the total edition pool when multiplier exceeds seat count and resolves all edition tiers', () => {
-    // 5 Standard seats (800 total Assistant queries/day) with 10x multiplier (1,600 raw cap) -> capped at 800
+  it('caps single-user daily and weekly DevTools quotas at the total edition pool when multiplier exceeds seat count and resolves all edition tiers', () => {
+    // 5 Standard seats (800 total Assistant queries/day, $12.50 total weekly DevTools pool) with 10x multiplier -> capped at pool
     const capped = calculateEditionQuotas('Standard', 5, true, 10);
     expect(capped.textAnswerGen).toBe(800);
     expect(capped.singleUserCaps?.textAnswerGen).toBe(800);
+    expect(capped.devToolsCreditsWeeklyUsd).toBe(12.5);
+    expect(capped.singleUserCaps?.devToolsCreditsWeeklyUsd).toBe(12.5);
     expect(capped.usersToExhaustPool).toBe(1);
 
-    // Standard Emerging Market has 0 base image/video quota (overage-only)
+    // Standard Emerging Market has 0 base image/video/DevTools quota
     const emerging = calculateEditionQuotas('Standard Emerging Market', 20, true, 5);
     expect(emerging.textAnswerGen).toBe(800);
     expect(emerging.singleUserCaps?.textAnswerGen).toBe(200);
     expect(emerging.imageGen).toBe(0);
     expect(emerging.singleUserCaps?.imageGen).toBe(0);
+    expect(emerging.singleUserCaps?.devToolsCreditsWeeklyUsd).toBe(0);
 
     // Tier string resolution
+    expect(resolveEditionFromTier('SUBSCRIPTION_TIER_CONSUMPTION_ONLY')).toBe(
+      'Pay-As-You-Go (Consumption Only)'
+    );
     expect(resolveEditionFromTier('GEMINI_ENTERPRISE_PLUS')).toBe('Plus');
     expect(resolveEditionFromTier('GEMINI_ENTERPRISE_EMERGING')).toBe('Standard Emerging Market');
     expect(resolveEditionFromTier('GEMINI_ENTERPRISE_EDU_PRO')).toBe('EDU Pro');

@@ -138,6 +138,13 @@ describe('Dynamic Checklist: Vendor Detection', () => {
     expect(detectConnectorVendor({ connectorState: { dataSource: 'gong' } })).toBe('GONG');
     expect(detectConnectorVendor({ connectorState: { dataSource: 'cisco_workspaces' } })).toBe('CISCO_WORKSPACES');
     expect(detectConnectorVendor({ connectorState: { dataSource: 'webex_meetings' } })).toBe('WEBEX_MEETINGS');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'adobe_cc' } })).toBe('ADOBE_CC');
+    expect(detectConnectorVendor({ name: 'adobe-creative-cloud-assets' })).toBe('ADOBE_CC');
+    expect(detectConnectorVendor({ name: 'adobe_workfront_pm' })).toBe('ADOBE_WORKFRONT');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'snowflake' } })).toBe('SNOWFLAKE');
+    expect(detectConnectorVendor({ name: 'snowflake-federated-analytics' })).toBe('SNOWFLAKE');
+    expect(detectConnectorVendor({ connectorState: { dataSource: 'databricks' } })).toBe('DATABRICKS');
+    expect(detectConnectorVendor({ name: 'databricks-unity-catalog-prod' })).toBe('DATABRICKS');
   });
 
   it('detects connectors by collection displayName when resource name is an opaque ID', () => {
@@ -178,9 +185,12 @@ describe('Dynamic Checklist: Registry Definitions', () => {
     expect(def.sections[0].items.some((i) => i.automatedProbe?.type === 'IAM_PERMISSION_CHECK')).toBe(true);
   });
 
-  it('contains all 156 official Gemini Enterprise vendors with authentic categories in getAllVendors()', () => {
+  it('contains all 159 official Gemini Enterprise vendors with authentic categories in getAllVendors()', () => {
     const vendors = getAllVendors();
-    expect(vendors.length).toBe(156);
+    expect(vendors.length).toBe(159);
+    expect(vendors.some((v) => v.id === 'ADOBE_CC')).toBe(true);
+    expect(vendors.some((v) => v.id === 'SNOWFLAKE')).toBe(true);
+    expect(vendors.some((v) => v.id === 'DATABRICKS')).toBe(true);
     expect(vendors.some((v) => v.id === 'GCP_PEOPLE')).toBe(true);
     expect(vendors.some((v) => v.id === 'BYO_MCP')).toBe(true);
     expect(vendors.some((v) => v.id === 'JIRA')).toBe(true);
@@ -292,6 +302,9 @@ describe('Dynamic Checklist: Registry Definitions', () => {
       'SURVEYMONKEY',
       'WEBEX_MEETINGS',
       'WIX',
+      'ADOBE_CC',
+      'SNOWFLAKE',
+      'DATABRICKS',
     ];
     for (const vendorId of newVendors) {
       const def = getChecklistDefinition(vendorId);
@@ -299,6 +312,32 @@ describe('Dynamic Checklist: Registry Definitions', () => {
       expect(def.sections.length).toBeGreaterThanOrEqual(2);
       expect(def.sections[0].items.length).toBeGreaterThan(0);
       expect(def.documentationUrl).toContain('google.com');
+    }
+
+    // Verify Oct/Nov 2026 Data Cloud Federated MCP & newly GA supportedModes
+    const expectedModes: Record<string, string[]> = {
+      BIGQUERY: ['INGESTION', 'FEDERATED'],
+      ALLOYDB: ['INGESTION', 'FEDERATED'],
+      CLOUD_SQL: ['INGESTION', 'FEDERATED'],
+      SPANNER: ['INGESTION', 'FEDERATED'],
+      GSITES: ['INGESTION', 'FEDERATED'],
+      SALESFORCE: ['INGESTION', 'FEDERATED', 'ACTIONS'],
+      MONDAY: ['INGESTION', 'FEDERATED'],
+      GITHUB: ['INGESTION', 'FEDERATED', 'ACTIONS'],
+      TEAMS: ['INGESTION', 'FEDERATED', 'ACTIONS'],
+      JIRA_DC: ['INGESTION', 'FEDERATED', 'ACTIONS'],
+      CONFLUENCE_DC: ['INGESTION', 'FEDERATED'],
+      HUBSPOT: ['INGESTION', 'FEDERATED', 'ACTIONS'],
+      SERVICENOW: ['INGESTION', 'FEDERATED', 'ACTIONS'],
+      SLACK: ['INGESTION', 'FEDERATED', 'ACTIONS'],
+      BOX: ['INGESTION', 'FEDERATED'],
+      DROPBOX: ['INGESTION', 'FEDERATED'],
+      ADOBE_CC: ['FEDERATED', 'ACTIONS'],
+      SNOWFLAKE: ['FEDERATED'],
+      DATABRICKS: ['INGESTION', 'FEDERATED', 'ACTIONS'],
+    };
+    for (const [vid, modes] of Object.entries(expectedModes)) {
+      expect(getChecklistDefinition(vid).supportedModes).toEqual(modes);
     }
 
     // Verify ServiceNow includes all 24 individual table ACL checkboxes

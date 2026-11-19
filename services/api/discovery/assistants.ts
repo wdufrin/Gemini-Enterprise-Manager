@@ -159,10 +159,23 @@ export const sanitizeAssistantUpdateForEnrollment = (
   if (!enrollment.googleInternal) {
     delete sanitizedPayload.agentReasoningHidden;
     delete sanitizedPayload.toolConfig;
+    if (
+      sanitizedPayload.customerPolicy &&
+      typeof sanitizedPayload.customerPolicy === "object" &&
+      "agentReasoningHidden" in sanitizedPayload.customerPolicy
+    ) {
+      const nextPolicy = {
+        ...(sanitizedPayload.customerPolicy as Record<string, unknown>),
+      };
+      delete nextPolicy.agentReasoningHidden;
+      sanitizedPayload.customerPolicy = nextPolicy;
+    }
     sanitizedMask = sanitizedMask.filter(
       (field) =>
         field !== "agentReasoningHidden" &&
         field !== "agent_reasoning_hidden" &&
+        field !== "customerPolicy.agentReasoningHidden" &&
+        field !== "customer_policy.agent_reasoning_hidden" &&
         field !== "toolConfig" &&
         field !== "tool_config",
     );
@@ -170,10 +183,16 @@ export const sanitizeAssistantUpdateForEnrollment = (
 
   if (!enrollment.googleInternal && !enrollment.trustedTester) {
     delete sanitizedPayload.vertexAiSearchToolConfig;
+    delete sanitizedPayload.mapsGroundingType;
+    delete sanitizedPayload.defaultMapsGroundingToggleOff;
     sanitizedMask = sanitizedMask.filter(
       (field) =>
         field !== "vertexAiSearchToolConfig" &&
-        field !== "vertex_ai_search_tool_config",
+        field !== "vertex_ai_search_tool_config" &&
+        field !== "mapsGroundingType" &&
+        field !== "maps_grounding_type" &&
+        field !== "defaultMapsGroundingToggleOff" &&
+        field !== "default_maps_grounding_toggle_off",
     );
   }
 

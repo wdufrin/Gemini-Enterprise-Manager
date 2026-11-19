@@ -630,4 +630,71 @@ describe('SkillsViewer Component', () => {
       screen.queryByRole('button', { name: /Restrict to Personal Scope|Promote to Organization-wide/i })
     ).not.toBeInTheDocument();
   });
+
+  it('supports Suspend (with reason) on ENABLED skills and Reject (with reason) on DISABLED pending-review skills, rejecting blank reasons', async () => {
+    const disabledPendingSkill: Agent = {
+      name: 'projects/123/locations/global/collections/default_collection/engines/engine/assistants/assistant/agents/pending-skill-3',
+      displayName: 'Pending Legal Analyzer',
+      description: 'Pending admin review before org sharing.',
+      state: 'DISABLED',
+      agentType: 'SKILL',
+      skillAgentDefinition: {
+        instruction: '# Legal Review\nCheck NDA clauses.',
+      },
+    };
+    vi.mocked(api.suspendAgent).mockResolvedValue({
+      ...mockAgents[0],
+      state: 'SUSPENDED',
+    } as Agent);
+    vi.mocked(api.rejectAgent).mockResolvedValue({
+      ...disabledPendingSkill,
+      state: 'PRIVATE',
+    } as Agent);
+
+    const onRefreshSkills = vi.fn();
+    renderWithToast(
+      <SkillsViewer
+        agents={[...mockAgents, disabledPendingSkill]}
+        config={mockConfig}
+        userProfile={mockUserProfile}
+        onRefreshSkills={onRefreshSkills}
+      />
+    );
+
+    // 1. Suspend ENABLED skill (negative check for empty reason first)
+    fireEvent.click(screen.getByLabelText('Suspend Corporate Financial Forecaster'));
+    fireEvent.click(screen.getByTestId('confirm-skill-governance-btn'));
+    expect(await screen.findByText('Suspension reason is required.')).toBeInTheDocument();
+    expect(api.suspendAgent).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText(/Suspension Reason \(Required\)/i), {
+      target: { value: 'Audit triggered on GAAP skill' },
+    });
+    fireEvent.click(screen.getByTestId('confirm-skill-governance-btn'));
+
+    await waitFor(() => {
+      expect(api.suspendAgent).toHaveBeenCalledWith(
+        mockAgents[0].name,
+        'Audit triggered on GAAP skill',
+        mockConfig
+      );
+      expect(onRefreshSkills).toHaveBeenCalledTimes(1);
+    });
+
+    // 2. Reject DISABLED pending-review skill
+    fireEvent.click(screen.getByLabelText('Reject Pending Legal Analyzer'));
+    fireEvent.change(screen.getByLabelText(/Rejection Reason \(Required\)/i), {
+      target: { value: 'Missing Legal Ops approval' },
+    });
+    fireEvent.click(screen.getByTestId('confirm-skill-governance-btn'));
+
+    await waitFor(() => {
+      expect(api.rejectAgent).toHaveBeenCalledWith(
+        disabledPendingSkill.name,
+        'Missing Legal Ops approval',
+        mockConfig
+      );
+      expect(onRefreshSkills).toHaveBeenCalledTimes(2);
+    });
+  });
 });

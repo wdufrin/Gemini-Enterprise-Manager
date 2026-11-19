@@ -25,12 +25,17 @@
 export const GOOGLE_INTERNAL_ENGINE_UPDATE_FIELDS: readonly string[] = [
   "includeCrossDomainDocuments",
   "allowMultipleDataStoresSearchEngine",
-  "effectiveFeatures",
   "personalizationConfig",
   "agentCreationConfig",
   "agentControlConfig",
-  "globalFeatureToggleState",
   "adminEmailNotificationsConfig",
+  "mobileNotificationPolicy",
+  "essSettingsVersion",
+  "featureExceptions",
+  "importedTools",
+  "agentspaceConfig",
+  "kmsKeyName",
+  "driveDataConnectors",
 ];
 
 const toSnakeCase = (field: string): string =>

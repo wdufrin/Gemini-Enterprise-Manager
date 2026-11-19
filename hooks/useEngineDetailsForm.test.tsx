@@ -14,12 +14,18 @@
  * limitations under the License.
  */
 
-import { renderHook, waitFor, act } from '@testing-library/react';
+import React from 'react';
+import { fireEvent, render, renderHook, screen, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useEngineDetailsForm } from './useEngineDetailsForm';
 import { AppEngine, Config, WidgetConfig, WorkloadIdentityProvider } from '../types';
 import * as api from '../services/apiService';
 import { setCachedProjectEnrollment, clearCachedProjectEnrollment } from '../services/api/project';
+import { ModelConfigurationSection } from '../components/assistants/engine-details/ModelConfigurationSection';
+import { SearchEngineConfigSection } from '../components/assistants/engine-details/SearchEngineConfigSection';
+import { WebAppUiSettingsSection } from '../components/assistants/engine-details/WebAppUiSettingsSection';
+import { AdvancedEngineControlsSection } from '../components/assistants/engine-details/AdvancedEngineControlsSection';
+import { engineToControlsState } from '../components/assistants/engine-details/engineControls';
 
 vi.mock('../services/apiService', () => ({
   getIdpConfig: vi.fn(),
@@ -317,6 +323,7 @@ describe('useEngineDetailsForm hook — feature flags and custom flag management
     expect(featureKeys).toContain('preview-agents');
     expect(featureKeys).toContain('music-generation');
     expect(featureKeys).toContain('speech-generation');
+    expect(featureKeys).toContain('mcp-apps');
     expect(featureKeys).toContain('sobi');
 
     // Every catalog feature must have an explicit, accurate visibility tier ('GA' | 'PREVIEW' | 'INTERNAL')
@@ -324,11 +331,13 @@ describe('useEngineDetailsForm hook — feature flags and custom flag management
     expect(result.current.allDynamicFeatures.find(f => f.key === 'speech-to-text')?.visibility).toBe('GA');
     expect(result.current.allDynamicFeatures.find(f => f.key === 'license-tier-badge')?.visibility).toBe('GA');
     expect(result.current.allDynamicFeatures.find(f => f.key === 'in-app-notifications')?.visibility).toBe('GA');
-    expect(result.current.allDynamicFeatures.find(f => f.key === 'canvas-app-builder')?.visibility).toBe('PREVIEW');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'canvas-app-builder')?.visibility).toBe('GA');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'canvas-app-sharing')?.visibility).toBe('PREVIEW');
     expect(result.current.allDynamicFeatures.find(f => f.key === 'preview-agents')?.visibility).toBe('PREVIEW');
     expect(result.current.allDynamicFeatures.find(f => f.key === 'agent-marketplace')?.visibility).toBe('PREVIEW');
     expect(result.current.allDynamicFeatures.find(f => f.key === 'agent-scheduling')?.visibility).toBe('PREVIEW');
     expect(result.current.allDynamicFeatures.find(f => f.key === 'skill-security-scan')?.visibility).toBe('PREVIEW');
+    expect(result.current.allDynamicFeatures.find(f => f.key === 'mcp-apps')?.visibility).toBe('INTERNAL');
     expect(result.current.allDynamicFeatures.find(f => f.key === 'canvas-workspace')?.visibility).toBe('INTERNAL');
     expect(result.current.allDynamicFeatures.find(f => f.key === 'personalization-suggested-highlights')?.visibility).toBe('INTERNAL');
     expect(result.current.allDynamicFeatures.find(f => f.key === 'single-agent-orchestration')?.visibility).toBe('INTERNAL');
@@ -773,6 +782,445 @@ describe('useEngineDetailsForm hook — advanced GOOGLE_INTERNAL engine controls
     expect(api.updateEngine).not.toHaveBeenCalled();
     expect(result.current.error).toContain('Invalid coworker principal(s): alice@example.com');
   });
+
+  it('allows non-enrolled projects to save public globalFeatureToggleState and featurePolicies, while rejecting malformed policy members', async () => {
+    seedEnrollment(false);
+    const { result } = await render();
+
+    // First test negative validation on malformed featurePolicies member
+    act(() => {
+      result.current.handleFeaturePolicyChange('canvas', {
+        defaultAccess: 'DENY',
+        allowedMembers: 'not-a-valid-member',
+      });
+    });
+    expect(result.current.engineControlErrors.some(e => e.includes('Invalid allowed member(s) for canvas'))).toBe(true);
+    await submit(result);
+    expect(api.updateEngine).not.toHaveBeenCalled();
+    expect(result.current.error).toContain('Invalid allowed member(s) for canvas');
+
+    // Now fix member syntax and set releaseChannel on non-enrolled project
+    act(() => {
+      result.current.handleEngineControlChange('releaseChannel', 'SCHEDULED');
+      result.current.handleFeaturePolicyChange('canvas', {
+        defaultAccess: 'DENY',
+        allowedMembers: 'USER:alice@example.com, group:designers@example.com',
+        deniedMembers: 'user:contractor@example.com',
+      });
+    });
+    expect(result.current.engineControlErrors).toEqual([]);
+    await submit(result);
+
+    expect(api.updateEngine).toHaveBeenCalledTimes(1);
+    const [, rawPayload, mask] = vi.mocked(api.updateEngine).mock.calls[0];
+    const payload = rawPayload as Partial<AppEngine>;
+    expect(mask).toEqual(expect.arrayContaining(['globalFeatureToggleState', 'featurePolicies']));
+    expect(payload.globalFeatureToggleState).toBe('SCHEDULED');
+    expect(payload.featurePolicies?.canvas).toEqual({
+      defaultAccess: 'DENY',
+      allowedMembers: [
+        { type: 'USER', id: 'alice@example.com' },
+        { type: 'GROUP', id: 'designers@example.com' },
+      ],
+      deniedMembers: [{ type: 'USER', id: 'contractor@example.com' }],
+    });
+    expect(result.current.error).toBeNull();
+  });
 });
+
+describe('useEngineDetailsForm hook — P0/P1 bug fixes, mutual exclusivity, gateway/procurement, and UI settings', () => {
+  const freshEngine: AppEngine = {
+    name: 'projects/test-project/locations/ca/collections/default_collection/engines/fresh-1',
+    displayName: 'Fresh Enterprise App',
+    solutionType: 'SOLUTION_TYPE_SEARCH',
+    features: {},
+  };
+
+  const mockConfig: Config = {
+    projectId: 'test-project',
+    appLocation: 'ca',
+    collectionId: 'default_collection',
+    appId: 'fresh-1',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearCachedProjectEnrollment();
+    vi.mocked(api.listLicenseConfigs).mockResolvedValue({ licenseConfigs: [] });
+    vi.mocked(api.getWidgetConfig).mockResolvedValue({
+      name: `${freshEngine.name}/widgetConfigs/default_search_widget_config`,
+      accessSettings: { enableWebApp: true },
+      uiSettings: {
+        enableAutocomplete: true,
+        modelConfigInfo: {
+          resolvedModels: [
+            {
+              modelId: 'gemini-3.5-flash',
+              displayName: 'Gemini 3.5 Flash',
+              adminView: { enabledByDefault: true, adminOverridable: false, regions: ['ca'] },
+            },
+          ],
+        },
+      },
+    });
+    vi.mocked(api.getAclConfig).mockResolvedValue({
+      name: 'projects/test-project/locations/ca/aclConfig',
+      idpConfig: { idpType: 'GSUITE' },
+    });
+    vi.mocked(api.updateEngine).mockResolvedValue(freshEngine);
+    vi.mocked(api.updateWidgetConfig).mockImplementation(async (_name, payload) => ({
+      name: `${freshEngine.name}/widgetConfigs/default_search_widget_config`,
+      ...(payload as Partial<WidgetConfig>),
+    }));
+  });
+
+  it('Bug 1 & canvas-app-sharing guard: initializes disable-canvas to false via defaultOn on empty engine and does NOT cascade-mutate canvas-app-sharing', async () => {
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: freshEngine,
+        config: mockConfig,
+        onUpdateSuccess: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.isLoadingIdp).toBe(false));
+
+    // Bug 1 fix: disable-canvas has defaultOn: false, while other inverted keys have defaultOn: true
+    expect(result.current.features['disable-canvas']).toBe(false);
+    expect(result.current.features['disable-agent-sharing']).toBe(true);
+    expect(result.current.features['disable-image-generation']).toBe(true);
+    expect(result.current.features['disable-video-generation']).toBe(true);
+    expect(result.current.features['canvas-app-sharing']).toBe(true);
+
+    // Enable disable-canvas, then toggle it OFF again — canvas-app-sharing must remain untouched (true)
+    act(() => {
+      result.current.handleFeatureChange('disable-canvas');
+    });
+    expect(result.current.features['disable-canvas']).toBe(true);
+    act(() => {
+      result.current.handleFeatureChange('disable-canvas');
+    });
+    expect(result.current.features['disable-canvas']).toBe(false);
+    expect(result.current.features['canvas-app-sharing']).toBe(true);
+  });
+
+  it('Bug 2 fix: enabling positive-keyed legacy feature (projects) on a fresh engine ALWAYS writes disable-projects=FEATURE_STATE_OFF', async () => {
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: freshEngine,
+        config: mockConfig,
+        onUpdateSuccess: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.isLoadingIdp).toBe(false));
+
+    expect(result.current.features['projects']).toBe(false);
+
+    act(() => {
+      result.current.handleFeatureChange('projects');
+    });
+    expect(result.current.features['projects']).toBe(true);
+
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
+    });
+
+    const [, payload, mask] = vi.mocked(api.updateEngine).mock.calls[0];
+    expect(mask).toContain('features');
+    const submitted = payload.features as Record<string, string>;
+    expect(submitted['projects']).toBe('FEATURE_STATE_ON');
+    expect(submitted['disable-projects']).toBe('FEATURE_STATE_OFF');
+    expect(submitted['single-agent-orchestration']).toBe('FEATURE_STATE_OFF');
+    expect(submitted['disable-single-agent-orchestration']).toBe('FEATURE_STATE_ON');
+    expect(submitted['multi-agent-orchestration']).toBe('FEATURE_STATE_OFF');
+    expect(submitted['disable-multi-agent-orchestration']).toBe('FEATURE_STATE_ON');
+  });
+
+  it('enforces single-select mutual exclusivity across Vision & Image models while allowing toggle-off, and blocks adminOverridable=false', async () => {
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: freshEngine,
+        config: mockConfig,
+        onUpdateSuccess: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.isLoadingIdp).toBe(false));
+
+    // Enable gemini-3.1-flash-image
+    act(() => {
+      result.current.handleModelChange('gemini-3.1-flash-image');
+    });
+    expect(result.current.modelConfigs['gemini-3.1-flash-image']).toBe(true);
+    expect(result.current.modelConfigs['gemini-3-pro-image']).toBe(false);
+    expect(result.current.modelConfigs['gemini-2.5-flash-image']).toBe(false);
+
+    // Enable gemini-3-pro-image -> automatically disables gemini-3.1-flash-image
+    act(() => {
+      result.current.handleModelChange('gemini-3-pro-image');
+    });
+    expect(result.current.modelConfigs['gemini-3-pro-image']).toBe(true);
+    expect(result.current.modelConfigs['gemini-3.1-flash-image']).toBe(false);
+    expect(result.current.modelConfigs['gemini-2.5-flash-image']).toBe(false);
+
+    // Toggling the active image model again turns it off cleanly
+    act(() => {
+      result.current.handleModelChange('gemini-3-pro-image');
+    });
+    expect(result.current.modelConfigs['gemini-3-pro-image']).toBe(false);
+
+    // Attempting to toggle a model with adminOverridable=false must be a no-op
+    expect(result.current.modelConfigs['gemini-3.5-flash']).toBe(true);
+    act(() => {
+      result.current.handleModelChange('gemini-3.5-flash');
+    });
+    expect(result.current.modelConfigs['gemini-3.5-flash']).toBe(true);
+  });
+
+  it('validates and patches procurementContactEmails, agentGatewaySetting, and WidgetConfig.uiSettings checkboxes', async () => {
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: freshEngine,
+        config: mockConfig,
+        onUpdateSuccess: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.isLoadingIdp).toBe(false));
+
+    // Negative test 1: malformed procurement email blocks save
+    act(() => {
+      result.current.handleChange({
+        target: { name: 'procurementContactEmails', value: 'valid@example.com, not-an-email', type: 'text' },
+      } as unknown as React.ChangeEvent<HTMLInputElement>);
+    });
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
+    });
+    expect(api.updateEngine).not.toHaveBeenCalled();
+    expect(result.current.error).toContain('Invalid procurement contact email(s): not-an-email');
+
+    // Negative test 2: malformed Agent Gateway resource blocks save
+    act(() => {
+      result.current.handleChange({
+        target: { name: 'procurementContactEmails', value: 'valid@example.com, ops@example.com', type: 'text' },
+      } as unknown as React.ChangeEvent<HTMLInputElement>);
+      result.current.handleChange({
+        target: { name: 'defaultEgressAgentGateway', value: 'https://invalid-gateway-url', type: 'text' },
+      } as unknown as React.ChangeEvent<HTMLInputElement>);
+    });
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
+    });
+    expect(api.updateEngine).not.toHaveBeenCalled();
+    expect(result.current.error).toContain('Invalid Egress Agent Gateway resource name');
+
+    // Positive save with valid procurement emails, valid Agent Gateway, and all 3 new uiSettings checkboxes
+    act(() => {
+      result.current.handleChange({
+        target: {
+          name: 'defaultEgressAgentGateway',
+          value: 'projects/test-project/locations/us-central1/agentGateways/corp-egress-1',
+          type: 'text',
+        },
+      } as unknown as React.ChangeEvent<HTMLInputElement>);
+      result.current.handleChange({
+        target: { name: 'sourceAdminDisplayNameEnabled', checked: true, type: 'checkbox' },
+      } as unknown as React.ChangeEvent<HTMLInputElement>);
+      result.current.handleChange({
+        target: { name: 'enablePeopleSearch', checked: true, type: 'checkbox' },
+      } as unknown as React.ChangeEvent<HTMLInputElement>);
+      result.current.handleChange({
+        target: { name: 'disableUserEventsCollection', checked: true, type: 'checkbox' },
+      } as unknown as React.ChangeEvent<HTMLInputElement>);
+    });
+
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent);
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(api.updateEngine).toHaveBeenCalledWith(
+      freshEngine.name,
+      expect.objectContaining({
+        procurementContactEmails: ['valid@example.com', 'ops@example.com'],
+        agentGatewaySetting: {
+          defaultEgressAgentGateway: {
+            name: 'projects/test-project/locations/us-central1/agentGateways/corp-egress-1',
+          },
+        },
+      }),
+      expect.arrayContaining(['procurementContactEmails', 'agentGatewaySetting']),
+      mockConfig,
+    );
+
+    expect(api.updateWidgetConfig).toHaveBeenCalledWith(
+      freshEngine.name,
+      expect.objectContaining({
+        uiSettings: expect.objectContaining({
+          sourceAdminDisplayNameEnabled: true,
+          enablePeopleSearch: true,
+          disableUserEventsCollection: true,
+        }),
+      }),
+      expect.arrayContaining(['uiSettings']),
+      mockConfig,
+    );
+  });
+
+  it('evaluates isSubscriptionTierActive accurately for ENTERPRISE_EMERGING and EDU* tiers', async () => {
+    vi.mocked(api.listLicenseConfigs).mockResolvedValue({
+      licenseConfigs: [
+        {
+          name: 'projects/test-project/locations/global/licenseConfigs/sku-enterprise-emerging',
+          displayName: 'Gemini Enterprise Emerging Markets',
+          state: 'ACTIVE',
+        },
+        {
+          name: 'projects/test-project/locations/global/licenseConfigs/sku-edu-pro',
+          displayName: 'Gemini Education Plus',
+          state: 'ACTIVE',
+          subscriptionTier: 'SUBSCRIPTION_TIER_EDU_PRO',
+        },
+        {
+          name: 'projects/test-project/locations/global/licenseConfigs/sku-edu-gov-emerging',
+          displayName: 'Gemini Education Gov Emerging',
+          state: 'ACTIVE',
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useEngineDetailsForm({
+        engine: freshEngine,
+        config: mockConfig,
+        onUpdateSuccess: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.projectLicenseConfigs).toHaveLength(3));
+
+    expect(result.current.isSubscriptionTierActive('SUBSCRIPTION_TIER_ENTERPRISE_EMERGING')).toBe(true);
+    expect(result.current.isSubscriptionTierActive('SUBSCRIPTION_TIER_ENTERPRISE')).toBe(false);
+    expect(result.current.isSubscriptionTierActive('SUBSCRIPTION_TIER_EDU_PRO')).toBe(true);
+    expect(result.current.isSubscriptionTierActive('SUBSCRIPTION_TIER_EDU_GOV_EMERGING')).toBe(true);
+    expect(result.current.isSubscriptionTierActive('SUBSCRIPTION_TIER_EDU')).toBe(false);
+  });
+});
+
+describe('Engine section UI components — regional gcp.resourceLocations warnings and subscription tier labels', () => {
+  it('renders regional gcp.resourceLocations warning badge when model is unsupported in appLocation and disables adminOverridable=false', () => {
+    render(
+      <ModelConfigurationSection
+        modelConfigs={{ 'gemini-4-neon': false, 'gemini-3.8-flash': true }}
+        onModelChange={vi.fn()}
+        onAddCustomModel={vi.fn()}
+        dynamicModels={[
+          {
+            id: 'gemini-4-neon',
+            displayName: 'Gemini 4 Neon',
+            description: 'Frontier reasoning model.',
+            isPreview: false,
+            category: 'Pro / Reasoning',
+            visibility: 'GA',
+          },
+          {
+            id: 'gemini-3.8-flash',
+            displayName: 'Gemini 3.8 Flash',
+            description: 'Fast model.',
+            isPreview: false,
+            category: 'Flash / Speed',
+            visibility: 'GA',
+            adminOverridable: false,
+          },
+        ]}
+        legacyModels={[]}
+        showLegacyModels={false}
+        onToggleShowLegacyModels={vi.fn()}
+        appLocation="ca"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Model Configuration/i }));
+
+    // gemini-4-neon is only in global/us/eu -> must show regional warning in ca
+    expect(screen.getByText(/Not in ca \(gcp\.resourceLocations\)/i)).toBeTruthy();
+    // gemini-3.8-flash IS supported in ca, and has adminOverridable=false -> Locked badge + disabled checkbox
+    expect(screen.getByText('Locked (Not Overridable)')).toBeTruthy();
+    const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    expect(checkboxes[0].disabled).toBe(false);
+    expect(checkboxes[1].disabled).toBe(true);
+  });
+
+  it('renders corrected Gemini Enterprise Plus / Standard labels and all GA Emerging/EDU options in SearchEngineConfigSection', () => {
+    render(
+      <SearchEngineConfigSection
+        searchTier="SEARCH_TIER_ENTERPRISE"
+        requiredSubscriptionTier="SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT"
+        searchAddOnLlm={true}
+        onChange={vi.fn()}
+        projectLicenseConfigs={[]}
+        isSubscriptionTierActive={() => true}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Search Engine Configuration/i }));
+
+    expect(screen.getByRole('option', { name: 'Gemini Enterprise Plus (Search & Assistant) Tier' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Gemini Enterprise Standard Tier' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Gemini Enterprise Standard (Emerging Markets) Tier' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Gemini Education Standard Tier' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Gemini Education Plus (Pro) Tier' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Gemini Education Standard (Emerging Markets) Tier' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Gemini Education Plus (Emerging Markets) Tier' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Gemini Education Gov (Emerging Markets) Tier' })).toBeTruthy();
+  });
+
+  it('renders P1 WebAppUiSettingsSection checkboxes and keeps Release Channel & featurePolicies editable when googleInternal=false', () => {
+    const onUiChange = vi.fn();
+    render(
+      <WebAppUiSettingsSection
+        enableWebApp={true}
+        enableAutocomplete={true}
+        enableQualityFeedback={true}
+        sourceAdminDisplayNameEnabled={true}
+        enablePeopleSearch={false}
+        disableUserEventsCollection={false}
+        onChange={onUiChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Gemini Web App UI Settings/i }));
+    expect(screen.getByLabelText(/Show Admin-Configured Source Display Names/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Enable People & Directory Search in Web App/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Disable User Events Collection/i)).toBeTruthy();
+
+    const controls = engineToControlsState({
+      name: 'projects/p/locations/global/collections/default_collection/engines/e1',
+      displayName: 'E1',
+    });
+    const onFeaturePolicyChange = vi.fn();
+    render(
+      <AdvancedEngineControlsSection
+        controls={controls}
+        errors={[]}
+        googleInternalEnrollment={false}
+        onChange={vi.fn()}
+        onFeaturePolicyChange={onFeaturePolicyChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Advanced Engine & Governance Controls/i }));
+
+    // Release channel and per-feature RBAC controls remain enabled even when googleInternalEnrollment === false
+    const releaseSelect = screen.getByLabelText(/Release Channel/i) as HTMLSelectElement;
+    expect(releaseSelect.disabled).toBe(false);
+
+    // Internal-only controls remain disabled when googleInternalEnrollment === false
+    const maxUserInput = screen.getByLabelText(/Max agents per user/i) as HTMLInputElement;
+    expect(maxUserInput.disabled).toBe(true);
+
+    // All 4 policy-capable features are rendered and interactive
+    expect(screen.getByText('no-code-agent-builder')).toBeTruthy();
+    expect(screen.getByText('canvas')).toBeTruthy();
+    expect(screen.getByText('skills')).toBeTruthy();
+    expect(screen.getByText('workflow-agents')).toBeTruthy();
+  });
+});
+
 
 

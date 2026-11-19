@@ -14,18 +14,21 @@
  * limitations under the License.
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import * as api from '../services/apiService';
 import { Config, DataConnector } from '../types';
 import { toErrorMessage } from '../utils/errors';
 import {
   DynamicToolItem,
+  McpToolAnnotations,
   CustomParamItem,
   InstructionPreset,
   CitationMappingRuleItem,
   KNOWN_ACTION_PARAM_KEYS,
   OAUTH_ACTION_PARAM_KEYS,
   SYSTEM_MANAGED_ACTION_PARAM_KEYS,
+  registerByomcpAuthBridge,
+  registerByomcpAdvancedBridge,
 } from '../components/connectors/byomcp/types';
 import {
   parseCitationMappingsFromApi,
@@ -34,10 +37,90 @@ import {
   validateRawCitationMappingsObject,
 } from '../components/connectors/byomcp/citationPointerUtils';
 
+function normalizeToolAnnotations(raw: unknown): McpToolAnnotations | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const rec = raw as Record<string, unknown>;
+  const annotations: McpToolAnnotations = {};
+  if (typeof rec.title === 'string' && rec.title.trim()) annotations.title = rec.title.trim();
+  if (typeof rec.readOnlyHint === 'boolean') annotations.readOnlyHint = rec.readOnlyHint;
+  else if (typeof rec.read_only_hint === 'boolean') annotations.readOnlyHint = rec.read_only_hint;
+  if (typeof rec.destructiveHint === 'boolean') annotations.destructiveHint = rec.destructiveHint;
+  else if (typeof rec.destructive_hint === 'boolean')
+    annotations.destructiveHint = rec.destructive_hint;
+  if (typeof rec.idempotentHint === 'boolean') annotations.idempotentHint = rec.idempotentHint;
+  else if (typeof rec.idempotent_hint === 'boolean')
+    annotations.idempotentHint = rec.idempotent_hint;
+  if (typeof rec.openWorldHint === 'boolean') annotations.openWorldHint = rec.openWorldHint;
+  else if (typeof rec.open_world_hint === 'boolean')
+    annotations.openWorldHint = rec.open_world_hint;
+  return Object.keys(annotations).length > 0 ? annotations : undefined;
+}
+
+function parseEgressFqdnList(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => String(item || '').trim())
+      .filter((item) => item.length > 0);
+  }
+  if (typeof raw === 'string') {
+    return raw
+      .split(/[\s,]+/)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }
+  return [];
+}
+
 function buildInitialDynamicTools(connector?: DataConnector): DynamicToolItem[] {
   if (!connector) return [];
   const enabledActions: string[] = connector.bapConfig?.enabledActions || [];
   const dynTools: DynamicToolItem[] = [];
+
+  const connectorAny = connector as DataConnector & {
+    connectorTools?: Array<Record<string, unknown>>;
+  };
+  const rawConnectorTools = Array.isArray(connectorAny.connectorTools)
+    ? connectorAny.connectorTools
+    : Array.isArray(
+        (connector.actionConfig as Record<string, unknown> | undefined)?.connectorTools
+      )
+    ? ((connector.actionConfig as Record<string, unknown>).connectorTools as Array<
+        Record<string, unknown>
+      >)
+    : [];
+
+  const connectorToolsByName = new Map<
+    string,
+    {
+      annotations?: McpToolAnnotations;
+      hitlMode?: string;
+      displayName?: string;
+      description?: string;
+      enabled?: boolean;
+    }
+  >();
+  rawConnectorTools.forEach((ct) => {
+    const toolName = typeof ct?.name === 'string' ? ct.name : '';
+    if (!toolName) return;
+    const directAnnotations =
+      normalizeToolAnnotations(ct.annotations) || normalizeToolAnnotations(ct);
+    const hitlMode =
+      typeof ct.hitlMode === 'string' && ct.hitlMode.trim()
+        ? ct.hitlMode.trim()
+        : typeof ct.hitl_mode === 'string' && ct.hitl_mode.trim()
+        ? (ct.hitl_mode as string).trim()
+        : undefined;
+    connectorToolsByName.set(toolName, {
+      annotations: directAnnotations,
+      hitlMode,
+      displayName:
+        (typeof ct.displayName === 'string' && ct.displayName) ||
+        directAnnotations?.title ||
+        undefined,
+      description: typeof ct.description === 'string' ? ct.description : undefined,
+      enabled: typeof ct.enabled === 'boolean' ? ct.enabled : undefined,
+    });
+  });
 
   const rawTools =
     Array.isArray(connector.dynamicTools) && connector.dynamicTools.length > 0
@@ -55,19 +138,53 @@ function buildInitialDynamicTools(connector?: DataConnector): DynamicToolItem[] 
         enabled?: boolean;
         inputSchema?: Record<string, unknown>;
         outputSchema?: Record<string, unknown>;
+        annotations?: unknown;
+        hitlMode?: string;
       }) => {
+        const meta = connectorToolsByName.get(t.name);
         const isEnabled =
-          t.enabled !== undefined ? Boolean(t.enabled) : enabledActions.includes(t.name);
+          t.enabled !== undefined
+            ? Boolean(t.enabled)
+            : meta?.enabled !== undefined
+            ? meta.enabled
+            : enabledActions.includes(t.name);
+        const mergedAnnotations =
+          meta?.annotations || normalizeToolAnnotations(t.annotations);
+        const mergedHitl =
+          meta?.hitlMode ||
+          (typeof t.hitlMode === 'string' && t.hitlMode.trim() ? t.hitlMode.trim() : undefined);
         dynTools.push({
           name: t.name,
-          displayName: t.displayName || t.name,
-          description: t.description || '',
+          displayName: t.displayName || meta?.displayName || t.name,
+          description: t.description || meta?.description || '',
           enabled: isEnabled,
           inputSchema: t.inputSchema,
           outputSchema: t.outputSchema,
+          ...(mergedAnnotations ? { annotations: mergedAnnotations } : {}),
+          ...(mergedHitl ? { hitlMode: mergedHitl } : {}),
         });
       }
     );
+  } else if (rawConnectorTools.length > 0) {
+    rawConnectorTools.forEach((ct) => {
+      const toolName = typeof ct?.name === 'string' ? ct.name : '';
+      if (!toolName) return;
+      const meta = connectorToolsByName.get(toolName);
+      const isEnabled =
+        meta?.enabled !== undefined
+          ? meta.enabled
+          : enabledActions.length > 0
+          ? enabledActions.includes(toolName)
+          : true;
+      dynTools.push({
+        name: toolName,
+        displayName: meta?.displayName || toolName,
+        description: meta?.description || '',
+        enabled: isEnabled,
+        ...(meta?.annotations ? { annotations: meta.annotations } : {}),
+        ...(meta?.hitlMode ? { hitlMode: meta.hitlMode } : {}),
+      });
+    });
   } else if (enabledActions.length > 0) {
     enabledActions.forEach((act) => {
       dynTools.push({
@@ -135,10 +252,18 @@ export function useBYOMCPConfig({
   const [clientId, setClientId] = useState<string>('');
   const [clientSecret, setClientSecret] = useState<string>('');
   const [showClientSecret, setShowClientSecret] = useState<boolean>(false);
+  const [pkceSupportEnabled, setPkceSupportEnabled] = useState<boolean>(false);
+  const [clientSecretBasicOverride, setClientSecretBasicOverride] = useState<boolean>(false);
   const [mcpServerSource, setMcpServerSource] = useState<string>('BYO_MCP');
   const [registryMcpServerName, setRegistryMcpServerName] = useState<string>('');
   const [citationMappings, setCitationMappings] = useState<CitationMappingRuleItem[]>([]);
   const [customActionParams, setCustomActionParams] = useState<CustomParamItem[]>([]);
+
+  // VPC / Private Connectivity (Agent Gateway & Service Directory VPC-SC)
+  const [useAgentGatewayEgress, setUseAgentGatewayEgress] = useState<boolean>(false);
+  const [agentGatewayEngine, setAgentGatewayEngine] = useState<string>('');
+  const [egressFqdns, setEgressFqdns] = useState<string>('');
+  const [serviceDirectoryServiceName, setServiceDirectoryServiceName] = useState<string>('');
 
   // Tools & BAP Config
   const [dynamicTools, setDynamicTools] = useState<DynamicToolItem[]>([]);
@@ -198,9 +323,21 @@ export function useBYOMCPConfig({
     setAuthUriParams(aParams);
     setClientId(cId);
     setClientSecret(cSecret);
+    setPkceSupportEnabled(Boolean(actionParams.pkce_support_enabled));
+    setClientSecretBasicOverride(Boolean(actionParams.client_secret_basic_override));
     setMcpServerSource(mSource);
     setRegistryMcpServerName(regName);
     setCitationMappings(parseCitationMappingsFromApi(actionParams.citation_mappings));
+
+    setUseAgentGatewayEgress(Boolean(actionParams.use_agent_gateway_egress));
+    setAgentGatewayEngine(
+      typeof actionParams.agent_gateway_engine === 'string'
+        ? actionParams.agent_gateway_engine
+        : ''
+    );
+    setEgressFqdns(parseEgressFqdnList(actionParams.egress_fqdns).join(', '));
+    const rawServiceName = connector.actionConfig?.serviceName || '';
+    setServiceDirectoryServiceName(rawServiceName.startsWith('projects/') ? rawServiceName : '');
 
     // Custom action params
     const customList: CustomParamItem[] = [];
@@ -246,9 +383,15 @@ export function useBYOMCPConfig({
 
       const masks = new Set<string>();
       if (parsed) {
-        const actionConfig = parsed.actionConfig as { actionParams?: Record<string, unknown> } | undefined;
+        const actionConfig = parsed.actionConfig as {
+          actionParams?: Record<string, unknown>;
+          serviceName?: string;
+        } | undefined;
         if (actionConfig?.actionParams && Object.keys(actionConfig.actionParams).length > 0) {
           masks.add('action_config.action_params');
+        }
+        if (actionConfig?.serviceName !== undefined) {
+          masks.add('action_config.service_name');
         }
         if (parsed.bapConfig) {
           masks.add('bap_config');
@@ -305,6 +448,29 @@ export function useBYOMCPConfig({
       dynamicTools.length !== origDynamicTools.length;
 
     const customChanged = customActionParams.some((item) => item.key.trim().length > 0);
+    const origPkce = Boolean(origActionParams.pkce_support_enabled);
+    const origBasicOverride = Boolean(origActionParams.client_secret_basic_override);
+    const pkceChanged = pkceSupportEnabled !== origPkce;
+    const basicOverrideChanged = clientSecretBasicOverride !== origBasicOverride;
+
+    const origUseGateway = Boolean(origActionParams.use_agent_gateway_egress);
+    const origGatewayEngine =
+      typeof origActionParams.agent_gateway_engine === 'string'
+        ? origActionParams.agent_gateway_engine.trim()
+        : '';
+    const origEgressFqdns = parseEgressFqdnList(origActionParams.egress_fqdns);
+    const currentEgressFqdns = parseEgressFqdnList(egressFqdns);
+    const vpcParamsChanged =
+      useAgentGatewayEgress !== origUseGateway ||
+      agentGatewayEngine.trim() !== origGatewayEngine ||
+      JSON.stringify(currentEgressFqdns) !== JSON.stringify(origEgressFqdns);
+
+    const rawOrigServiceName = connector?.actionConfig?.serviceName || '';
+    const origServiceDirName = rawOrigServiceName.startsWith('projects/')
+      ? rawOrigServiceName.trim()
+      : '';
+    const serviceNameChanged = serviceDirectoryServiceName.trim() !== origServiceDirName;
+
     const authChanged = Boolean(clientId.trim()) || Boolean(clientSecret.trim());
     const noAuthUriChanged = authType === 'NO_AUTH' && uriChanged && Boolean(instanceUri.trim());
 
@@ -314,10 +480,17 @@ export function useBYOMCPConfig({
       instChanged ||
       citationMappingsChanged ||
       customChanged ||
+      vpcParamsChanged ||
       authChanged ||
+      pkceChanged ||
+      basicOverrideChanged ||
       noAuthUriChanged;
     const hasAnyChange =
-      actionParamsChanged || toolsChanged || intervalChanged || staticIpChanged;
+      actionParamsChanged ||
+      serviceNameChanged ||
+      toolsChanged ||
+      intervalChanged ||
+      staticIpChanged;
 
     const masks: string[] = [];
     const payload: Record<string, unknown> = {};
@@ -371,16 +544,33 @@ export function useBYOMCPConfig({
             ? trimmedParams
             : `&${trimmedParams}`;
         }
-        if (typeof origActionParams.pkce_support_enabled === 'boolean') {
-          actionParamsPayload.pkce_support_enabled = origActionParams.pkce_support_enabled;
+        if (
+          pkceSupportEnabled ||
+          pkceChanged ||
+          typeof origActionParams.pkce_support_enabled === 'boolean'
+        ) {
+          actionParamsPayload.pkce_support_enabled = pkceSupportEnabled;
         }
-        if (typeof origActionParams.client_secret_basic_override === 'boolean') {
-          actionParamsPayload.client_secret_basic_override =
-            origActionParams.client_secret_basic_override;
+        if (
+          clientSecretBasicOverride ||
+          basicOverrideChanged ||
+          typeof origActionParams.client_secret_basic_override === 'boolean'
+        ) {
+          actionParamsPayload.client_secret_basic_override = clientSecretBasicOverride;
         }
       } else if (authType === 'NO_AUTH' && uriChanged && instanceUri.trim()) {
         actionParamsPayload.auth_type = 'NO_AUTH';
         actionParamsPayload.instance_uri = instanceUri.trim();
+      }
+
+      if (vpcParamsChanged) {
+        actionParamsPayload.use_agent_gateway_egress = useAgentGatewayEgress;
+        if (agentGatewayEngine.trim() || origGatewayEngine) {
+          actionParamsPayload.agent_gateway_engine = agentGatewayEngine.trim();
+        }
+        if (currentEgressFqdns.length > 0 || origEgressFqdns.length > 0) {
+          actionParamsPayload.egress_fqdns = currentEgressFqdns;
+        }
       }
 
       customActionParams.forEach((item) => {
@@ -396,6 +586,15 @@ export function useBYOMCPConfig({
 
       payload.actionConfig = {
         actionParams: actionParamsPayload,
+      };
+    }
+
+    // 1b. Service Directory VPC-SC Private Connectivity (actionConfig.serviceName)
+    if (serviceNameChanged) {
+      masks.push('action_config.service_name');
+      payload.actionConfig = {
+        ...((payload.actionConfig as Record<string, unknown> | undefined) || {}),
+        serviceName: serviceDirectoryServiceName.trim(),
       };
     }
 
@@ -439,6 +638,12 @@ export function useBYOMCPConfig({
     customActionParams,
     clientId,
     clientSecret,
+    pkceSupportEnabled,
+    clientSecretBasicOverride,
+    useAgentGatewayEgress,
+    agentGatewayEngine,
+    egressFqdns,
+    serviceDirectoryServiceName,
     authType,
     scopes,
     authUri,
@@ -489,6 +694,26 @@ export function useBYOMCPConfig({
     }
     if (actionParams.client_secret !== undefined) {
       setClientSecret(String(actionParams.client_secret));
+    }
+    if (actionParams.pkce_support_enabled !== undefined) {
+      setPkceSupportEnabled(Boolean(actionParams.pkce_support_enabled));
+    }
+    if (actionParams.client_secret_basic_override !== undefined) {
+      setClientSecretBasicOverride(Boolean(actionParams.client_secret_basic_override));
+    }
+    if (actionParams.use_agent_gateway_egress !== undefined) {
+      setUseAgentGatewayEgress(Boolean(actionParams.use_agent_gateway_egress));
+    }
+    if (actionParams.agent_gateway_engine !== undefined) {
+      setAgentGatewayEngine(String(actionParams.agent_gateway_engine));
+    }
+    if (actionParams.egress_fqdns !== undefined) {
+      setEgressFqdns(parseEgressFqdnList(actionParams.egress_fqdns).join(', '));
+    }
+    if ((actionConfig as { serviceName?: string } | undefined)?.serviceName !== undefined) {
+      setServiceDirectoryServiceName(
+        String((actionConfig as { serviceName?: string }).serviceName || '')
+      );
     }
     if (actionParams.mcp_server_source !== undefined) {
       setMcpServerSource(String(actionParams.mcp_server_source));
@@ -589,15 +814,20 @@ export function useBYOMCPConfig({
 
       // Merge with existing enabled states if tool name matches
       const existingMap = new Map(dynamicTools.map((t) => [t.name, t]));
-      const newToolList: DynamicToolItem[] = tools.map((t: { name: string; description?: string; inputSchema?: Record<string, unknown>; outputSchema?: Record<string, unknown>; [key: string]: unknown }) => {
+      const newToolList: DynamicToolItem[] = tools.map((t: { name: string; description?: string; inputSchema?: Record<string, unknown>; outputSchema?: Record<string, unknown>; annotations?: unknown; hitlMode?: string; [key: string]: unknown }) => {
         const existing = existingMap.get(t.name);
+        const annotations = normalizeToolAnnotations(t.annotations) || existing?.annotations;
+        const hitlMode =
+          (typeof t.hitlMode === 'string' && t.hitlMode.trim()) || existing?.hitlMode;
         return {
           name: t.name,
-          displayName: existing?.displayName || t.name,
+          displayName: existing?.displayName || annotations?.title || t.name,
           description: t.description || existing?.description || '',
           enabled: existing ? existing.enabled : true,
           inputSchema: (t.inputSchema as Record<string, unknown> | undefined) || existing?.inputSchema,
           outputSchema: (t.outputSchema as Record<string, unknown> | undefined) || existing?.outputSchema,
+          ...(annotations ? { annotations } : {}),
+          ...(hitlMode ? { hitlMode } : {}),
         };
       });
 
@@ -676,9 +906,46 @@ export function useBYOMCPConfig({
   };
 
   // Custom action param handlers
-  const handleAddCustomParam = () => {
+  const handleAddCustomParam = useCallback(() => {
     setCustomActionParams((prev) => [...prev, { key: '', value: '' }]);
-  };
+  }, []);
+
+  const handleSetAuthType = useCallback((val: string) => {
+    setAuthType(val);
+  }, []);
+
+  const handleSetShowAdvancedAuth = useCallback((val: boolean) => {
+    setShowAdvancedAuth(val);
+  }, []);
+
+  const handleSetRefreshInterval = useCallback((val: string) => {
+    setRefreshInterval(val);
+  }, []);
+
+  const handleSetStaticIpEnabled = useCallback((val: boolean) => {
+    setStaticIpEnabled(val);
+  }, []);
+
+  registerByomcpAuthBridge([handleSetAuthType, handleSetShowAdvancedAuth], {
+    pkceSupportEnabled,
+    setPkceSupportEnabled,
+    clientSecretBasicOverride,
+    setClientSecretBasicOverride,
+  });
+
+  registerByomcpAdvancedBridge(
+    [handleSetRefreshInterval, handleSetStaticIpEnabled, handleAddCustomParam],
+    {
+      useAgentGatewayEgress,
+      setUseAgentGatewayEgress,
+      agentGatewayEngine,
+      setAgentGatewayEngine,
+      egressFqdns,
+      setEgressFqdns,
+      serviceDirectoryServiceName,
+      setServiceDirectoryServiceName,
+    }
+  );
 
   const handleUpdateCustomParam = (index: number, field: 'key' | 'value', val: string) => {
     setCustomActionParams((prev) => {
@@ -774,16 +1041,56 @@ export function useBYOMCPConfig({
       }
     }
 
+    const origActionParamsForCheck = connector?.actionConfig?.actionParams || {};
+    const pkceWasModified =
+      pkceSupportEnabled !== Boolean(origActionParamsForCheck.pkce_support_enabled);
+    const basicOverrideWasModified =
+      clientSecretBasicOverride !== Boolean(origActionParamsForCheck.client_secret_basic_override);
+
     if (
       editorMode === 'visual' &&
       authType === 'OAUTH' &&
-      (Boolean(clientId.trim()) || Boolean(clientSecret.trim())) &&
+      (Boolean(clientId.trim()) ||
+        Boolean(clientSecret.trim()) ||
+        pkceWasModified ||
+        basicOverrideWasModified) &&
       (!clientId.trim() || !clientSecret.trim())
     ) {
       setSaveError(
-        'Both Client ID and Client Secret are required when updating OAuth credentials.'
+        'Both Client ID and Client Secret are required when updating OAuth credentials or PKCE settings.'
       );
       return;
+    }
+
+    if (editorMode === 'visual') {
+      const trimmedServiceDir = serviceDirectoryServiceName.trim();
+      if (
+        trimmedServiceDir &&
+        !/^projects\/[^/\s]+\/locations\/[^/\s]+\/namespaces\/[^/\s]+\/services\/[^/\s]+$/.test(
+          trimmedServiceDir
+        )
+      ) {
+        setSaveError(
+          'Invalid Service Directory serviceName: expected projects/{project}/locations/{location}/namespaces/{namespace}/services/{service}.'
+        );
+        return;
+      }
+
+      const fqdnCandidates = parseEgressFqdnList(egressFqdns);
+      const invalidFqdn = fqdnCandidates.find(
+        (fqdn) =>
+          fqdn.includes('://') ||
+          fqdn.includes('/') ||
+          !/^(?:\*\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/.test(
+            fqdn
+          )
+      );
+      if (invalidFqdn) {
+        setSaveError(
+          `Invalid egress FQDN "${invalidFqdn}": enter bare domain hostnames (e.g. mcp.internal.example.com) without URL scheme or path.`
+        );
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -880,7 +1187,7 @@ export function useBYOMCPConfig({
     instanceUri,
     setInstanceUri,
     authType,
-    setAuthType,
+    setAuthType: handleSetAuthType,
     scopes,
     setScopes,
     authUri,
@@ -895,6 +1202,10 @@ export function useBYOMCPConfig({
     setClientSecret,
     showClientSecret,
     setShowClientSecret,
+    pkceSupportEnabled,
+    setPkceSupportEnabled,
+    clientSecretBasicOverride,
+    setClientSecretBasicOverride,
     mcpServerSource,
     setMcpServerSource,
     registryMcpServerName,
@@ -902,14 +1213,22 @@ export function useBYOMCPConfig({
     citationMappings,
     setCitationMappings,
     customActionParams,
+    useAgentGatewayEgress,
+    setUseAgentGatewayEgress,
+    agentGatewayEngine,
+    setAgentGatewayEngine,
+    egressFqdns,
+    setEgressFqdns,
+    serviceDirectoryServiceName,
+    setServiceDirectoryServiceName,
     dynamicTools,
     isRefreshingTools,
     refreshToolsError,
     refreshToolsSuccess,
     refreshInterval,
-    setRefreshInterval,
+    setRefreshInterval: handleSetRefreshInterval,
     staticIpEnabled,
-    setStaticIpEnabled,
+    setStaticIpEnabled: handleSetStaticIpEnabled,
     rawJsonText,
     setRawJsonText,
     rawJsonError,
@@ -924,7 +1243,7 @@ export function useBYOMCPConfig({
     copiedCurl,
     copiedJson,
     showAdvancedAuth,
-    setShowAdvancedAuth,
+    setShowAdvancedAuth: handleSetShowAdvancedAuth,
     isTestingConnectivity,
     connectivityResult,
     targetedPayload,

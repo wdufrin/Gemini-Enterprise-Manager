@@ -17,6 +17,11 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/slack/set-up-data-store",
       "sections": [
         {
@@ -204,6 +209,10 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/box",
       "sections": [
         {
@@ -349,8 +358,12 @@
           "dropbox"
         ]
       },
-      "supportsDataModeToggle": false,
+      "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/dropbox",
       "sections": [
         {
@@ -751,8 +764,12 @@
           "monday"
         ]
       },
-      "supportsDataModeToggle": false,
+      "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/monday/monday-configuration",
       "sections": [
         {
@@ -5328,6 +5345,148 @@
               "label": "Query Per Second (QPS) Rate Limit Reviewed",
               "subLabel": "Verify per-data-store QPS limit aligns with your Viator Tours & Activities tenant API quota.",
               "badge": "Recommended"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vendorId": "ADOBE_CC",
+      "vendorDisplayName": "Adobe Creative Cloud & Express",
+      "category": "Collaboration & Storage",
+      "detectionPatterns": {
+        "dataSources": [
+          "adobe_cc",
+          "adobe_creative_cloud",
+          "adobe_express"
+        ],
+        "nameSubstrings": [
+          "adobe_cc",
+          "adobe-cc",
+          "adobe creative cloud",
+          "creative-cloud",
+          "creative_cloud",
+          "adobe-express",
+          "adobe_express",
+          "adobe express"
+        ]
+      },
+      "supportsDataModeToggle": false,
+      "supportsActions": true,
+      "supportedModes": [
+        "FEDERATED",
+        "ACTIONS"
+      ],
+      "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/adobe-creative-cloud",
+      "sections": [
+        {
+          "id": "adobe_cc_oauth_health",
+          "title": "Adobe Developer Console OAuth 2.0 Web App & Automated Health",
+          "stepNumber": 1,
+          "description": "Configure an OAuth 2.0 Web App project in the Adobe Developer Console (Public Preview Nov 6, 2026), allowlist redirect URIs, and verify Discovery Engine health probes.",
+          "items": [
+            {
+              "id": "adobe_cc_dev_project",
+              "label": "Adobe Developer Console Project & OAuth Web App Credentials",
+              "subLabel": "Create a project in developer.adobe.com/console, add Creative Cloud Libraries / Adobe Express APIs with OAuth Web App authentication, and record the Client ID (API Key) and Client Secret.",
+              "badge": "Required",
+              "appliesToMode": "ALL",
+              "documentationUrl": "https://developer.adobe.com/console"
+            },
+            {
+              "id": "adobe_cc_redirect_uri",
+              "label": "OAuth 2.0 Redirect URI Registered",
+              "subLabel": "Add https://vertexaisearch.cloud.google.com/oauth-redirect to Redirect URI patterns in Adobe Developer Console.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ALL"
+            },
+            {
+              "id": "adobe_cc_iam_probe",
+              "label": "Discovery Engine IAM Permission Check",
+              "subLabel": "Verifies Discovery Engine Service Agent and caller IAM permissions on the host GCP project.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "IAM_PERMISSION_CHECK",
+                "requiredPermissions": [
+                  "discoveryengine.dataStores.get",
+                  "discoveryengine.collections.get"
+                ],
+                "description": "Checks Discovery Engine service agent role bindings for Adobe Creative Cloud."
+              }
+            },
+            {
+              "id": "adobe_cc_oauth_probe",
+              "label": "Connector Endpoint & Auth State Check",
+              "subLabel": "Verifies non-redacted connector parameters, actionConfig state, and absence of 401/Adobe IMS OAuth errors in GCP.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "OAUTH_CONFIG_VALIDITY",
+                "description": "Verifies Adobe Creative Cloud connector parameters and checks for backend OAuth errors in Discovery Engine."
+              }
+            },
+            {
+              "id": "adobe_cc_status_probe",
+              "label": "Connector State Health",
+              "subLabel": "Validates that the Adobe Creative Cloud & Express connector is ACTIVE in Discovery Engine with no failing operations.",
+              "badge": "Automated",
+              "appliesToMode": "ALL",
+              "automatedProbe": {
+                "type": "CONNECTOR_STATUS",
+                "expectedState": "ACTIVE",
+                "description": "Checks Adobe Creative Cloud connector status and latest operation logs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "adobe_cc_scopes_read",
+          "title": "Adobe IMS OAuth Scopes & Creative Cloud Entitlements (Read)",
+          "stepNumber": 2,
+          "description": "Ensure Adobe Identity Management System (IMS) OAuth scopes and enterprise Creative Cloud storage entitlements are active.",
+          "items": [
+            {
+              "id": "adobe_cc_ims_scopes",
+              "label": "Adobe IMS OAuth Scopes (openid, AdobeID, creative_sdk, cc_libraries)",
+              "subLabel": "Enable openid, AdobeID, creative_sdk, and Creative Cloud Libraries / Content read scopes so users can search brand kits, templates, and cloud assets.",
+              "codeSnippet": "openid AdobeID creative_sdk offline_access",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            },
+            {
+              "id": "adobe_cc_enterprise_admin_consent",
+              "label": "Adobe Admin Console Product Profile Entitlement",
+              "subLabel": "Verify end users are assigned an active Creative Cloud for Enterprise or Adobe Express product profile in adminconsole.adobe.com.",
+              "badge": "Required",
+              "appliesToMode": "FEDERATED"
+            }
+          ]
+        },
+        {
+          "id": "adobe_cc_actions_section",
+          "title": "Assistant Actions & Creative Asset Generation Scopes",
+          "stepNumber": 3,
+          "description": "Write scopes required when enabling Gemini Assistant Actions to create or export Adobe Express / Creative Cloud assets.",
+          "items": [
+            {
+              "id": "adobe_cc_action_redirect_uri",
+              "label": "Actions OAuth Redirect URI Allowlisted",
+              "subLabel": "Ensure https://vertexaisearch.cloud.google.com/oauth-redirect is registered in Adobe Developer Console.",
+              "codeSnippet": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
+            },
+            {
+              "id": "adobe_cc_action_write_scopes",
+              "label": "Creative Cloud Asset & Library Write Scopes",
+              "subLabel": "Enable Creative Cloud Libraries write and Adobe Express asset creation scopes so Gemini can save generated designs and brand assets.",
+              "codeSnippet": "cc_libraries.write creative_sdk",
+              "badge": "Required",
+              "appliesToMode": "ACTIONS",
+              "isActionRequirement": true
             }
           ]
         }

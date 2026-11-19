@@ -266,6 +266,48 @@ export function detectConnectorVendor(connector: any): string {
     return 'ZOHO_PROJECTS';
   }
 
+  if (
+    dataSource.includes('adobe_workfront') ||
+    dataSource === 'workfront' ||
+    nameString.includes('adobe_workfront') ||
+    nameString.includes('adobe-workfront') ||
+    nameString.includes('workfront')
+  ) {
+    return 'ADOBE_WORKFRONT';
+  }
+
+  if (
+    dataSource.includes('adobe_cc') ||
+    dataSource.includes('adobe_creative_cloud') ||
+    dataSource.includes('adobe_express') ||
+    nameString.includes('adobe_cc') ||
+    nameString.includes('adobe-cc') ||
+    nameString.includes('adobe creative cloud') ||
+    nameString.includes('creative_cloud') ||
+    nameString.includes('creative-cloud') ||
+    nameString.includes('adobe_express') ||
+    nameString.includes('adobe-express') ||
+    nameString.includes('adobe express')
+  ) {
+    return 'ADOBE_CC';
+  }
+
+  if (
+    dataSource.includes('databricks') ||
+    nameString.includes('databricks') ||
+    nameString.includes('unity_catalog') ||
+    nameString.includes('unity-catalog')
+  ) {
+    return 'DATABRICKS';
+  }
+
+  if (
+    dataSource.includes('snowflake') ||
+    nameString.includes('snowflake')
+  ) {
+    return 'SNOWFLAKE';
+  }
+
   // 3. Exact or token match on known registry keys (prioritizing dataSources first, then nameSubstrings)
   const prioritySkip = new Set([
     'GENERIC',
@@ -282,6 +324,10 @@ export function detectConnectorVendor(connector: any): string {
     'ZOHO_BOOKS',
     'ZOHO_DESK',
     'ZOHO_PROJECTS',
+    'ADOBE_WORKFRONT',
+    'ADOBE_CC',
+    'DATABRICKS',
+    'SNOWFLAKE',
   ]);
 
   if (dataSource) {

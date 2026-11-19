@@ -19,13 +19,54 @@ import {
   EngineAgentApprovalMode,
   EngineAgentControlConfig,
   EngineDigestFrequency,
+  EngineFeaturePolicy,
+  EngineFeaturePolicyMember,
   EngineGlobalFeatureToggleState,
 } from '../../../types';
 
+export const POLICY_CAPABLE_FEATURES = [
+  {
+    key: 'no-code-agent-builder',
+    label: 'No-Code Agent Designer',
+    description: 'Per-user and per-group access policy for No-Code Agent Designer.',
+  },
+  {
+    key: 'canvas',
+    label: 'Canvas Side-by-Side Editor',
+    description: 'Per-user and per-group access policy for Canvas.',
+  },
+  {
+    key: 'skills',
+    label: 'Specialized Skills Engine',
+    description: 'Per-user and per-group access policy for Skills.',
+  },
+  {
+    key: 'workflow-agents',
+    label: 'Autonomous Workflow Agents',
+    description: 'Per-user and per-group access policy for Workflow Agents.',
+  },
+] as const;
+
+export type PolicyCapableFeatureKey = (typeof POLICY_CAPABLE_FEATURES)[number]['key'];
+export type FeaturePolicyDefaultAccess = 'DEFAULT_ACCESS_UNSPECIFIED' | 'ALLOW' | 'DENY';
+
+export interface FeaturePolicyFormEntry {
+  defaultAccess: FeaturePolicyDefaultAccess;
+  /** Newline or comma-separated `user:alice@example.com` or `group:team@example.com` entries. */
+  allowedMembers: string;
+  deniedMembers: string;
+}
+
+export const FEATURE_POLICY_DEFAULT_ACCESS_OPTIONS: { value: FeaturePolicyDefaultAccess; label: string }[] = [
+  { value: 'DEFAULT_ACCESS_UNSPECIFIED', label: 'Unset (inherit feature toggle)' },
+  { value: 'ALLOW', label: 'Allow by default (deny listed exceptions)' },
+  { value: 'DENY', label: 'Deny by default (allow listed exceptions)' },
+];
+
 /**
- * Form state for the five GOOGLE_INTERNAL top-level Engine controls
- * (engine.proto: globalFeatureToggleState, agentCreationConfig, agentControlConfig,
- * adminEmailNotificationsConfig, personalizationConfig).
+ * Form state for top-level Engine governance controls
+ * (engine.proto: globalFeatureToggleState, featurePolicies, agentCreationConfig,
+ * agentControlConfig, adminEmailNotificationsConfig, personalizationConfig).
  */
 export interface EngineControlsState {
   releaseChannel: EngineGlobalFeatureToggleState;
@@ -42,6 +83,7 @@ export interface EngineControlsState {
   coworkerApprovalThreshold: string;
   cpiWorkspaceEnterprise: boolean;
   cpiDataCloud: boolean;
+  featurePolicies: Record<PolicyCapableFeatureKey, FeaturePolicyFormEntry>;
 }
 
 export const RELEASE_CHANNEL_OPTIONS: { value: EngineGlobalFeatureToggleState; label: string; description: string }[] = [
@@ -72,11 +114,51 @@ const CPI_DATA_CLOUD_KEY = 'data_cloud';
 /** Accepted IAM-style principal prefixes for coworker.allowedPrincipals. */
 const PRINCIPAL_PATTERN = /^(user|group|domain|serviceAccount):[^\s:]+$|^principal(Set)?:\/\/\S+$/;
 
+/** Accepted user:/group: member entry for Engine.featurePolicies (case-insensitive prefix, normalized to USER/GROUP). */
+const POLICY_MEMBER_PATTERN = /^(user|group):([^\s@:;<>,"']+@[^\s@:;<>,"']+\.[^\s@:;<>,"']+)$/i;
+
 const parsePrincipals = (raw: string): string[] =>
   raw
     .split(/[\n,]/)
     .map(p => p.trim())
     .filter(Boolean);
+
+const splitMemberTokens = (raw: string): string[] =>
+  raw
+    .split(/[\n,]/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+export const parsePolicyMemberToken = (rawToken: string): EngineFeaturePolicyMember | null => {
+  const match = rawToken.trim().match(POLICY_MEMBER_PATTERN);
+  if (!match) return null;
+  return {
+    type: match[1].toUpperCase() as 'USER' | 'GROUP',
+    id: match[2],
+  };
+};
+
+export const parsePolicyMembers = (raw: string): EngineFeaturePolicyMember[] => {
+  const seen = new Set<string>();
+  const result: EngineFeaturePolicyMember[] = [];
+  for (const token of splitMemberTokens(raw)) {
+    const parsed = parsePolicyMemberToken(token);
+    if (parsed) {
+      const canonicalKey = `${parsed.type}:${parsed.id.toLowerCase()}`;
+      if (!seen.has(canonicalKey)) {
+        seen.add(canonicalKey);
+        result.push(parsed);
+      }
+    }
+  }
+  return result;
+};
+
+const formatPolicyMembers = (members?: EngineFeaturePolicyMember[]): string =>
+  (members || [])
+    .filter(m => Boolean(m && m.id))
+    .map(m => `${(m.type || 'USER').toLowerCase()}:${m.id}`)
+    .join('\n');
 
 const int64ToInput = (v: string | number | undefined): string =>
   v === undefined || v === null || v === '' ? '' : String(v);
@@ -90,6 +172,21 @@ export const engineToControlsState = (engine: AppEngine): EngineControlsState =>
   const control = engine.agentControlConfig;
   const sharing = control?.coworker?.sharing;
   const cpiMap = engine.personalizationConfig?.crossProductIntelligenceClientEnabledMap;
+
+  const featurePolicies = {} as Record<PolicyCapableFeatureKey, FeaturePolicyFormEntry>;
+  for (const f of POLICY_CAPABLE_FEATURES) {
+    const existing = engine.featurePolicies?.[f.key];
+    const defaultAccess: FeaturePolicyDefaultAccess =
+      existing?.defaultAccess === 'ALLOW' || existing?.defaultAccess === 'DENY'
+        ? existing.defaultAccess
+        : 'DEFAULT_ACCESS_UNSPECIFIED';
+    featurePolicies[f.key] = {
+      defaultAccess,
+      allowedMembers: formatPolicyMembers(existing?.allowedMembers),
+      deniedMembers: formatPolicyMembers(existing?.deniedMembers),
+    };
+  }
+
   return {
     releaseChannel: engine.globalFeatureToggleState || 'GLOBAL_FEATURE_TOGGLE_STATE_UNSPECIFIED',
     maxUserAgentCount: int64ToInput(engine.agentCreationConfig?.maxUserAgentCount),
@@ -105,6 +202,7 @@ export const engineToControlsState = (engine: AppEngine): EngineControlsState =>
       sharing?.approvalThresholdUserCount === undefined ? '' : String(sharing.approvalThresholdUserCount),
     cpiWorkspaceEnterprise: cpiMap?.[CPI_WORKSPACE_KEY] ?? false,
     cpiDataCloud: cpiMap?.[CPI_DATA_CLOUD_KEY] ?? false,
+    featurePolicies,
   };
 };
 
@@ -143,7 +241,47 @@ export const validateControlsState = (state: EngineControlsState): string[] => {
   } else if (state.coworkerApprovalThreshold.trim() && !isNonNegativeIntString(state.coworkerApprovalThreshold)) {
     errors.push('Approval threshold must be a whole number.');
   }
+
+  for (const f of POLICY_CAPABLE_FEATURES) {
+    const entry = state.featurePolicies?.[f.key];
+    if (!entry) continue;
+    const invalidAllowed = splitMemberTokens(entry.allowedMembers).filter(t => !parsePolicyMemberToken(t));
+    if (invalidAllowed.length > 0) {
+      errors.push(
+        `Invalid allowed member(s) for ${f.key}: ${invalidAllowed.join(', ')}. Use user:email@domain.com or group:team@domain.com.`,
+      );
+    }
+    const invalidDenied = splitMemberTokens(entry.deniedMembers).filter(t => !parsePolicyMemberToken(t));
+    if (invalidDenied.length > 0) {
+      errors.push(
+        `Invalid denied member(s) for ${f.key}: ${invalidDenied.join(', ')}. Use user:email@domain.com or group:team@domain.com.`,
+      );
+    }
+    const allowedParsed = parsePolicyMembers(entry.allowedMembers);
+    const deniedSet = new Set(
+      parsePolicyMembers(entry.deniedMembers).map(m => `${m.type}:${m.id.toLowerCase()}`),
+    );
+    const overlapping = allowedParsed.filter(m => deniedSet.has(`${m.type}:${m.id.toLowerCase()}`));
+    if (overlapping.length > 0) {
+      errors.push(
+        `Feature policy for ${f.key} cannot list the same member in both allowed and denied lists: ${overlapping.map(m => `${m.type.toLowerCase()}:${m.id}`).join(', ')}.`,
+      );
+    }
+  }
+
   return errors;
+};
+
+const serializePolicyCanonical = (entry?: FeaturePolicyFormEntry): string => {
+  if (!entry) return 'DEFAULT_ACCESS_UNSPECIFIED||';
+  const def = entry.defaultAccess || 'DEFAULT_ACCESS_UNSPECIFIED';
+  const allowed = parsePolicyMembers(entry.allowedMembers)
+    .map(m => `${m.type}:${m.id}`)
+    .join(',');
+  const denied = parsePolicyMembers(entry.deniedMembers)
+    .map(m => `${m.type}:${m.id}`)
+    .join(',');
+  return `${def}|${allowed}|${denied}`;
 };
 
 /**
@@ -235,6 +373,40 @@ export const buildControlsUpdate = (
       },
     };
     updateMask.push('personalizationConfig');
+  }
+
+  const featurePoliciesChanged = POLICY_CAPABLE_FEATURES.some(
+    f =>
+      serializePolicyCanonical(state.featurePolicies?.[f.key]) !==
+      serializePolicyCanonical(baseline.featurePolicies?.[f.key]),
+  );
+
+  if (featurePoliciesChanged) {
+    const nextPolicies: Record<string, EngineFeaturePolicy> = { ...(engine.featurePolicies || {}) };
+    for (const f of POLICY_CAPABLE_FEATURES) {
+      const entry = state.featurePolicies?.[f.key];
+      const defaultAccess = entry?.defaultAccess || 'DEFAULT_ACCESS_UNSPECIFIED';
+      const allowed = parsePolicyMembers(entry?.allowedMembers || '');
+      const denied = parsePolicyMembers(entry?.deniedMembers || '');
+
+      if (defaultAccess === 'DEFAULT_ACCESS_UNSPECIFIED' && allowed.length === 0 && denied.length === 0) {
+        delete nextPolicies[f.key];
+      } else {
+        const nextEntry: EngineFeaturePolicy = {};
+        if (defaultAccess !== 'DEFAULT_ACCESS_UNSPECIFIED') {
+          nextEntry.defaultAccess = defaultAccess;
+        }
+        if (allowed.length > 0) {
+          nextEntry.allowedMembers = allowed;
+        }
+        if (denied.length > 0) {
+          nextEntry.deniedMembers = denied;
+        }
+        nextPolicies[f.key] = nextEntry;
+      }
+    }
+    payload.featurePolicies = nextPolicies;
+    updateMask.push('featurePolicies');
   }
 
   return { payload, updateMask };

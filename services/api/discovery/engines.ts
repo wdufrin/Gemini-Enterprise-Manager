@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { AppEngine, Config, CollectionItem, ListResourcesResponse, IamPolicy, Operation } from "../../../types";
+import { AppEngine, CmekConfig, Config, CollectionItem, ListResourcesResponse, IamPolicy, Operation } from "../../../types";
 import {
   gapiRequest,
   getDiscoveryEngineUrl,
@@ -181,29 +181,78 @@ export const createEngine = async (
 };
 
 /**
- * Strips GOOGLE_INTERNAL fields from an Engine update payload and updateMask
- * when the target project is known not to be enrolled in GOOGLE_INTERNAL.
+ * Read-only Engine fields (`OUTPUT_ONLY` in `v1main/engine.proto`) that must never be
+ * included in an Engine PATCH payload or updateMask.
+ */
+const ENGINE_OUTPUT_ONLY_FIELDS: readonly string[] = [
+  "effectiveFeatures",
+  "effective_features",
+  "associatedAgentRegistry",
+  "associated_agent_registry",
+  "cmekConfig",
+  "cmek_config",
+  "featurePolicyRejections",
+  "feature_policy_rejections",
+  "agentCloudConfig",
+  "agent_cloud_config",
+];
+
+const isOutputOnlyEngineField = (maskField: string): boolean => {
+  const topLevel = maskField.split(".")[0];
+  return ENGINE_OUTPUT_ONLY_FIELDS.includes(topLevel);
+};
+
+/**
+ * Strips OUTPUT_ONLY fields and, when the target project is known not to be enrolled
+ * in GOOGLE_INTERNAL, strips GOOGLE_INTERNAL fields from an Engine update payload and updateMask.
  */
 export const sanitizeEngineUpdateForEnrollment = (
   payload: Partial<AppEngine> | Record<string, unknown>,
   updateMask: string[],
   projectId?: string,
 ): { sanitizedPayload: Partial<AppEngine> | Record<string, unknown>; sanitizedMask: string[] } => {
+  const sanitizedPayload: Record<string, unknown> = { ...payload };
+  ENGINE_OUTPUT_ONLY_FIELDS.forEach((field) => {
+    delete sanitizedPayload[field];
+  });
+  let sanitizedMask = updateMask.filter((field) => !isOutputOnlyEngineField(field));
+
   const enrollment = getCachedProjectEnrollment(projectId);
   if (!enrollment || enrollment.googleInternal) {
-    return { sanitizedPayload: payload, sanitizedMask: updateMask };
+    return { sanitizedPayload, sanitizedMask };
   }
 
-  const sanitizedPayload: Record<string, unknown> = { ...payload };
   GOOGLE_INTERNAL_ENGINE_UPDATE_FIELDS.forEach((field) => {
     delete sanitizedPayload[field];
   });
 
-  const sanitizedMask = updateMask.filter(
+  sanitizedMask = sanitizedMask.filter(
     (field) => !isGoogleInternalEngineField(field),
   );
 
   return { sanitizedPayload, sanitizedMask };
+};
+
+const requiresV1AlphaEngineEndpoint = (
+  payload: Partial<AppEngine> | Record<string, unknown>,
+  updateMask: string[],
+): boolean => {
+  const obs = payload.observabilityConfig as Record<string, unknown> | undefined;
+  if (
+    obs &&
+    (obs.artifactGcsBucket !== undefined || obs.userPrincipalLoggingEnabled !== undefined)
+  ) {
+    return true;
+  }
+  return updateMask.some(
+    (f) =>
+      f.includes("artifactGcsBucket") ||
+      f.includes("artifact_gcs_bucket") ||
+      f.includes("userPrincipalLoggingEnabled") ||
+      f.includes("user_principal_logging_enabled") ||
+      f.startsWith("importedTools") ||
+      f.startsWith("imported_tools"),
+  );
 };
 
 export const updateEngine = async (
@@ -228,7 +277,10 @@ export const updateEngine = async (
     ? name
     : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${name}`;
 
-  const url = `${baseUrl}/${DISCOVERY_API_BETA}/${resourcePath}?updateMask=${sanitizedMask.join(",")}`;
+  const apiVer = requiresV1AlphaEngineEndpoint(sanitizedPayload, sanitizedMask)
+    ? DISCOVERY_API_VERSION
+    : DISCOVERY_API_BETA;
+  const url = `${baseUrl}/${apiVer}/${resourcePath}?updateMask=${sanitizedMask.join(",")}`;
   return gapiRequest<AppEngine>(url, "PATCH", projectId, undefined, sanitizedPayload);
 };
 
@@ -306,4 +358,30 @@ export const listCollections = async (
   const baseUrl = getDiscoveryEngineUrl(appLocation);
   const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections`;
   return gapiRequest<{ collections?: CollectionItem[] }>(url, "GET", projectId, undefined, undefined, undefined, true);
+};
+
+export const getCmekConfig = async (
+  config: Config,
+  cmekConfigName?: string,
+  suppressErrorLog?: boolean,
+): Promise<CmekConfig> => {
+  const { projectId, appLocation } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+  const resourcePath = cmekConfigName
+    ? cmekConfigName.startsWith("projects/")
+      ? cmekConfigName
+      : `projects/${projectId}/locations/${appLocation}/cmekConfigs/${cmekConfigName}`
+    : `projects/${projectId}/locations/${appLocation}/cmekConfig`;
+  const url = `${baseUrl}/v1/${resourcePath}`;
+  return gapiRequest<CmekConfig>(url, "GET", projectId, undefined, undefined, undefined, suppressErrorLog);
+};
+
+export const listCmekConfigs = async (
+  config: Config,
+  suppressErrorLog: boolean = true,
+): Promise<{ cmekConfigs?: CmekConfig[] }> => {
+  const { projectId, appLocation } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+  const url = `${baseUrl}/v1/projects/${projectId}/locations/${appLocation}/cmekConfigs`;
+  return gapiRequest<{ cmekConfigs?: CmekConfig[] }>(url, "GET", projectId, undefined, undefined, undefined, suppressErrorLog);
 };

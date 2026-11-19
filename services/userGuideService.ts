@@ -67,13 +67,14 @@ export const GUIDE_CATEGORIES = [
 export type GuideCategory = typeof GUIDE_CATEGORIES[number];
 
 /**
- * The 15 active sidebar Page values rendered in components/Sidebar.tsx across 5 groups.
+ * The 17 active sidebar Page values rendered in components/Sidebar.tsx across 5 groups.
  */
 export const ACTIVE_SIDEBAR_PAGES = [
   // Group 1: Agent Management
   Page.AGENTS,
   Page.SKILLS_REGISTRY,
   Page.AGENT_BUILDER,
+  Page.DEV_TOOLS,
   Page.AGENT_ENGINES,
   // Group 2: Knowledge & Resources
   Page.DATA_STORES,
@@ -94,7 +95,7 @@ export const ACTIVE_SIDEBAR_PAGES = [
 ] as const;
 
 /**
- * Canonical mapping from each of the 16 active sidebar Page values to its sidebar label and GuideSection ID.
+ * Canonical mapping from each of the 17 active sidebar Page values to its sidebar label and GuideSection ID.
  */
 export const TAB_MAPPING: Record<
   (typeof ACTIVE_SIDEBAR_PAGES)[number],
@@ -113,6 +114,11 @@ export const TAB_MAPPING: Record<
   [Page.AGENT_BUILDER]: {
     label: 'ADK Studio',
     sectionId: 'ch1-adk-studio',
+    group: 'Agent Management',
+  },
+  [Page.DEV_TOOLS]: {
+    label: 'AI Developer Tools',
+    sectionId: 'ch1-ai-developer-tools',
     group: 'Agent Management',
   },
   [Page.AGENT_ENGINES]: {
@@ -189,6 +195,7 @@ export const PAGE_TO_SECTION_MAP: Record<Page, string> = {
   [Page.AGENTS]: 'ch1-ge-agent-manager',
   [Page.SKILLS_REGISTRY]: 'ch1-skills-registry',
   [Page.AGENT_BUILDER]: 'ch1-adk-studio',
+  [Page.DEV_TOOLS]: 'ch1-ai-developer-tools',
   [Page.AGENT_ENGINES]: 'ch1-agent-runtimes',
   [Page.CLOUD_RUN_AGENTS]: 'ch1-agent-runtimes',
   [Page.DIALOGFLOW_AGENTS]: 'ch1-agent-runtimes',
@@ -232,7 +239,7 @@ const CHAPTER_METADATA: Array<{
     raw: ch1Raw,
     category: 'Agent Management',
     shortTitle: 'Agent Management',
-    description: 'GE Agent Manager, Skills Registry, ADK Studio, and Vertex AI Agent Runtimes.',
+    description: 'GE Agent Manager, Skills Registry, ADK Studio, AI Developer Tools, and Vertex AI Agent Runtimes.',
   },
   {
     id: 'ch2',
@@ -284,6 +291,7 @@ function mapTabName(title: string): string | undefined {
   if (lower.includes('ge agent manager') || lower === 'agent manager') return 'GE Agent Manager';
   if (lower.includes('skills registry')) return 'Skills Registry';
   if (lower.includes('adk studio') || lower.includes('agent builder')) return 'ADK Studio';
+  if (lower.includes('ai developer tools')) return 'AI Developer Tools';
   if (lower.includes('latency testing lab')) return 'Latency Testing Lab';
   if (lower.includes('engines & assistants') || lower.includes('assistants')) return 'Engines & Assistants';
   if (lower.includes('agent runtimes') || lower.includes('engines')) return 'Agent Runtimes';

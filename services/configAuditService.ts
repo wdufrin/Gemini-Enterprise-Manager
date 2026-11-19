@@ -323,8 +323,18 @@ export async function runConfigAudit(
       const tgtHasMa = Boolean(tgtMa?.userPromptTemplate || tgtMa?.responseTemplate);
       const srcFailureMode = srcMa?.failureMode || 'DEFAULT';
       const tgtFailureMode = tgtMa?.failureMode || 'DEFAULT';
-      const srcBannedCount = srcAsst.customerPolicy?.bannedPhrases?.bannedPhrases?.length || 0;
-      const tgtBannedCount = tgtAsst.customerPolicy?.bannedPhrases?.bannedPhrases?.length || 0;
+      const getBannedPhraseCount = (
+        bp: typeof srcAsst.customerPolicy extends { bannedPhrases?: infer T } ? T : unknown
+      ): number => {
+        if (!bp) return 0;
+        if (Array.isArray(bp)) return bp.length;
+        if (typeof bp === 'object' && 'bannedPhrases' in bp && Array.isArray(bp.bannedPhrases)) {
+          return bp.bannedPhrases.length;
+        }
+        return 0;
+      };
+      const srcBannedCount = getBannedPhraseCount(srcAsst.customerPolicy?.bannedPhrases);
+      const tgtBannedCount = getBannedPhraseCount(tgtAsst.customerPolicy?.bannedPhrases);
 
       const formatPolicySummary = (
         hasMa: boolean,

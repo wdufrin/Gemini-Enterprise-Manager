@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { Config, Operation } from "../../types";
+import { Config, Operation, UserStore, ProjectOverageConfig } from "../../types";
 import {
   UserLicense,
   LicenseConfig,
@@ -252,4 +252,87 @@ export const retractLicense = async (
   const url = `${baseUrl}/${DISCOVERY_API_VERSION}/billingAccounts/${billingAccountId}/billingAccountLicenseConfigs/${billingAccountLicenseConfigId}:retractLicenseConfig`;
 
   return gapiRequest<Operation | Record<string, unknown>>(url, "POST", projectId, undefined, payload);
+};
+
+export const getUserStore = async (
+  config: Pick<Config, "projectId" | "appLocation">,
+  userStoreId: string = "default_user_store",
+): Promise<UserStore> => {
+  const projectId = (config.projectId || "").trim();
+  if (!projectId) {
+    throw new Error("Project ID is required to fetch UserStore.");
+  }
+  const storeId = (userStoreId || "default_user_store").trim();
+  if (!storeId || !/^[a-zA-Z0-9_-]+$/.test(storeId)) {
+    throw new Error(`Invalid userStoreId: "${userStoreId}"`);
+  }
+  const location = (config.appLocation || "global").trim().toLowerCase();
+  const baseUrl = getDiscoveryEngineUrl(location);
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${location}/userStores/${storeId}`;
+  return gapiRequest<UserStore>(url, "GET", projectId);
+};
+
+export const updateUserStore = async (
+  userStore: Partial<UserStore>,
+  updateMask: string[],
+  config: Pick<Config, "projectId" | "appLocation">,
+  userStoreId: string = "default_user_store",
+): Promise<UserStore> => {
+  const projectId = (config.projectId || "").trim();
+  if (!projectId) {
+    throw new Error("Project ID is required to update UserStore.");
+  }
+  if (!Array.isArray(updateMask) || updateMask.length === 0) {
+    throw new Error("updateMask must contain at least one field when updating UserStore.");
+  }
+  const storeId = (userStoreId || "default_user_store").trim();
+  if (!storeId || !/^[a-zA-Z0-9_-]+$/.test(storeId)) {
+    throw new Error(`Invalid userStoreId: "${userStoreId}"`);
+  }
+  const location = (config.appLocation || "global").trim().toLowerCase();
+  const baseUrl = getDiscoveryEngineUrl(location);
+  const resourceName = `projects/${projectId}/locations/${location}/userStores/${storeId}`;
+  const maskParam = encodeURIComponent(updateMask.join(","));
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${resourceName}?updateMask=${maskParam}`;
+  return gapiRequest<UserStore>(url, "PATCH", projectId, undefined, {
+    name: resourceName,
+    ...userStore,
+  });
+};
+
+export const getProjectOverageConfig = async (
+  config: Pick<Config, "projectId" | "appLocation">,
+  checkEligibility: boolean = true,
+): Promise<ProjectOverageConfig> => {
+  const projectId = (config.projectId || "").trim();
+  if (!projectId) {
+    throw new Error("Project ID is required to fetch ProjectOverageConfig.");
+  }
+  const location = (config.appLocation || "global").trim().toLowerCase();
+  const baseUrl = getDiscoveryEngineUrl(location);
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${location}/projectOverageConfig?checkBillingAccountEligibility=${Boolean(checkEligibility)}`;
+  return gapiRequest<ProjectOverageConfig>(url, "GET", projectId);
+};
+
+export const updateProjectOverageConfig = async (
+  overageConfig: Partial<ProjectOverageConfig>,
+  updateMask: string[],
+  config: Pick<Config, "projectId" | "appLocation">,
+): Promise<ProjectOverageConfig> => {
+  const projectId = (config.projectId || "").trim();
+  if (!projectId) {
+    throw new Error("Project ID is required to update ProjectOverageConfig.");
+  }
+  if (!Array.isArray(updateMask) || updateMask.length === 0) {
+    throw new Error("updateMask must contain at least one field when updating ProjectOverageConfig.");
+  }
+  const location = (config.appLocation || "global").trim().toLowerCase();
+  const baseUrl = getDiscoveryEngineUrl(location);
+  const resourceName = `projects/${projectId}/locations/${location}/projectOverageConfig`;
+  const maskParam = encodeURIComponent(updateMask.join(","));
+  const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${resourceName}?updateMask=${maskParam}`;
+  return gapiRequest<ProjectOverageConfig>(url, "PATCH", projectId, undefined, {
+    name: resourceName,
+    ...overageConfig,
+  });
 };

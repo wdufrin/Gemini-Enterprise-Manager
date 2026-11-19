@@ -136,6 +136,7 @@ export type GeminiEnterpriseEdition =
     | 'Standard'
     | 'Plus'
     | 'Standard Emerging Market'
+    | 'Pay-As-You-Go (Consumption Only)'
     | 'EDU'
     | 'EDU Pro'
     | 'Frontline Worker'
@@ -150,7 +151,6 @@ export interface EditionQuotaSpec {
     grounding: number;
     webGrounding: number;
     agentCreation: number;
-    ideaGeneration: number;
     deepResearch: number;
     storageGiB: number;
     devToolsCreditsMonthlyUsd: number;
@@ -170,7 +170,6 @@ export const EDITION_QUOTA_SPECS: Record<GeminiEnterpriseEdition, EditionQuotaSp
         grounding: 160,
         webGrounding: 160,
         agentCreation: 1,
-        ideaGeneration: 1,
         deepResearch: 3,
         storageGiB: 30,
         devToolsCreditsMonthlyUsd: 10,
@@ -186,7 +185,6 @@ export const EDITION_QUOTA_SPECS: Record<GeminiEnterpriseEdition, EditionQuotaSp
         grounding: 200,
         webGrounding: 200,
         agentCreation: 10,
-        ideaGeneration: 1,
         deepResearch: 10,
         storageGiB: 75,
         devToolsCreditsMonthlyUsd: 15,
@@ -202,11 +200,25 @@ export const EDITION_QUOTA_SPECS: Record<GeminiEnterpriseEdition, EditionQuotaSp
         grounding: 40,
         webGrounding: 40,
         agentCreation: 1,
-        ideaGeneration: 1,
         deepResearch: 1,
         storageGiB: 10,
         devToolsCreditsMonthlyUsd: 0,
         supportsSingleUserLimit: true,
+        monitoringTier: 'Standard',
+    },
+    'Pay-As-You-Go (Consumption Only)': {
+        label: 'Pay-As-You-Go (Consumption Only)',
+        tasksAndActions: 0,
+        textAnswerGen: 0,
+        imageGen: 0,
+        videoGen: 0,
+        grounding: 0,
+        webGrounding: 0,
+        agentCreation: 0,
+        deepResearch: 0,
+        storageGiB: 0,
+        devToolsCreditsMonthlyUsd: 0,
+        supportsSingleUserLimit: false,
         monitoringTier: 'Standard',
     },
     EDU: {
@@ -218,7 +230,6 @@ export const EDITION_QUOTA_SPECS: Record<GeminiEnterpriseEdition, EditionQuotaSp
         grounding: 40,
         webGrounding: 40,
         agentCreation: 1,
-        ideaGeneration: 1,
         deepResearch: 1,
         storageGiB: 5,
         devToolsCreditsMonthlyUsd: 0,
@@ -234,7 +245,6 @@ export const EDITION_QUOTA_SPECS: Record<GeminiEnterpriseEdition, EditionQuotaSp
         grounding: 200,
         webGrounding: 200,
         agentCreation: 10,
-        ideaGeneration: 1,
         deepResearch: 10,
         storageGiB: 50,
         devToolsCreditsMonthlyUsd: 0,
@@ -250,7 +260,6 @@ export const EDITION_QUOTA_SPECS: Record<GeminiEnterpriseEdition, EditionQuotaSp
         grounding: 40,
         webGrounding: 40,
         agentCreation: 0,
-        ideaGeneration: 0,
         deepResearch: 1,
         storageGiB: 2,
         devToolsCreditsMonthlyUsd: 0,
@@ -266,7 +275,6 @@ export const EDITION_QUOTA_SPECS: Record<GeminiEnterpriseEdition, EditionQuotaSp
         grounding: 20,
         webGrounding: 20,
         agentCreation: 0,
-        ideaGeneration: 0,
         deepResearch: 0,
         storageGiB: 2,
         devToolsCreditsMonthlyUsd: 0,
@@ -277,6 +285,14 @@ export const EDITION_QUOTA_SPECS: Record<GeminiEnterpriseEdition, EditionQuotaSp
 
 export const resolveEditionFromTier = (tier?: string, configName?: string): GeminiEnterpriseEdition => {
     const normalized = (tier || '').toUpperCase().trim();
+    if (
+        normalized === 'SUBSCRIPTION_TIER_CONSUMPTION_ONLY' ||
+        normalized.includes('CONSUMPTION_ONLY') ||
+        normalized.includes('PAY_AS_YOU_GO') ||
+        normalized === 'PAYG'
+    ) {
+        return 'Pay-As-You-Go (Consumption Only)';
+    }
     if (normalized === 'GEMINI_ENTERPRISE_PLUS' || normalized.includes('AGENTS_ENTERPRISE_PLUS')) {
         return 'Plus';
     }
@@ -349,7 +365,6 @@ export interface CalculatedEditionQuotas {
     grounding: number;
     webGrounding: number;
     agentCreation: number;
-    ideaGeneration: number;
     deepResearch: number;
     storageGiB: number;
     devToolsCreditsMonthlyUsd: number;
@@ -365,8 +380,8 @@ export interface CalculatedEditionQuotas {
         grounding: number;
         webGrounding: number;
         agentCreation: number;
-        ideaGeneration: number;
         deepResearch: number;
+        devToolsCreditsWeeklyUsd: number;
     } | null;
 }
 
@@ -389,7 +404,6 @@ export const calculateEditionQuotas = (
         grounding: numLicenses * spec.grounding,
         webGrounding: numLicenses * spec.webGrounding,
         agentCreation: numLicenses * spec.agentCreation,
-        ideaGeneration: numLicenses * spec.ideaGeneration,
         deepResearch: numLicenses * spec.deepResearch,
         storageGiB: numLicenses * spec.storageGiB,
         devToolsCreditsMonthlyUsd: numLicenses * spec.devToolsCreditsMonthlyUsd,
@@ -402,6 +416,8 @@ export const calculateEditionQuotas = (
         return numLicenses > 0 ? Math.min(rawCap, pooledTotal) : rawCap;
     };
 
+    const perSeatWeeklyDevToolsUsd = spec.devToolsCreditsMonthlyUsd / 4;
+
     const singleUserCaps = singleUserLimitActive
         ? {
               tasksAndActions: computeCap(spec.tasksAndActions, pooled.tasksAndActions),
@@ -411,8 +427,11 @@ export const calculateEditionQuotas = (
               grounding: computeCap(spec.grounding, pooled.grounding),
               webGrounding: computeCap(spec.webGrounding, pooled.webGrounding),
               agentCreation: computeCap(spec.agentCreation, pooled.agentCreation),
-              ideaGeneration: computeCap(spec.ideaGeneration, pooled.ideaGeneration),
               deepResearch: computeCap(spec.deepResearch, pooled.deepResearch),
+              devToolsCreditsWeeklyUsd: computeCap(
+                  perSeatWeeklyDevToolsUsd,
+                  pooled.devToolsCreditsWeeklyUsd
+              ),
           }
         : null;
 
@@ -714,7 +733,6 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         videoGen: 'video_gen_numbers_tier_enterprise_regional',
                         grounding: 'grounding_with_search_tier_enterprise_regional',
                         webGrounding: 'web_grounding_for_enterprise_tier_enterprise_regional',
-                        ideaGeneration: 'idea_gen_start_instance_tier_enterprise_standard_regional',
                         deepResearch: 'deep_research_query_total_tier_enterprise_standard_regional'
                     },
                     Plus: {
@@ -724,7 +742,6 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         videoGen: 'video_gen_numbers_tier_enterprise_plus_regional',
                         grounding: 'grounding_with_search_tier_enterprise_plus_regional',
                         webGrounding: 'web_grounding_for_enterprise_tier_enterprise_plus_regional',
-                        ideaGeneration: 'idea_gen_start_instance_tier_enterprise_regional',
                         deepResearch: 'deep_research_query_total_tier_enterprise_regional'
                     }
                 };
@@ -1151,7 +1168,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                                     </span>
                                 </div>
                                 <p className="text-xs text-gray-400 mt-0.5">
-                                    Caps any individual user&apos;s daily usage from the shared edition pool to <code className="text-gray-300">per_user_quota &times; multiplier</code> (defaults to 10x). Does not apply to AI developer tools.
+                                    Caps any individual user&apos;s daily usage from the shared edition pool to <code className="text-gray-300">per_user_quota &times; multiplier</code> (defaults to 10x), and caps weekly AI Developer Tools credits on Standard/Plus (GA Nov 13, 2026).
                                 </p>
                             </div>
                         </div>
@@ -1240,6 +1257,16 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     <span className="bg-gray-700 text-gray-300 text-xs px-2 py-1 rounded">Project Level ({edition})</span>
                 </div>
 
+                {edition === 'Pay-As-You-Go (Consumption Only)' && (
+                    <div
+                        data-testid="payg-consumption-only-banner"
+                        className="mb-6 bg-blue-950/40 border border-blue-800/80 rounded-lg p-4 text-xs text-blue-200"
+                    >
+                        <strong>Pay-As-You-Go (Consumption Only) — <code className="font-mono">SUBSCRIPTION_TIER_CONSUMPTION_ONLY</code>:</strong>{' '}
+                        $0 monthly per-seat fee and 0 bundled daily/weekly quota pool. All assistant queries, search grounding, agent invocations, and indexed GiB storage are metered directly via Pay-As-You-Go consumption.
+                    </div>
+                )}
+
                 {/* Data & Actions Section */}
                 <div className="mb-6 pb-6 border-b border-gray-700/50">
                     <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider">Data &amp; actions</h3>
@@ -1313,15 +1340,6 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider">Agents</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <QuotaCard 
-                            title="Idea generation" 
-                            value={quotas.ideaGeneration} 
-                            usage={usageMetrics?.ideaGeneration}
-                            unit="ideas / day" 
-                            singleUserCap={quotas.singleUserCaps?.ideaGeneration}
-                            multiplier={quotas.effectiveMultiplier}
-                            tooltip="Pooled daily limit for Idea Generation agent runs (1/day per Standard or Plus seat). Metric: discoveryengine.googleapis.com/quota/idea_gen_start_instance_tier_enterprise*_regional/usage"
-                        />
-                        <QuotaCard 
                             title="Deep research" 
                             value={quotas.deepResearch} 
                             usage={usageMetrics?.deepResearch}
@@ -1377,7 +1395,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                         <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700 flex flex-col justify-between">
                             <div className="flex items-start justify-between mb-2">
                                 <h4 className="text-gray-300 text-sm font-semibold pr-2">AI developer tools credits</h4>
-                                <InfoTooltip text="Bundled credits for Google Antigravity, Antigravity for IDEs, and Android Studio ($10/mo per Standard seat, $15/mo per Plus seat). Enforced on a 7-day rolling basis as a shared weekly pool (monthly value ÷ 4 × seats). Single-user quota multipliers do not apply." />
+                                <InfoTooltip text="Bundled credits for Google Antigravity, Antigravity for IDEs, and Android Studio ($10/mo per Standard seat = $2.50/wk, $15/mo per Plus seat = $3.75/wk). Enforced on a 7-day rolling basis as a shared weekly pool. When Single-User Quota Limit is enabled (GA Nov 13, 2026), caps any single user's weekly credit consumption to multiplier × weekly seat allowance." />
                             </div>
                             <div className="flex items-baseline gap-1.5 mt-auto">
                                 <span data-testid="entitlement-devtools-weekly" className="text-2xl font-bold text-emerald-400">
@@ -1389,7 +1407,20 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                                     / 7-day pool ({noLicenses ? `$${currentEditionSpec.devToolsCreditsMonthlyUsd}/seat/mo` : `$${quotas.devToolsCreditsMonthlyUsd.toLocaleString()}/mo`})
                                 </span>
                             </div>
-                            <p className="mt-2 text-[11px] text-gray-400">Exempt from single-user quota multiplier; resets every 7 days</p>
+                            {quotas.singleUserCaps && quotas.singleUserCaps.devToolsCreditsWeeklyUsd > 0 && (
+                                <div
+                                    data-testid="devtools-single-user-weekly-cap"
+                                    className="mt-2.5 flex items-center justify-between gap-2 bg-indigo-950/60 border border-indigo-700/60 rounded px-2.5 py-1 text-xs text-indigo-200"
+                                >
+                                    <span>Max per user ({quotas.effectiveMultiplier}x weekly):</span>
+                                    <span className="font-semibold text-indigo-300">
+                                        ${quotas.singleUserCaps.devToolsCreditsWeeklyUsd.toLocaleString()} / week
+                                    </span>
+                                </div>
+                            )}
+                            <p className="mt-2 text-[11px] text-gray-400">
+                                Resets every 7 days; single-user weekly cap supported on Standard &amp; Plus (GA Nov 13, 2026)
+                            </p>
                         </div>
                     </div>
                 </div>

@@ -20,6 +20,7 @@ import { Agent, AppEngine, Config } from '../../../types';
 import * as api from '../../../services/apiService';
 import { BulkObservabilityResult, isGoogleManagedAgent } from '../../../services/api/discovery/agents';
 import { toErrorMessage } from '../../../utils/errors';
+import { GEMINI_ENTERPRISE_LOCATION_IDS } from '../../../utils/locations';
 
 interface Props {
   isOpen: boolean;
@@ -31,6 +32,33 @@ interface Props {
 }
 
 type TabType = 'coverage' | 'option1_eventarc' | 'option2_bulk' | 'option3_gateway';
+
+function validateArtifactGcsBucket(rawUri: string): string | null {
+  const trimmed = rawUri.trim();
+  if (!trimmed) return null;
+  if (!trimmed.startsWith('gs://')) {
+    return 'Artifact GCS Bucket URI must start with "gs://" (e.g., gs://my-agent-artifacts-bucket).';
+  }
+  const rest = trimmed.slice('gs://'.length);
+  if (!rest || rest.startsWith('/')) {
+    return 'Artifact GCS Bucket URI must specify a valid bucket name after "gs://".';
+  }
+  const slashIdx = rest.indexOf('/');
+  const bucketName = slashIdx === -1 ? rest : rest.slice(0, slashIdx);
+  const objectPrefix = slashIdx === -1 ? '' : rest.slice(slashIdx + 1);
+  if (
+    bucketName.length < 3 ||
+    bucketName.length > 222 ||
+    !/^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/.test(bucketName) ||
+    bucketName.includes('..')
+  ) {
+    return `Invalid GCS bucket name "${bucketName}". Bucket names must be at least 3 characters using lowercase letters, numbers, hyphens, underscores, or dots, and start/end with a letter or number.`;
+  }
+  if (/\s/.test(objectPrefix)) {
+    return 'Artifact GCS Bucket URI cannot contain whitespace.';
+  }
+  return null;
+}
 
 export const AgentObservabilityPolicyModal: React.FC<Props> = ({
   isOpen,
@@ -54,6 +82,8 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
   const [isSweeping, setIsSweeping] = useState(false);
   const [sweepResult, setSweepResult] = useState<BulkObservabilityResult | null>(null);
   const [includeSensitive, setIncludeSensitive] = useState(true);
+  const [userPrincipalLoggingEnabled, setUserPrincipalLoggingEnabled] = useState(false);
+  const [artifactGcsBucket, setArtifactGcsBucket] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useModalA11y({
@@ -172,10 +202,17 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
   }, [isOpen, activeTab, projectId, selectedEngineId, selectedLocation]);
 
   const handleRunSweep = async () => {
-    if (agents.length === 0) return;
-    setIsSweeping(true);
     setErrorMessage(null);
     setSweepResult(null);
+
+    const bucketErr = validateArtifactGcsBucket(artifactGcsBucket);
+    if (bucketErr) {
+      setErrorMessage(bucketErr);
+      return;
+    }
+
+    if (agents.length === 0) return;
+    setIsSweeping(true);
 
     const config: Config = {
       projectId,
@@ -186,10 +223,15 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
     };
 
     try {
-      const result = await api.bulkEnforceAgentsObservability(agents, config, {
+      const trimmedBucket = artifactGcsBucket.trim();
+      const targetObsConfig: NonNullable<Agent['observabilityConfig']> = {
         observabilityEnabled: true,
         sensitiveLoggingEnabled: includeSensitive,
-      });
+        ...(userPrincipalLoggingEnabled ? { userPrincipalLoggingEnabled: true } : {}),
+        ...(trimmedBucket ? { artifactGcsBucket: trimmedBucket } : {}),
+      };
+
+      const result = await api.bulkEnforceAgentsObservability(agents, config, targetObsConfig);
       setSweepResult(result);
 
       // Refresh agents to reflect changes
@@ -220,11 +262,14 @@ export const AgentObservabilityPolicyModal: React.FC<Props> = ({
     }
   };
 
+  const trimmedArtifactBucket = artifactGcsBucket.trim();
   const customAgents = agents.filter((a) => !isGoogleManagedAgent(a));
   const monitoredAgentsCount = customAgents.filter(
     (a) =>
       Boolean(a.observabilityConfig?.observabilityEnabled) &&
-      (!includeSensitive || Boolean(a.observabilityConfig?.sensitiveLoggingEnabled)),
+      (!includeSensitive || Boolean(a.observabilityConfig?.sensitiveLoggingEnabled)) &&
+      (!userPrincipalLoggingEnabled || Boolean(a.observabilityConfig?.userPrincipalLoggingEnabled)) &&
+      (!trimmedArtifactBucket || a.observabilityConfig?.artifactGcsBucket === trimmedArtifactBucket),
   ).length;
 
   // Terraform Snippet
@@ -391,7 +436,7 @@ def on_agent_created(cloud_event):
     payload = {
         "observabilityConfig": {
             "observabilityEnabled": True,
-            "sensitiveLoggingEnabled": ${includeSensitive ? 'True' : 'False'}
+            "sensitiveLoggingEnabled": ${includeSensitive ? 'True' : 'False'}${userPrincipalLoggingEnabled ? ',\n            "userPrincipalLoggingEnabled": True' : ''}${trimmedArtifactBucket && !validateArtifactGcsBucket(trimmedArtifactBucket) ? `,\n            "artifactGcsBucket": ${JSON.stringify(trimmedArtifactBucket)}` : ''}
         }
     }
     data_bytes = json.dumps(payload).encode("utf-8")
@@ -508,594 +553,649 @@ def on_agent_created(cloud_event):
         ))}
       </div>
 
-        {/* Modal Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 text-sm text-gray-300 custom-scrollbar">
-          {/* TAB 1: COVERAGE GAP */}
-          {activeTab === 'coverage' && (
-            <div className="space-y-6">
-              {/* Core Alert Banner */}
-              <div className="p-4 bg-amber-950/40 border border-amber-800/80 rounded-xl space-y-3">
-                <div className="flex items-center gap-2.5 text-amber-300 font-bold text-sm">
-                  <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <span>The Google Cloud Console Observability Default Reality</span>
-                </div>
-                <p className="text-xs leading-relaxed text-amber-200/90">
-                  <strong>Out of the box in the Google Cloud Console today, there is no native checkbox or Org Policy</strong> that says <em>&quot;automatically enable OpenTelemetry on all newly created no-code agents in this app.&quot;</em>
-                </p>
-                <p className="text-xs leading-relaxed text-amber-200/90">
-                  Because Google treats prompt logging and trace billing as distinct consent/cost boundaries, <strong>every newly created agent starts with its telemetry flags set to <code className="bg-black/50 px-1 py-0.5 rounded font-mono text-white">false</code></strong>.
-                </p>
+      {/* Modal Content */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6 text-sm text-gray-300 custom-scrollbar">
+        {/* TAB 1: COVERAGE GAP */}
+        {activeTab === 'coverage' && (
+          <div className="space-y-6">
+            {/* Core Alert Banner */}
+            <div className="p-4 bg-amber-950/40 border border-amber-800/80 rounded-xl space-y-3">
+              <div className="flex items-center gap-2.5 text-amber-300 font-bold text-sm">
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span>The Google Cloud Console Observability Default Reality</span>
               </div>
+              <p className="text-xs leading-relaxed text-amber-200/90">
+                <strong>Out of the box in the Google Cloud Console today, there is no native checkbox or Org Policy</strong> that says <em>&quot;automatically enable OpenTelemetry on all newly created no-code agents in this app.&quot;</em>
+              </p>
+              <p className="text-xs leading-relaxed text-amber-200/90">
+                Because Google treats prompt logging and trace billing as distinct consent/cost boundaries, <strong>every newly created agent starts with its telemetry flags set to <code className="bg-black/50 px-1 py-0.5 rounded font-mono text-white">false</code></strong>.
+              </p>
+            </div>
 
-              {/* 2-Tier Coverage Architecture Breakdown */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Tier 1: App Level */}
-                <div className="p-4 rounded-xl border border-blue-800/60 bg-blue-950/20 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">Tier 1: App / Engine Layer</span>
-                    <span className="text-xs font-extrabold px-2 py-0.5 rounded bg-blue-900/80 text-blue-200 border border-blue-700/60">
-                      ~65% of Total Logs
-                    </span>
-                  </div>
-                  <h4 className="text-base font-semibold text-white">Assistant Front-Door Logging</h4>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    Captured when <code className="text-blue-300 font-mono">observabilityConfig</code> is enabled on the <strong>App Engine</strong> itself.
-                  </p>
-                  <div className="space-y-1.5 pt-2 text-xs">
-                    <div className="text-gray-400 font-medium">What is captured:</div>
-                    <ul className="list-disc list-inside space-y-1 text-gray-300 pl-1">
-                      <li>Top-level user chat prompts (<code className="font-mono text-green-300 text-[11px]">StreamAssist</code>, <code className="font-mono text-green-300 text-[11px]">Assist</code>)</li>
-                      <li>Enterprise search queries & grounding filters (<code className="font-mono text-green-300 text-[11px]">Search</code>)</li>
-                      <li>Session IDs, user emails, and interaction timestamps</li>
-                      <li>Cloud Audit logs (<code className="font-mono text-green-300 text-[11px]">WriteUserEvent</code>)</li>
-                    </ul>
-                  </div>
-                  <div className="text-[11px] text-gray-400 bg-gray-900/60 p-2.5 rounded border border-gray-800">
-                    <strong>BigQuery Destination:</strong> <code className="text-green-400 font-mono">gemini_enterprise_user_activity</code>
-                  </div>
+            {/* 2-Tier Coverage Architecture Breakdown */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Tier 1: App Level */}
+              <div className="p-4 rounded-xl border border-blue-800/60 bg-blue-950/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">Tier 1: App / Engine Layer</span>
+                  <span className="text-xs font-extrabold px-2 py-0.5 rounded bg-blue-900/80 text-blue-200 border border-blue-700/60">
+                    ~65% of Total Logs
+                  </span>
                 </div>
-
-                {/* Tier 2: Agent Level */}
-                <div className="p-4 rounded-xl border border-purple-800/60 bg-purple-950/20 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-purple-400 uppercase tracking-wider">Tier 2: Agent Layer</span>
-                    <span className="text-xs font-extrabold px-2 py-0.5 rounded bg-purple-900/80 text-purple-200 border border-purple-700/60">
-                      ~35% Missing Blindspot
-                    </span>
-                  </div>
-                  <h4 className="text-base font-semibold text-white">Agent OpenTelemetry & Traces</h4>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    <strong>SILENCED BY DEFAULT:</strong> Only captured when the individual <strong>Agent&apos;s</strong> <code className="text-purple-300 font-mono">observabilityConfig</code> is explicitly patched to true.
-                  </p>
-                  <div className="space-y-1.5 pt-2 text-xs">
-                    <div className="text-gray-400 font-medium">What is missing without Agent Telemetry:</div>
-                    <ul className="list-disc list-inside space-y-1 text-purple-200/80 pl-1">
-                      <li>Sub-agent multi-turn reasoning steps & LLM calls</li>
-                      <li>Tool calling execution, input parameters & returned outputs</li>
-                      <li>Agent-to-agent delegation latency & trace spans</li>
-                      <li>Model Armor evaluation results inside specific agents</li>
-                    </ul>
-                  </div>
-                  <div className="text-[11px] text-gray-400 bg-gray-900/60 p-2.5 rounded border border-gray-800">
-                    <strong>BigQuery Destination:</strong> <code className="text-green-400 font-mono">discoveryengine_googleapis_com_gen_ai_*</code>
-                  </div>
-                </div>
-              </div>
-
-              {/* Customer Blast Radius Box */}
-              <div className="bg-gray-850 p-4 rounded-xl border border-gray-700 space-y-3">
-                <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <span className="text-red-400">●</span>
-                  Customer Blast Radius & Dashboard Impact
-                </h4>
+                <h4 className="text-base font-semibold text-white">Assistant Front-Door Logging</h4>
                 <p className="text-xs text-gray-300 leading-relaxed">
-                  If an enterprise enables App-Level observability but leaves Agent-Level observability disabled:
+                  Captured when <code className="text-blue-300 font-mono">observabilityConfig</code> is enabled on the <strong>App Engine</strong> itself.
                 </p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                  <div className="p-3 bg-gray-900 rounded-lg border border-gray-800">
-                    <strong className="text-white block mb-1">Missing GenAI Tables</strong>
-                    <span className="text-gray-400">The 4 BigQuery core tables (<code className="font-mono text-green-300 text-[10px]">gen_ai.*</code>) will have zero rows or only top-level assistant fallback entries.</span>
-                  </div>
-                  <div className="p-3 bg-gray-900 rounded-lg border border-gray-800">
-                    <strong className="text-white block mb-1">Zero Tool Execution Tracing</strong>
-                    <span className="text-gray-400">Admins cannot inspect which database queries or APIs failed during autonomous sub-agent execution.</span>
-                  </div>
-                  <div className="p-3 bg-gray-900 rounded-lg border border-gray-800">
-                    <strong className="text-white block mb-1">Invisible Prompt Leakage</strong>
-                    <span className="text-gray-400">Prompt security evaluations and Model Armor triggers inside custom agents remain completely unlogged.</span>
-                  </div>
+                <div className="space-y-1.5 pt-2 text-xs">
+                  <div className="text-gray-400 font-medium">What is captured:</div>
+                  <ul className="list-disc list-inside space-y-1 text-gray-300 pl-1">
+                    <li>Top-level user chat prompts (<code className="font-mono text-green-300 text-[11px]">StreamAssist</code>, <code className="font-mono text-green-300 text-[11px]">Assist</code>)</li>
+                    <li>Enterprise search queries &amp; grounding filters (<code className="font-mono text-green-300 text-[11px]">Search</code>)</li>
+                    <li>Session IDs, user emails, and interaction timestamps</li>
+                    <li>Cloud Audit logs (<code className="font-mono text-green-300 text-[11px]">WriteUserEvent</code>)</li>
+                  </ul>
+                </div>
+                <div className="text-[11px] text-gray-400 bg-gray-900/60 p-2.5 rounded border border-gray-800">
+                  <strong>BigQuery Destination:</strong> <code className="text-green-400 font-mono">gemini_enterprise_user_activity</code>
                 </div>
               </div>
 
-              {/* Action buttons leading to the 3 options */}
-              <div className="flex justify-between items-center p-4 bg-gray-900/80 rounded-xl border border-gray-800 flex-wrap gap-3">
-                <span className="text-xs text-gray-400">
-                  Ready to solve this? Choose how you want to enforce compliance:
-                </span>
+              {/* Tier 2: Agent Level */}
+              <div className="p-4 rounded-xl border border-purple-800/60 bg-purple-950/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-purple-400 uppercase tracking-wider">Tier 2: Agent Layer</span>
+                  <span className="text-xs font-extrabold px-2 py-0.5 rounded bg-purple-900/80 text-purple-200 border border-purple-700/60">
+                    ~35% Missing Blindspot
+                  </span>
+                </div>
+                <h4 className="text-base font-semibold text-white">Agent OpenTelemetry &amp; Traces</h4>
+                <p className="text-xs text-gray-300 leading-relaxed">
+                  <strong>SILENCED BY DEFAULT:</strong> Only captured when the individual <strong>Agent&apos;s</strong> <code className="text-purple-300 font-mono">observabilityConfig</code> is explicitly patched to true.
+                </p>
+                <div className="space-y-1.5 pt-2 text-xs">
+                  <div className="text-gray-400 font-medium">What is missing without Agent Telemetry:</div>
+                  <ul className="list-disc list-inside space-y-1 text-purple-200/80 pl-1">
+                    <li>Sub-agent multi-turn reasoning steps &amp; LLM calls</li>
+                    <li>Tool calling execution, input parameters &amp; returned outputs</li>
+                    <li>Agent-to-agent delegation latency &amp; trace spans</li>
+                    <li>Model Armor evaluation results inside specific agents</li>
+                  </ul>
+                </div>
+                <div className="text-[11px] text-gray-400 bg-gray-900/60 p-2.5 rounded border border-gray-800">
+                  <strong>BigQuery Destination:</strong> <code className="text-green-400 font-mono">discoveryengine_googleapis_com_gen_ai_*</code>
+                </div>
+              </div>
+            </div>
+
+            {/* Customer Blast Radius Box */}
+            <div className="bg-gray-850 p-4 rounded-xl border border-gray-700 space-y-3">
+              <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                <span className="text-red-400">●</span>
+                Customer Blast Radius &amp; Dashboard Impact
+              </h4>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                If an enterprise enables App-Level observability but leaves Agent-Level observability disabled:
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 bg-gray-900 rounded-lg border border-gray-800">
+                  <strong className="text-white block mb-1">Missing GenAI Tables</strong>
+                  <span className="text-gray-400">The 4 BigQuery core tables (<code className="font-mono text-green-300 text-[10px]">gen_ai.*</code>) will have zero rows or only top-level assistant fallback entries.</span>
+                </div>
+                <div className="p-3 bg-gray-900 rounded-lg border border-gray-800">
+                  <strong className="text-white block mb-1">Zero Tool Execution Tracing</strong>
+                  <span className="text-gray-400">Admins cannot inspect which database queries or APIs failed during autonomous sub-agent execution.</span>
+                </div>
+                <div className="p-3 bg-gray-900 rounded-lg border border-gray-800">
+                  <strong className="text-white block mb-1">Invisible Prompt Leakage</strong>
+                  <span className="text-gray-400">Prompt security evaluations and Model Armor triggers inside custom agents remain completely unlogged.</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action buttons leading to the 3 options */}
+            <div className="flex justify-between items-center p-4 bg-gray-900/80 rounded-xl border border-gray-800 flex-wrap gap-3">
+              <span className="text-xs text-gray-400">
+                Ready to solve this? Choose how you want to enforce compliance:
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('option1_eventarc')}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                >
+                  View Option 1 (Eventarc) →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('option2_bulk')}
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                >
+                  Run Option 2 (Manager Sweep) →
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: OPTION 1 - EVENTARC AUTO-ENABLER */}
+        {activeTab === 'option1_eventarc' && (
+          <div className="space-y-6">
+            <div className="border border-emerald-800/60 bg-emerald-950/20 p-4 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
+                  <span>Option 1: The Eventarc Auto-Enabler</span>
+                  <span className="text-[10px] bg-emerald-900/80 text-emerald-200 px-2 py-0.5 rounded border border-emerald-600">
+                    Best Practice — 100% Automated
+                  </span>
+                </h3>
+              </div>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                Whenever any user creates a new no-code agent in the Gemini Enterprise UI, Cloud Audit Logs emits an event. An Eventarc trigger intercepts that event and invokes a lightweight Cloud Function to instantly PATCH <code className="font-mono text-emerald-300">observabilityConfig</code> to ON.
+              </p>
+            </div>
+
+            {/* Architecture Diagram */}
+            <div className="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Event-Driven Policy Flow</div>
+              <div className="p-3 bg-gray-900 rounded-lg font-mono text-xs text-blue-300 flex flex-col sm:flex-row items-center justify-between gap-2 text-center">
+                <div className="p-2 bg-gray-800 rounded border border-gray-700 w-full sm:w-auto">
+                  User Creates Agent<br /><span className="text-[10px] text-gray-400">Gemini Enterprise UI</span>
+                </div>
+                <span className="text-gray-500">➔</span>
+                <div className="p-2 bg-gray-800 rounded border border-gray-700 w-full sm:w-auto">
+                  Cloud Audit Log<br /><span className="text-[10px] text-yellow-400">CreateAgent</span>
+                </div>
+                <span className="text-gray-500">➔</span>
+                <div className="p-2 bg-gray-800 rounded border border-gray-700 w-full sm:w-auto">
+                  Eventarc Trigger<br /><span className="text-[10px] text-emerald-400">discoveryengine</span>
+                </div>
+                <span className="text-gray-500">➔</span>
+                <div className="p-2 bg-gray-800 rounded border border-gray-700 w-full sm:w-auto">
+                  Cloud Function<br /><span className="text-[10px] text-purple-400">PATCH agent API</span>
+                </div>
+                <span className="text-gray-500">➔</span>
+                <div className="p-2 bg-emerald-950/60 rounded border border-emerald-700 text-emerald-300 w-full sm:w-auto">
+                  Agent Telemetry: ON<br /><span className="text-[10px] text-emerald-400">100% Monitored</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Copyable Terraform Code */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('option1_eventarc')}
-                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
-                  >
-                    View Option 1 (Eventarc) →
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('option2_bulk')}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
-                  >
-                    Run Option 2 (Manager Sweep) →
-                  </button>
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">1. Terraform Deployment Manifest</span>
+                  <span className="text-[11px] text-gray-500 font-mono">eventarc_agent_observability.tf</span>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(terraformSnippet, 'terraform')}
+                  className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-xs font-mono text-blue-400 hover:text-blue-300 rounded border border-gray-700 transition-colors flex items-center gap-1.5"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  <span>{copiedKey === 'terraform' ? 'Copied!' : 'Copy Terraform'}</span>
+                </button>
               </div>
+              <pre className="bg-gray-950 p-3.5 rounded-lg border border-gray-800 text-xs text-gray-300 font-mono max-h-56 overflow-y-auto leading-relaxed">
+                {terraformSnippet}
+              </pre>
             </div>
-          )}
 
-          {/* TAB 2: OPTION 1 - EVENTARC AUTO-ENABLER */}
-          {activeTab === 'option1_eventarc' && (
-            <div className="space-y-6">
-              <div className="border border-emerald-800/60 bg-emerald-950/20 p-4 rounded-xl space-y-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
-                    <span>Option 1: The Eventarc Auto-Enabler</span>
-                    <span className="text-[10px] bg-emerald-900/80 text-emerald-200 px-2 py-0.5 rounded border border-emerald-600">
-                      Best Practice — 100% Automated
-                    </span>
-                  </h3>
+            {/* Copyable Python Function Code */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">2. Cloud Function Implementation</span>
+                  <span className="text-[11px] text-gray-500 font-mono">main.py (Python 3.11)</span>
                 </div>
-                <p className="text-xs text-gray-300 leading-relaxed">
-                  Whenever any user creates a new no-code agent in the Gemini Enterprise UI, Cloud Audit Logs emits an event. An Eventarc trigger intercepts that event and invokes a lightweight Cloud Function to instantly PATCH <code className="font-mono text-emerald-300">observabilityConfig</code> to ON.
-                </p>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(pythonSnippet, 'python')}
+                  className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-xs font-mono text-blue-400 hover:text-blue-300 rounded border border-gray-700 transition-colors flex items-center gap-1.5"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  <span>{copiedKey === 'python' ? 'Copied!' : 'Copy Python'}</span>
+                </button>
               </div>
-
-              {/* Architecture Diagram */}
-              <div className="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Event-Driven Policy Flow</div>
-                <div className="p-3 bg-gray-900 rounded-lg font-mono text-xs text-blue-300 flex flex-col sm:flex-row items-center justify-between gap-2 text-center">
-                  <div className="p-2 bg-gray-800 rounded border border-gray-700 w-full sm:w-auto">
-                    User Creates Agent<br /><span className="text-[10px] text-gray-400">Gemini Enterprise UI</span>
-                  </div>
-                  <span className="text-gray-500">➔</span>
-                  <div className="p-2 bg-gray-800 rounded border border-gray-700 w-full sm:w-auto">
-                    Cloud Audit Log<br /><span className="text-[10px] text-yellow-400">CreateAgent</span>
-                  </div>
-                  <span className="text-gray-500">➔</span>
-                  <div className="p-2 bg-gray-800 rounded border border-gray-700 w-full sm:w-auto">
-                    Eventarc Trigger<br /><span className="text-[10px] text-emerald-400">discoveryengine</span>
-                  </div>
-                  <span className="text-gray-500">➔</span>
-                  <div className="p-2 bg-gray-800 rounded border border-gray-700 w-full sm:w-auto">
-                    Cloud Function<br /><span className="text-[10px] text-purple-400">PATCH agent API</span>
-                  </div>
-                  <span className="text-gray-500">➔</span>
-                  <div className="p-2 bg-emerald-950/60 rounded border border-emerald-700 text-emerald-300 w-full sm:w-auto">
-                    Agent Telemetry: ON<br /><span className="text-[10px] text-emerald-400">100% Monitored</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Copyable Terraform Code */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">1. Terraform Deployment Manifest</span>
-                    <span className="text-[11px] text-gray-500 font-mono">eventarc_agent_observability.tf</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(terraformSnippet, 'terraform')}
-                    className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-xs font-mono text-blue-400 hover:text-blue-300 rounded border border-gray-700 transition-colors flex items-center gap-1.5"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    <span>{copiedKey === 'terraform' ? 'Copied!' : 'Copy Terraform'}</span>
-                  </button>
-                </div>
-                <pre className="bg-gray-950 p-3.5 rounded-lg border border-gray-800 text-xs text-gray-300 font-mono max-h-56 overflow-y-auto leading-relaxed">
-                  {terraformSnippet}
-                </pre>
-              </div>
-
-              {/* Copyable Python Function Code */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">2. Cloud Function Implementation</span>
-                    <span className="text-[11px] text-gray-500 font-mono">main.py (Python 3.11)</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(pythonSnippet, 'python')}
-                    className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-xs font-mono text-blue-400 hover:text-blue-300 rounded border border-gray-700 transition-colors flex items-center gap-1.5"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    <span>{copiedKey === 'python' ? 'Copied!' : 'Copy Python'}</span>
-                  </button>
-                </div>
-                <pre className="bg-gray-950 p-3.5 rounded-lg border border-gray-800 text-xs text-gray-300 font-mono max-h-56 overflow-y-auto leading-relaxed">
-                  {pythonSnippet}
-                </pre>
-              </div>
+              <pre className="bg-gray-950 p-3.5 rounded-lg border border-gray-800 text-xs text-gray-300 font-mono max-h-56 overflow-y-auto leading-relaxed">
+                {pythonSnippet}
+              </pre>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* TAB 3: OPTION 2 - BULK SWEEP IN GEM */}
-          {activeTab === 'option2_bulk' && (
-            <div className="space-y-6">
-              <div className="border border-blue-800/60 bg-blue-950/20 p-4 rounded-xl space-y-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-blue-300 flex items-center gap-2">
-                    <span>Option 2: Bulk Sweep & Policy Enforcement via Manager</span>
-                    <span className="text-[10px] bg-blue-900/80 text-blue-200 px-2 py-0.5 rounded border border-blue-600">
-                      Live Remediation
-                    </span>
-                  </h3>
-                </div>
-                <p className="text-xs text-gray-300 leading-relaxed">
-                  Perform an administrative sweep directly from this console. Select an App Engine below to inspect all child agents and batch-patch any non-compliant agents where <code className="font-mono text-blue-300">observabilityEnabled === false</code>.
-                </p>
+        {/* TAB 3: OPTION 2 - BULK SWEEP IN GEM */}
+        {activeTab === 'option2_bulk' && (
+          <div className="space-y-6">
+            <div className="border border-blue-800/60 bg-blue-950/20 p-4 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-blue-300 flex items-center gap-2">
+                  <span>Option 2: Bulk Sweep &amp; Policy Enforcement via Manager</span>
+                  <span className="text-[10px] bg-blue-900/80 text-blue-200 px-2 py-0.5 rounded border border-blue-600">
+                    Live Remediation
+                  </span>
+                </h3>
               </div>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                Perform an administrative sweep directly from this console. Select an App Engine below to inspect all child agents and batch-patch any non-compliant agents where <code className="font-mono text-blue-300">observabilityEnabled === false</code>.
+              </p>
+            </div>
 
-              {/* Engine Selector & Controls */}
-              <div className="p-4 bg-gray-850 rounded-xl border border-gray-700 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1.5">
-                      Target Location
-                    </label>
-                    <select
-                      value={selectedLocation}
-                      onChange={(e) => setSelectedLocation(e.target.value)}
-                      disabled={isSweeping}
-                      className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="global">global</option>
-                      <option value="us">us</option>
-                      <option value="eu">eu</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1.5">
-                      Target App Engine
-                    </label>
-                    <select
-                      value={selectedEngineId}
-                      onChange={(e) => setSelectedEngineId(e.target.value)}
-                      disabled={isSweeping || isLoadingEngines || engines.length === 0}
-                      className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
-                    >
-                      {isLoadingEngines ? (
-                        <option>Loading engines...</option>
-                      ) : engines.length === 0 ? (
-                        <option>No engines found</option>
-                      ) : (
-                        engines.map((eng) => {
-                          const id = eng.name.split('/').pop() || eng.name;
-                          return (
-                            <option key={eng.name} value={id}>
-                              {eng.displayName || id} ({id})
-                            </option>
-                          );
-                        })
-                      )}
-                    </select>
-                  </div>
+            {/* Engine Selector & Controls */}
+            <div className="p-4 bg-gray-850 rounded-xl border border-gray-700 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="agentObsTargetLocation" className="block text-xs font-semibold text-gray-300 mb-1.5">
+                    Target Location
+                  </label>
+                  <select
+                    id="agentObsTargetLocation"
+                    value={selectedLocation}
+                    onChange={(e) => setSelectedLocation(e.target.value)}
+                    disabled={isSweeping}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    {GEMINI_ENTERPRISE_LOCATION_IDS.map((loc) => (
+                      <option key={loc} value={loc}>
+                        {loc}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                {/* Status Bar */}
-                <div className="flex justify-between items-center pt-3 border-t border-gray-800 flex-wrap gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-gray-400">Compliance Status:</span>
-                    {isLoadingAgents ? (
-                      <span className="text-xs text-blue-400 animate-pulse">Inspecting agents...</span>
+                <div>
+                  <label htmlFor="agentObsTargetEngine" className="block text-xs font-semibold text-gray-300 mb-1.5">
+                    Target App Engine
+                  </label>
+                  <select
+                    id="agentObsTargetEngine"
+                    value={selectedEngineId}
+                    onChange={(e) => setSelectedEngineId(e.target.value)}
+                    disabled={isSweeping || isLoadingEngines || engines.length === 0}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    {isLoadingEngines ? (
+                      <option>Loading engines...</option>
+                    ) : engines.length === 0 ? (
+                      <option>No engines found</option>
                     ) : (
-                      <span
-                        className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
-                          customAgents.length > 0 && monitoredAgentsCount === customAgents.length
-                            ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
-                            : 'bg-amber-950/80 text-amber-300 border-amber-700/60'
-                        }`}
-                      >
-                        {monitoredAgentsCount} / {customAgents.length} Agents Telemetry Enabled
-                      </span>
+                      engines.map((eng) => {
+                        const id = eng.name.split('/').pop() || eng.name;
+                        return (
+                          <option key={eng.name} value={id}>
+                            {eng.displayName || id} ({id})
+                          </option>
+                        );
+                      })
                     )}
-                  </div>
+                  </select>
+                </div>
+              </div>
 
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={includeSensitive}
-                        onChange={(e) => setIncludeSensitive(e.target.checked)}
-                        disabled={isSweeping}
-                        className="h-3.5 w-3.5 rounded bg-gray-700 border-gray-600 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span>Include Sensitive Prompts</span>
-                    </label>
+              {/* v1alpha Preview Controls */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-gray-800">
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeSensitive}
+                      onChange={(e) => setIncludeSensitive(e.target.checked)}
+                      disabled={isSweeping}
+                      className="h-3.5 w-3.5 rounded bg-gray-700 border-gray-600 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Include Sensitive Prompts</span>
+                  </label>
 
-                    <button
-                      type="button"
-                      onClick={handleRunSweep}
-                      disabled={isSweeping || isLoadingAgents || customAgents.length === 0}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-all shadow-md flex items-center gap-2"
+                  <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      id="agentObsUserPrincipalLogging"
+                      checked={userPrincipalLoggingEnabled}
+                      onChange={(e) => setUserPrincipalLoggingEnabled(e.target.checked)}
+                      disabled={isSweeping}
+                      className="h-3.5 w-3.5 rounded bg-gray-700 border-gray-600 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Log User IAM Principal when Sensitive Logging is Off (Preview)</span>
+                  </label>
+                </div>
+
+                <div>
+                  <label htmlFor="agentObsArtifactGcsBucket" className="block text-xs font-semibold text-gray-300 mb-1">
+                    Artifact GCS Bucket URI (Optional — Preview)
+                  </label>
+                  <input
+                    type="text"
+                    id="agentObsArtifactGcsBucket"
+                    value={artifactGcsBucket}
+                    onChange={(e) => {
+                      setArtifactGcsBucket(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    disabled={isSweeping}
+                    placeholder="gs://my-agent-artifacts-bucket"
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-1.5 text-xs font-mono text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Status Bar */}
+              <div className="flex justify-between items-center pt-3 border-t border-gray-800 flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-gray-400">Compliance Status:</span>
+                  {isLoadingAgents ? (
+                    <span className="text-xs text-blue-400 animate-pulse">Inspecting agents...</span>
+                  ) : (
+                    <span
+                      className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
+                        customAgents.length > 0 && monitoredAgentsCount === customAgents.length
+                          ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                          : 'bg-amber-950/80 text-amber-300 border-amber-700/60'
+                      }`}
                     >
-                      {isSweeping ? (
+                      {monitoredAgentsCount} / {customAgents.length} Agents Telemetry Enabled
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleRunSweep}
+                    disabled={isSweeping || isLoadingAgents || customAgents.length === 0}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-all shadow-md flex items-center gap-2"
+                  >
+                    {isSweeping ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <span>Patching Agents...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        <span>Enforce Telemetry on All Non-Compliant Agents</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Sweep Feedback Banner */}
+              {sweepResult && (
+                <div
+                  className={`p-4 rounded-xl border space-y-3 text-xs ${
+                    sweepResult.failed === 0
+                      ? 'bg-emerald-950/40 border-emerald-800/80 text-emerald-300'
+                      : sweepResult.updated > 0
+                      ? 'bg-amber-950/40 border-amber-800/80 text-amber-200'
+                      : 'bg-red-950/40 border-red-800/80 text-red-200'
+                  }`}
+                >
+                  <div className="font-bold flex items-center justify-between flex-wrap gap-2">
+                    <span className="flex items-center gap-2 text-sm">
+                      {sweepResult.failed === 0 ? (
                         <>
-                          <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                          <span>Patching Agents...</span>
+                          <span className="text-emerald-400 font-bold">✓</span>
+                          <span>Enforcement Sweep Completed Successfully!</span>
                         </>
                       ) : (
                         <>
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                          <span>Enforce Telemetry on All Non-Compliant Agents</span>
+                          <span className="text-amber-400 font-bold">⚠️</span>
+                          <span>
+                            {sweepResult.updated > 0
+                              ? 'Enforcement Sweep Completed with Warnings'
+                              : 'Enforcement Sweep Failed'}
+                          </span>
                         </>
                       )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Sweep Feedback Banner */}
-                {sweepResult && (
-                  <div
-                    className={`p-4 rounded-xl border space-y-3 text-xs ${
-                      sweepResult.failed === 0
-                        ? 'bg-emerald-950/40 border-emerald-800/80 text-emerald-300'
-                        : sweepResult.updated > 0
-                        ? 'bg-amber-950/40 border-amber-800/80 text-amber-200'
-                        : 'bg-red-950/40 border-red-800/80 text-red-200'
-                    }`}
-                  >
-                    <div className="font-bold flex items-center justify-between flex-wrap gap-2">
-                      <span className="flex items-center gap-2 text-sm">
-                        {sweepResult.failed === 0 ? (
-                          <>
-                            <span className="text-emerald-400 font-bold">✓</span>
-                            <span>Enforcement Sweep Completed Successfully!</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-amber-400 font-bold">⚠️</span>
-                            <span>
-                              {sweepResult.updated > 0
-                                ? 'Enforcement Sweep Completed with Warnings'
-                                : 'Enforcement Sweep Failed'}
-                            </span>
-                          </>
-                        )}
-                      </span>
-                      <span className="font-mono text-[11px] px-2.5 py-0.5 rounded bg-gray-900/80 border border-gray-700 text-gray-300">
-                        {sweepResult.updated} Patched · {sweepResult.alreadyCompliant} Compliant · {sweepResult.failed} Failed
-                      </span>
-                    </div>
-
-                    <div className="text-gray-300 leading-relaxed">
-                      Patched <strong>{sweepResult.updated}</strong> agent(s) to enforce OpenTelemetry.
-                      {' '}<strong>{sweepResult.alreadyCompliant}</strong> agent(s) were already compliant.
-                    </div>
-
-                    {sweepResult.failed > 0 && (
-                      <div className="space-y-2 pt-2 border-t border-gray-800/60">
-                        <div className="font-semibold text-red-300 flex items-center gap-1.5">
-                          <span>Failed Updates ({sweepResult.failed}):</span>
-                        </div>
-                        <ul className="space-y-1.5 list-disc list-inside text-gray-300">
-                          {sweepResult.errors.map((err, idx) => (
-                            <li key={idx} className="font-mono text-[11px] bg-gray-950/70 p-2 rounded border border-gray-800/80 text-red-300 leading-relaxed">
-                              {err}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Google Cloud API Legacy Schema Advisory */}
-                    {Boolean(
-                      sweepResult.legacyAuthCount ||
-                      sweepResult.errors.some((e) => e.includes('Legacy Schema') || e.includes('authorizations'))
-                    ) && (
-                      <div className="p-3.5 bg-amber-950/70 border border-amber-600/80 rounded-lg text-amber-200 space-y-2">
-                        <div className="flex items-center gap-2 font-bold text-amber-300 text-xs">
-                          <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                          </svg>
-                          <span>Google Cloud Discovery Engine API Constraint: Legacy Agent Schema</span>
-                        </div>
-                        <p className="text-[11px] text-amber-100 leading-relaxed">
-                          These agents were provisioned under a legacy schema using the deprecated <code className="font-mono bg-amber-900/60 px-1 py-0.5 rounded text-amber-200">agent.authorizations</code> protobuf field. The Google Cloud backend rejects in-place updates to these agents because <code className="font-mono bg-amber-900/60 px-1 py-0.5 rounded text-amber-200">authorizations</code> is immutable and must be replaced with <code className="font-mono bg-amber-900/60 px-1 py-0.5 rounded text-amber-200">authorizationConfig</code>.
-                        </p>
-                        <div className="text-[11px] font-semibold text-amber-300">Migration & Remediation Steps:</div>
-                        <ol className="list-decimal list-inside space-y-1 text-[11px] text-amber-100/90 pl-1">
-                          <li>Export the agent configuration as JSON using the Download button in the Assistant Agent list.</li>
-                          <li>Create a new agent with the exported configuration (Gemini Enterprise Manager will automatically apply modern <code className="font-mono text-amber-300">authorizationConfig</code>).</li>
-                          <li>Retire the legacy agent once traffic has transitioned to achieve 100% telemetry compliance.</li>
-                        </ol>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {errorMessage && (
-                  <div className="p-3 bg-red-950/40 border border-red-800/80 rounded-lg text-xs text-red-300">
-                    {errorMessage}
-                  </div>
-                )}
-              </div>
-
-              {/* Agents Live List */}
-              <div className="space-y-2">
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Discovered Agents ({agents.length})
-                </div>
-                {agents.length === 0 && !isLoadingAgents ? (
-                  <p className="text-xs text-gray-500 italic p-4 bg-gray-850 rounded-lg border border-gray-800 text-center">
-                    No agents registered under this engine.
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto border border-gray-800 rounded-lg">
-                    <table className="min-w-full divide-y divide-gray-800 text-xs">
-                      <thead className="bg-gray-800/70 text-gray-400">
-                        <tr>
-                          <th className="px-4 py-2.5 text-left font-semibold">Display Name</th>
-                          <th className="px-4 py-2.5 text-left font-semibold">Agent ID</th>
-                          <th className="px-4 py-2.5 text-left font-semibold">Telemetry Status</th>
-                          <th className="px-4 py-2.5 text-left font-semibold">Sensitive Logs</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-800 bg-gray-900/50">
-                        {agents.map((agent) => {
-                          const isManaged = isGoogleManagedAgent(agent);
-                          const isObsEnabled = Boolean(agent.observabilityConfig?.observabilityEnabled);
-                          const isSensEnabled = Boolean(agent.observabilityConfig?.sensitiveLoggingEnabled);
-                          const hasLegacyAuth = Boolean(agent.authorizations && agent.authorizations.length > 0);
-                          const id = agent.name.split('/').pop() || agent.name;
-                          return (
-                            <tr key={agent.name} className="hover:bg-gray-850 transition-colors">
-                              <td className="px-4 py-2.5 text-white font-medium">
-                                <div className="flex items-center gap-2">
-                                  <span>{agent.displayName || id}</span>
-                                  {isManaged && (
-                                    <span
-                                      className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-950/90 text-blue-300 border border-blue-700/70"
-                                      title="Google-managed first-party agent. Observability is managed by Google Cloud."
-                                    >
-                                      Google-Managed
-                                    </span>
-                                  )}
-                                  {hasLegacyAuth && (
-                                    <span
-                                      className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 text-amber-300 border border-amber-700/70"
-                                      title="Uses legacy agent.authorizations schema. In-place updates rejected by Google Cloud Discovery Engine API."
-                                    >
-                                      Legacy Schema
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-4 py-2.5 font-mono text-gray-400">{id}</td>
-                              <td className="px-4 py-2.5">
-                                <span
-                                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                                    isObsEnabled
-                                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60'
-                                      : isManaged
-                                      ? 'bg-blue-950 text-blue-300 border border-blue-700/60'
-                                      : hasLegacyAuth
-                                      ? 'bg-amber-950 text-amber-300 border border-amber-700/60'
-                                      : 'bg-red-950 text-red-300 border border-red-700/60'
-                                  }`}
-                                >
-                                  <span
-                                    className={`w-1.5 h-1.5 rounded-full ${
-                                      isObsEnabled
-                                        ? 'bg-emerald-400'
-                                        : isManaged
-                                        ? 'bg-blue-400'
-                                        : hasLegacyAuth
-                                        ? 'bg-amber-400'
-                                        : 'bg-red-400'
-                                    }`}
-                                  ></span>
-                                  {isObsEnabled ? 'ON' : isManaged ? 'Google-Managed (Exempt)' : hasLegacyAuth ? 'OFF (Legacy Blocked)' : 'OFF (Blindspot)'}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5 text-gray-400 font-mono">
-                                {isSensEnabled ? (
-                                  <span className="text-emerald-400 font-semibold">Enabled</span>
-                                ) : isManaged ? (
-                                  <span className="text-gray-500">N/A (Managed)</span>
-                                ) : (
-                                  <span className="text-gray-500">Disabled</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: OPTION 3 - AGENT GATEWAY GOVERNANCE */}
-          {activeTab === 'option3_gateway' && (
-            <div className="space-y-6">
-              <div className="border border-purple-800/60 bg-purple-950/20 p-4 rounded-xl space-y-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-purple-300 flex items-center gap-2">
-                    <span>Option 3: Agent Gateway Governance</span>
-                    <span className="text-[10px] bg-purple-900/80 text-purple-200 px-2 py-0.5 rounded border border-purple-600">
-                      Google&apos;s Strategic Path
                     </span>
-                  </h3>
+                    <span className="font-mono text-[11px] px-2.5 py-0.5 rounded bg-gray-900/80 border border-gray-700 text-gray-300">
+                      {sweepResult.updated} Patched · {sweepResult.alreadyCompliant} Compliant · {sweepResult.failed} Failed
+                    </span>
+                  </div>
+
+                  <div className="text-gray-300 leading-relaxed">
+                    Patched <strong>{sweepResult.updated}</strong> agent(s) to enforce OpenTelemetry.
+                    {' '}<strong>{sweepResult.alreadyCompliant}</strong> agent(s) were already compliant.
+                  </div>
+
+                  {sweepResult.failed > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-gray-800/60">
+                      <div className="font-semibold text-red-300 flex items-center gap-1.5">
+                        <span>Failed Updates ({sweepResult.failed}):</span>
+                      </div>
+                      <ul className="space-y-1.5 list-disc list-inside text-gray-300">
+                        {sweepResult.errors.map((err, idx) => (
+                          <li key={idx} className="font-mono text-[11px] bg-gray-950/70 p-2 rounded border border-gray-800/80 text-red-300 leading-relaxed">
+                            {err}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Google Cloud API Legacy Schema Advisory */}
+                  {Boolean(
+                    sweepResult.legacyAuthCount ||
+                    sweepResult.errors.some((e) => e.includes('Legacy Schema') || e.includes('authorizations'))
+                  ) && (
+                    <div className="p-3.5 bg-amber-950/70 border border-amber-600/80 rounded-lg text-amber-200 space-y-2">
+                      <div className="flex items-center gap-2 font-bold text-amber-300 text-xs">
+                        <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span>Google Cloud Discovery Engine API Constraint: Legacy Agent Schema</span>
+                      </div>
+                      <p className="text-[11px] text-amber-100 leading-relaxed">
+                        These agents were provisioned under a legacy schema using the deprecated <code className="font-mono bg-amber-900/60 px-1 py-0.5 rounded text-amber-200">agent.authorizations</code> protobuf field. The Google Cloud backend rejects in-place updates to these agents because <code className="font-mono bg-amber-900/60 px-1 py-0.5 rounded text-amber-200">authorizations</code> is immutable and must be replaced with <code className="font-mono bg-amber-900/60 px-1 py-0.5 rounded text-amber-200">authorizationConfig</code>.
+                      </p>
+                      <div className="text-[11px] font-semibold text-amber-300">Migration &amp; Remediation Steps:</div>
+                      <ol className="list-decimal list-inside space-y-1 text-[11px] text-amber-100/90 pl-1">
+                        <li>Export the agent configuration as JSON using the Download button in the Assistant Agent list.</li>
+                        <li>Create a new agent with the exported configuration (Gemini Enterprise Manager will automatically apply modern <code className="font-mono text-amber-300">authorizationConfig</code>).</li>
+                        <li>Retire the legacy agent once traffic has transitioned to achieve 100% telemetry compliance.</li>
+                      </ol>
+                    </div>
+                  )}
                 </div>
-                <p className="text-xs text-gray-300 leading-relaxed">
-                  Centralized policy enforcement via the <strong>Agent Registry & Agent Gateway</strong>.
+              )}
+
+              {errorMessage && (
+                <div role="alert" className="p-3 bg-red-950/40 border border-red-800/80 rounded-lg text-xs text-red-300">
+                  {errorMessage}
+                </div>
+              )}
+            </div>
+
+            {/* Agents Live List */}
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Discovered Agents ({agents.length})
+              </div>
+              {agents.length === 0 && !isLoadingAgents ? (
+                <p className="text-xs text-gray-500 italic p-4 bg-gray-850 rounded-lg border border-gray-800 text-center">
+                  No agents registered under this engine.
                 </p>
-              </div>
-
-              {/* Console Banner Quote */}
-              <div className="p-4 bg-gray-950 rounded-xl border border-gray-800 space-y-2">
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Console Banner Reference</div>
-                <blockquote className="border-l-4 border-blue-500 pl-4 py-1 text-xs italic text-gray-300 leading-relaxed">
-                  &quot;This agent is not integrated with Agent Registry and Gateway policies will not be applied. To apply Gateway policies, publish this agent to the Agent Registry and route traffic to the agent through Gateway.&quot;
-                </blockquote>
-              </div>
-
-              {/* Architecture comparison */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl border border-gray-800 bg-gray-850 space-y-2.5">
-                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Fragmented Per-Agent Telemetry</h4>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    Admins must maintain telemetry toggles, rate limits, and safety filters individually on each of 50+ no-code agents.
-                  </p>
-                  <ul className="text-xs text-gray-400 list-disc list-inside space-y-1">
-                    <li>Requires continuous reconciliation sweeps</li>
-                    <li>Prone to developer oversight on new agent creation</li>
-                    <li>Audit configurations live inside agent manifests</li>
-                  </ul>
+              ) : (
+                <div className="overflow-x-auto border border-gray-800 rounded-lg">
+                  <table className="min-w-full divide-y divide-gray-800 text-xs">
+                    <thead className="bg-gray-800/70 text-gray-400">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left font-semibold">Display Name</th>
+                        <th className="px-4 py-2.5 text-left font-semibold">Agent ID</th>
+                        <th className="px-4 py-2.5 text-left font-semibold">Telemetry Status</th>
+                        <th className="px-4 py-2.5 text-left font-semibold">Sensitive Logs</th>
+                        <th className="px-4 py-2.5 text-left font-semibold">Principal Audit</th>
+                        <th className="px-4 py-2.5 text-left font-semibold">Artifact Bucket</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800 bg-gray-900/50">
+                      {agents.map((agent) => {
+                        const isManaged = isGoogleManagedAgent(agent);
+                        const isObsEnabled = Boolean(agent.observabilityConfig?.observabilityEnabled);
+                        const isSensEnabled = Boolean(agent.observabilityConfig?.sensitiveLoggingEnabled);
+                        const isPrincipalEnabled = Boolean(agent.observabilityConfig?.userPrincipalLoggingEnabled);
+                        const agentBucket = agent.observabilityConfig?.artifactGcsBucket || '';
+                        const hasLegacyAuth = Boolean(agent.authorizations && agent.authorizations.length > 0);
+                        const id = agent.name.split('/').pop() || agent.name;
+                        return (
+                          <tr key={agent.name} className="hover:bg-gray-850 transition-colors">
+                            <td className="px-4 py-2.5 text-white font-medium">
+                              <div className="flex items-center gap-2">
+                                <span>{agent.displayName || id}</span>
+                                {isManaged && (
+                                  <span
+                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-950/90 text-blue-300 border border-blue-700/70"
+                                    title="Google-managed first-party agent. Observability is managed by Google Cloud."
+                                  >
+                                    Google-Managed
+                                  </span>
+                                )}
+                                {hasLegacyAuth && (
+                                  <span
+                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 text-amber-300 border border-amber-700/70"
+                                    title="Uses legacy agent.authorizations schema. In-place updates rejected by Google Cloud Discovery Engine API."
+                                  >
+                                    Legacy Schema
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 font-mono text-gray-400">{id}</td>
+                            <td className="px-4 py-2.5">
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                                  isObsEnabled
+                                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60'
+                                    : isManaged
+                                    ? 'bg-blue-950 text-blue-300 border border-blue-700/60'
+                                    : hasLegacyAuth
+                                    ? 'bg-amber-950 text-amber-300 border border-amber-700/60'
+                                    : 'bg-red-950 text-red-300 border border-red-700/60'
+                                }`}
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    isObsEnabled
+                                      ? 'bg-emerald-400'
+                                      : isManaged
+                                      ? 'bg-blue-400'
+                                      : hasLegacyAuth
+                                      ? 'bg-amber-400'
+                                      : 'bg-red-400'
+                                  }`}
+                                ></span>
+                                {isObsEnabled ? 'ON' : isManaged ? 'Google-Managed (Exempt)' : hasLegacyAuth ? 'OFF (Legacy Blocked)' : 'OFF (Blindspot)'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-gray-400 font-mono">
+                              {isSensEnabled ? (
+                                <span className="text-emerald-400 font-semibold">Enabled</span>
+                              ) : isManaged ? (
+                                <span className="text-gray-500">N/A (Managed)</span>
+                              ) : (
+                                <span className="text-gray-500">Disabled</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-gray-400 font-mono">
+                              {isPrincipalEnabled ? (
+                                <span className="text-blue-300 font-semibold">Principal On</span>
+                              ) : isManaged ? (
+                                <span className="text-gray-500">N/A</span>
+                              ) : (
+                                <span className="text-gray-500">Off</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-gray-400 font-mono truncate max-w-[180px]" title={agentBucket}>
+                              {agentBucket || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
+              )}
+            </div>
+          </div>
+        )}
 
-                <div className="p-4 rounded-xl border border-purple-800/60 bg-purple-950/20 space-y-2.5">
-                  <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider">Centralized Gateway Routing</h4>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    Agents are published to the <strong>Agent Registry</strong>. Traffic routes through an <strong>Agent Gateway</strong> that enforces global observability policies.
-                  </p>
-                  <ul className="text-xs text-purple-200/80 list-disc list-inside space-y-1">
-                    <li>Unified Cloud Trace spans across all agents globally</li>
-                    <li>Model Armor and security rules applied at proxy layer</li>
-                    <li>Creator telemetry settings completely abstracted away</li>
-                  </ul>
-                </div>
+        {/* TAB 4: OPTION 3 - AGENT GATEWAY GOVERNANCE */}
+        {activeTab === 'option3_gateway' && (
+          <div className="space-y-6">
+            <div className="border border-purple-800/60 bg-purple-950/20 p-4 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-purple-300 flex items-center gap-2">
+                  <span>Option 3: Agent Gateway Governance</span>
+                  <span className="text-[10px] bg-purple-900/80 text-purple-200 px-2 py-0.5 rounded border border-purple-600">
+                    Google&apos;s Strategic Path
+                  </span>
+                </h3>
+              </div>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                Centralized policy enforcement via the <strong>Agent Registry &amp; Agent Gateway</strong>.
+              </p>
+            </div>
+
+            {/* Console Banner Quote */}
+            <div className="p-4 bg-gray-950 rounded-xl border border-gray-800 space-y-2">
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Console Banner Reference</div>
+              <blockquote className="border-l-4 border-blue-500 pl-4 py-1 text-xs italic text-gray-300 leading-relaxed">
+                &quot;This agent is not integrated with Agent Registry and Gateway policies will not be applied. To apply Gateway policies, publish this agent to the Agent Registry and route traffic to the agent through Gateway.&quot;
+              </blockquote>
+            </div>
+
+            {/* Architecture comparison */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl border border-gray-800 bg-gray-850 space-y-2.5">
+                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Fragmented Per-Agent Telemetry</h4>
+                <p className="text-xs text-gray-300 leading-relaxed">
+                  Admins must maintain telemetry toggles, rate limits, and safety filters individually on each of 50+ no-code agents.
+                </p>
+                <ul className="text-xs text-gray-400 list-disc list-inside space-y-1">
+                  <li>Requires continuous reconciliation sweeps</li>
+                  <li>Prone to developer oversight on new agent creation</li>
+                  <li>Audit configurations live inside agent manifests</li>
+                </ul>
               </div>
 
-              <div className="p-4 bg-gray-850 rounded-xl border border-gray-700 space-y-2 text-xs">
-                <div className="font-semibold text-white">Summary Recommendation for Enterprise Architects:</div>
-                <ol className="list-decimal list-inside space-y-1.5 text-gray-300 pl-1 leading-relaxed">
-                  <li>
-                    <strong>Immediate Protection (Today):</strong> Deploy the <strong>Eventarc Auto-Patcher (Option 1)</strong> to guarantee 100% compliance the moment any no-code agent is created.
-                  </li>
-                  <li>
-                    <strong>On-Demand Audit:</strong> Use the <strong>GEM Sweep Tool (Option 2)</strong> periodically to verify legacy or pre-existing agents.
-                  </li>
-                  <li>
-                    <strong>Strategic Governance:</strong> Migrate high-traffic production agents to the <strong>Agent Registry & Gateway (Option 3)</strong>.
-                  </li>
-                </ol>
+              <div className="p-4 rounded-xl border border-purple-800/60 bg-purple-950/20 space-y-2.5">
+                <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider">Centralized Gateway Routing</h4>
+                <p className="text-xs text-gray-300 leading-relaxed">
+                  Agents are published to the <strong>Agent Registry</strong>. Traffic routes through an <strong>Agent Gateway</strong> that enforces global observability policies.
+                </p>
+                <ul className="text-xs text-purple-200/80 list-disc list-inside space-y-1">
+                  <li>Unified Cloud Trace spans across all agents globally</li>
+                  <li>Model Armor and security rules applied at proxy layer</li>
+                  <li>Creator telemetry settings completely abstracted away</li>
+                </ul>
               </div>
             </div>
-          )}
-        </div>
+
+            <div className="p-4 bg-gray-850 rounded-xl border border-gray-700 space-y-2 text-xs">
+              <div className="font-semibold text-white">Summary Recommendation for Enterprise Architects:</div>
+              <ol className="list-decimal list-inside space-y-1.5 text-gray-300 pl-1 leading-relaxed">
+                <li>
+                  <strong>Immediate Protection (Today):</strong> Deploy the <strong>Eventarc Auto-Patcher (Option 1)</strong> to guarantee 100% compliance the moment any no-code agent is created.
+                </li>
+                <li>
+                  <strong>On-Demand Audit:</strong> Use the <strong>GEM Sweep Tool (Option 2)</strong> periodically to verify legacy or pre-existing agents.
+                </li>
+                <li>
+                  <strong>Strategic Governance:</strong> Migrate high-traffic production agents to the <strong>Agent Registry &amp; Gateway (Option 3)</strong>.
+                </li>
+              </ol>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Footer */}
       <div className="p-4 bg-gray-850 border-t border-gray-800 flex justify-between items-center">

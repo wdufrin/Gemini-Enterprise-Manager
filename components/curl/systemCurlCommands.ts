@@ -470,6 +470,33 @@ curl -X GET \\
         "licenseCount": 10
       }' \\
   "https://discoveryengine.googleapis.com/v1alpha/billingAccounts/[BILLING_ACCOUNT_ID]/billingAccountLicenseConfigs/[LICENSE_CONFIG_ID]:retractLicenseConfig"`
+      },
+      {
+        title: 'Get UserStore Auto-Licensing Policy',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/userStores/default_user_store"`
+      },
+      {
+        title: 'Update UserStore Auto-Licensing & Tier Rules',
+        command: `curl -X PATCH \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "name": "projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/userStores/default_user_store",
+        "enableLicenseAutoRegister": true,
+        "enableExpiredLicenseAutoUpdate": true
+      }' \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/userStores/default_user_store?updateMask=enableLicenseAutoRegister,enableExpiredLicenseAutoUpdate"`
+      },
+      {
+        title: 'Get Project Overage Config (PAYG Eligibility)',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/projectOverageConfig?checkBillingAccountEligibility=true"`
       }
     ]
   },
@@ -735,6 +762,39 @@ curl -X GET \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "Content-Type: application/json" \\
   "https://cloudresourcemanager.googleapis.com/v1/projects/[YOUR_PROJECT_ID]:getIamPolicy"`
+      }
+    ]
+  },
+  [Page.DEV_TOOLS]: {
+    description: "These are the Discovery Engine v1alpha REST API calls for reading and updating the singleton AI Developer Tools & Google Antigravity governance policy (`DevToolsConfig`) per project and location.",
+    commands: [
+      {
+        title: 'Get AI Developer Tools Config (Singleton)',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/devToolsConfig"`
+      },
+      {
+        title: 'Update AI Developer Tools Config',
+        command: `curl -X PATCH \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "name": "projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/devToolsConfig",
+        "devToolsEnabled": true,
+        "agentConfig": {
+          "sandboxModeEnabled": true,
+          "outsideWorkspaceFileAccessPolicy": "FILE_ACCESS_POLICY_ALWAYS_ASK",
+          "terminalCommandAutoExecutionPolicy": "TERMINAL_COMMAND_AUTO_EXECUTION_POLICY_REQUIRE_REVIEW"
+        },
+        "mcpConfig": {
+          "mcpEnabled": true,
+          "mcpAllowlist": {}
+        }
+      }' \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/devToolsConfig?updateMask=devToolsEnabled,agentConfig,mcpConfig"`
       }
     ]
   },

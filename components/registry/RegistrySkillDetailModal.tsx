@@ -25,6 +25,7 @@ import {
   Agent,
 } from '../../types';
 import * as api from '../../services/apiService';
+import { restoreRegistrySkillRevision as restoreRegistrySkillRevisionDirect } from '../../services/api/registry';
 import JSZip from 'jszip';
 import DestructiveConfirmModal from '../DestructiveConfirmModal';
 import ExportSkillsModal from '../assistants/ExportSkillsModal';
@@ -676,19 +677,29 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
     }
   };
 
-  const handlePromoteRevision = async (rev: RegistrySkillRevision) => {
+  const handleRestoreRevision = async (rev: RegistrySkillRevision) => {
     setIsUpdating(true);
     try {
-      await api.updateRegistrySkill(
-        skill.name,
-        { defaultRevision: rev.name },
-        ['default_revision'],
-        config,
-      );
-      toast.success(`Promoted revision ${rev.name.split('/').pop()} as default serving revision.`);
+      const apiWithRestore = api as typeof api & {
+        restoreRegistrySkillRevision?: typeof restoreRegistrySkillRevisionDirect;
+      };
+      const restoreFn =
+        typeof apiWithRestore.restoreRegistrySkillRevision === 'function'
+          ? apiWithRestore.restoreRegistrySkillRevision
+          : restoreRegistrySkillRevisionDirect;
+      await restoreFn(skill.name, rev, config);
+      if (typeof api.listRegistrySkillRevisions === 'function') {
+        try {
+          const updatedRevs = await api.listRegistrySkillRevisions(skill.name, config);
+          setRevisions(updatedRevs);
+        } catch {
+          // Non-fatal: parent skill refresh still updates defaultRevision
+        }
+      }
+      toast.success(`Restored revision ${rev.name.split('/').pop()} as active default revision.`);
       onSkillUpdated();
     } catch (err: unknown) {
-      toast.error(`Failed to promote revision: ${toErrorMessage(err)}`);
+      toast.error(`Failed to restore revision: ${toErrorMessage(err)}`);
     } finally {
       setIsUpdating(false);
     }
@@ -1156,8 +1167,11 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
                             {rev.name.split('/').pop()}
                           </span>
                           {isDefault && (
-                            <span className="px-2 py-0.5 text-[10px] font-bold bg-purple-900/50 text-purple-200 rounded border border-purple-700">
-                              DEFAULT SERVING
+                            <span
+                              data-testid="active-default-revision-badge"
+                              className="px-2 py-0.5 text-[10px] font-bold bg-purple-900/50 text-purple-200 rounded border border-purple-700"
+                            >
+                              Active Default
                             </span>
                           )}
                         </div>
@@ -1225,11 +1239,12 @@ const RegistrySkillDetailModal: React.FC<RegistrySkillDetailModalProps> = ({
                             scanState !== 'RUNNING' && (
                               <button
                                 type="button"
+                                data-testid={`restore-revision-btn-${rev.name.split('/').pop()}`}
                                 disabled={isUpdating}
-                                onClick={() => void handlePromoteRevision(rev)}
-                                className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-blue-300 border border-gray-600 rounded text-[10px] font-semibold transition-colors"
+                                onClick={() => void handleRestoreRevision(rev)}
+                                className="px-2.5 py-0.5 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 border border-purple-700 rounded text-[10px] font-semibold transition-colors"
                               >
-                                Set as Default
+                                Restore Revision
                               </button>
                             )}
                         </div>

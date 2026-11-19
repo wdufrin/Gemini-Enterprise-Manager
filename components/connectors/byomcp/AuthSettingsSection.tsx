@@ -15,6 +15,7 @@
  */
 
 import React from 'react';
+import { getByomcpAuthBridge } from './types';
 
 interface AuthSettingsSectionProps {
   showAdvancedAuth: boolean;
@@ -35,6 +36,10 @@ interface AuthSettingsSectionProps {
   setClientSecret: (val: string) => void;
   showClientSecret: boolean;
   setShowClientSecret: (val: boolean) => void;
+  pkceSupportEnabled?: boolean;
+  setPkceSupportEnabled?: (val: boolean) => void;
+  clientSecretBasicOverride?: boolean;
+  setClientSecretBasicOverride?: (val: boolean) => void;
 }
 
 export const AuthSettingsSection: React.FC<AuthSettingsSectionProps> = ({
@@ -56,7 +61,19 @@ export const AuthSettingsSection: React.FC<AuthSettingsSectionProps> = ({
   setClientSecret,
   showClientSecret,
   setShowClientSecret,
+  pkceSupportEnabled: pkceProp,
+  setPkceSupportEnabled: setPkceProp,
+  clientSecretBasicOverride: basicOverrideProp,
+  setClientSecretBasicOverride: setBasicOverrideProp,
 }) => {
+  const bridge = getByomcpAuthBridge(setAuthType, setShowAdvancedAuth);
+  const pkceSupportEnabled = pkceProp ?? bridge?.pkceSupportEnabled ?? false;
+  const setPkceSupportEnabled = setPkceProp ?? bridge?.setPkceSupportEnabled;
+  const clientSecretBasicOverride =
+    basicOverrideProp ?? bridge?.clientSecretBasicOverride ?? false;
+  const setClientSecretBasicOverride =
+    setBasicOverrideProp ?? bridge?.setClientSecretBasicOverride;
+
   return (
     <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-800 space-y-4">
       <div
@@ -208,6 +225,52 @@ export const AuthSettingsSection: React.FC<AuthSettingsSectionProps> = ({
                 className="w-full bg-gray-950 border border-gray-700 rounded p-2 text-xs text-white font-mono placeholder-gray-600 focus:outline-none focus:border-blue-500"
               />
             </div>
+
+            {authType === 'OAUTH' && (
+              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-gray-800/80">
+                <label className="flex items-start gap-2.5 p-2.5 bg-gray-950 rounded border border-gray-800 cursor-pointer hover:border-gray-700">
+                  <input
+                    type="checkbox"
+                    data-testid="byomcp-pkce-checkbox"
+                    checked={pkceSupportEnabled}
+                    onChange={(e) => setPkceSupportEnabled?.(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-600 bg-gray-900 text-blue-500 focus:ring-blue-500"
+                  />
+                  <div>
+                    <div className="text-xs font-semibold text-gray-200">
+                      Enable OAuth 2.0 PKCE{' '}
+                      <span className="text-purple-400 font-mono text-[10px]">
+                        (pkce_support_enabled)
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-gray-400">
+                      Sends RFC 7636 S256 code_challenge &amp; code_verifier during 3LO authorization handshakes.
+                    </div>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2.5 p-2.5 bg-gray-950 rounded border border-gray-800 cursor-pointer hover:border-gray-700">
+                  <input
+                    type="checkbox"
+                    data-testid="byomcp-basic-override-checkbox"
+                    checked={clientSecretBasicOverride}
+                    onChange={(e) => setClientSecretBasicOverride?.(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-600 bg-gray-900 text-blue-500 focus:ring-blue-500"
+                  />
+                  <div>
+                    <div className="text-xs font-semibold text-gray-200">
+                      HTTP Basic Secret Override{' '}
+                      <span className="text-purple-400 font-mono text-[10px]">
+                        (client_secret_basic_override)
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-gray-400">
+                      Sends Client ID &amp; Secret in an HTTP Basic Authorization header instead of POST body fields.
+                    </div>
+                  </div>
+                </label>
+              </div>
+            )}
           </div>
         </div>
       )}

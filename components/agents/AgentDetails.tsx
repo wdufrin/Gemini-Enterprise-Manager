@@ -16,8 +16,15 @@
 
 
 import React, { useState, useMemo } from 'react';
-import { AdminPublishAndShareResult, Agent, AppEngine, Config, DataStore, IamPolicy, WidgetConfig } from '../../types';
+import { AdminPublishAndShareResult, Agent, AgentIamProposal, AppEngine, Config, DataStore, IamPolicy, WidgetConfig } from '../../types';
 import * as api from '../../services/apiService';
+import {
+    suspendAgent as suspendAgentDirect,
+    rejectAgent as rejectAgentDirect,
+    listAgentIamProposals as listAgentIamProposalsDirect,
+    approveAgentIamProposal as approveAgentIamProposalDirect,
+    rejectAgentIamProposal as rejectAgentIamProposalDirect,
+} from '../../services/api/discovery/agents';
 import Spinner from '../Spinner';
 import SetIamPolicyModal from './SetIamPolicyModal';
 import TransferAgentOwnershipModal from './TransferAgentOwnershipModal';
@@ -153,9 +160,24 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     const [isFetchingDataStores, setIsFetchingDataStores] = useState(false);
     const [dataStoresError, setDataStoresError] = useState<string | null>(null);
 
-    // State for copying agent card / raw JSON
+    // State for copying agent card / raw JSON / SPIFFE ID
     const [copyCardSuccess, setCopyCardSuccess] = useState<string | null>(null);
     const [copyRawJsonSuccess, setCopyRawJsonSuccess] = useState<string | null>(null);
+    const [copySpiffeSuccess, setCopySpiffeSuccess] = useState<string | null>(null);
+
+    // Governance state: Suspend / Reject (with mandatory reason) & AgentIamProposal review queue
+    const [governanceModalMode, setGovernanceModalMode] = useState<'suspend' | 'reject' | null>(null);
+    const [governanceReason, setGovernanceReason] = useState<string>('');
+    const [governanceError, setGovernanceError] = useState<string | null>(null);
+    const [isSubmittingGovernance, setIsSubmittingGovernance] = useState<boolean>(false);
+
+    const [iamProposals, setIamProposals] = useState<AgentIamProposal[] | null>(null);
+    const [isFetchingProposals, setIsFetchingProposals] = useState<boolean>(false);
+    const [proposalsError, setProposalsError] = useState<string | null>(null);
+    const [actingProposalName, setActingProposalName] = useState<string | null>(null);
+    const [rejectingProposalName, setRejectingProposalName] = useState<string | null>(null);
+    const [proposalRejectionReason, setProposalRejectionReason] = useState<string>('');
+    const [proposalActionError, setProposalActionError] = useState<string | null>(null);
 
     // State for low-code model & system instruction editing
     const [fullAgent, setFullAgent] = useState<Agent | null>(null);
@@ -504,7 +526,16 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
     const isToggling = togglingAgentId === agentId;
     const isGoogleManaged = api.isGoogleManagedAgent(currentAgent);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-    const statusColorClass = currentAgent.state === 'ENABLED' ? 'bg-green-500' : currentAgent.state === 'DISABLED' ? 'bg-red-500' : 'bg-yellow-500';
+    const statusColorClass =
+        currentAgent.state === 'ENABLED'
+            ? 'bg-green-500'
+            : currentAgent.state === 'DISABLED'
+                ? 'bg-red-500'
+                : currentAgent.state === 'SUSPENDED'
+                    ? 'bg-amber-500'
+                    : currentAgent.state === 'REJECTED'
+                        ? 'bg-rose-600'
+                        : 'bg-yellow-500';
 
     const handleDelete = async () => {
         if (isGoogleManaged) {
@@ -805,6 +836,177 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
         setTimeout(() => setCopyRawJsonSuccess(null), 2000);
     };
 
+    const spiffeId = (
+        currentAgent as Agent & {
+            agentIdentityInfo?: { spiffeId?: string; spiffeIdType?: string };
+        }
+    ).agentIdentityInfo?.spiffeId;
+    const spiffeIdType = (
+        currentAgent as Agent & {
+            agentIdentityInfo?: { spiffeId?: string; spiffeIdType?: string };
+        }
+    ).agentIdentityInfo?.spiffeIdType;
+    const suspensionReason = (
+        currentAgent as Agent & { suspensionReason?: string; rejectionReason?: string }
+    ).suspensionReason;
+    const rejectionReason = (
+        currentAgent as Agent & { suspensionReason?: string; rejectionReason?: string }
+    ).rejectionReason;
+
+    const handleCopySpiffeId = () => {
+        if (!spiffeId) return;
+        navigator.clipboard.writeText(spiffeId);
+        setCopySpiffeSuccess('Copied!');
+        setTimeout(() => setCopySpiffeSuccess(null), 2000);
+    };
+
+    const handleOpenGovernanceModal = (mode: 'suspend' | 'reject') => {
+        setGovernanceModalMode(mode);
+        setGovernanceReason('');
+        setGovernanceError(null);
+    };
+
+    const handleSubmitGovernanceAction = async () => {
+        if (!governanceModalMode) return;
+        const trimmedReason = governanceReason.trim();
+        if (!trimmedReason) {
+            setGovernanceError(
+                governanceModalMode === 'suspend'
+                    ? 'Suspension reason is required.'
+                    : 'Rejection reason is required.'
+            );
+            return;
+        }
+        setIsSubmittingGovernance(true);
+        setGovernanceError(null);
+        try {
+            const apiAny = api as typeof api & {
+                suspendAgent?: typeof suspendAgentDirect;
+                rejectAgent?: typeof rejectAgentDirect;
+            };
+            const updated =
+                governanceModalMode === 'suspend'
+                    ? await (typeof apiAny.suspendAgent === 'function'
+                          ? apiAny.suspendAgent(currentAgent.name, trimmedReason, config)
+                          : suspendAgentDirect(currentAgent.name, trimmedReason, config))
+                    : await (typeof apiAny.rejectAgent === 'function'
+                          ? apiAny.rejectAgent(currentAgent.name, trimmedReason, config)
+                          : rejectAgentDirect(currentAgent.name, trimmedReason, config));
+            setFullAgent(updated);
+            onAgentUpdated?.(updated);
+            setGovernanceModalMode(null);
+            setGovernanceReason('');
+            toast.success(
+                governanceModalMode === 'suspend'
+                    ? `Agent "${currentAgent.displayName || agentId}" suspended.`
+                    : `Agent "${currentAgent.displayName || agentId}" rejected.`
+            );
+        } catch (err: unknown) {
+            setGovernanceError(toErrorMessage(err) || `Failed to ${governanceModalMode} agent.`);
+        } finally {
+            setIsSubmittingGovernance(false);
+        }
+    };
+
+    const handleFetchIamProposals = async () => {
+        setIsFetchingProposals(true);
+        setProposalsError(null);
+        setProposalActionError(null);
+        try {
+            const apiAny = api as typeof api & {
+                listAgentIamProposals?: typeof listAgentIamProposalsDirect;
+            };
+            const listFn =
+                typeof apiAny.listAgentIamProposals === 'function'
+                    ? apiAny.listAgentIamProposals
+                    : listAgentIamProposalsDirect;
+            const res = await listFn(currentAgent.name, config);
+            setIamProposals(Array.isArray(res) ? res : []);
+        } catch (err: unknown) {
+            setProposalsError(toErrorMessage(err) || 'Failed to fetch access proposals.');
+        } finally {
+            setIsFetchingProposals(false);
+        }
+    };
+
+    const handleApproveProposal = async (proposal: AgentIamProposal) => {
+        setActingProposalName(proposal.name);
+        setProposalActionError(null);
+        try {
+            const apiAny = api as typeof api & {
+                approveAgentIamProposal?: typeof approveAgentIamProposalDirect;
+            };
+            const approveFn =
+                typeof apiAny.approveAgentIamProposal === 'function'
+                    ? apiAny.approveAgentIamProposal
+                    : approveAgentIamProposalDirect;
+            const updatedProposal = await approveFn(proposal.name, config);
+            setIamProposals(prev =>
+                (prev || []).map(p =>
+                    p.name === proposal.name
+                        ? {
+                              ...p,
+                              ...(updatedProposal && typeof updatedProposal === 'object'
+                                  ? updatedProposal
+                                  : {}),
+                              state:
+                                  (updatedProposal as { state?: string } | undefined)?.state ||
+                                  'APPROVED',
+                          }
+                        : p
+                )
+            );
+            toast.success('Access proposal approved.');
+        } catch (err: unknown) {
+            setProposalActionError(toErrorMessage(err) || 'Failed to approve access proposal.');
+        } finally {
+            setActingProposalName(null);
+        }
+    };
+
+    const handleRejectProposal = async (proposal: AgentIamProposal) => {
+        const trimmedReason = proposalRejectionReason.trim();
+        if (!trimmedReason) {
+            setProposalActionError('Rejection reason is required to reject an access proposal.');
+            return;
+        }
+        setActingProposalName(proposal.name);
+        setProposalActionError(null);
+        try {
+            const apiAny = api as typeof api & {
+                rejectAgentIamProposal?: typeof rejectAgentIamProposalDirect;
+            };
+            const rejectFn =
+                typeof apiAny.rejectAgentIamProposal === 'function'
+                    ? apiAny.rejectAgentIamProposal
+                    : rejectAgentIamProposalDirect;
+            const updatedProposal = await rejectFn(proposal.name, trimmedReason, config);
+            setIamProposals(prev =>
+                (prev || []).map(p =>
+                    p.name === proposal.name
+                        ? {
+                              ...p,
+                              ...(updatedProposal && typeof updatedProposal === 'object'
+                                  ? updatedProposal
+                                  : {}),
+                              state:
+                                  (updatedProposal as { state?: string } | undefined)?.state ||
+                                  'REJECTED',
+                              rejectionReason: trimmedReason,
+                          }
+                        : p
+                )
+            );
+            setRejectingProposalName(null);
+            setProposalRejectionReason('');
+            toast.success('Access proposal rejected.');
+        } catch (err: unknown) {
+            setProposalActionError(toErrorMessage(err) || 'Failed to reject access proposal.');
+        } finally {
+            setActingProposalName(null);
+        }
+    };
+
     const reasoningEngine = currentAgent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
     const toolDescription = currentAgent.adkAgentDefinition?.toolSettings?.toolDescription;
     
@@ -835,6 +1037,28 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                             {statusProps.text}
                         </button>
                     )}
+                </dd>
+            </div>
+        );
+    } else if (currentAgent.state === 'SUSPENDED') {
+        statusElement = (
+            <div className="py-2">
+                <dt className="text-sm font-medium text-gray-400">Status</dt>
+                <dd className="mt-1 text-sm">
+                    <span className="px-3 py-1 text-xs font-semibold rounded-full bg-amber-600 text-white">
+                        Suspended
+                    </span>
+                </dd>
+            </div>
+        );
+    } else if (currentAgent.state === 'REJECTED') {
+        statusElement = (
+            <div className="py-2">
+                <dt className="text-sm font-medium text-gray-400">Status</dt>
+                <dd className="mt-1 text-sm">
+                    <span className="px-3 py-1 text-xs font-semibold rounded-full bg-rose-700 text-white">
+                        Rejected
+                    </span>
                 </dd>
             </div>
         );
@@ -985,6 +1209,28 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                             </button>
                         </>
                     )}
+                    {!isGoogleManaged && currentAgent.state === 'ENABLED' && (
+                        <button
+                            type="button"
+                            data-testid="suspend-agent-btn"
+                            onClick={() => handleOpenGovernanceModal('suspend')}
+                            className="px-3.5 py-2 bg-amber-600 text-white text-sm font-semibold rounded-md hover:bg-amber-500 transition-colors"
+                            title="Suspend this enabled agent with an auditable suspension reason (:suspendAgent)"
+                        >
+                            Suspend Agent
+                        </button>
+                    )}
+                    {!isGoogleManaged && currentAgent.state === 'DISABLED' && (
+                        <button
+                            type="button"
+                            data-testid="reject-agent-btn"
+                            onClick={() => handleOpenGovernanceModal('reject')}
+                            className="px-3.5 py-2 bg-rose-700 text-white text-sm font-semibold rounded-md hover:bg-rose-600 transition-colors"
+                            title="Reject this pending-review/disabled agent with an auditable rejection reason (:rejectAgent)"
+                        >
+                            Reject Agent
+                        </button>
+                    )}
                     {isGoogleManaged ? (
                         <button
                             type="button"
@@ -1009,9 +1255,29 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                 </div>
             </div>
 
-            {/* Error Banners */}
+            {/* Error & Governance Banners */}
             {pageError && <p className="text-red-400 mt-4 text-sm">{pageError}</p>}
             {deleteError && <p className="text-red-400 mt-4 text-sm">{deleteError}</p>}
+            {suspensionReason && (
+                <div
+                    role="alert"
+                    data-testid="agent-suspension-reason-banner"
+                    className="mt-4 p-3.5 bg-amber-950/50 border border-amber-600/80 rounded-lg text-xs text-amber-200"
+                >
+                    <strong className="text-amber-100">Agent Suspended:</strong>{' '}
+                    <span>{suspensionReason}</span>
+                </div>
+            )}
+            {rejectionReason && (
+                <div
+                    role="alert"
+                    data-testid="agent-rejection-reason-banner"
+                    className="mt-4 p-3.5 bg-rose-950/50 border border-rose-600/80 rounded-lg text-xs text-rose-200"
+                >
+                    <strong className="text-rose-100">Agent Review Rejected:</strong>{' '}
+                    <span>{rejectionReason}</span>
+                </div>
+            )}
             {lowCodeValidationErrors.length > 0 && (
                 <div className="mt-4 p-3.5 bg-amber-900/30 border border-amber-600/70 rounded-lg text-xs text-amber-200 space-y-2">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -1211,12 +1477,72 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                         <DetailItem
                             label="Authorizations"
                             value={
-                                currentAgent.authorizationConfig?.toolAuthorizations?.join(', ') ||
-                                currentAgent.authorizations?.join(', ') ||
+                                [
+                                    ...(currentAgent.authorizationConfig?.toolAuthorizations ||
+                                        currentAgent.authorizations ||
+                                        []),
+                                    ...((
+                                        currentAgent.authorizationConfig as
+                                            | { agentAuthorization?: string }
+                                            | undefined
+                                    )?.agentAuthorization
+                                        ? [
+                                              `Invocation Auth: ${
+                                                  (
+                                                      currentAgent.authorizationConfig as {
+                                                          agentAuthorization?: string;
+                                                      }
+                                                  ).agentAuthorization
+                                              }`,
+                                          ]
+                                        : []),
+                                ].join(', ') ||
                                 (isNoCodeAgent ? 'Managed via bound Data Connectors (OAuth)' : undefined)
                             }
                         />
+                        {suspensionReason && (
+                            <DetailItem label="Suspension Reason" value={suspensionReason} />
+                        )}
+                        {rejectionReason && (
+                            <DetailItem label="Rejection Reason" value={rejectionReason} />
+                        )}
                     </dl>
+
+                    {spiffeId && (
+                        <div
+                            data-testid="agent-spiffe-identity-card"
+                            className="p-4 bg-gray-900/60 border border-teal-700/60 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        >
+                            <div className="space-y-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <h3 className="text-sm font-semibold text-teal-200">
+                                        Agent SPIFFE Identity
+                                    </h3>
+                                    {spiffeIdType && (
+                                        <span
+                                            data-testid="agent-spiffe-id-type"
+                                            className="px-2 py-0.5 text-[11px] font-mono font-semibold rounded bg-teal-950/80 text-teal-300 border border-teal-700/70"
+                                        >
+                                            {spiffeIdType}
+                                        </span>
+                                    )}
+                                </div>
+                                <code
+                                    data-testid="agent-spiffe-id-value"
+                                    className="block text-xs font-mono text-white bg-gray-800 px-3 py-1.5 rounded border border-gray-700 break-all"
+                                >
+                                    {spiffeId}
+                                </code>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleCopySpiffeId}
+                                className="px-3.5 py-2 bg-teal-700 hover:bg-teal-600 text-white text-xs font-semibold rounded-md shrink-0 transition-colors"
+                            >
+                                {copySpiffeSuccess || 'Copy SPIFFE ID'}
+                            </button>
+                        </div>
+                    )}
 
                     {currentAgent.a2aAgentDefinition?.jsonAgentCard && (
                         <div className="border-t border-gray-700 pt-4 flex items-center justify-between">
@@ -1719,6 +2045,210 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                             </div>
                         )}
                     </div>
+
+                    {/* Access Proposals (AgentIamProposal) Review Queue */}
+                    <div
+                        data-testid="agent-iam-proposals-section"
+                        className="p-4 bg-gray-900/40 border border-gray-700 rounded-lg space-y-4"
+                    >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <h3 className="text-base font-semibold text-white">
+                                    Access Proposals (<code className="font-mono text-sm text-purple-300">AgentIamProposal</code>)
+                                </h3>
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                    Review, approve, or reject pending sharing and access requests submitted for this agent.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                data-testid="load-iam-proposals-btn"
+                                onClick={handleFetchIamProposals}
+                                disabled={isFetchingProposals}
+                                className="px-4 py-2 bg-purple-600 text-white text-xs font-semibold rounded-md hover:bg-purple-500 disabled:bg-purple-800"
+                            >
+                                {isFetchingProposals
+                                    ? 'Loading Proposals...'
+                                    : iamProposals === null
+                                        ? 'Load Access Proposals'
+                                        : 'Refresh Proposals'}
+                            </button>
+                        </div>
+
+                        {isFetchingProposals && <Spinner />}
+                        {proposalsError && (
+                            <p role="alert" className="text-red-400 text-xs">
+                                {proposalsError}
+                            </p>
+                        )}
+                        {proposalActionError && (
+                            <p role="alert" className="text-red-400 text-xs">
+                                {proposalActionError}
+                            </p>
+                        )}
+
+                        {iamProposals !== null && !isFetchingProposals && (
+                            iamProposals.length === 0 ? (
+                                <p className="text-xs text-gray-400 italic">
+                                    No pending or historical IAM access proposals found for this agent.
+                                </p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {iamProposals.map((proposal) => {
+                                        const raw = proposal as AgentIamProposal & Record<string, unknown>;
+                                        const propId = proposal.name.split('/').pop() || proposal.name;
+                                        const rawState = String(
+                                            raw.state || raw.proposalState || 'PENDING'
+                                        ).toUpperCase();
+                                        const isPending =
+                                            !rawState.includes('APPROVED') &&
+                                            !rawState.includes('REJECTED') &&
+                                            !rawState.includes('CANCELLED');
+                                        const roleLabel =
+                                            typeof raw.role === 'string'
+                                                ? raw.role
+                                                : 'roles/discoveryengine.agentUser';
+                                        const membersList = Array.isArray(raw.members)
+                                            ? (raw.members as string[])
+                                            : typeof raw.principal === 'string'
+                                                ? [raw.principal]
+                                                : typeof raw.requester === 'string'
+                                                    ? [raw.requester]
+                                                    : [];
+                                        const justification =
+                                            (typeof raw.justification === 'string' && raw.justification) ||
+                                            (typeof raw.message === 'string' && raw.message) ||
+                                            (typeof raw.reason === 'string' && raw.reason) ||
+                                            '';
+                                        const rejReason =
+                                            typeof raw.rejectionReason === 'string'
+                                                ? raw.rejectionReason
+                                                : '';
+                                        const isActing = actingProposalName === proposal.name;
+                                        const isRejectingThis = rejectingProposalName === proposal.name;
+
+                                        return (
+                                            <div
+                                                key={proposal.name}
+                                                data-testid={`iam-proposal-card-${propId}`}
+                                                className="p-3.5 bg-gray-800/80 border border-gray-700 rounded-lg space-y-2"
+                                            >
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="text-xs font-bold font-mono text-white">
+                                                            {propId}
+                                                        </span>
+                                                        <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-purple-950/70 text-purple-300 border border-purple-700/60">
+                                                            {roleLabel}
+                                                        </span>
+                                                        <span
+                                                            className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
+                                                                rawState.includes('APPROVED')
+                                                                    ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700'
+                                                                    : rawState.includes('REJECTED')
+                                                                        ? 'bg-rose-950/70 text-rose-300 border-rose-700'
+                                                                        : 'bg-amber-950/70 text-amber-300 border-amber-700'
+                                                            }`}
+                                                        >
+                                                            {rawState}
+                                                        </span>
+                                                    </div>
+
+                                                    {isPending && (
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                data-testid={`approve-proposal-btn-${propId}`}
+                                                                disabled={isActing}
+                                                                onClick={() => handleApproveProposal(proposal)}
+                                                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded transition-colors"
+                                                            >
+                                                                {isActing && !isRejectingThis ? 'Approving...' : 'Approve'}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                data-testid={`reject-proposal-btn-${propId}`}
+                                                                disabled={isActing}
+                                                                onClick={() => {
+                                                                    setRejectingProposalName(
+                                                                        isRejectingThis ? null : proposal.name
+                                                                    );
+                                                                    setProposalRejectionReason('');
+                                                                    setProposalActionError(null);
+                                                                }}
+                                                                className="px-3 py-1 bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white text-xs font-semibold rounded transition-colors"
+                                                            >
+                                                                Reject
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {membersList.length > 0 && (
+                                                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-300">
+                                                        <span className="text-gray-400">Principals:</span>
+                                                        {membersList.map((m, idx) => (
+                                                            <code
+                                                                key={`${m}-${idx}`}
+                                                                className="px-2 py-0.5 bg-gray-900 border border-gray-700 rounded font-mono text-[11px] text-gray-200"
+                                                            >
+                                                                {m}
+                                                            </code>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {justification && (
+                                                    <p className="text-xs text-gray-300">
+                                                        <span className="text-gray-400">Justification:</span>{' '}
+                                                        {justification}
+                                                    </p>
+                                                )}
+
+                                                {rejReason && (
+                                                    <p className="text-xs text-rose-300">
+                                                        <strong>Rejection Reason:</strong> {rejReason}
+                                                    </p>
+                                                )}
+
+                                                {isRejectingThis && (
+                                                    <div className="pt-2 border-t border-gray-700 space-y-2">
+                                                        <label
+                                                            htmlFor={`proposal-reject-reason-${propId}`}
+                                                            className="block text-xs font-medium text-gray-300"
+                                                        >
+                                                            Rejection Reason (Required)
+                                                        </label>
+                                                        <div className="flex flex-col sm:flex-row gap-2">
+                                                            <input
+                                                                id={`proposal-reject-reason-${propId}`}
+                                                                type="text"
+                                                                value={proposalRejectionReason}
+                                                                onChange={(e) =>
+                                                                    setProposalRejectionReason(e.target.value)
+                                                                }
+                                                                placeholder="Explain why this share request is denied..."
+                                                                className="flex-1 bg-gray-900 border border-gray-600 rounded px-3 py-1.5 text-xs text-white"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                data-testid={`confirm-reject-proposal-btn-${propId}`}
+                                                                disabled={isActing}
+                                                                onClick={() => handleRejectProposal(proposal)}
+                                                                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-semibold rounded"
+                                                            >
+                                                                {isActing ? 'Rejecting...' : 'Confirm Reject'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -1809,6 +2339,82 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                 <p>Are you sure you want to permanently delete the agent <strong>{currentAgent.displayName}</strong> (<code className="text-xs font-mono text-gray-300">{agentId}</code>)?</p>
                 <p className="mt-3 text-sm text-yellow-300">This action cannot be undone.</p>
             </ConfirmationModal>
+
+            {governanceModalMode && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="agent-governance-modal-title"
+                    className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+                >
+                    <div className="bg-gray-800 border border-gray-700 rounded-xl max-w-lg w-full p-5 space-y-4 shadow-2xl">
+                        <h3 id="agent-governance-modal-title" className="text-base font-bold text-white">
+                            {governanceModalMode === 'suspend'
+                                ? `Suspend Agent "${currentAgent.displayName || agentId}"`
+                                : `Reject Agent "${currentAgent.displayName || agentId}"`}
+                        </h3>
+                        <p className="text-xs text-gray-300 leading-relaxed">
+                            {governanceModalMode === 'suspend'
+                                ? 'Provide an auditable suspension reason. Suspending immediately blocks end-user invocation until an administrator re-enables the agent.'
+                                : 'Provide an auditable rejection reason explaining why this pending-review agent is not approved for sharing.'}
+                        </p>
+                        <div>
+                            <label
+                                htmlFor="agent-governance-reason-input"
+                                className="block text-xs font-semibold text-gray-300 mb-1"
+                            >
+                                {governanceModalMode === 'suspend'
+                                    ? 'Suspension Reason (Required)'
+                                    : 'Rejection Reason (Required)'}
+                            </label>
+                            <textarea
+                                id="agent-governance-reason-input"
+                                rows={3}
+                                value={governanceReason}
+                                onChange={(e) => setGovernanceReason(e.target.value)}
+                                placeholder={
+                                    governanceModalMode === 'suspend'
+                                        ? 'e.g. Policy audit triggered due to unapproved external webhook'
+                                        : 'e.g. Missing data classification sign-off from Security Review'
+                                }
+                                className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                            />
+                        </div>
+                        {governanceError && (
+                            <p role="alert" className="text-xs text-red-400">
+                                {governanceError}
+                            </p>
+                        )}
+                        <div className="flex justify-end gap-2 pt-2 border-t border-gray-700">
+                            <button
+                                type="button"
+                                disabled={isSubmittingGovernance}
+                                onClick={() => setGovernanceModalMode(null)}
+                                className="px-3.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-semibold rounded-md"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                data-testid="confirm-governance-action-btn"
+                                disabled={isSubmittingGovernance}
+                                onClick={handleSubmitGovernanceAction}
+                                className={`px-4 py-1.5 text-white text-xs font-semibold rounded-md ${
+                                    governanceModalMode === 'suspend'
+                                        ? 'bg-amber-600 hover:bg-amber-500'
+                                        : 'bg-rose-700 hover:bg-rose-600'
+                                }`}
+                            >
+                                {isSubmittingGovernance
+                                    ? 'Submitting...'
+                                    : governanceModalMode === 'suspend'
+                                        ? 'Confirm Suspend'
+                                        : 'Confirm Reject'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

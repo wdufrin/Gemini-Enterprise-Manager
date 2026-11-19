@@ -74,11 +74,13 @@ interface SkillTableRowProps {
   onToggleSelect: (skillName: string) => void;
   onInspect: (skill: Agent) => void;
   onEdit: (skill: Agent) => void;
+  onSuspend: (skill: Agent) => void;
+  onReject: (skill: Agent) => void;
   onDelete: (skill: Agent) => void;
 }
 
 const SkillTableRow = React.memo<SkillTableRowProps>(
-  ({ skill, isSelected, onToggleSelect, onInspect, onEdit, onDelete }) => {
+  ({ skill, isSelected, onToggleSelect, onInspect, onEdit, onSuspend, onReject, onDelete }) => {
     const skillId = skill.name.split('/').pop() || '';
     const classification = classifySkillAgent(skill);
     const isGoogle1P = classification.origin === 'GOOGLE_1P';
@@ -187,12 +189,30 @@ const SkillTableRow = React.memo<SkillTableRowProps>(
 
         {/* Status */}
         <td className="px-3 xl:px-5 py-3.5 whitespace-nowrap">
-          <span
-            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${statusBadgeStyle}`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${statusDotStyle}`} />
-            {skill.state || 'Private'}
-          </span>
+          <div className="flex flex-col items-start gap-1">
+            <span
+              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${statusBadgeStyle}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${statusDotStyle}`} />
+              {skill.state || 'Private'}
+            </span>
+            {(skill as Agent & { suspensionReason?: string }).suspensionReason && (
+              <span
+                className="text-[10px] text-amber-300 max-w-[160px] truncate"
+                title={(skill as Agent & { suspensionReason?: string }).suspensionReason}
+              >
+                Suspended: {(skill as Agent & { suspensionReason?: string }).suspensionReason}
+              </span>
+            )}
+            {(skill as Agent & { rejectionReason?: string }).rejectionReason && (
+              <span
+                className="text-[10px] text-rose-300 max-w-[160px] truncate"
+                title={(skill as Agent & { rejectionReason?: string }).rejectionReason}
+              >
+                Rejected: {(skill as Agent & { rejectionReason?: string }).rejectionReason}
+              </span>
+            )}
+          </div>
         </td>
 
         {/* Source Type */}
@@ -258,6 +278,28 @@ const SkillTableRow = React.memo<SkillTableRowProps>(
                 />
               </svg>
             </button>
+            {!isGoogle1P && normalizedState === 'ENABLED' && (
+              <button
+                type="button"
+                onClick={() => onSuspend(skill)}
+                className="px-2 py-1 text-[11px] font-semibold text-amber-300 hover:text-amber-200 hover:bg-amber-900/30 border border-amber-700/50 rounded transition-colors"
+                title="Suspend Skill (with reason)"
+                aria-label={`Suspend ${skill.displayName || skillId}`}
+              >
+                Suspend
+              </button>
+            )}
+            {!isGoogle1P && normalizedState === 'DISABLED' && (
+              <button
+                type="button"
+                onClick={() => onReject(skill)}
+                className="px-2 py-1 text-[11px] font-semibold text-rose-300 hover:text-rose-200 hover:bg-rose-900/30 border border-rose-700/50 rounded transition-colors"
+                title="Reject Pending Skill (with reason)"
+                aria-label={`Reject ${skill.displayName || skillId}`}
+              >
+                Reject
+              </button>
+            )}
             {!isGoogle1P && (
               <button
                 onClick={() => onDelete(skill)}
@@ -312,6 +354,13 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
   const [openInEditMode, setOpenInEditMode] = useState(false);
   const [skillToDelete, setSkillToDelete] = useState<Agent | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [governanceTarget, setGovernanceTarget] = useState<{
+    skill: Agent;
+    mode: 'suspend' | 'reject';
+  } | null>(null);
+  const [governanceReason, setGovernanceReason] = useState('');
+  const [governanceError, setGovernanceError] = useState<string | null>(null);
+  const [isSubmittingGovernance, setIsSubmittingGovernance] = useState(false);
   const [selectedSkillNames, setSelectedSkillNames] = useState<Set<string>>(new Set());
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -555,6 +604,51 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
   const handleDelete = useCallback((skill: Agent) => {
     setSkillToDelete(skill);
   }, []);
+
+  const handleOpenSuspend = useCallback((skill: Agent) => {
+    setGovernanceTarget({ skill, mode: 'suspend' });
+    setGovernanceReason('');
+    setGovernanceError(null);
+  }, []);
+
+  const handleOpenReject = useCallback((skill: Agent) => {
+    setGovernanceTarget({ skill, mode: 'reject' });
+    setGovernanceReason('');
+    setGovernanceError(null);
+  }, []);
+
+  const handleSubmitSkillGovernance = async () => {
+    if (!governanceTarget) return;
+    const trimmed = governanceReason.trim();
+    if (!trimmed) {
+      setGovernanceError(
+        governanceTarget.mode === 'suspend'
+          ? 'Suspension reason is required.'
+          : 'Rejection reason is required.'
+      );
+      return;
+    }
+    setIsSubmittingGovernance(true);
+    setGovernanceError(null);
+    try {
+      if (governanceTarget.mode === 'suspend') {
+        await api.suspendAgent(governanceTarget.skill.name, trimmed, config);
+        toast.success(`Suspended skill "${governanceTarget.skill.displayName}".`);
+      } else {
+        await api.rejectAgent(governanceTarget.skill.name, trimmed, config);
+        toast.success(`Rejected skill "${governanceTarget.skill.displayName}".`);
+      }
+      setGovernanceTarget(null);
+      setGovernanceReason('');
+      onRefreshSkills();
+    } catch (err: unknown) {
+      const msg = toErrorMessage(err);
+      setGovernanceError(msg);
+      toast.error(`Failed to ${governanceTarget.mode} skill: ${msg}`);
+    } finally {
+      setIsSubmittingGovernance(false);
+    }
+  };
 
   const activeModalSkill = useMemo(() => {
     if (!selectedSkill) return null;
@@ -863,6 +957,8 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
                     onToggleSelect={handleToggleSelectSkill}
                     onInspect={handleInspect}
                     onEdit={handleEdit}
+                    onSuspend={handleOpenSuspend}
+                    onReject={handleOpenReject}
                     onDelete={handleDelete}
                   />
                 ))}
@@ -955,6 +1051,78 @@ export const SkillsViewer: React.FC<SkillsViewerProps> = ({
           </p>
         </div>
       </ConfirmationModal>
+      {/* Governance Modal for Suspending / Rejecting a Skill with Reason */}
+      {governanceTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="skill-governance-modal-title"
+          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+        >
+          <div className="bg-gray-800 border border-gray-700 rounded-xl max-w-lg w-full p-5 space-y-4 shadow-2xl">
+            <h3 id="skill-governance-modal-title" className="text-base font-bold text-white">
+              {governanceTarget.mode === 'suspend'
+                ? `Suspend Skill "${governanceTarget.skill.displayName}"`
+                : `Reject Skill "${governanceTarget.skill.displayName}"`}
+            </h3>
+            <p className="text-xs text-gray-300 leading-relaxed">
+              {governanceTarget.mode === 'suspend'
+                ? 'Provide an auditable suspension reason. Suspending disables invocation of this skill across the assistant until re-enabled.'
+                : 'Provide an auditable rejection reason explaining why this pending-review skill is denied.'}
+            </p>
+            <div>
+              <label
+                htmlFor="skill-governance-reason-textarea"
+                className="block text-xs font-semibold text-gray-300 mb-1"
+              >
+                {governanceTarget.mode === 'suspend'
+                  ? 'Suspension Reason (Required)'
+                  : 'Rejection Reason (Required)'}
+              </label>
+              <textarea
+                id="skill-governance-reason-textarea"
+                rows={3}
+                value={governanceReason}
+                onChange={(e) => setGovernanceReason(e.target.value)}
+                placeholder="Enter governance audit reason..."
+                className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            {governanceError && (
+              <p role="alert" className="text-xs text-red-400">
+                {governanceError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-700">
+              <button
+                type="button"
+                disabled={isSubmittingGovernance}
+                onClick={() => setGovernanceTarget(null)}
+                className="px-3.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-semibold rounded-md"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="confirm-skill-governance-btn"
+                disabled={isSubmittingGovernance}
+                onClick={handleSubmitSkillGovernance}
+                className={`px-4 py-1.5 text-white text-xs font-semibold rounded-md ${
+                  governanceTarget.mode === 'suspend'
+                    ? 'bg-amber-600 hover:bg-amber-500'
+                    : 'bg-rose-700 hover:bg-rose-600'
+                }`}
+              >
+                {isSubmittingGovernance
+                  ? 'Submitting...'
+                  : governanceTarget.mode === 'suspend'
+                    ? 'Confirm Suspend'
+                    : 'Confirm Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

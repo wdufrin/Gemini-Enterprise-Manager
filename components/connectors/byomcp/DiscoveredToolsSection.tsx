@@ -219,6 +219,51 @@ export const DiscoveredToolsSection: React.FC<DiscoveredToolsSectionProps> = ({
                           Inherits Default (&quot;&quot;)
                         </span>
                       ) : null}
+                      {tool.annotations?.readOnlyHint === true && (
+                        <span
+                          data-testid={`tool-badge-readonly-${tool.name}`}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/70 text-emerald-300 border border-emerald-800/80"
+                          title="MCP Annotation: readOnlyHint = true (non-mutating tool)"
+                        >
+                          Read-Only
+                        </span>
+                      )}
+                      {tool.annotations?.destructiveHint === true && (
+                        <span
+                          data-testid={`tool-badge-destructive-${tool.name}`}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-950/80 text-red-300 border border-red-800/80"
+                          title="MCP Annotation: destructiveHint = true (may perform destructive updates or deletes)"
+                        >
+                          Destructive
+                        </span>
+                      )}
+                      {tool.annotations?.idempotentHint === true && (
+                        <span
+                          data-testid={`tool-badge-idempotent-${tool.name}`}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-cyan-950/70 text-cyan-300 border border-cyan-800/80"
+                          title="MCP Annotation: idempotentHint = true (safe to retry with identical arguments)"
+                        >
+                          Idempotent
+                        </span>
+                      )}
+                      {tool.annotations?.openWorldHint === true && (
+                        <span
+                          data-testid={`tool-badge-openworld-${tool.name}`}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-950/70 text-amber-300 border border-amber-800/80"
+                          title="MCP Annotation: openWorldHint = true (interacts with external open-world entities)"
+                        >
+                          Open-World
+                        </span>
+                      )}
+                      {tool.hitlMode && (
+                        <span
+                          data-testid={`tool-badge-hitl-${tool.name}`}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-700/80"
+                          title={`Human-in-the-Loop confirmation policy: ${tool.hitlMode}`}
+                        >
+                          HITL: {tool.hitlMode}
+                        </span>
+                      )}
                     </div>
                     {tool.description && (
                       <p className="text-[11px] text-gray-400 mt-0.5 line-clamp-2" title={tool.description}>

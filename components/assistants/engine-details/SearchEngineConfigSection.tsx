@@ -66,12 +66,18 @@ export const SearchEngineConfigSection: React.FC<SearchEngineConfigSectionProps>
                     >
                         <option value="SUBSCRIPTION_TIER_UNSPECIFIED">Unspecified</option>
                         <option value="SUBSCRIPTION_TIER_SEARCH">Search Tier</option>
-                        <option value="SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT">Search and Assistant Tier</option>
+                        <option value="SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT">Gemini Enterprise Plus (Search &amp; Assistant) Tier</option>
+                        <option value="SUBSCRIPTION_TIER_ENTERPRISE">Gemini Enterprise Standard Tier</option>
+                        <option value="SUBSCRIPTION_TIER_ENTERPRISE_EMERGING">Gemini Enterprise Standard (Emerging Markets) Tier</option>
+                        <option value="SUBSCRIPTION_TIER_EDU">Gemini Education Standard Tier</option>
+                        <option value="SUBSCRIPTION_TIER_EDU_PRO">Gemini Education Plus (Pro) Tier</option>
+                        <option value="SUBSCRIPTION_TIER_EDU_EMERGING">Gemini Education Standard (Emerging Markets) Tier</option>
+                        <option value="SUBSCRIPTION_TIER_EDU_PRO_EMERGING">Gemini Education Plus (Emerging Markets) Tier</option>
+                        <option value="SUBSCRIPTION_TIER_EDU_GOV_EMERGING">Gemini Education Gov (Emerging Markets) Tier</option>
                         <option value="SUBSCRIPTION_TIER_NOTEBOOK_LM">NotebookLM Tier</option>
                         <option value="SUBSCRIPTION_TIER_FRONTLINE_WORKER">Frontline Worker Tier</option>
                         <option value="SUBSCRIPTION_TIER_AGENTSPACE_STARTER">Agentspace Starter Tier</option>
                         <option value="SUBSCRIPTION_TIER_AGENTSPACE_BUSINESS">Agentspace Business Tier</option>
-                        <option value="SUBSCRIPTION_TIER_ENTERPRISE">Gemini Enterprise Plus Tier</option>
                         <option value="SUBSCRIPTION_TIER_FRONTLINE_STARTER">Gemini Frontline Starter Tier</option>
                         <option value="SUBSCRIPTION_TIER_CONSUMPTION_ONLY">Consumption Only (PAYG) Tier</option>
                     </select>

@@ -89,10 +89,10 @@ describe('userGuideService — Programmatic Verification Suite', () => {
   });
 
   describe('2. Sidebar Tab & Page Enum Coverage', () => {
-    it('maps all 16 active sidebar items in ACTIVE_SIDEBAR_PAGES and TAB_MAPPING to valid GuideSections', () => {
-      expect(ACTIVE_SIDEBAR_PAGES).toHaveLength(16);
-      expect(new Set(ACTIVE_SIDEBAR_PAGES).size).toBe(16);
-      expect(Object.keys(TAB_MAPPING)).toHaveLength(16);
+    it('maps all 17 active sidebar items in ACTIVE_SIDEBAR_PAGES and TAB_MAPPING to valid GuideSections', () => {
+      expect(ACTIVE_SIDEBAR_PAGES).toHaveLength(17);
+      expect(new Set(ACTIVE_SIDEBAR_PAGES).size).toBe(17);
+      expect(Object.keys(TAB_MAPPING)).toHaveLength(17);
 
       for (const page of ACTIVE_SIDEBAR_PAGES) {
         const mapping = TAB_MAPPING[page];
@@ -125,7 +125,7 @@ describe('userGuideService — Programmatic Verification Suite', () => {
         liveItems.push({ page: pageVal, label: pageVal });
       }
 
-      expect(liveItems).toHaveLength(16);
+      expect(liveItems).toHaveLength(17);
       expect(liveItems.map((i) => i.page)).toEqual([...ACTIVE_SIDEBAR_PAGES]);
 
       for (const item of liveItems) {
@@ -136,9 +136,9 @@ describe('userGuideService — Programmatic Verification Suite', () => {
       }
     });
 
-    it('maps all 21 Page enum values in types.ts to valid GuideSections via getSectionForPage', () => {
+    it('maps all 22 Page enum values in types.ts to valid GuideSections via getSectionForPage', () => {
       const allPages = Object.values(Page);
-      expect(allPages).toHaveLength(21);
+      expect(allPages).toHaveLength(22);
 
       for (const page of allPages) {
         expect(PAGE_TO_SECTION_MAP[page]).toBeDefined();
@@ -193,6 +193,10 @@ describe('userGuideService — Programmatic Verification Suite', () => {
       {
         query: 'Grant Cloud Build IAM Roles',
         expectedSectionId: 'ch2-engines-assistants',
+      },
+      {
+        query: 'teamworkPreviewCommandDisabled',
+        expectedSectionId: 'ch1-ai-developer-tools',
       },
     ])(
       'returns relevant results for "$query" including section $expectedSectionId',

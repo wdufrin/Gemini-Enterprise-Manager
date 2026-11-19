@@ -6,6 +6,7 @@ import {
   createRegistrySkill,
   updateRegistrySkillScanningPolicy,
   getRegistrySkillRevision,
+  restoreRegistrySkillRevision,
   listRegistryFindings,
   getRegistryFinding,
   scanSkillMarkdownViaRegistry,
@@ -290,5 +291,130 @@ describe('Agent Registry v1 GA & Skill Security Scanning API', () => {
       'GET',
       'customer-prod-123',
     );
+  });
+
+  it('restoreRegistrySkillRevision hydrates archiveUploadSource, creates a new latest revision, and updates defaultRevision', async () => {
+    const skillName = 'projects/customer-prod-123/locations/global/skills/private-s1';
+    const historicalRevName = `${skillName}/revisions/rev-001`;
+    const newRestoredRevName = `${skillName}/revisions/rev-005`;
+    const calls: Array<{ method?: string; url: string; body?: unknown }> = [];
+
+    vi.spyOn(core, 'gapiRequest').mockImplementation(
+      async (url: string, method?: string, _proj?: string, _params?: Record<string, unknown>, body?: unknown) => {
+        calls.push({ method, url, body });
+        if (method === 'GET' && url.endsWith(`/v1/${historicalRevName}`)) {
+          return {
+            name: historicalRevName,
+            state: 'ACTIVE',
+            archiveUploadSource: { archiveContent: 'UEsDBAoAAAAAA==' },
+          } as never;
+        }
+        if (method === 'POST' && url.endsWith(`/v1/${skillName}/revisions`)) {
+          return {
+            name: newRestoredRevName,
+            state: 'ACTIVE',
+          } as never;
+        }
+        if (method === 'PATCH' && url.endsWith(`/v1/${skillName}?updateMask=defaultRevision`)) {
+          return {
+            name: skillName,
+            displayName: 'Skill 1',
+            defaultRevision: newRestoredRevName,
+          } as never;
+        }
+        throw new Error(`Unexpected call: ${method} ${url}`);
+      },
+    );
+
+    const updated = await restoreRegistrySkillRevision(
+      skillName,
+      { name: historicalRevName, state: 'ACTIVE' },
+      mockConfig,
+      { pollIntervalMs: 0 },
+    );
+
+    expect(updated.defaultRevision).toBe(newRestoredRevName);
+    expect(calls).toHaveLength(3);
+    expect(calls[1].body).toEqual({
+      archiveUploadSource: { archiveContent: 'UEsDBAoAAAAAA==' },
+    });
+    expect(calls[2].body).toEqual({
+      defaultRevision: newRestoredRevName,
+    });
+  });
+
+  it('restoreRegistrySkillRevision promotes stored revision directly when hydrated revision has no inline bytes or gcsSource', async () => {
+    const skillName = 'projects/customer-prod-123/locations/global/skills/private-s2';
+    const storedRevName = `${skillName}/revisions/rev-002`;
+    const calls: Array<{ method?: string; url: string; body?: unknown }> = [];
+
+    vi.spyOn(core, 'gapiRequest').mockImplementation(
+      async (url: string, method?: string, _proj?: string, _params?: Record<string, unknown>, body?: unknown) => {
+        calls.push({ method, url, body });
+        if (method === 'GET' && url.endsWith(`/v1/${storedRevName}`)) {
+          return {
+            name: storedRevName,
+            state: 'ACTIVE',
+            sha256Hash: 'abc123def456',
+          } as never;
+        }
+        if (method === 'PATCH' && url.endsWith(`/v1/${skillName}?updateMask=defaultRevision`)) {
+          return {
+            name: skillName,
+            displayName: 'Skill 2',
+            defaultRevision: storedRevName,
+          } as never;
+        }
+        throw new Error(`Unexpected call: ${method} ${url}`);
+      },
+    );
+
+    const updated = await restoreRegistrySkillRevision(
+      skillName,
+      { name: storedRevName, state: 'ACTIVE' },
+      mockConfig,
+    );
+
+    expect(updated.defaultRevision).toBe(storedRevName);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].body).toEqual({ defaultRevision: storedRevName });
+  });
+
+  it('restoreRegistrySkillRevision rejects empty or malformed skillName and revision.name inputs before network calls', async () => {
+    const spy = vi.spyOn(core, 'gapiRequest');
+
+    await expect(
+      restoreRegistrySkillRevision(
+        '',
+        { name: 'projects/p/locations/global/skills/s/revisions/r1' },
+        mockConfig,
+      ),
+    ).rejects.toThrow(/Invalid skill resource name/);
+
+    await expect(
+      restoreRegistrySkillRevision(
+        'projects/p/locations/global/not-skills/s',
+        { name: 'projects/p/locations/global/skills/s/revisions/r1' },
+        mockConfig,
+      ),
+    ).rejects.toThrow(/Invalid skill resource name/);
+
+    await expect(
+      restoreRegistrySkillRevision(
+        'projects/p/locations/global/skills/s',
+        { name: 'projects/p/locations/global/skills/s' },
+        mockConfig,
+      ),
+    ).rejects.toThrow(/Invalid skill revision resource name/);
+
+    await expect(
+      restoreRegistrySkillRevision(
+        'projects/p/locations/global/skills/s',
+        { name: 'projects/p/locations/global/skills/s/revisions/../evil' },
+        mockConfig,
+      ),
+    ).rejects.toThrow(/Invalid skill revision resource name/);
+
+    expect(spy).not.toHaveBeenCalled();
   });
 });

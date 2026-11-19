@@ -17,6 +17,7 @@
 import React, { useState, useMemo } from 'react';
 import CollapsibleSection from './CollapsibleSection';
 import { EnterpriseModel } from './modelsCatalog';
+import { isModelSupportedInRegion } from '../../../utils/locations';
 
 interface ModelConfigurationSectionProps {
     modelConfigs: Record<string, boolean>;
@@ -26,6 +27,7 @@ interface ModelConfigurationSectionProps {
     legacyModels: EnterpriseModel[];
     showLegacyModels: boolean;
     onToggleShowLegacyModels: () => void;
+    appLocation?: string;
 }
 
 const MODEL_CATEGORIES = ['All', 'Pro / Reasoning', 'Flash / Speed', 'Vision & Image', 'Partner (3P)', 'Preview Models'];
@@ -37,7 +39,8 @@ export const ModelConfigurationSection: React.FC<ModelConfigurationSectionProps>
     dynamicModels,
     legacyModels,
     showLegacyModels,
-    onToggleShowLegacyModels
+    onToggleShowLegacyModels,
+    appLocation = 'global',
 }) => {
     const [modelSearchQuery, setModelSearchQuery] = useState('');
     const [modelCategory, setModelCategory] = useState('All');
@@ -161,20 +164,31 @@ export const ModelConfigurationSection: React.FC<ModelConfigurationSectionProps>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
                         {filteredModels.map(model => {
                             const effectiveVisibility = model.visibility ?? (model.isPreview ? 'PREVIEW' : 'GA');
+                            const isSupportedInRegion = isModelSupportedInRegion(
+                                model.id,
+                                appLocation,
+                                model.supportedRegions,
+                            );
+                            const isNotOverridable = model.adminOverridable === false;
+                            const isImageModel = model.category === 'Vision & Image';
+
                             return (
                                 <label
                                     key={model.id}
-                                    className={`flex items-start space-x-2.5 p-3 rounded-lg border transition-all cursor-pointer ${
-                                        modelConfigs[model.id]
-                                            ? 'bg-gray-800/90 border-purple-600/40 shadow-sm'
-                                            : 'bg-gray-900/60 border-gray-800 hover:border-gray-700'
+                                    className={`flex items-start space-x-2.5 p-3 rounded-lg border transition-all ${
+                                        isNotOverridable
+                                            ? 'bg-gray-900/40 border-gray-800/80 opacity-75 cursor-not-allowed'
+                                            : modelConfigs[model.id]
+                                            ? 'bg-gray-800/90 border-purple-600/40 shadow-sm cursor-pointer'
+                                            : 'bg-gray-900/60 border-gray-800 hover:border-gray-700 cursor-pointer'
                                     }`}
                                 >
                                     <input
                                         type="checkbox"
                                         checked={modelConfigs[model.id] || false}
+                                        disabled={isNotOverridable}
                                         onChange={() => onModelChange(model.id)}
-                                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-purple-600 focus:ring-purple-500 flex-shrink-0 mt-0.5"
+                                        className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-purple-600 focus:ring-purple-500 flex-shrink-0 mt-0.5 disabled:opacity-50"
                                     />
                                     <div className="flex-grow min-w-0">
                                         <div className="flex items-center justify-between gap-1">
@@ -214,12 +228,36 @@ export const ModelConfigurationSection: React.FC<ModelConfigurationSectionProps>
                                             <span className="inline-block text-[9px] px-1.5 py-0.2 bg-gray-950/80 text-gray-400 rounded">
                                                 {model.category}
                                             </span>
+                                            {isImageModel && (
+                                                <span
+                                                    title="Cloud Console single-select rule: enabling one Vision & Image generation model automatically disables the other image models."
+                                                    className="inline-block text-[9px] px-1.5 py-0.2 bg-indigo-950/70 text-indigo-300 border border-indigo-800/50 rounded"
+                                                >
+                                                    Single-Select
+                                                </span>
+                                            )}
                                             {model.isPartner && (
                                                 <span
                                                     title={model.visibilityNote}
                                                     className="inline-block text-[9px] px-1.5 py-0.2 bg-amber-950/70 text-amber-300 border border-amber-800/50 rounded"
                                                 >
                                                     Partner (3P)
+                                                </span>
+                                            )}
+                                            {!isSupportedInRegion && (
+                                                <span
+                                                    title={`Model ${model.id} is not natively served in "${appLocation}". Enabling or routing to it may fail or violate gcp.resourceLocations Organization Policy constraints.`}
+                                                    className="inline-block text-[9px] px-1.5 py-0.2 bg-yellow-950/80 text-yellow-300 border border-yellow-700/60 rounded font-medium"
+                                                >
+                                                    ⚠️ Not in {appLocation} (gcp.resourceLocations)
+                                                </span>
+                                            )}
+                                            {isNotOverridable && (
+                                                <span
+                                                    title="The backend ModelRegistry marks this model as adminOverridable=false for this engine/tier."
+                                                    className="inline-block text-[9px] px-1.5 py-0.2 bg-gray-800 text-gray-300 border border-gray-700 rounded font-semibold"
+                                                >
+                                                    Locked (Not Overridable)
                                                 </span>
                                             )}
                                         </div>

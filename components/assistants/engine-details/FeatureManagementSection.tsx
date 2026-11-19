@@ -229,8 +229,11 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
                                             </span>
                                         )}
                                         {!isLockedOn && feature.warning && (
-                                            <span className="inline-block text-[9px] px-1.5 py-0.2 bg-amber-950/70 text-amber-400 border border-amber-800/50 rounded">
-                                                One-Way Lock
+                                            <span
+                                                title={feature.warning}
+                                                className="inline-block text-[9px] px-1.5 py-0.2 bg-amber-950/70 text-amber-400 border border-amber-800/50 rounded"
+                                            >
+                                                {feature.key === 'sobi' ? 'One-Way Lock' : 'Caution'}
                                             </span>
                                         )}
                                         {isParentDisabled && feature.parentKey && (

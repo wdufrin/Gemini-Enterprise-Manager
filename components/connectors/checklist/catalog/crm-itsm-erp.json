@@ -23,6 +23,11 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/servicenow/third-party-config",
       "sections": [
         {
@@ -379,6 +384,11 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/salesforce/salesforce-configuration",
       "sections": [
         {
@@ -1119,6 +1129,11 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
       "sections": [
         {

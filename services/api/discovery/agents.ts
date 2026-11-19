@@ -16,6 +16,7 @@
 
 import {
   Agent,
+  AgentIamProposal,
   Config,
   CannedQuery,
   AgentViewResponse,
@@ -581,7 +582,12 @@ export const updateAgent = async (
     typeof sanitizedPayload.state === "string"
       ? sanitizedPayload.state.trim().toUpperCase()
       : undefined;
+  const requestedSuspensionReason =
+    typeof sanitizedPayload.suspensionReason === "string"
+      ? sanitizedPayload.suspensionReason
+      : "";
   delete sanitizedPayload.state;
+  delete sanitizedPayload.suspensionReason;
 
   const updateMask: string[] = [];
   if (sanitizedPayload.displayName) updateMask.push("display_name");
@@ -621,7 +627,7 @@ export const updateAgent = async (
       return disableAgent(agent.name, config);
     }
     if (requestedState === "SUSPENDED") {
-      return suspendAgent(agent.name, config);
+      return suspendAgent(agent.name, requestedSuspensionReason, config);
     }
   }
 
@@ -1010,49 +1016,213 @@ export const enableAgent = async (name: string, config: Config) => {
   return getAgent(agentName, config);
 };
 
-export const suspendAgent = async (
+export function suspendAgent(
+  name: string,
+  suspensionReason: string,
+  config: Config,
+): Promise<Agent>;
+export function suspendAgent(
   name: string,
   config: Config,
-  suspensionReason?: string,
-): Promise<Agent> => {
+  suspensionReason: string,
+): Promise<Agent>;
+export async function suspendAgent(
+  name: string,
+  reasonOrConfig: string | Config,
+  configOrReason?: Config | string,
+): Promise<Agent> {
+  const isCanonicalOrder = typeof reasonOrConfig === "string";
+  const rawReason = isCanonicalOrder
+    ? reasonOrConfig
+    : typeof configOrReason === "string"
+      ? configOrReason
+      : "";
+  const config = (isCanonicalOrder ? configOrReason : reasonOrConfig) as Config;
+
+  const trimmedName = (name || "").trim();
+  if (!trimmedName || /\s|\.\./.test(trimmedName)) {
+    throw new Error("Agent resource name is required to suspend an agent.");
+  }
+  const trimmedReason = rawReason.trim();
+  if (!trimmedReason) {
+    throw new Error("Suspension reason is required to suspend an agent.");
+  }
+
   const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-  const agentName = resolveFullAgentResourceName(name, config);
-  const body = suspensionReason?.trim()
-    ? { suspensionReason: suspensionReason.trim() }
-    : {};
-  await gapiRequest(
+  const agentName = resolveFullAgentResourceName(trimmedName, config);
+  const response = await gapiRequest<Agent>(
     `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}:suspendAgent`,
     "POST",
     config.projectId,
     undefined,
-    body,
+    {
+      name: agentName,
+      suspensionReason: trimmedReason,
+    },
   );
+  if (response && typeof response === "object" && "name" in response && response.name) {
+    return response;
+  }
   return getAgent(agentName, config);
-};
+}
 
-export const rejectAgent = async (
+export function rejectAgent(
+  name: string,
+  rejectionReason: string,
+  config: Config,
+): Promise<Agent>;
+export function rejectAgent(
   name: string,
   config: Config,
-  rejectionReason?: string,
-): Promise<Agent> => {
-  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-  const agentName = resolveFullAgentResourceName(name, config);
-  const body = rejectionReason?.trim()
-    ? { rejectionReason: rejectionReason.trim() }
-    : {};
-  try {
-    await gapiRequest(
-      `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}:rejectAgent`,
-      "POST",
-      config.projectId,
-      undefined,
-      body,
-    );
-    return getAgent(agentName, config);
-  } catch (err: unknown) {
-    console.warn("rejectAgent RPC returned error, falling back to withdrawAgent:", err);
-    return withdrawAgent(agentName, config);
+  rejectionReason: string,
+): Promise<Agent>;
+export async function rejectAgent(
+  name: string,
+  reasonOrConfig: string | Config,
+  configOrReason?: Config | string,
+): Promise<Agent> {
+  const isCanonicalOrder = typeof reasonOrConfig === "string";
+  const rawReason = isCanonicalOrder
+    ? reasonOrConfig
+    : typeof configOrReason === "string"
+      ? configOrReason
+      : "";
+  const config = (isCanonicalOrder ? configOrReason : reasonOrConfig) as Config;
+
+  const trimmedName = (name || "").trim();
+  if (!trimmedName || /\s|\.\./.test(trimmedName)) {
+    throw new Error("Agent resource name is required to reject an agent.");
   }
+  const trimmedReason = rawReason.trim();
+  if (!trimmedReason) {
+    throw new Error("Rejection reason is required to reject an agent.");
+  }
+
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const agentName = resolveFullAgentResourceName(trimmedName, config);
+  const response = await gapiRequest<Agent>(
+    `${baseUrl}/${DISCOVERY_API_VERSION}/${agentName}:rejectAgent`,
+    "POST",
+    config.projectId,
+    undefined,
+    {
+      name: agentName,
+      rejectionReason: trimmedReason,
+    },
+  );
+  if (response && typeof response === "object" && "name" in response && response.name) {
+    return response;
+  }
+  return getAgent(agentName, config);
+}
+
+interface ListAgentIamProposalsApiResponse {
+  iamProposals?: AgentIamProposal[];
+  agentIamProposals?: AgentIamProposal[];
+  nextPageToken?: string;
+}
+
+/**
+ * Lists pending or historical IAM access/sharing proposals (`AgentIamProposal`)
+ * for an agent via `GET /v1alpha/{agentName}/iamProposals`.
+ */
+export const listAgentIamProposals = async (
+  agentName: string,
+  config: Config,
+): Promise<AgentIamProposal[]> => {
+  const trimmedAgentName = (agentName || "").trim();
+  if (!trimmedAgentName || /\s|\.\./.test(trimmedAgentName)) {
+    throw new Error("Valid agent resource name is required to list IAM proposals.");
+  }
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  const resolvedAgentName = resolveFullAgentResourceName(trimmedAgentName, config);
+  const endpoint = `${baseUrl}/${DISCOVERY_API_VERSION}/${resolvedAgentName}/iamProposals`;
+
+  const proposals: AgentIamProposal[] = [];
+  let pageToken: string | undefined;
+
+  for (let page = 0; page < 20; page++) {
+    const url = pageToken
+      ? `${endpoint}?pageToken=${encodeURIComponent(pageToken)}`
+      : endpoint;
+    const response = await gapiRequest<ListAgentIamProposalsApiResponse>(
+      url,
+      "GET",
+      config.projectId,
+    );
+    const items = Array.isArray(response?.iamProposals)
+      ? response.iamProposals
+      : Array.isArray(response?.agentIamProposals)
+        ? response.agentIamProposals
+        : [];
+    proposals.push(...items);
+    if (!response?.nextPageToken) {
+      break;
+    }
+    pageToken = response.nextPageToken;
+  }
+
+  return proposals;
+};
+
+/**
+ * Approves an `AgentIamProposal` via `POST /v1alpha/{proposalName}:approve`.
+ */
+export const approveAgentIamProposal = async (
+  proposalName: string,
+  config: Config,
+): Promise<AgentIamProposal> => {
+  const trimmedProposalName = (proposalName || "").trim();
+  if (
+    !trimmedProposalName ||
+    /\s|\.\./.test(trimmedProposalName) ||
+    !trimmedProposalName.includes("/iamProposals/")
+  ) {
+    throw new Error(
+      `Invalid AgentIamProposal resource name "${String(proposalName)}". Expected projects/.../agents/{agent}/iamProposals/{proposal}.`,
+    );
+  }
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  return gapiRequest<AgentIamProposal>(
+    `${baseUrl}/${DISCOVERY_API_VERSION}/${trimmedProposalName}:approve`,
+    "POST",
+    config.projectId,
+    undefined,
+    {},
+  );
+};
+
+/**
+ * Rejects an `AgentIamProposal` with a mandatory `rejectionReason` via
+ * `POST /v1alpha/{proposalName}:reject`.
+ */
+export const rejectAgentIamProposal = async (
+  proposalName: string,
+  rejectionReason: string,
+  config: Config,
+): Promise<AgentIamProposal> => {
+  const trimmedProposalName = (proposalName || "").trim();
+  if (
+    !trimmedProposalName ||
+    /\s|\.\./.test(trimmedProposalName) ||
+    !trimmedProposalName.includes("/iamProposals/")
+  ) {
+    throw new Error(
+      `Invalid AgentIamProposal resource name "${String(proposalName)}". Expected projects/.../agents/{agent}/iamProposals/{proposal}.`,
+    );
+  }
+  const trimmedReason = (rejectionReason || "").trim();
+  if (!trimmedReason) {
+    throw new Error("Rejection reason is required to reject an IAM access proposal.");
+  }
+  const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+  return gapiRequest<AgentIamProposal>(
+    `${baseUrl}/${DISCOVERY_API_VERSION}/${trimmedProposalName}:reject`,
+    "POST",
+    config.projectId,
+    undefined,
+    { rejectionReason: trimmedReason },
+  );
 };
 
 /**

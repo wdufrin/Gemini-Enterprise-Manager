@@ -18,6 +18,9 @@ import { Config } from "../../types";
 import { gapiRequest, getDiscoveryEngineUrl } from "./core";
 import { getCachedProjectEnrollment } from "./project";
 
+/** Official web app URL for Gemini Notebook for business (formerly NotebookLM Enterprise). */
+export const GEMINI_NOTEBOOK_WEB_APP_URL = "https://notebook.cloud.google.com/go/";
+
 export interface NotebookSource {
   name?: string;
   sourceId?: string;
@@ -31,6 +34,16 @@ export interface Notebook {
   sources?: NotebookSource[];
   createTime?: string;
   updateTime?: string;
+  [key: string]: unknown;
+}
+
+export interface NotebookAudioOverview {
+  name?: string;
+  audioOverviewId?: string;
+  status?: string;
+  generationOptions?: Record<string, unknown>;
+  audioUri?: string;
+  mimeType?: string;
   [key: string]: unknown;
 }
 
@@ -77,7 +90,7 @@ export const interactNotebookSource = async (
   const enrollment = getCachedProjectEnrollment(projectId);
   if (enrollment && !enrollment.notebookLmApiUser && !enrollment.googleInternal) {
     throw new Error(
-      "NotebookService.InteractSources (:interactSources) is restricted to GOOGLE_INTERNAL, NLME_API_USER, or SPARK_PREVIEW projects.",
+      "Gemini Notebook for business NotebookService.InteractSources (:interactSources) is restricted to GOOGLE_INTERNAL, NLME_API_USER, or SPARK_PREVIEW projects.",
     );
   }
   const baseUrl = getDiscoveryEngineUrl(appLocation);
@@ -185,4 +198,34 @@ export const batchCreateNotebookSources = async (
   const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/notebooks/${notebookId}/sources:batchCreate`;
   const payload = { userContents: requests };
   return gapiRequest<{ userContents?: unknown[] }>(url, "POST", projectId, undefined, payload);
+};
+
+export const createNotebookAudioOverview = async (
+  config: Config,
+  notebookId: string,
+  payload: Record<string, unknown> = {},
+): Promise<NotebookAudioOverview> => {
+  const { projectId, appLocation } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+  const notebookPath = notebookId.startsWith("projects/")
+    ? notebookId
+    : `projects/${projectId}/locations/${appLocation}/notebooks/${notebookId}`;
+  const url = `${baseUrl}/v1alpha/${notebookPath}/audioOverviews`;
+  return gapiRequest<NotebookAudioOverview>(url, "POST", projectId, undefined, payload);
+};
+
+export const getNotebookAudioOverview = async (
+  config: Config,
+  notebookId: string,
+  audioOverviewId: string = "default",
+): Promise<NotebookAudioOverview> => {
+  const { projectId, appLocation } = config;
+  const baseUrl = getDiscoveryEngineUrl(appLocation);
+  const resourcePath = notebookId.includes("/audioOverviews/")
+    ? notebookId
+    : notebookId.startsWith("projects/")
+      ? `${notebookId}/audioOverviews/${audioOverviewId}`
+      : `projects/${projectId}/locations/${appLocation}/notebooks/${notebookId}/audioOverviews/${audioOverviewId}`;
+  const url = `${baseUrl}/v1alpha/${resourcePath}`;
+  return gapiRequest<NotebookAudioOverview>(url, "GET", projectId);
 };

@@ -22,18 +22,39 @@ export interface AssistantDetailsFormProps {
   onUpdateSuccess: (updatedAssistant: Assistant) => void;
 }
 
+export type BannedPhraseMatchType =
+  | 'SIMPLE_STRING_MATCH'
+  | 'WORD_BOUNDARY_STRING_MATCH';
+
+export interface BannedPhraseItem {
+  phrase: string;
+  matchType?: BannedPhraseMatchType;
+  ignoreDiacritics?: boolean;
+}
+
 export interface AssistantFormData {
   displayName: string;
   styleAndFormattingInstructions: string;
   additionalSystemInstruction: string;
+  defaultLanguage: string;
+  defaultModelId: string;
   webGroundingType: string;
+  mapsGroundingType: string;
   customerPolicy: string;
   enableEndUserAgentCreation: boolean;
   disableLocationContext: boolean;
   defaultWebGroundingToggleOff: boolean;
+  defaultMapsGroundingToggleOff: boolean;
+  knowledgeCatalogEnabled: boolean;
   vertexAiSearchToolConfig: string;
   chatHistoryRetentionDays: string;
+  chatHistoryRetentionIndefinite: boolean;
 }
+
+export const RETENTION_PRESET_DAYS = [1, 30, 60, 90, 120, 180] as const;
+
+export const SDP_CONTENT_POLICY_REGEX =
+  /^projects\/[^/\s]+\/locations\/[^/\s]+\/contentPolicies\/[^/\s]+$/;
 
 export const ALL_REASONING_ENGINE_LOCATIONS = [
   'us-central1', 'us-east1', 'us-east4', 'us-west1',

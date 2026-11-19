@@ -3,9 +3,9 @@
 > **Deterministic Source of Truth (Zero LLM Generation)**
 > All connector checklists and automated probes are maintained in human-editable JSON catalog files under `components/connectors/checklist/catalog/*.json` and validated against `components/connectors/checklist/catalog/checklist.schema.json`.
 
-- **Total Connectors**: 156
-- **Total Validation Checkboxes**: 1324
-- **Total Automated Diagnostic Probes**: 424
+- **Total Connectors**: 159
+- **Total Validation Checkboxes**: 1352
+- **Total Automated Diagnostic Probes**: 433
 
 ## Connector Summary Matrix
 
@@ -17,11 +17,11 @@
 | `GCAL` | **Google Calendar** | Google First-Party & MCP | `google-cloud-workspace.json` | `gcal`, `google_calendar`, `calendar` | Ingestion, Federated, Actions | 6 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/gcal) |
 | `GCHAT` | **Google Chat** | Google First-Party & MCP | `google-cloud-workspace.json` | `gchat`, `google_chat`, `chat` | Ingestion, Actions | 7 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/gchat) |
 | `GSITES` | **Google Sites** | Google First-Party & MCP | `google-cloud-workspace.json` | `gsites`, `google_sites`, `sites` | Ingestion, Federated | 6 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/gsites) |
-| `BIGQUERY` | **Google BigQuery** | Google First-Party & MCP | `google-cloud-workspace.json` | `bigquery`, `big_query`, `gcp_bigquery`, `bq` | Ingestion, Federated, Actions | 9 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/connect-bigquery) |
+| `BIGQUERY` | **Google BigQuery** | Google First-Party & MCP | `google-cloud-workspace.json` | `bigquery`, `big_query`, `gcp_bigquery`, `bq` | Ingestion, Federated | 9 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/connect-bigquery) |
 | `GCS` | **Google Cloud Storage** | Google First-Party & MCP | `google-cloud-workspace.json` | `gcs`, `cloud_storage`, `google_cloud_storage`, `storage` | Ingestion, Actions | 9 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/connect-cloud-storage) |
-| `ALLOYDB` | **Google Cloud AlloyDB** | Google First-Party & MCP | `google-cloud-workspace.json` | `alloydb`, `alloy_db`, `gcp_alloydb` | Ingestion, Federated, Actions | 8 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/connect-alloydb) |
-| `CLOUD_SQL` | **Google Cloud SQL** | Google First-Party & MCP | `google-cloud-workspace.json` | `cloud_sql`, `cloudsql`, `gcp_cloud_sql` | Ingestion, Federated, Actions | 9 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/connect-cloud-sql) |
-| `SPANNER` | **Google Cloud Spanner** | Google First-Party & MCP | `google-cloud-workspace.json` | `spanner`, `cloud_spanner`, `gcp_spanner` | Ingestion, Federated, Actions | 7 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/connect-spanner) |
+| `ALLOYDB` | **Google Cloud AlloyDB** | Google First-Party & MCP | `google-cloud-workspace.json` | `alloydb`, `alloy_db`, `gcp_alloydb` | Ingestion, Federated | 8 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/connect-alloydb) |
+| `CLOUD_SQL` | **Google Cloud SQL** | Google First-Party & MCP | `google-cloud-workspace.json` | `cloud_sql`, `cloudsql`, `gcp_cloud_sql` | Ingestion, Federated | 9 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/connect-cloud-sql) |
+| `SPANNER` | **Google Cloud Spanner** | Google First-Party & MCP | `google-cloud-workspace.json` | `spanner`, `cloud_spanner`, `gcp_spanner` | Ingestion, Federated | 7 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/connect-spanner) |
 | `BIGTABLE` | **Google Cloud Bigtable** | Google First-Party & MCP | `google-cloud-workspace.json` | `bigtable`, `cloud_bigtable`, `gcp_bigtable` | Ingestion | 6 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/connect-bigtable) |
 | `FIRESTORE` | **Google Cloud Firestore** | Google First-Party & MCP | `google-cloud-workspace.json` | `firestore`, `cloud_firestore`, `gcp_firestore` | Ingestion | 5 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/connect-firestore) |
 | `BYO_MCP` | **Model Context Protocol (BYOMCP)** | Google First-Party & MCP | `google-cloud-workspace.json` | `custom_mcp` | Ingestion, Actions | 7 | 4 | [Docs](https://modelcontextprotocol.io/) |
@@ -44,8 +44,8 @@
 | `JIRA` | **Atlassian Jira Cloud** | Atlassian & DevTools | `atlassian-devtools.json` | `jira`, `jira_cloud`, `jira-cloud`, `atlassian_jira` | Ingestion, Federated, Actions | 42 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud/third-party-config) |
 | `JIRA_DC` | **Atlassian Jira Data Center** | Atlassian & DevTools | `atlassian-devtools.json` | `jira_dc`, `jira-dc`, `jira_datacenter`, `atlassian_jira_dc` | Ingestion, Federated, Actions | 11 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/jira-dc/jira-dc-configuration) |
 | `CONFLUENCE` | **Atlassian Confluence Cloud** | Atlassian & DevTools | `atlassian-devtools.json` | `confluence`, `confluence_cloud`, `confluence-cloud`, `atlassian_confluence` | Ingestion, Federated, Actions | 31 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud/third-party-config) |
-| `CONFLUENCE_DC` | **Atlassian Confluence Data Center** | Atlassian & DevTools | `atlassian-devtools.json` | `confluence_dc`, `confluence-dc`, `confluence_datacenter`, `atlassian_confluence_dc` | Ingestion, Federated, Actions | 11 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/confluence-dc) |
-| `GITHUB` | **GitHub** | Atlassian & DevTools | `atlassian-devtools.json` | `github`, `github_cloud`, `github-cloud`, `github_enterprise` | Ingestion, Actions | 15 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/github/github-configuration) |
+| `CONFLUENCE_DC` | **Atlassian Confluence Data Center** | Atlassian & DevTools | `atlassian-devtools.json` | `confluence_dc`, `confluence-dc`, `confluence_datacenter`, `atlassian_confluence_dc` | Ingestion, Federated | 11 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/confluence-dc) |
+| `GITHUB` | **GitHub** | Atlassian & DevTools | `atlassian-devtools.json` | `github`, `github_cloud`, `github-cloud`, `github_enterprise` | Ingestion, Federated, Actions | 15 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/github/github-configuration) |
 | `GITLAB` | **GitLab** | Atlassian & DevTools | `atlassian-devtools.json` | `gitlab`, `gitlab_cloud`, `gitlab-cloud`, `gitlab_self_managed` | Ingestion, Actions | 11 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/gitlab/gitlab-configuration) |
 | `LINEAR` | **Linear** | Atlassian & DevTools | `atlassian-devtools.json` | `linear`, `linear_cloud`, `linear-cloud` | Ingestion, Actions | 9 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/linear) |
 | `PAGERDUTY` | **PagerDuty** | Atlassian & DevTools | `atlassian-devtools.json` | `pagerduty`, `pager_duty`, `pager-duty` | Ingestion, Actions | 11 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/pagerduty/pagerduty-configuration) |
@@ -65,6 +65,8 @@
 | `HUGGINGFACE` | **Hugging Face Hub** | Atlassian & DevTools | `atlassian-devtools.json` | `huggingface`, `hugging_face` | Federated | 5 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/huggingface) |
 | `PG_AIGUIDE` | **Timescale pg-aiguide (PostgreSQL)** | Atlassian & DevTools | `atlassian-devtools.json` | `pg_aiguide`, `timescale_pg_aiguide` | Federated | 5 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/pg_aiguide) |
 | `TWILIO_DOCS` | **Twilio Documentation** | Atlassian & DevTools | `atlassian-devtools.json` | `twilio_docs`, `twilio` | Federated | 5 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/twilio_docs) |
+| `DATABRICKS` | **Databricks (Unity Catalog / SQL / Genie)** | Atlassian & DevTools | `atlassian-devtools.json` | `databricks`, `databricks_sql`, `databricks_unity`, `databricks_genie` | Ingestion, Federated, Actions | 11 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/databricks) |
+| `SNOWFLAKE` | **Snowflake Federated** | Atlassian & DevTools | `atlassian-devtools.json` | `snowflake`, `snowflake_federated`, `snowflake_cortex` | Federated | 8 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/snowflake) |
 | `SERVICENOW` | **ServiceNow** | Enterprise Platforms | `crm-itsm-erp.json` | `servicenow`, `service_now`, `servicenow_v2`, `snow` | Ingestion, Federated, Actions | 40 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/servicenow/third-party-config) |
 | `SALESFORCE` | **Salesforce CRM** | Enterprise Platforms | `crm-itsm-erp.json` | `salesforce`, `sfdc`, `salesforce_v2`, `salesforce_crm` | Ingestion, Federated, Actions | 27 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/salesforce/salesforce-configuration) |
 | `ZENDESK` | **Zendesk Support** | Enterprise Platforms | `crm-itsm-erp.json` | `zendesk`, `zendesk_support`, `zendesk_guide` | Ingestion, Federated, Actions | 17 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/zendesk/zendesk-config) |
@@ -114,11 +116,11 @@
 | `DICE` | **Dice Tech Job Marketplace** | Enterprise Platforms | `crm-itsm-erp.json` | `dice` | Federated | 5 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/dice) |
 | `GRANTED` | **Granted Federal Grants Discovery** | Enterprise Platforms | `crm-itsm-erp.json` | `granted` | Federated | 5 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/granted) |
 | `SLACK` | **Slack** | Collaboration & Storage | `collaboration-productivity.json` | `slack` | Ingestion, Federated, Actions | 18 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/slack/set-up-data-store) |
-| `BOX` | **Box** | Collaboration & Storage | `collaboration-productivity.json` | `box` | Ingestion, Federated, Actions | 13 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/box) |
-| `DROPBOX` | **Dropbox Business** | Collaboration & Storage | `collaboration-productivity.json` | `dropbox` | Ingestion, Actions | 15 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/dropbox) |
+| `BOX` | **Box** | Collaboration & Storage | `collaboration-productivity.json` | `box` | Ingestion, Federated | 13 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/box) |
+| `DROPBOX` | **Dropbox Business** | Collaboration & Storage | `collaboration-productivity.json` | `dropbox` | Ingestion, Federated | 15 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/dropbox) |
 | `NOTION` | **Notion** | Collaboration & Storage | `collaboration-productivity.json` | `notion` | Ingestion, Actions | 12 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/notion/config) |
 | `ASANA` | **Asana** | Productivity & Tasks | `collaboration-productivity.json` | `asana` | Ingestion, Actions | 7 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/asana/asana-configuration) |
-| `MONDAY` | **Monday.com** | Productivity & Tasks | `collaboration-productivity.json` | `monday` | Ingestion, Actions | 14 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/monday/monday-configuration) |
+| `MONDAY` | **Monday.com** | Productivity & Tasks | `collaboration-productivity.json` | `monday` | Ingestion, Federated | 14 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/monday/monday-configuration) |
 | `AIRTABLE` | **Airtable** | Productivity & Tasks | `collaboration-productivity.json` | `airtable`, `air_table` | Ingestion, Actions | 10 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/airtable) |
 | `SMARTSHEET` | **Smartsheet** | Productivity & Tasks | `collaboration-productivity.json` | `smartsheet`, `smart_sheet` | Federated, Actions | 10 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/smartsheet) |
 | `MIRO` | **Miro** | Productivity & Tasks | `collaboration-productivity.json` | `miro` | Ingestion, Actions | 9 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/miro) |
@@ -166,6 +168,7 @@
 | `TASKRABBIT` | **Taskrabbit Local Services** | Productivity & Tasks | `collaboration-productivity.json` | `taskrabbit`, `task_rabbit` | Federated | 5 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/taskrabbit) |
 | `TRIVAGO` | **trivago Accommodation Search** | Productivity & Tasks | `collaboration-productivity.json` | `trivago` | Federated | 5 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/trivago) |
 | `VIATOR` | **Viator Tours & Activities** | Productivity & Tasks | `collaboration-productivity.json` | `viator` | Federated | 5 | 2 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/viator) |
+| `ADOBE_CC` | **Adobe Creative Cloud & Express** | Collaboration & Storage | `collaboration-productivity.json` | `adobe_cc`, `adobe_creative_cloud`, `adobe_express` | Federated, Actions | 9 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/adobe-creative-cloud) |
 | `GENERIC` | **Generic 3rd-Party Verification** | Universal Fallback | `collaboration-productivity.json` | Fallback | Ingestion, Federated, Actions | 11 | 3 | [Docs](https://cloud.google.com/gemini/enterprise/docs/connectors/manage-actions) |
 
 ## How to Update or Add a Connector Checklist

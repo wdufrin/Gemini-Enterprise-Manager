@@ -14,9 +14,14 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { ReasoningEngine, CloudRunService, Config } from '../../../types';
-import { AgentFormData, AgentType } from './types';
+import {
+  AgentFormData,
+  AgentType,
+  A2A_3LO_AUTH_MANAGER_CALLBACK_URL,
+  A2UI_EXTENSION_URI,
+} from './types';
 
 export interface AgentBackendConfigProps {
   config: Config;
@@ -79,6 +84,30 @@ export const AgentBackendConfig: React.FC<AgentBackendConfigProps> = ({
   a2aExtensions,
   setA2aExtensions,
 }) => {
+  const [copiedAuthManagerUrl, setCopiedAuthManagerUrl] = useState(false);
+
+  const hasA2uiExtension = a2aExtensions.some(
+    (ext) => ext && typeof ext === 'object' && ext.uri === A2UI_EXTENSION_URI
+  );
+
+  const handleToggleA2uiExtension = (enabled: boolean) => {
+    setA2aExtensions((prev) => {
+      const withoutA2ui = prev.filter(
+        (ext) => !(ext && typeof ext === 'object' && ext.uri === A2UI_EXTENSION_URI)
+      );
+      if (!enabled) {
+        return withoutA2ui;
+      }
+      return [...withoutA2ui, { uri: A2UI_EXTENSION_URI }];
+    });
+  };
+
+  const handleCopyAuthManagerCallback = () => {
+    navigator.clipboard.writeText(A2A_3LO_AUTH_MANAGER_CALLBACK_URL);
+    setCopiedAuthManagerUrl(true);
+    setTimeout(() => setCopiedAuthManagerUrl(false), 2000);
+  };
+
   return (
     <div className="space-y-4 border-t border-gray-700 p-4 rounded-md">
       <div className="flex justify-between items-center mb-4">
@@ -351,8 +380,61 @@ export const AgentBackendConfig: React.FC<AgentBackendConfigProps> = ({
             />
           </div>
 
-          <div>
-            <label className="flex items-center space-x-3 mb-2 cursor-pointer mt-4">
+          {/* 3LO Agent Identity Auth Manager & Invocation Authorization (GA Nov 13, 2026) */}
+          <div className="mt-4 p-3.5 bg-gray-900/60 border border-teal-800/60 rounded-lg space-y-3">
+            <div>
+              <label
+                htmlFor="agentAuthorization"
+                className="block text-sm font-medium text-gray-200"
+              >
+                Invocation Authorization{' '}
+                <span className="font-mono text-xs text-teal-400">
+                  (authorizationConfig.agentAuthorization)
+                </span>
+              </label>
+              <input
+                type="text"
+                id="agentAuthorization"
+                name="agentAuthorization"
+                value={formData.agentAuthorization || ''}
+                onChange={handleChange}
+                placeholder="e.g. a2a-3lo-auth or projects/my-proj/locations/global/authorizations/a2a-3lo-auth"
+                disabled={isEditingDisabled}
+                className="mt-1 block w-full bg-gray-800 border border-gray-600 rounded-md shadow-sm disabled:bg-gray-800/50 disabled:cursor-not-allowed text-white text-xs font-mono px-3 py-2"
+              />
+              <p className="mt-1 text-xs text-gray-400">
+                Optional OAuth 2.0 Authorization resource bound directly to A2A HTTP agent invocation (3LO user-delegated identity).
+              </p>
+            </div>
+
+            <div
+              data-testid="a2a-3lo-auth-manager-callback-helper"
+              className="p-2.5 bg-teal-950/30 border border-teal-700/50 rounded-md flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+            >
+              <div className="space-y-0.5 min-w-0">
+                <div className="text-xs font-semibold text-teal-200">
+                  3LO Agent Identity Auth Manager Callback (GA)
+                </div>
+                <p className="text-[11px] text-gray-300">
+                  Allowlist this callback URI in your OAuth 2.0 / Auth Manager provider to validate end-user identity tokens during A2A 3LO handshakes:
+                </p>
+                <code className="block text-[11px] font-mono text-teal-300 break-all">
+                  {A2A_3LO_AUTH_MANAGER_CALLBACK_URL}
+                </code>
+              </div>
+              <button
+                type="button"
+                data-testid="copy-3lo-callback-url-btn"
+                onClick={handleCopyAuthManagerCallback}
+                className="px-3 py-1.5 bg-teal-700 hover:bg-teal-600 text-white text-xs font-semibold rounded shrink-0 transition-colors"
+              >
+                {copiedAuthManagerUrl ? '✓ Copied!' : 'Copy Callback URL'}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2 mt-4">
+            <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={a2aStreaming}
@@ -361,6 +443,21 @@ export const AgentBackendConfig: React.FC<AgentBackendConfigProps> = ({
                 disabled={isEditingDisabled}
               />
               <span className="text-sm font-medium text-gray-300">Enable Streaming</span>
+            </label>
+
+            <label className="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                data-testid="a2ui-extension-toggle"
+                checked={hasA2uiExtension}
+                onChange={(e) => handleToggleA2uiExtension(e.target.checked)}
+                className="form-checkbox h-4 w-4 text-teal-500 rounded border-gray-600 bg-gray-800 focus:ring-teal-500"
+                disabled={isEditingDisabled}
+              />
+              <span className="text-sm font-medium text-gray-300">
+                Enable A2UI Rich UI Extension{' '}
+                <code className="text-xs font-mono text-teal-400">({A2UI_EXTENSION_URI})</code>
+              </span>
             </label>
           </div>
 

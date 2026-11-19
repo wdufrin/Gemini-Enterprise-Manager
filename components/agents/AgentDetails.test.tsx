@@ -54,6 +54,11 @@ vi.mock('../../services/apiService', async (importOriginal) => {
         publishNoCodeAgentOnly: vi.fn(),
         shareAgent: vi.fn(),
         withdrawAgent: vi.fn(),
+        suspendAgent: vi.fn(),
+        rejectAgent: vi.fn(),
+        listAgentIamProposals: vi.fn(),
+        approveAgentIamProposal: vi.fn(),
+        rejectAgentIamProposal: vi.fn(),
         migrateLegacyAgentAuthorizations: vi.fn(),
         adminPublishAndShareForUser: vi.fn(),
         isCustomNoCodeAgent: vi.fn(() => true),
@@ -1240,5 +1245,230 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
             );
         });
         vi.mocked(api.isCustomNoCodeAgent).mockReturnValue(true);
+    });
+
+    it('renders read-only Agent SPIFFE Identity, Suspend/Reject governance actions (with mandatory reason validation), and AgentIamProposal approve/reject queue', async () => {
+        const spiffeEnabledAgent: Agent = {
+            ...baseAgent,
+            state: 'ENABLED',
+            agentIdentityInfo: {
+                spiffeId: 'spiffe://gcp.agent.identity.global/projects/123456789/agents/agent-1',
+                spiffeIdType: 'SPIFFE_ID_TYPE_AGENT',
+            },
+        } as Agent;
+
+        vi.mocked(api.getAgent).mockResolvedValue(spiffeEnabledAgent);
+        vi.mocked(api.suspendAgent).mockResolvedValue({
+            ...spiffeEnabledAgent,
+            state: 'SUSPENDED',
+            suspensionReason: 'Security audit hold',
+        } as Agent);
+        vi.mocked(api.listAgentIamProposals).mockResolvedValue([
+            {
+                name: `${baseAgent.name}/iamProposals/prop-101`,
+                state: 'PENDING',
+                role: 'roles/discoveryengine.agentUser',
+                members: ['group:finance@company.com'],
+                justification: 'Need Q4 forecast access',
+            } as never,
+            {
+                name: `${baseAgent.name}/iamProposals/prop-102`,
+                state: 'PENDING',
+                role: 'roles/discoveryengine.agentUser',
+                members: ['user:contractor@external.com'],
+            } as never,
+        ]);
+        vi.mocked(api.approveAgentIamProposal).mockResolvedValue({
+            name: `${baseAgent.name}/iamProposals/prop-101`,
+            state: 'APPROVED',
+        } as never);
+        vi.mocked(api.rejectAgentIamProposal).mockResolvedValue({
+            name: `${baseAgent.name}/iamProposals/prop-102`,
+            state: 'REJECTED',
+            rejectionReason: 'External contractors disallowed',
+        } as never);
+
+        const { unmount } = render(
+            <AgentDetails
+                agent={spiffeEnabledAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        // 1. Verify SPIFFE ID & type rendered
+        expect(await screen.findByTestId('agent-spiffe-id-value')).toHaveTextContent(
+            'spiffe://gcp.agent.identity.global/projects/123456789/agents/agent-1'
+        );
+        expect(screen.getByTestId('agent-spiffe-id-type')).toHaveTextContent('SPIFFE_ID_TYPE_AGENT');
+
+        // 2. Suspend Agent (negative empty reason check, then valid submission)
+        fireEvent.click(screen.getByTestId('suspend-agent-btn'));
+        fireEvent.click(screen.getByTestId('confirm-governance-action-btn'));
+        expect(await screen.findByText('Suspension reason is required.')).toBeTruthy();
+        expect(api.suspendAgent).not.toHaveBeenCalled();
+
+        fireEvent.change(screen.getByLabelText(/Suspension Reason/i), {
+            target: { value: 'Security audit hold' },
+        });
+        fireEvent.click(screen.getByTestId('confirm-governance-action-btn'));
+
+        await waitFor(() => {
+            expect(api.suspendAgent).toHaveBeenCalledWith(
+                spiffeEnabledAgent.name,
+                'Security audit hold',
+                mockConfig
+            );
+            expect(screen.getByTestId('agent-suspension-reason-banner')).toHaveTextContent(
+                'Security audit hold'
+            );
+        });
+
+        // 3. Access Proposals (AgentIamProposal) queue in Sharing & IAM tab
+        fireEvent.click(screen.getByRole('button', { name: /Sharing & IAM/i }));
+        fireEvent.click(screen.getByTestId('load-iam-proposals-btn'));
+
+        expect(await screen.findByTestId('iam-proposal-card-prop-101')).toBeTruthy();
+        fireEvent.click(screen.getByTestId('approve-proposal-btn-prop-101'));
+        await waitFor(() => {
+            expect(api.approveAgentIamProposal).toHaveBeenCalledWith(
+                `${baseAgent.name}/iamProposals/prop-101`,
+                mockConfig
+            );
+        });
+
+        // Negative check on proposal rejection: empty reason rejected before API call
+        fireEvent.click(screen.getByTestId('reject-proposal-btn-prop-102'));
+        fireEvent.click(screen.getByTestId('confirm-reject-proposal-btn-prop-102'));
+        expect(
+            await screen.findByText('Rejection reason is required to reject an access proposal.')
+        ).toBeTruthy();
+        expect(api.rejectAgentIamProposal).not.toHaveBeenCalled();
+
+        fireEvent.change(screen.getByLabelText(/Rejection Reason \(Required\)/i), {
+            target: { value: 'External contractors disallowed' },
+        });
+        fireEvent.click(screen.getByTestId('confirm-reject-proposal-btn-prop-102'));
+
+        await waitFor(() => {
+            expect(api.rejectAgentIamProposal).toHaveBeenCalledWith(
+                `${baseAgent.name}/iamProposals/prop-102`,
+                'External contractors disallowed',
+                mockConfig
+            );
+        });
+
+        unmount();
+
+        // 4. Verify Reject Agent on a DISABLED pending-review agent
+        const disabledPendingAgent: Agent = {
+            ...baseAgent,
+            state: 'DISABLED',
+        };
+        vi.mocked(api.getAgent).mockResolvedValue(disabledPendingAgent);
+        vi.mocked(api.rejectAgent).mockResolvedValue({
+            ...disabledPendingAgent,
+            state: 'PRIVATE',
+            rejectionReason: 'Incomplete compliance review',
+        } as Agent);
+
+        render(
+            <AgentDetails
+                agent={disabledPendingAgent}
+                config={mockConfig}
+                onBack={vi.fn()}
+                onEdit={vi.fn()}
+                onDeleteSuccess={vi.fn()}
+                onToggleStatus={vi.fn()}
+                togglingAgentId={null}
+                error={null}
+            />
+        );
+
+        fireEvent.click(await screen.findByTestId('reject-agent-btn'));
+        fireEvent.change(screen.getByLabelText(/Rejection Reason/i), {
+            target: { value: 'Incomplete compliance review' },
+        });
+        fireEvent.click(screen.getByTestId('confirm-governance-action-btn'));
+
+        await waitFor(() => {
+            expect(api.rejectAgent).toHaveBeenCalledWith(
+                disabledPendingAgent.name,
+                'Incomplete compliance review',
+                mockConfig
+            );
+            expect(screen.getByTestId('agent-rejection-reason-banner')).toHaveTextContent(
+                'Incomplete compliance review'
+            );
+        });
+    });
+
+    it('supports A2A agentAuthorization binding, 3LO Auth Manager Callback copy helper, and A2UI v0.9 extension toggle in AgentForm', async () => {
+        Object.assign(navigator, {
+            clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+        });
+        const a2aAgent: Agent = {
+            name: 'projects/test-proj/locations/global/collections/default_collection/engines/engine-123/assistants/default_assistant/agents/a2a-1',
+            displayName: 'Partner A2A Bot',
+            description: 'External HTTP A2A agent',
+            state: 'ENABLED',
+            a2aAgentDefinition: {
+                jsonAgentCard: JSON.stringify({
+                    url: 'https://partner-agent.run.app/invoke',
+                    provider: { organization: 'Partner Corp' },
+                    capabilities: { streaming: true },
+                }),
+            },
+        };
+        vi.mocked(api.updateAgent).mockResolvedValue(a2aAgent);
+
+        render(
+            <AgentForm
+                config={mockConfig}
+                onSuccess={vi.fn()}
+                onCancel={vi.fn()}
+                agentToEdit={a2aAgent}
+            />
+        );
+
+        // Verify 3LO Auth Manager callback URL helper & 1-click copy
+        const callbackHelper = await screen.findByTestId('a2a-3lo-auth-manager-callback-helper');
+        expect(callbackHelper.textContent).toContain(
+            'https://vertexaisearch.cloud.google.com/validateUserId'
+        );
+        fireEvent.click(screen.getByTestId('copy-3lo-callback-url-btn'));
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+            'https://vertexaisearch.cloud.google.com/validateUserId'
+        );
+
+        // Bind agentAuthorization and enable A2UI v0.9 extension
+        fireEvent.change(screen.getByLabelText(/Invocation Authorization/i), {
+            target: { value: 'a2a-3lo-oauth' },
+        });
+        fireEvent.click(screen.getByTestId('a2ui-extension-toggle'));
+
+        fireEvent.click(screen.getByRole('button', { name: /Save Agent/i }));
+
+        await waitFor(() => {
+            expect(api.updateAgent).toHaveBeenCalledTimes(1);
+        });
+
+        const [, sentPayload] = vi.mocked(api.updateAgent).mock.calls[0] as [
+            unknown,
+            Partial<Agent>,
+            Config,
+        ];
+        expect(sentPayload.authorizationConfig).toEqual({
+            agentAuthorization: 'projects/test-proj/locations/global/authorizations/a2a-3lo-oauth',
+        });
+        const parsedCard = JSON.parse(sentPayload.a2aAgentDefinition!.jsonAgentCard);
+        expect(parsedCard.capabilities.extensions).toEqual([
+            { uri: 'https://a2ui.org/specification/v0_9' },
+        ]);
     });
 });

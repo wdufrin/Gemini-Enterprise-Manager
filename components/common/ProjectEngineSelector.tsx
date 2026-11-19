@@ -16,6 +16,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import * as api from '../../services/apiService';
+import {
+  GEMINI_ENTERPRISE_LOCATION_IDS,
+  GEMINI_ENTERPRISE_LOCATIONS,
+} from '../../utils/locations';
 
 export interface ProjectEngineSelectorValue {
   project: string;
@@ -35,7 +39,27 @@ export interface ProjectEngineSelectorProps {
   required?: boolean;
 }
 
-const DEFAULT_LOCATIONS = ['global', 'us', 'eu'];
+export const DEFAULT_LOCATIONS: string[] = [...GEMINI_ENTERPRISE_LOCATION_IDS];
+
+function getDefaultLocationLabel(locId: string): string {
+  const entries = GEMINI_ENTERPRISE_LOCATIONS as unknown;
+  if (Array.isArray(entries)) {
+    const match = entries.find(
+      (item: any) =>
+        item?.id === locId || item?.value === locId || item?.code === locId,
+    );
+    if (match) {
+      if (typeof match.label === 'string') return match.label;
+      if (typeof match.name === 'string') return `${match.name} (${locId})`;
+    }
+  } else if (entries && typeof entries === 'object') {
+    const val = (entries as Record<string, any>)[locId];
+    if (typeof val === 'string') return val;
+    if (val && typeof val.label === 'string') return val.label;
+    if (val && typeof val.name === 'string') return `${val.name} (${locId})`;
+  }
+  return locId;
+}
 
 export const ProjectEngineSelector: React.FC<ProjectEngineSelectorProps> = ({
   title,
@@ -44,10 +68,13 @@ export const ProjectEngineSelector: React.FC<ProjectEngineSelectorProps> = ({
   value,
   onChange,
   projectPlaceholder = 'e.g. my-project or 123456789',
-  locations = DEFAULT_LOCATIONS,
+  locations,
   disabled = false,
   required = true,
 }) => {
+  const isUsingDefaultLocations = locations === undefined;
+  const effectiveLocations = locations ?? DEFAULT_LOCATIONS;
+
   const [apps, setApps] = useState<any[]>([]);
   const [isLoadingApps, setIsLoadingApps] = useState<boolean>(false);
   const [isCustomEngine, setIsCustomEngine] = useState<boolean>(false);
@@ -156,14 +183,15 @@ export const ProjectEngineSelector: React.FC<ProjectEngineSelectorProps> = ({
           <div>
             <label className="block text-xs font-medium text-gray-300 mb-1">Region Location</label>
             <select
+              aria-label="Region Location"
               value={value.location}
               onChange={(e) => onChange({ ...value, location: e.target.value })}
               disabled={disabled}
               className={`w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:ring-2 ${focusRingClass} disabled:opacity-50`}
             >
-              {locations.map((loc) => (
+              {effectiveLocations.map((loc) => (
                 <option key={loc} value={loc}>
-                  {loc}
+                  {isUsingDefaultLocations ? getDefaultLocationLabel(loc) : loc}
                 </option>
               ))}
             </select>

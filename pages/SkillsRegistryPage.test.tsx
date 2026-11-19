@@ -21,6 +21,7 @@ import SkillsRegistryPage from './SkillsRegistryPage';
 import { RegistrySkill, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import { ToastProvider } from '../context/ToastContext';
+import { GEMINI_ENTERPRISE_LOCATIONS } from '../utils/locations';
 
 vi.mock('../services/apiService', () => ({
   listRegistrySkills: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('../services/apiService', () => ({
   updateRegistrySkillScanningPolicy: vi.fn(),
   deleteRegistrySkill: vi.fn(),
   listRegistrySkillRevisions: vi.fn(),
+  restoreRegistrySkillRevision: vi.fn(),
   listRegistryFindings: vi.fn(),
   listResources: vi.fn(),
   createAgent: vi.fn(),
@@ -447,6 +449,78 @@ describe('SkillsRegistryPage Component', () => {
       expect(
         screen.getByText(/pre-install failed:.*403 PERMISSION_DENIED/i)
       ).toBeInTheDocument();
+    });
+  });
+
+  it('expands location selector with GEMINI_ENTERPRISE_LOCATIONS and supports 1-click Restore Revision with Active Default badge', async () => {
+    const skillWithDefaultRev: RegistrySkill = {
+      ...mockRegistrySkills[0],
+      defaultRevision:
+        'projects/test-project-123/locations/global/skills/private-company-brand-voice/revisions/rev-2',
+    };
+    vi.mocked(api.listRegistrySkills).mockResolvedValue([skillWithDefaultRev]);
+    vi.mocked(api.listRegistrySkillRevisions).mockResolvedValue([
+      {
+        name: 'projects/test-project-123/locations/global/skills/private-company-brand-voice/revisions/rev-2',
+        state: 'ACTIVE',
+        scanResult: { scanState: 'SUCCEEDED', findings: [] },
+      },
+      {
+        name: 'projects/test-project-123/locations/global/skills/private-company-brand-voice/revisions/rev-1',
+        state: 'ACTIVE',
+        scanResult: { scanState: 'SUCCEEDED', findings: [] },
+      },
+    ]);
+    vi.mocked(
+      (api as typeof api & { restoreRegistrySkillRevision: ReturnType<typeof vi.fn> })
+        .restoreRegistrySkillRevision
+    ).mockResolvedValueOnce({
+      ...skillWithDefaultRev,
+      defaultRevision:
+        'projects/test-project-123/locations/global/skills/private-company-brand-voice/revisions/rev-3',
+    });
+
+    renderWithToast(
+      <SkillsRegistryPage
+        projectNumber="123456789012"
+        projectId="test-project-123"
+        setProjectNumber={vi.fn()}
+        accessToken="mock-token"
+        userProfile={mockUserProfile}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Corporate Brand Voice')).toBeInTheDocument();
+    });
+
+    const locationSelect = screen.getByLabelText('Agent Registry location') as HTMLSelectElement;
+    expect(locationSelect.options.length).toBe(GEMINI_ENTERPRISE_LOCATIONS.length);
+
+    fireEvent.click(screen.getAllByTitle('Inspect Skill & Revisions')[0]);
+    const revisionsTab = await screen.findByRole('tab', { name: /Revisions \(2\)/i });
+    fireEvent.click(revisionsTab);
+
+    expect(await screen.findByTestId('active-default-revision-badge')).toHaveTextContent(
+      'Active Default'
+    );
+    expect(screen.queryByTestId('restore-revision-btn-rev-2')).not.toBeInTheDocument();
+
+    const restoreBtn = screen.getByTestId('restore-revision-btn-rev-1');
+    expect(restoreBtn).toHaveTextContent('Restore Revision');
+    fireEvent.click(restoreBtn);
+
+    await waitFor(() => {
+      expect(
+        (api as typeof api & { restoreRegistrySkillRevision: ReturnType<typeof vi.fn> })
+          .restoreRegistrySkillRevision
+      ).toHaveBeenCalledWith(
+        skillWithDefaultRev.name,
+        expect.objectContaining({
+          name: 'projects/test-project-123/locations/global/skills/private-company-brand-voice/revisions/rev-1',
+        }),
+        expect.objectContaining({ projectId: 'test-project-123' })
+      );
     });
   });
 });

@@ -66,6 +66,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
         engineControlErrors,
         googleInternalEnrollment,
         handleEngineControlChange,
+        handleFeaturePolicyChange,
         isSupportedIdpForQrCode,
         isSubscriptionTierActive,
         handleChange,
@@ -80,6 +81,8 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
         setFeatures,
         setShowLegacyModels,
     } = useEngineDetailsForm({ engine, config, onUpdateSuccess });
+
+    const hasActiveCmek = Boolean(engine.cmekConfig?.kmsKey || engine.cmekConfig?.name);
 
     return (
         <div className="bg-gray-800 shadow-xl rounded-lg p-6 mb-6 border border-gray-700">
@@ -97,24 +100,108 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
                     />
                 </div>
 
-                <div>
-                    <label htmlFor="marketplaceAgentVisibility" className="block text-sm font-medium text-gray-300">
-                        Marketplace Agent Visibility
-                        <InfoTooltip text="Configures whether end users can see all agents, only purchased/integrated agents, or available marketplace agents." />
-                    </label>
-                    <select
-                        id="marketplaceAgentVisibility"
-                        name="marketplaceAgentVisibility"
-                        value={formData.marketplaceAgentVisibility}
-                        onChange={handleChange}
-                        className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-gray-200 focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 h-[42px]"
-                    >
-                        <option value="MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED">Default / Unspecified</option>
-                        <option value="SHOW_AVAILABLE_AGENTS_ONLY">Only Available Agents</option>
-                        <option value="SHOW_AGENTS_ALREADY_INTEGRATED">Agents Already Integrated</option>
-                        <option value="SHOW_AGENTS_ALREADY_PURCHASED">Agents Already Purchased</option>
-                        <option value="SHOW_ALL_AGENTS">Show All Marketplace Agents</option>
-                    </select>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label htmlFor="marketplaceAgentVisibility" className="block text-sm font-medium text-gray-300">
+                            Marketplace Agent Visibility
+                            <InfoTooltip text="Configures whether end users can see all agents, only purchased/integrated agents, or available marketplace agents." />
+                        </label>
+                        <select
+                            id="marketplaceAgentVisibility"
+                            name="marketplaceAgentVisibility"
+                            value={formData.marketplaceAgentVisibility}
+                            onChange={handleChange}
+                            className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-gray-200 focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 h-[42px]"
+                        >
+                            <option value="MARKETPLACE_AGENT_VISIBILITY_UNSPECIFIED">Default / Unspecified</option>
+                            <option value="SHOW_AVAILABLE_AGENTS_ONLY">Only Available Agents</option>
+                            <option value="SHOW_AGENTS_ALREADY_INTEGRATED">Agents Already Integrated</option>
+                            <option value="SHOW_AGENTS_ALREADY_PURCHASED">Agents Already Purchased</option>
+                            <option value="SHOW_ALL_AGENTS">Show All Marketplace Agents</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label htmlFor="procurementContactEmails" className="block text-sm font-medium text-gray-300">
+                            Procurement Contact Emails (GA)
+                            <InfoTooltip text="engine.procurementContactEmails. Comma- or newline-separated admin/procurement email addresses notified when end users request third-party Marketplace agents." />
+                        </label>
+                        <input
+                            type="text"
+                            id="procurementContactEmails"
+                            name="procurementContactEmails"
+                            placeholder="procurement@example.com, ai-admins@example.com"
+                            value={formData.procurementContactEmails}
+                            onChange={handleChange}
+                            className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-gray-200 text-sm py-2 px-3"
+                        />
+                    </div>
+                </div>
+
+                <div className="p-3.5 bg-gray-900/50 rounded-lg border border-gray-700/80 space-y-3">
+                    <div>
+                        <label htmlFor="defaultEgressAgentGateway" className="block text-sm font-medium text-gray-300">
+                            Default Egress Agent Gateway (GA)
+                            <InfoTooltip text="engine.agentGatewaySetting.defaultEgressAgentGateway.name. Optional Cloud Agent Gateway resource binding for outbound agent network egress." />
+                        </label>
+                        <input
+                            type="text"
+                            id="defaultEgressAgentGateway"
+                            name="defaultEgressAgentGateway"
+                            placeholder={`projects/${config.projectId || '{project}'}/locations/us-central1/agentGateways/{id}`}
+                            value={formData.defaultEgressAgentGateway}
+                            onChange={handleChange}
+                            className="mt-1 block w-full bg-gray-950 border border-gray-700 rounded-md shadow-sm text-gray-200 font-mono text-xs py-2 px-3"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                        <div className="p-2.5 rounded bg-gray-950/60 border border-gray-800">
+                            <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
+                                Associated Agent Registry
+                            </span>
+                            {engine.associatedAgentRegistry ? (
+                                <span className="text-xs font-mono text-blue-300 break-all block mt-1">
+                                    {engine.associatedAgentRegistry}
+                                </span>
+                            ) : (
+                                <span className="text-xs text-gray-500 italic block mt-1">
+                                    None bound (Output-only engine.associatedAgentRegistry)
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="p-2.5 rounded bg-gray-950/60 border border-gray-800">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                    Encryption / CMEK Status
+                                </span>
+                                {hasActiveCmek ? (
+                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-950/70 text-amber-300 border border-amber-700/60">
+                                        CMEK ({engine.cmekConfig?.state || 'ACTIVE'})
+                                    </span>
+                                ) : (
+                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-gray-800 text-gray-400 border border-gray-700">
+                                        Google-Managed
+                                    </span>
+                                )}
+                            </div>
+                            {hasActiveCmek ? (
+                                <div className="mt-1 space-y-1">
+                                    <span className="text-xs font-mono text-gray-300 break-all block">
+                                        {engine.cmekConfig?.kmsKey || engine.cmekConfig?.name}
+                                    </span>
+                                    <p className="text-[11px] text-amber-400">
+                                        Note: Certain frontier models (such as Gemini 4 Neon and Gemini 4 Carbon) are unavailable on CMEK-encrypted engines.
+                                    </p>
+                                </div>
+                            ) : (
+                                <span className="text-xs text-gray-500 block mt-1">
+                                    Default Google-managed encryption keys active.
+                                </span>
+                            )}
+                        </div>
+                    </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-6">
@@ -164,6 +251,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
                     errors={engineControlErrors}
                     googleInternalEnrollment={googleInternalEnrollment}
                     onChange={handleEngineControlChange}
+                    onFeaturePolicyChange={handleFeaturePolicyChange}
                 />
 
                 <ModelConfigurationSection
@@ -174,6 +262,7 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
                     legacyModels={legacyModels}
                     showLegacyModels={showLegacyModels}
                     onToggleShowLegacyModels={() => setShowLegacyModels(!showLegacyModels)}
+                    appLocation={config.appLocation}
                 />
 
                 <SearchEngineConfigSection
@@ -189,6 +278,9 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({
                     enableWebApp={Boolean(formData.enableWebApp)}
                     enableAutocomplete={Boolean(formData.enableAutocomplete)}
                     enableQualityFeedback={Boolean(formData.enableQualityFeedback)}
+                    sourceAdminDisplayNameEnabled={Boolean(formData.sourceAdminDisplayNameEnabled)}
+                    enablePeopleSearch={Boolean(formData.enablePeopleSearch)}
+                    disableUserEventsCollection={Boolean(formData.disableUserEventsCollection)}
                     onChange={handleChange}
                 />
 

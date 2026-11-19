@@ -24,6 +24,7 @@ export enum Page {
   AGENT_ENGINES = 'Agent Runtimes',
   A2A_TESTER = 'A2A Tester',
   AGENT_BUILDER = 'ADK Studio',
+  DEV_TOOLS = 'AI Developer Tools',
   CLOUD_RUN_AGENTS = 'Cloud Run Agents',
   DIALOGFLOW_AGENTS = 'Dialogflow Agents',
   CHAT = 'Test G.E. Agent',
@@ -87,6 +88,9 @@ export interface WidgetConfig {
   uiSettings?: {
     enableAutocomplete?: boolean;
     enableQualityFeedback?: boolean;
+    enablePeopleSearch?: boolean;
+    disableUserEventsCollection?: boolean;
+    sourceAdminDisplayNameEnabled?: boolean;
     features?: Record<string, string>;
     modelConfigs?: Record<string, string>;
     modelConfigInfo?: ModelConfigInfo;
@@ -109,6 +113,23 @@ export interface CannedQuery {
 export interface AuthorizationConfig {
   oauth2ClientId?: string; // Made optional as it might be replaced by toolAuthorizations
   toolAuthorizations?: string[];
+  agentAuthorization?: string;
+}
+
+export interface AgentIdentityInfo {
+  spiffeIdType?: 'SPIFFE_ID_TYPE_UNSPECIFIED' | 'DEFAULT' | 'REGISTRY' | 'USER' | string;
+  spiffeId?: string;
+}
+
+export interface AgentIamProposal {
+  name: string;
+  principal: string;
+  role: string;
+  state?: 'STATE_UNSPECIFIED' | 'ACTIVE' | 'APPROVED' | 'REJECTED' | 'ALREADY_FULFILLED' | 'CANCELLED' | string;
+  createTime?: string;
+  closeTime?: string;
+  expireTime?: string;
+  rejectionReason?: string;
 }
 
 export interface AgentDataStoreSpec {
@@ -260,6 +281,17 @@ export interface Agent {
   observabilityConfig?: {
     observabilityEnabled?: boolean;
     sensitiveLoggingEnabled?: boolean;
+    artifactGcsBucket?: string;
+    userPrincipalLoggingEnabled?: boolean;
+  };
+  agentIdentityInfo?: AgentIdentityInfo;
+  suspensionReason?: string;
+  rejectionReason?: string;
+  defaultPinned?: boolean;
+  hasActiveIamProposals?: boolean;
+  servingConfig?: {
+    thinkingOutputDisabled?: boolean;
+    tableExportDisabled?: boolean;
   };
   entitlements?: unknown[];
   iamPolicy?: IamPolicy;
@@ -516,6 +548,34 @@ export interface SearchEngineConfig {
   [key: string]: unknown;
 }
 
+export interface CmekSingleRegionKey {
+  kmsKey: string;
+}
+
+export interface CmekConfig {
+  name?: string;
+  kmsKey?: string;
+  kmsKeyVersion?: string;
+  state?: string;
+  isDefault?: boolean;
+  lastRotationTimestamp?: string;
+  singleRegionKeys?: CmekSingleRegionKey[];
+  [key: string]: unknown;
+}
+
+export interface EngineFeaturePolicyMember {
+  type: 'USER' | 'GROUP' | string;
+  id: string;
+  displayName?: string;
+  verification?: string;
+}
+
+export interface EngineFeaturePolicy {
+  allowedMembers?: EngineFeaturePolicyMember[];
+  deniedMembers?: EngineFeaturePolicyMember[];
+  defaultAccess?: 'DEFAULT_ACCESS_UNSPECIFIED' | 'ALLOW' | 'DENY' | string;
+}
+
 export interface AppEngine { // Renamed from Engine to avoid conflict with ReasoningEngine
     name: string;
     displayName: string;
@@ -526,7 +586,12 @@ export interface AppEngine { // Renamed from Engine to avoid conflict with Reaso
     industryVertical?: string;
     appType?: string; // e.g. APP_TYPE_INTRANET
     searchEngineConfig?: SearchEngineConfig;
-    observabilityConfig?: { observabilityEnabled?: boolean; sensitiveLoggingEnabled?: boolean };
+    observabilityConfig?: {
+      observabilityEnabled?: boolean;
+      sensitiveLoggingEnabled?: boolean;
+      artifactGcsBucket?: string;
+      userPrincipalLoggingEnabled?: boolean;
+    };
   features?: Record<string, string>; // Map of feature name to 'FEATURE_STATE_ON'|'FEATURE_STATE_OFF'
   effectiveFeatures?: Record<string, string>; // Resolved effective features from Discovery Engine backend
   modelConfigs?: Record<string, string>; // Map of model name to 'MODEL_ENABLED'|'MODEL_DISABLED'
@@ -538,6 +603,22 @@ export interface AppEngine { // Renamed from Engine to avoid conflict with Reaso
   disableAnalytics?: boolean;
   includeCrossDomainDocuments?: boolean;
   marketplaceAgentVisibility?: string;
+  procurementContactEmails?: string[];
+  agentGatewaySetting?: {
+    defaultEgressAgentGateway?: {
+      name?: string;
+    };
+  };
+  associatedAgentRegistry?: string;
+  cmekConfig?: CmekConfig;
+  featurePolicies?: Record<string, EngineFeaturePolicy>;
+  sessionConfig?: {
+    sessionManagementPolicy?: string;
+    sessionTtl?: {
+      days?: number;
+      indefinite?: boolean;
+    };
+  };
   personalizationConfig?: EnginePersonalizationConfig;
   agentCreationConfig?: EngineAgentCreationConfig;
   agentControlConfig?: EngineAgentControlConfig;
@@ -611,6 +692,23 @@ export interface IdpConfig {
   [key: string]: unknown;
 }
 
+export type BannedPhraseMatchType =
+  | 'BANNED_PHRASE_MATCH_TYPE_UNSPECIFIED'
+  | 'SIMPLE_STRING_MATCH'
+  | 'WORD_BOUNDARY_STRING_MATCH';
+
+export interface BannedPhrase {
+  phrase: string;
+  matchType?: BannedPhraseMatchType | string;
+  ignoreDiacritics?: boolean;
+}
+
+export interface DataProtectionPolicy {
+  sensitiveDataProtectionPolicy?: {
+    policy?: string;
+  };
+}
+
 export interface CustomerPolicy {
   modelArmorConfig?: {
     userPromptTemplate?: string;
@@ -618,10 +716,12 @@ export interface CustomerPolicy {
     failureMode?: string;
     [key: string]: unknown;
   };
-  bannedPhrases?: {
+  bannedPhrases?: BannedPhrase[] | {
     bannedPhrases?: string[];
     [key: string]: unknown;
   };
+  dataProtectionPolicy?: DataProtectionPolicy;
+  agentReasoningHidden?: boolean;
   [key: string]: unknown;
 }
 
@@ -729,10 +829,16 @@ export interface Assistant {
         systemInstruction?: {
             additionalSystemInstruction?: string;
         };
+        defaultLanguage?: string;
+        defaultModelId?: string;
+        allowedModelIds?: string[];
     };
     googleSearchGroundingEnabled?: boolean;
     webGroundingType?: string;
     defaultWebGroundingToggleOff?: boolean;
+    mapsGroundingType?: string;
+    defaultMapsGroundingToggleOff?: boolean;
+    knowledgeCatalogEnabled?: boolean;
     customerPolicy?: CustomerPolicy;
     vertexAiAgentConfigs?: VertexAiAgentConfig[];
     enabledActions?: Record<string, EnabledAction>;
@@ -886,6 +992,11 @@ export interface DataConnectorActionParams {
   auth_uri_params?: string;
   client_id?: string;
   client_secret?: string;
+  pkce_support_enabled?: boolean;
+  client_secret_basic_override?: boolean;
+  use_agent_gateway_egress?: boolean;
+  agent_gateway_engine?: string;
+  egress_fqdns?: string;
   mcp_server_source?: string;
   registry_mcp_server_name?: string;
   citation_mappings?: CitationMappings;
@@ -894,6 +1005,32 @@ export interface DataConnectorActionParams {
 
 export interface DataConnectorActionConfig {
   actionParams?: DataConnectorActionParams;
+  serviceName?: string;
+  [key: string]: unknown;
+}
+
+export interface DataConnectorToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
+export type ConnectorToolHitlMode =
+  | 'HITL_MODE_UNSPECIFIED'
+  | 'HITL_MODE_DISABLED'
+  | 'HITL_MODE_ALWAYS'
+  | 'HITL_MODE_IF_UNSAFE';
+
+export interface DataConnectorToolInfo {
+  name: string;
+  title?: string;
+  description?: string;
+  enabled?: boolean;
+  available?: boolean;
+  hitlMode?: ConnectorToolHitlMode | string;
+  annotations?: DataConnectorToolAnnotations;
   [key: string]: unknown;
 }
 
@@ -929,6 +1066,7 @@ export interface DataConnector {
   actionConfig?: DataConnectorActionConfig;
   bapConfig?: DataConnectorBapConfig;
   dynamicTools?: DataConnectorDynamicTool[];
+  connectorTools?: DataConnectorToolInfo[];
   params?: DataConnectorParams;
   refreshInterval?: string;
   staticIpEnabled?: boolean;
@@ -1302,5 +1440,92 @@ export interface GroupLicensingEditConfig {
     vpcConnector?: string;
   };
 }
+export type DevToolsFileAccessPolicy =
+  | 'FILE_ACCESS_POLICY_UNSPECIFIED'
+  | 'FILE_ACCESS_POLICY_DENY'
+  | 'FILE_ACCESS_POLICY_ALWAYS_ASK'
+  | 'FILE_ACCESS_POLICY_NOT_ENFORCED';
+
+export type DevToolsTerminalAutoExecutionPolicy =
+  | 'TERMINAL_COMMAND_AUTO_EXECUTION_POLICY_UNSPECIFIED'
+  | 'TERMINAL_COMMAND_AUTO_EXECUTION_POLICY_REQUIRE_REVIEW'
+  | 'TERMINAL_COMMAND_AUTO_EXECUTION_POLICY_PROCEED_IN_SANDBOX'
+  | 'TERMINAL_COMMAND_AUTO_EXECUTION_POLICY_NOT_ENFORCED';
+
+export type DevToolsJavascriptExecutionPolicy =
+  | 'JAVASCRIPT_EXECUTION_POLICY_UNSPECIFIED'
+  | 'JAVASCRIPT_EXECUTION_POLICY_DISABLED'
+  | 'JAVASCRIPT_EXECUTION_POLICY_REQUEST_REVIEW'
+  | 'JAVASCRIPT_EXECUTION_POLICY_NOT_ENFORCED';
+
+export interface DevToolsConfig {
+  name?: string;
+  devToolsEnabled?: boolean;
+  agentConfig?: {
+    sandboxModeEnabled?: boolean;
+    outsideWorkspaceFileAccessPolicy?: DevToolsFileAccessPolicy | string;
+    terminalCommandAutoExecutionPolicy?: DevToolsTerminalAutoExecutionPolicy | string;
+  };
+  mcpConfig?: {
+    mcpEnabled?: boolean;
+    mcpAllowlist?: Record<string, unknown>;
+  };
+  loggingConfig?: {
+    metadataLoggingEnabled?: boolean;
+    promptAndResponseLoggingEnabled?: boolean;
+  };
+  featureConfig?: {
+    remoteControlEnabled?: boolean;
+    multiagentConfig?: {
+      boostCommandDisabled?: boolean;
+      teamworkPreviewCommandDisabled?: boolean;
+    };
+  };
+  browserConfig?: {
+    browserEnabled?: boolean;
+    javascriptExecutionPolicy?: DevToolsJavascriptExecutionPolicy | string;
+    actuationAllowedUrls?: string[];
+  };
+  modelConfig?: {
+    allowedModels?: string[];
+    allowedThirdPartyModels?: string[];
+  };
+  residencyConfig?: {
+    fallbackEnabledLocationIds?: string[];
+  };
+  pluginConfig?: {
+    pluginsDisabled?: boolean;
+    marketplaceDisabled?: boolean;
+  };
+}
+
+export interface LicenseAssignmentTierRule {
+  subscriptionTier: string;
+  licenseConfig: string;
+  allowedUserGroups?: string[];
+}
+
+export interface UserStore {
+  name: string;
+  displayName?: string;
+  cmekConfig?: CmekConfig;
+  defaultLicenseConfig?: string;
+  enableLicenseAutoRegister?: boolean;
+  enableExpiredLicenseAutoUpdate?: boolean;
+  licenseAutoRegisterAllowedGroups?: string[];
+  licenseAssignmentTierRules?: LicenseAssignmentTierRule[];
+}
+
+export interface TierOverageConfig {
+  subscriptionTier: string;
+  priorityPaygEnabled?: boolean;
+}
+
+export interface ProjectOverageConfig {
+  name?: string;
+  tierOverageConfigs?: TierOverageConfig[];
+  prepayWalletRequired?: boolean;
+}
+
 export type { UserLicense, LicenseConfig, BillingAccount, BillingAccountLicenseConfig } from './components/license/types';
 export type { TimeSeries, TimeSeriesPoint, LoggingSink } from './services/api/monitoring';

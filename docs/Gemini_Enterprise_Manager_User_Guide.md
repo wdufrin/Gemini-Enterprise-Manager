@@ -27,6 +27,7 @@ This guide is designed for two distinct reader profiles who share the same admin
   - [GE Agent Manager (Registering & managing ADK, A2A, and Low-Code agents)](#ge-agent-manager)
   - [Skills Registry (Enterprise SKILL.md archive catalog, display name normalization, organizational vs. private visibility & ZIP import/export)](#skills-registry)
   - [ADK Studio (Interactive Python ADK 2.x & Cloud Run A2A code generator)](#adk-studio)
+  - [AI Developer Tools (Google Antigravity & DevToolsConfig singleton governance)](#ai-developer-tools)
   - [Agent Runtimes (Vertex AI ReasoningEngines & Cloud Run A2A services)](#agent-runtimes)
   - [End-to-End Walkthrough: Build → Deploy → Register → Grant → Test](#end-to-end-build-deploy-register-grant-test)
 - **[Chapter 2 — Knowledge, Resources, and Testing](#chapter-2--knowledge-resources-and-testing)**
@@ -1012,6 +1013,7 @@ flowchart LR
 | **GE Agent Manager** | `/agents` | Discovery Engine (`discoveryengine.googleapis.com`) |
 | **Skills Registry** | `/skills` | Agent Registry (`agentregistry.googleapis.com`) |
 | **ADK Studio** | `/builder` | Nothing, until you click Deploy or Register. Code generation is 100% local to your browser. |
+| **AI Developer Tools** | `/dev-tools` | Discovery Engine `v1alpha` (`devToolsConfig` singleton per project & location) |
 | **Agent Runtimes** | `/runtimes` | Vertex AI (`{region}-aiplatform.googleapis.com`) and Cloud Run |
 
 Routes are defined in [routeUtils.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/utils/routeUtils.ts#L19-L40) and the group is
@@ -1768,6 +1770,41 @@ Success message: `Successfully registered agent "{name}" (ID: {id}) in Gemini En
 
 ---
 
+## AI Developer Tools
+
+### What it's for
+
+The **AI Developer Tools** tab (`/dev-tools`) manages the singleton `DevToolsConfig` governance resource (`projects/{project}/locations/{location}/devToolsConfig`) that controls **Google Antigravity**, Antigravity IDE extensions, and agentic developer workspaces across your Gemini Enterprise project and location.
+
+Bundled **Gemini Code Assist** entitlements ended for new Gemini Enterprise subscriptions on **October 9, 2026** and sunset for existing subscriptions on **March 31, 2027**, replaced by **Google Antigravity** and **AI Developer Tools**. Administrators use this screen to enforce sandbox boundaries, browser actuation rules, multi-agent slash commands, MCP server allowlists, model residency controls, and compliance logging.
+
+> [!IMPORTANT]
+> `DevToolsConfig` is served on the Discovery Engine `v1alpha` API surface and requires `discoveryengine.devToolsConfigs.*` permissions along with `GOOGLE_INTERNAL` or `TRUSTED_TESTER` project allowlisting. An inline readiness banner probes your active project enrollment via `useProjectEnrollment` and surfaces exact HTTP errors without falling back to synthetic data.
+
+### Policy controls, explained
+
+- **Master Switch (`devToolsEnabled`)** — Enables or disables AI Developer Tools and Google Antigravity across the selected Gemini Enterprise location (`global`, `us`, `eu`, or allowlisted in-country DRZ locations: `ca`, `br`, `europe-west2`, `asia-northeast1`, `sg`, `in`, `au`).
+- **Antigravity Agent Security (`agentConfig`)** — Controls OS-level subprocess sandboxing (`sandboxModeEnabled`), outside-workspace filesystem access (`FILE_ACCESS_POLICY_DENY`, `FILE_ACCESS_POLICY_ALWAYS_ASK`, `FILE_ACCESS_POLICY_NOT_ENFORCED`), and terminal command auto-execution (`TERMINAL_COMMAND_AUTO_EXECUTION_POLICY_REQUIRE_REVIEW`, `TERMINAL_COMMAND_AUTO_EXECUTION_POLICY_PROCEED_IN_SANDBOX`, `TERMINAL_COMMAND_AUTO_EXECUTION_POLICY_NOT_ENFORCED`).
+- **Browser Actuation Policy (`browserConfig`)** — Governs managed Chromium actuation (`browserEnabled`), DOM JavaScript execution (`JAVASCRIPT_EXECUTION_POLICY_DISABLED`, `JAVASCRIPT_EXECUTION_POLICY_REQUEST_REVIEW`, `JAVASCRIPT_EXECUTION_POLICY_NOT_ENFORCED`), and `actuationAllowedUrls` (strictly validated so every entry must be a well-formed `https://` URL before saving).
+- **Slash Commands & Plugins (`featureConfig` & `pluginConfig`)** — Toggles `remoteControlEnabled`, `/boost` (`!boostCommandDisabled`), `/teamwork` and `/swarm` multi-agent orchestration (`!teamworkPreviewCommandDisabled`, which jointly controls both `/teamwork` and `/swarm` per the November 16, 2026 release notes), `pluginsDisabled`, and `marketplaceDisabled`.
+- **MCP Governance (`mcpConfig`)** — Enables MCP tool servers (`mcpEnabled`) and validates that `mcpAllowlist` is a strict JSON object (arrays, primitives, and malformed JSON block saving).
+- **Authorized Models & Residency (`modelConfig` & `residencyConfig`)** — Restricts first-party Gemini models (`allowedModels` — empty means all 1P models are permitted; supports chips for `gemini-4-neon`, `gemini-4-hydrogen`, `gemini-4-carbon`, `gemini-4-argon`, `gemini-3.8-flash`, `gemini-3.5-flash`, `gemini-2.5-pro`), opt-in third-party partner models (`claude-opus-5-5`, `claude-sonnet-5-5`), and—when viewing `global`—`residencyConfig.fallbackEnabledLocationIds` (`ca`, `br`, `in`, `sg`, `au`, `europe-west2`, `asia-northeast1`).
+- **Compliance Logging (`loggingConfig`)** — Independently toggles `metadataLoggingEnabled` and `promptAndResponseLoggingEnabled` for Cloud Logging audit trails.
+
+<details>
+<summary>Under the hood — the API call this makes</summary>
+
+```
+GET   https://{location}-discoveryengine.googleapis.com/v1alpha/projects/{project}/locations/{location}/devToolsConfig
+PATCH https://{location}-discoveryengine.googleapis.com/v1alpha/projects/{project}/locations/{location}/devToolsConfig
+      ?updateMask=devToolsEnabled,agentConfig,browserConfig,featureConfig,pluginConfig,mcpConfig,modelConfig,loggingConfig
+```
+
+For `global`, the host is `https://discoveryengine.googleapis.com` and `residencyConfig` is appended to `updateMask`. Implementation: `getDevToolsConfig` and `updateDevToolsConfig` in [devTools.ts](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/services/api/devTools.ts) and UI in [DevToolsPage.tsx](file:///usr/local/google/home/wdufrin/Documents/Code/Gemini-Enterprise-Manager/pages/DevToolsPage.tsx).
+</details>
+
+---
+
 ## Agent Runtimes
 
 ### What it's for
@@ -2134,7 +2171,6 @@ Every error string this chapter's code can surface.
 | Row says `Not in use` but an agent uses it | Enumeration failed silently | Verify in GE Agent Manager before deleting. |
 | Session pill missing | Count call failed, or no sessions | Use **Details → View Active Sessions**. |
 | My checkbox selection vanished | Clicking a row's **Delete** replaces the selection | Read the modal's list before confirming. |
-
 ---
 
 # Chapter 2 — Knowledge, Resources, and Testing

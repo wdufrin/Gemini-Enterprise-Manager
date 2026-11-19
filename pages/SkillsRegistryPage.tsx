@@ -23,6 +23,7 @@ import ExportSkillsModal from '../components/assistants/ExportSkillsModal';
 import CurlInfoModal from '../components/CurlInfoModal';
 import { useToast } from '../context/ToastContext';
 import { normalizeRegistrySkillForExport } from '../utils/skillExportUtils';
+import { GEMINI_ENTERPRISE_LOCATIONS } from '../utils/locations';
 
 interface SkillsRegistryPageProps {
   projectNumber: string;
@@ -236,9 +237,21 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                 onChange={(e) => setSelectedLocation(e.target.value)}
                 className="bg-transparent text-xs text-blue-300 font-bold focus:outline-none cursor-pointer"
               >
-                <option value="global">🌍 Global</option>
-                <option value="eu">🇪🇺 EU (Europe)</option>
-                <option value="us">🇺🇸 US (United States)</option>
+                {(
+                  GEMINI_ENTERPRISE_LOCATIONS as unknown as ReadonlyArray<
+                    string | { value?: string; id?: string; label?: string; name?: string }
+                  >
+                ).map((loc) => {
+                  const locValue =
+                    typeof loc === 'string' ? loc : loc.value ?? loc.id ?? 'global';
+                  const locLabel =
+                    typeof loc === 'string' ? loc : loc.label ?? loc.name ?? locValue;
+                  return (
+                    <option key={locValue} value={locValue} className="bg-gray-900 text-gray-100">
+                      {locLabel}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 

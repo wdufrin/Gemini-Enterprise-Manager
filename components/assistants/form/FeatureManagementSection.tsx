@@ -23,6 +23,10 @@ export interface FeatureManagementSectionProps {
   disableLocationContext: boolean;
   defaultWebGroundingToggleOff: boolean;
   webGroundingType?: string;
+  knowledgeCatalogEnabled?: boolean;
+  mapsGroundingType?: string;
+  defaultMapsGroundingToggleOff?: boolean;
+  isTrustedTesterOverride?: boolean;
   vertexAiSearchToolConfig: string;
   handleChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
 }
@@ -52,16 +56,40 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
   disableLocationContext,
   defaultWebGroundingToggleOff,
   webGroundingType,
+  knowledgeCatalogEnabled = true,
+  mapsGroundingType = 'MAPS_GROUNDING_TYPE_DISABLED',
+  defaultMapsGroundingToggleOff = false,
+  isTrustedTesterOverride,
   vertexAiSearchToolConfig,
   handleChange,
 }) => {
-  const { isTrustedTester } = useProjectEnrollment();
+  const { isTrustedTester: ctxTrustedTester } = useProjectEnrollment();
+  const isTrustedTester = Boolean(isTrustedTesterOverride ?? ctxTrustedTester);
   const isWebGroundingDisabled = !webGroundingType || webGroundingType === 'WEB_GROUNDING_TYPE_DISABLED';
+  const isMapsGroundingDisabled = !mapsGroundingType || mapsGroundingType === 'MAPS_GROUNDING_TYPE_DISABLED';
 
   return (
     <>
       <CollapsibleSection title="Feature Management">
         <div className="space-y-3 p-4 bg-gray-900/30 rounded-md">
+          <label className="flex items-center space-x-3 cursor-pointer">
+            <div className="flex items-center flex-wrap gap-1.5">
+              <input
+                type="checkbox"
+                name="knowledgeCatalogEnabled"
+                checked={Boolean(knowledgeCatalogEnabled)}
+                onChange={handleChange}
+                className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-300 ml-2">
+                Dataplex Knowledge Catalog Integration — Preview
+              </span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-950/60 text-blue-300 border border-blue-800/60">
+                Public Preview
+              </span>
+              <InfoTooltip text="Enables Dataplex Knowledge Catalog metadata grounding on this assistant (Assistant.knowledgeCatalogEnabled, defaults to true when unset)." />
+            </div>
+          </label>
           <label className="flex items-center space-x-3 cursor-pointer">
             <div className="flex items-center flex-wrap gap-1.5">
               <input
@@ -117,7 +145,43 @@ export const FeatureManagementSection: React.FC<FeatureManagementSectionProps> =
 
       {isTrustedTester && (
         <CollapsibleSection title="Advanced Configuration (Trusted Tester)">
-          <div className="space-y-3 p-4 bg-gray-900/30 rounded-md">
+          <div className="space-y-4 p-4 bg-gray-900/30 rounded-md">
+            <div>
+              <label htmlFor="mapsGroundingType" className="flex items-center text-sm font-medium text-gray-300 mb-1">
+                Maps Grounding Type
+                <InfoTooltip text="Enables Google Maps grounding for geospatial queries (restricted to TRUSTED_TESTER projects)." />
+              </label>
+              <select
+                id="mapsGroundingType"
+                name="mapsGroundingType"
+                value={mapsGroundingType}
+                onChange={handleChange}
+                className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white px-3 py-2"
+              >
+                <option value="MAPS_GROUNDING_TYPE_DISABLED">Disabled</option>
+                <option value="MAPS_GROUNDING_TYPE_GOOGLE_MAPS">Google Maps</option>
+              </select>
+            </div>
+
+            <label className="flex items-center space-x-3 cursor-pointer">
+              <div className="flex items-center flex-wrap gap-1.5">
+                <input
+                  type="checkbox"
+                  name="defaultMapsGroundingToggleOff"
+                  checked={Boolean(defaultMapsGroundingToggleOff)}
+                  onChange={handleChange}
+                  className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-300 ml-2">Default Maps Grounding to Off</span>
+                {isMapsGroundingDisabled && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-300 border border-amber-700/60">
+                    Requires Maps Grounding Enabled
+                  </span>
+                )}
+                <InfoTooltip text="When Google Maps grounding is enabled, sets the user-facing Maps Grounding toggle in chat UI to 'Off' by default." />
+              </div>
+            </label>
+
             <div>
               <label htmlFor="vertexAiSearchToolConfig" className="flex items-center text-sm font-medium text-gray-300 mb-1">
                 Vertex AI Search Tool Config (JSON)

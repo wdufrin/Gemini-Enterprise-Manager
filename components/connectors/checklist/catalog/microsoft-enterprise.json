@@ -835,6 +835,11 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED",
+        "ACTIONS"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/ms-teams/ms-teams-config",
       "sections": [
         {

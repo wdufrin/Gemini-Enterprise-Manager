@@ -550,6 +550,10 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": false,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/gsites",
       "sections": [
         {
@@ -641,6 +645,10 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-bigquery",
       "sections": [
         {
@@ -877,6 +885,10 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-alloydb",
       "sections": [
         {
@@ -994,6 +1006,10 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-cloud-sql",
       "sections": [
         {
@@ -1118,6 +1134,10 @@
       },
       "supportsDataModeToggle": true,
       "supportsActions": true,
+      "supportedModes": [
+        "INGESTION",
+        "FEDERATED"
+      ],
       "documentationUrl": "https://cloud.google.com/gemini/enterprise/docs/connectors/connect-spanner",
       "sections": [
         {

@@ -19,9 +19,11 @@ import ProjectInput from '../components/ProjectInput';
 import { useLicenseManagement } from '../hooks/useLicenseManagement';
 import { UserLicensesTab } from '../components/license/UserLicensesTab';
 import { AllocationsTab } from '../components/license/AllocationsTab';
+import { UserStoreConfigTab } from '../components/license/UserStoreConfigTab';
 import { GroupAssignmentsTab } from '../components/license/GroupAssignmentsTab';
 import { LicenseModals } from '../components/license/LicenseModals';
 import { PrunerDeploymentModal } from '../components/license/PrunerDeploymentModal';
+import { GEMINI_ENTERPRISE_LOCATIONS } from '../utils/locations';
 
 export interface LicensePageProps {
   projectNumber: string;
@@ -125,9 +127,11 @@ const LicensePage: React.FC<LicensePageProps> = ({
               onChange={licenseState.handleApiConfigChange}
               className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[38px]"
             >
-              <option value="global">global</option>
-              <option value="us">us</option>
-              <option value="eu">eu</option>
+              {GEMINI_ENTERPRISE_LOCATIONS.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.label}
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -175,6 +179,19 @@ const LicensePage: React.FC<LicensePageProps> = ({
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
           >
             Allocation Management (Billing Account)
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={licenseState.activeTab === 'user_store_policy'}
+            onClick={() => licenseState.setActiveTab('user_store_policy')}
+            className={`${
+              licenseState.activeTab === 'user_store_policy'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
+          >
+            Auto-Licensing &amp; Overage Policy
           </button>
           <button
             type="button"
@@ -273,6 +290,13 @@ const LicensePage: React.FC<LicensePageProps> = ({
           fetchBillingConfigs={licenseState.fetchBillingConfigs}
           setDistributeModalProps={licenseState.setDistributeModalProps}
           setRetractModalProps={licenseState.setRetractModalProps}
+        />
+      ) : licenseState.activeTab === 'user_store_policy' ? (
+        <UserStoreConfigTab
+          projectNumber={projectNumber}
+          appLocation={licenseState.apiConfig.appLocation}
+          userStoreId={licenseState.apiConfig.userStoreId}
+          apiLicenseConfigs={licenseState.apiLicenseConfigs}
         />
       ) : licenseState.activeTab === 'group_assignments' ? (
         <GroupAssignmentsTab

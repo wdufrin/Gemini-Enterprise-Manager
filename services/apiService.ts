@@ -41,3 +41,4 @@ export * from "./api/registry";
 export * from "./api/auditLogs";
 export * from "./api/alertPolicies";
 export * from "./api/secretManager";
+export * from "./api/devTools";

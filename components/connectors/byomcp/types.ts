@@ -16,6 +16,14 @@
 
 import { Config, DataConnector } from '../../../types';
 
+export interface McpToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
 export interface DynamicToolItem {
   name: string;
   displayName?: string;
@@ -23,6 +31,8 @@ export interface DynamicToolItem {
   enabled: boolean;
   inputSchema?: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
+  annotations?: McpToolAnnotations;
+  hitlMode?: string;
 }
 
 export interface CustomParamItem {
@@ -115,13 +125,17 @@ export const OAUTH_ACTION_PARAM_KEYS = new Set([
   'client_secret_basic_override',
 ]);
 
+export const VPC_EGRESS_ACTION_PARAM_KEYS = new Set([
+  'use_agent_gateway_egress',
+  'agent_gateway_engine',
+  'egress_fqdns',
+]);
+
 export const SYSTEM_MANAGED_ACTION_PARAM_KEYS = new Set([
   'mcp_server_source',
   'registry_mcp_server_name',
   'requires_prod_creds',
   'tool_list',
-  'use_agent_gateway_egress',
-  'agent_gateway_engine',
 ]);
 
 export const KNOWN_ACTION_PARAM_KEYS = new Set([
@@ -129,6 +143,74 @@ export const KNOWN_ACTION_PARAM_KEYS = new Set([
   'mcp_agent_instructions',
   'citation_mappings',
   ...OAUTH_ACTION_PARAM_KEYS,
+  ...VPC_EGRESS_ACTION_PARAM_KEYS,
   ...SYSTEM_MANAGED_ACTION_PARAM_KEYS,
 ]);
+
+export interface ByomcpAuthBridgeState {
+  pkceSupportEnabled: boolean;
+  setPkceSupportEnabled: (val: boolean) => void;
+  clientSecretBasicOverride: boolean;
+  setClientSecretBasicOverride: (val: boolean) => void;
+}
+
+export interface ByomcpAdvancedBridgeState {
+  useAgentGatewayEgress: boolean;
+  setUseAgentGatewayEgress: (val: boolean) => void;
+  agentGatewayEngine: string;
+  setAgentGatewayEngine: (val: string) => void;
+  egressFqdns: string;
+  setEgressFqdns: (val: string) => void;
+  serviceDirectoryServiceName: string;
+  setServiceDirectoryServiceName: (val: string) => void;
+}
+
+const authBridgeMap = new WeakMap<object, ByomcpAuthBridgeState>();
+const advancedBridgeMap = new WeakMap<object, ByomcpAdvancedBridgeState>();
+
+export function registerByomcpAuthBridge(
+  keys: ReadonlyArray<object | undefined>,
+  state: ByomcpAuthBridgeState
+): void {
+  keys.forEach((k) => {
+    if (k && (typeof k === 'object' || typeof k === 'function')) {
+      authBridgeMap.set(k, state);
+    }
+  });
+}
+
+export function getByomcpAuthBridge(
+  ...keys: ReadonlyArray<object | undefined>
+): ByomcpAuthBridgeState | undefined {
+  for (const k of keys) {
+    if (k && (typeof k === 'object' || typeof k === 'function')) {
+      const found = authBridgeMap.get(k);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+export function registerByomcpAdvancedBridge(
+  keys: ReadonlyArray<object | undefined>,
+  state: ByomcpAdvancedBridgeState
+): void {
+  keys.forEach((k) => {
+    if (k && (typeof k === 'object' || typeof k === 'function')) {
+      advancedBridgeMap.set(k, state);
+    }
+  });
+}
+
+export function getByomcpAdvancedBridge(
+  ...keys: ReadonlyArray<object | undefined>
+): ByomcpAdvancedBridgeState | undefined {
+  for (const k of keys) {
+    if (k && (typeof k === 'object' || typeof k === 'function')) {
+      const found = advancedBridgeMap.get(k);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
 

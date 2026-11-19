@@ -14,11 +14,22 @@
  * limitations under the License.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { AppEngine } from '../../../types';
-import { buildControlsUpdate, engineToControlsState, validateControlsState } from './engineControls';
+import {
+  POLICY_CAPABLE_FEATURES,
+  buildControlsUpdate,
+  engineToControlsState,
+  parsePolicyMembers,
+  validateControlsState,
+} from './engineControls';
 import { isGoogleInternalEngineField } from '../../../services/api/discovery/engineFieldVisibility';
-import { sanitizeEngineUpdateForEnrollment } from '../../../services/api/discovery/engines';
+import {
+  getCmekConfig,
+  listCmekConfigs,
+  sanitizeEngineUpdateForEnrollment,
+} from '../../../services/api/discovery/engines';
+import * as coreApi from '../../../services/api/core';
 import { setCachedProjectEnrollment, clearCachedProjectEnrollment } from '../../../services/api/project';
 
 const baseEngine: AppEngine = {
@@ -27,27 +38,49 @@ const baseEngine: AppEngine = {
 };
 
 describe('engineToControlsState', () => {
-  it('applies proto defaults when fields are unset (personal creation on, coworker creation off)', () => {
+  it('applies proto defaults when fields are unset (personal creation on, coworker creation off, policies unset)', () => {
     const s = engineToControlsState(baseEngine);
     expect(s.releaseChannel).toBe('GLOBAL_FEATURE_TOGGLE_STATE_UNSPECIFIED');
     expect(s.personalCreationEnabled).toBe(true);
     expect(s.coworkerCreationEnabled).toBe(false);
     expect(s.maxUserAgentCount).toBe('');
     expect(s.digestFrequency).toBe('DIGEST_FREQUENCY_UNSPECIFIED');
+    for (const f of POLICY_CAPABLE_FEATURES) {
+      expect(s.featurePolicies[f.key]).toEqual({
+        defaultAccess: 'DEFAULT_ACCESS_UNSPECIFIED',
+        allowedMembers: '',
+        deniedMembers: '',
+      });
+    }
   });
 
-  it('reads int64 strings, principals, and CPI map from an existing engine', () => {
+  it('reads int64 strings, principals, CPI map, and featurePolicies from an existing engine', () => {
     const s = engineToControlsState({
       ...baseEngine,
       agentCreationConfig: { maxUserAgentCount: '5', maxInstanceAgentCount: '100' },
       agentControlConfig: { coworker: { allowedPrincipals: ['user:a@x.com', 'group:g@x.com'] } },
       personalizationConfig: { crossProductIntelligenceClientEnabledMap: { workspace_enterprise: true } },
+      featurePolicies: {
+        canvas: {
+          defaultAccess: 'DENY',
+          allowedMembers: [
+            { type: 'USER', id: 'alice@example.com' },
+            { type: 'GROUP', id: 'designers@example.com' },
+          ],
+          deniedMembers: [{ type: 'USER', id: 'contractor@example.com' }],
+        },
+      },
     });
     expect(s.maxUserAgentCount).toBe('5');
     expect(s.maxInstanceAgentCount).toBe('100');
     expect(s.coworkerAllowedPrincipals).toBe('user:a@x.com\ngroup:g@x.com');
     expect(s.cpiWorkspaceEnterprise).toBe(true);
     expect(s.cpiDataCloud).toBe(false);
+    expect(s.featurePolicies.canvas).toEqual({
+      defaultAccess: 'DENY',
+      allowedMembers: 'user:alice@example.com\ngroup:designers@example.com',
+      deniedMembers: 'user:contractor@example.com',
+    });
   });
 });
 
@@ -95,6 +128,46 @@ describe('buildControlsUpdate', () => {
       workspace_enterprise: false,
       data_cloud: true,
     });
+  });
+
+  it('normalizes user:/group: and USER:/GROUP: in featurePolicies, preserves unknown policy keys, and deletes cleared policies', () => {
+    const engine: AppEngine = {
+      ...baseEngine,
+      featurePolicies: {
+        skills: { defaultAccess: 'ALLOW', deniedMembers: [{ type: 'USER', id: 'temp@example.com' }] },
+        'future-policy-key': { defaultAccess: 'DENY' },
+      },
+    };
+    const baseState = engineToControlsState(engine);
+    const nextState = {
+      ...baseState,
+      featurePolicies: {
+        ...baseState.featurePolicies,
+        // Clear skills policy completely
+        skills: { defaultAccess: 'DEFAULT_ACCESS_UNSPECIFIED' as const, allowedMembers: '', deniedMembers: '' },
+        // Configure workflow-agents with mixed-case USER:/group: and duplicate entries
+        'workflow-agents': {
+          defaultAccess: 'DENY' as const,
+          allowedMembers: 'USER:lead@example.com, group:automation@example.com\nuser:lead@example.com',
+          deniedMembers: 'GROUP:guests@example.com',
+        },
+      },
+    };
+
+    const { payload, updateMask } = buildControlsUpdate(engine, nextState);
+    expect(updateMask).toEqual(['featurePolicies']);
+    expect(payload.featurePolicies).toEqual({
+      'future-policy-key': { defaultAccess: 'DENY' },
+      'workflow-agents': {
+        defaultAccess: 'DENY',
+        allowedMembers: [
+          { type: 'USER', id: 'lead@example.com' },
+          { type: 'GROUP', id: 'automation@example.com' },
+        ],
+        deniedMembers: [{ type: 'GROUP', id: 'guests@example.com' }],
+      },
+    });
+    expect(payload.featurePolicies?.skills).toBeUndefined();
   });
 });
 
@@ -149,19 +222,102 @@ describe('validateControlsState — adversarial inputs are rejected', () => {
       validateControlsState({ ...valid, coworkerApprovalMode: 'ABOVE_THRESHOLD', coworkerApprovalThreshold: '2147483648' }),
     ).toContain('Approval threshold exceeds the int32 maximum (2147483647).');
   });
+
+  it.each([
+    'alice@example.com',
+    'domain:example.com',
+    'serviceAccount:bot@proj.iam.gserviceaccount.com',
+    'user:',
+    'group:',
+    'user:not-an-email',
+    'user:a b@example.com',
+    'user:<script>@example.com',
+    '*',
+  ])('rejects malformed featurePolicies member entry %s', badMember => {
+    const allowedErrors = validateControlsState({
+      ...valid,
+      featurePolicies: {
+        ...valid.featurePolicies,
+        canvas: { defaultAccess: 'DENY', allowedMembers: badMember, deniedMembers: '' },
+      },
+    });
+    expect(allowedErrors.some(e => e.includes('Invalid allowed member(s) for canvas'))).toBe(true);
+
+    const deniedErrors = validateControlsState({
+      ...valid,
+      featurePolicies: {
+        ...valid.featurePolicies,
+        'no-code-agent-builder': { defaultAccess: 'ALLOW', allowedMembers: '', deniedMembers: badMember },
+      },
+    });
+    expect(deniedErrors.some(e => e.includes('Invalid denied member(s) for no-code-agent-builder'))).toBe(true);
+  });
+
+  it('rejects listing the same member in both allowedMembers and deniedMembers (case-insensitive)', () => {
+    const errors = validateControlsState({
+      ...valid,
+      featurePolicies: {
+        ...valid.featurePolicies,
+        skills: {
+          defaultAccess: 'ALLOW',
+          allowedMembers: 'USER:Alice@Example.com',
+          deniedMembers: 'user:alice@example.com',
+        },
+      },
+    });
+    expect(errors.some(e => e.includes('cannot list the same member in both allowed and denied lists'))).toBe(true);
+  });
+
+  it('accepts valid user:/group: and USER:/GROUP: entries in parsePolicyMembers and validateControlsState', () => {
+    const parsed = parsePolicyMembers('USER:alice@example.com, group:eng@example.com');
+    expect(parsed).toEqual([
+      { type: 'USER', id: 'alice@example.com' },
+      { type: 'GROUP', id: 'eng@example.com' },
+    ]);
+    const errors = validateControlsState({
+      ...valid,
+      featurePolicies: {
+        ...valid.featurePolicies,
+        canvas: {
+          defaultAccess: 'DENY',
+          allowedMembers: 'USER:alice@example.com\ngroup:eng@example.com',
+          deniedMembers: 'user:contractor@example.com',
+        },
+      },
+    });
+    expect(errors).toEqual([]);
+  });
 });
 
-describe('GOOGLE_INTERNAL field handling', () => {
-  it('classifies camelCase, snake_case, and dotted mask paths', () => {
+describe('GOOGLE_INTERNAL field handling (v1main/engine.proto alignment)', () => {
+  it('classifies GOOGLE_INTERNAL vs newly PUBLIC fields accurately across camelCase, snake_case, and dotted paths', () => {
+    // GOOGLE_INTERNAL fields
     expect(isGoogleInternalEngineField('agentControlConfig')).toBe(true);
     expect(isGoogleInternalEngineField('agent_control_config')).toBe(true);
     expect(isGoogleInternalEngineField('agentControlConfig.coworker')).toBe(true);
-    expect(isGoogleInternalEngineField('global_feature_toggle_state')).toBe(true);
+    expect(isGoogleInternalEngineField('mobileNotificationPolicy')).toBe(true);
+    expect(isGoogleInternalEngineField('mobile_notification_policy')).toBe(true);
+    expect(isGoogleInternalEngineField('essSettingsVersion')).toBe(true);
+    expect(isGoogleInternalEngineField('featureExceptions')).toBe(true);
+    expect(isGoogleInternalEngineField('importedTools')).toBe(true);
+    expect(isGoogleInternalEngineField('agentspaceConfig')).toBe(true);
+    expect(isGoogleInternalEngineField('kmsKeyName')).toBe(true);
+    expect(isGoogleInternalEngineField('driveDataConnectors')).toBe(true);
+    expect(isGoogleInternalEngineField('drive_data_connectors')).toBe(true);
+
+    // PUBLIC fields (including promoted globalFeatureToggleState and effectiveFeatures)
+    expect(isGoogleInternalEngineField('globalFeatureToggleState')).toBe(false);
+    expect(isGoogleInternalEngineField('global_feature_toggle_state')).toBe(false);
+    expect(isGoogleInternalEngineField('effectiveFeatures')).toBe(false);
+    expect(isGoogleInternalEngineField('effective_features')).toBe(false);
+    expect(isGoogleInternalEngineField('featurePolicies')).toBe(false);
+    expect(isGoogleInternalEngineField('procurementContactEmails')).toBe(false);
+    expect(isGoogleInternalEngineField('agentGatewaySetting')).toBe(false);
     expect(isGoogleInternalEngineField('displayName')).toBe(false);
     expect(isGoogleInternalEngineField('features')).toBe(false);
   });
 
-  it('sanitizer strips all five new controls for a known non-enrolled project but keeps public fields', () => {
+  it('sanitizer strips GOOGLE_INTERNAL fields for a non-enrolled project while preserving public fields like globalFeatureToggleState and featurePolicies', () => {
     clearCachedProjectEnrollment();
     setCachedProjectEnrollment({
       projectId: 'ext-proj',
@@ -176,16 +332,71 @@ describe('GOOGLE_INTERNAL field handling', () => {
       {
         displayName: 'x',
         globalFeatureToggleState: 'EARLY',
+        featurePolicies: { canvas: { defaultAccess: 'ALLOW' } },
         agentCreationConfig: {},
         agentControlConfig: {},
         adminEmailNotificationsConfig: {},
         personalizationConfig: {},
+        mobileNotificationPolicy: 'OFF',
+        kmsKeyName: 'projects/p/locations/l/keyRings/r/cryptoKeys/k',
       },
-      ['displayName', 'globalFeatureToggleState', 'agentCreationConfig', 'agentControlConfig', 'adminEmailNotificationsConfig', 'personalizationConfig'],
+      [
+        'displayName',
+        'globalFeatureToggleState',
+        'featurePolicies',
+        'agentCreationConfig',
+        'agentControlConfig',
+        'adminEmailNotificationsConfig',
+        'personalizationConfig',
+        'mobileNotificationPolicy',
+        'kmsKeyName',
+      ],
       'ext-proj',
     );
-    expect(sanitizedMask).toEqual(['displayName']);
-    expect(Object.keys(sanitizedPayload)).toEqual(['displayName']);
+    expect(sanitizedMask).toEqual(['displayName', 'globalFeatureToggleState', 'featurePolicies']);
+    expect(Object.keys(sanitizedPayload)).toEqual(['displayName', 'globalFeatureToggleState', 'featurePolicies']);
     clearCachedProjectEnrollment();
+  });
+});
+
+describe('CMEK Discovery Engine helpers (getCmekConfig & listCmekConfigs)', () => {
+  it('constructs regional and global v1 URLs for singleton cmekConfig, named cmekConfigs, and listCmekConfigs', async () => {
+    const spy = vi.spyOn(coreApi, 'gapiRequest').mockResolvedValue({ state: 'ACTIVE' } as never);
+    const euConfig = { projectId: 'proj-1', appLocation: 'eu', collectionId: 'default_collection', appId: '' };
+
+    await getCmekConfig(euConfig);
+    expect(spy).toHaveBeenCalledWith(
+      'https://eu-discoveryengine.googleapis.com/v1/projects/proj-1/locations/eu/cmekConfig',
+      'GET',
+      'proj-1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    await getCmekConfig(euConfig, 'custom-key-cfg');
+    expect(spy).toHaveBeenCalledWith(
+      'https://eu-discoveryengine.googleapis.com/v1/projects/proj-1/locations/eu/cmekConfigs/custom-key-cfg',
+      'GET',
+      'proj-1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    await listCmekConfigs(euConfig);
+    expect(spy).toHaveBeenCalledWith(
+      'https://eu-discoveryengine.googleapis.com/v1/projects/proj-1/locations/eu/cmekConfigs',
+      'GET',
+      'proj-1',
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    spy.mockRestore();
   });
 });

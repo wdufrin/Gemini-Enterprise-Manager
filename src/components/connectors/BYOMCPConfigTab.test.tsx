@@ -474,6 +474,114 @@ describe('BYOMCPConfigTab', () => {
       scopes: 'openid email',
     });
   });
+
+  it('supports OAuth PKCE & Basic Secret Override, VPC Agent Gateway & Service Directory connectivity, and surfaces MCP tool annotations & hitlMode badges', async () => {
+    const annotatedConnector = {
+      ...mockConnector,
+      connectorTools: [
+        {
+          name: 'search_docs',
+          annotations: {
+            readOnlyHint: true,
+            idempotentHint: true,
+            openWorldHint: true,
+          },
+          hitlMode: 'DISABLED',
+        },
+        {
+          name: 'query_db',
+          annotations: {
+            destructiveHint: true,
+          },
+          hitlMode: 'HITL_REQUIRED',
+        },
+      ],
+    };
+
+    render(<BYOMCPConfigTab connector={annotatedConnector as never} config={mockConfig} />);
+
+    // 1. Verify MCP tool annotation & hitlMode badges in DiscoveredToolsSection
+    expect(screen.getByTestId('tool-badge-readonly-search_docs')).toHaveTextContent('Read-Only');
+    expect(screen.getByTestId('tool-badge-idempotent-search_docs')).toHaveTextContent('Idempotent');
+    expect(screen.getByTestId('tool-badge-openworld-search_docs')).toHaveTextContent('Open-World');
+    expect(screen.getByTestId('tool-badge-hitl-search_docs')).toHaveTextContent('HITL: DISABLED');
+    expect(screen.getByTestId('tool-badge-destructive-query_db')).toHaveTextContent('Destructive');
+    expect(screen.getByTestId('tool-badge-hitl-query_db')).toHaveTextContent('HITL: HITL_REQUIRED');
+
+    // 2. Negative test: invalid Service Directory serviceName & hostile egress_fqdns with URL scheme are rejected
+    const serviceDirInput = screen.getByLabelText(/Service Directory Service Name/i);
+    fireEvent.change(serviceDirInput, { target: { value: 'invalid/service/path' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Settings to Connector/i }));
+    expect(
+      screen.getByText(/Invalid Service Directory serviceName/i)
+    ).toBeInTheDocument();
+    expect(api.updateDataConnector).not.toHaveBeenCalled();
+
+    fireEvent.change(serviceDirInput, {
+      target: { value: 'projects/test-project-123/locations/us-central1/namespaces/corp-ns/services/mcp-psc' },
+    });
+    const fqdnInput = screen.getByLabelText(/Allowed Egress FQDNs/i);
+    fireEvent.change(fqdnInput, { target: { value: 'https://evil.internal.corp/path' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Settings to Connector/i }));
+    expect(
+      screen.getByText(/Invalid egress FQDN/i)
+    ).toBeInTheDocument();
+    expect(api.updateDataConnector).not.toHaveBeenCalled();
+
+    // 3. Valid VPC Agent Gateway + Service Directory + OAuth PKCE & Basic Override save
+    fireEvent.click(screen.getByTestId('byomcp-agent-gateway-egress-checkbox'));
+    fireEvent.change(screen.getByLabelText(/agent_gateway_engine/i), {
+      target: { value: 'projects/test-project-123/locations/us-central1/reasoningEngines/gw-99' },
+    });
+    fireEvent.change(fqdnInput, {
+      target: { value: 'mcp.internal.corp.com, db.internal.corp.com' },
+    });
+
+    // Expand OAuth section and toggle PKCE + Basic Override
+    fireEvent.click(screen.getByText(/Authentication & OAuth Settings/i));
+    fireEvent.click(screen.getByTestId('byomcp-pkce-checkbox'));
+    fireEvent.click(screen.getByTestId('byomcp-basic-override-checkbox'));
+
+    // Negative check: toggling PKCE without Client ID & Secret blocks save
+    fireEvent.click(screen.getByRole('button', { name: /Save Settings to Connector/i }));
+    expect(
+      screen.getByText(/Both Client ID and Client Secret are required when updating OAuth/i)
+    ).toBeInTheDocument();
+    expect(api.updateDataConnector).not.toHaveBeenCalled();
+
+    // Provide Client ID & Secret and save
+    const [clientIdInput, clientSecretInput] = screen.getAllByPlaceholderText(
+      /Leave blank to preserve existing credentials/i
+    );
+    fireEvent.change(clientIdInput, { target: { value: 'pkce-client-id' } });
+    fireEvent.change(clientSecretInput, { target: { value: 'pkce-client-secret' } });
+
+    vi.mocked(api.updateDataConnector).mockResolvedValueOnce(annotatedConnector as never);
+    fireEvent.click(screen.getByRole('button', { name: /Save Settings to Connector/i }));
+
+    await waitFor(() => {
+      expect(api.updateDataConnector).toHaveBeenCalledTimes(1);
+    });
+
+    const [, savedPayload, savedMask] = vi.mocked(api.updateDataConnector).mock.calls[0];
+    expect(savedMask).toEqual(['action_config.action_params', 'action_config.service_name']);
+    expect(savedPayload).toMatchObject({
+      actionConfig: {
+        serviceName:
+          'projects/test-project-123/locations/us-central1/namespaces/corp-ns/services/mcp-psc',
+        actionParams: {
+          client_id: 'pkce-client-id',
+          client_secret: 'pkce-client-secret',
+          pkce_support_enabled: true,
+          client_secret_basic_override: true,
+          use_agent_gateway_egress: true,
+          agent_gateway_engine:
+            'projects/test-project-123/locations/us-central1/reasoningEngines/gw-99',
+          egress_fqdns: ['mcp.internal.corp.com', 'db.internal.corp.com'],
+        },
+      },
+    });
+  });
 });
 
 describe('citationPointerUtils (RFC 6901 & citation_mappings validation and evaluation)', () => {

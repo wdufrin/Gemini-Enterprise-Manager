@@ -17,6 +17,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Config } from '../../types';
 import * as api from '../../services/apiService';
+import { GEMINI_NOTEBOOK_WEB_APP_URL } from '../../services/api/notebooks';
 import Spinner from '../Spinner';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import { useProjectEnrollment } from '../../context/ProjectEnrollmentContext';
@@ -33,6 +34,8 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
   const [error, setError] = useState<string | null>(null);
   const { isNotebookLmApiUser } = useProjectEnrollment();
 
+  const isBrazilLocation = config.appLocation?.toLowerCase() === 'br';
+
   useModalA11y({
     isOpen: !!selectedNotebook,
     onClose: () => setSelectedNotebook(null),
@@ -40,6 +43,12 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
   });
 
   const fetchNotebooks = useCallback(async () => {
+    if (isBrazilLocation) {
+      setNotebooks([]);
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -47,16 +56,56 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
       setNotebooks(response.notebooks || []);
     } catch (err: any) {
       console.error("Failed to fetch notebooks", err);
-      setError(err.message || 'Failed to fetch notebooks.');
+      setError(err.message || 'Failed to fetch Gemini Notebook for business items.');
     } finally {
       setIsLoading(false);
     }
-  }, [config]);
+  }, [config, isBrazilLocation]);
 
   useEffect(() => {
     fetchNotebooks();
   }, [fetchNotebooks]);
 
+  if (isBrazilLocation) {
+    return (
+      <div className="p-6 bg-amber-950/30 border border-amber-800/70 rounded-lg space-y-3">
+        <div className="flex items-start gap-3">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-6 w-6 text-amber-400 shrink-0 mt-0.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <div className="space-y-1.5">
+            <h3 className="text-base font-semibold text-amber-300">
+              Gemini Notebook for business is not available in Brazil (<code>br</code>)
+            </h3>
+            <p className="text-sm text-amber-200/90 leading-relaxed">
+              Per Google Cloud Gemini Enterprise regional availability, the <code>br</code> (Brazil / São Paulo) location does not support <strong>Gemini Notebook for business</strong> (formerly NotebookLM Enterprise). Switch your location to a supported region such as <code>global</code>, <code>us</code>, or <code>eu</code> to view or manage notebooks.
+            </p>
+            <div className="pt-1">
+              <a
+                href={GEMINI_NOTEBOOK_WEB_APP_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-300 hover:text-indigo-200 underline"
+              >
+                Open Gemini Notebook for business Web App
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -72,7 +121,7 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
         <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-red-500 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <h3 className="text-lg font-medium text-red-400 mb-1">Failed to load Notebooks</h3>
+        <h3 className="text-lg font-medium text-red-400 mb-1">Failed to load Gemini Notebook for business</h3>
         <p className="text-sm text-red-300">{error}</p>
         <div className="mt-4 flex justify-center">
           <button onClick={fetchNotebooks} className="px-4 py-2 bg-red-800/50 hover:bg-red-700/50 text-white text-sm font-medium rounded-md transition-colors border border-red-700/50">
@@ -90,13 +139,25 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
         </svg>
         <h3 className="text-lg font-medium text-gray-300 mb-1">No Notebooks Found</h3>
-        <p className="text-sm text-gray-500">There are no NotebookLM projects in this Gemini Enterprise environment.</p>
-        <button
-          onClick={fetchNotebooks}
-          className="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-md transition-colors"
-        >
-          Refresh List
-        </button>
+        <p className="text-sm text-gray-500">
+          There are no Gemini Notebook for business (formerly NotebookLM Enterprise) notebooks in this Gemini Enterprise environment.
+        </p>
+        <div className="mt-4 flex items-center justify-center gap-3">
+          <button
+            onClick={fetchNotebooks}
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-md transition-colors"
+          >
+            Refresh List
+          </button>
+          <a
+            href={GEMINI_NOTEBOOK_WEB_APP_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-md transition-colors"
+          >
+            Open Web App
+          </a>
+        </div>
       </div>
     );
   }
@@ -111,8 +172,11 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
                 <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
                 <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
               </svg>
-              NotebookLM Projects ({notebooks.length})
+              Gemini Notebook for business ({notebooks.length})
             </h3>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-900 text-gray-400 border border-gray-700">
+              formerly NotebookLM Enterprise
+            </span>
             <span
               className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                 isNotebookLmApiUser
@@ -128,17 +192,27 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
               {isNotebookLmApiUser ? 'Source Interaction: Enabled' : 'Read-Only Metadata (:interactSources Gated)'}
             </span>
           </div>
-          <p className="text-sm text-gray-400 mt-1">Recently viewed notebooks in this environment.</p>
+          <p className="text-sm text-gray-400 mt-1">Recently viewed Gemini Notebook for business items in this environment.</p>
         </div>
-        <button
-          onClick={fetchNotebooks}
-          className="p-2 bg-gray-700 hover:bg-gray-600 rounded-md text-gray-300 transition-colors tooltip-trigger"
-          title="Refresh List"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href={GEMINI_NOTEBOOK_WEB_APP_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-md text-white text-xs font-semibold transition-colors"
+          >
+            Open Web App
+          </a>
+          <button
+            onClick={fetchNotebooks}
+            className="p-2 bg-gray-700 hover:bg-gray-600 rounded-md text-gray-300 transition-colors tooltip-trigger"
+            title="Refresh List"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -192,10 +266,20 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
             onClick={(e) => e.stopPropagation()}
             className="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-4xl max-h-full flex flex-col"
           >
-            <div className="flex justify-between items-center p-4 border-b border-gray-700">
-              <h3 id="notebook-details-title" className="text-lg font-bold text-white">
-                Notebook Details: {selectedNotebook.title || selectedNotebook.displayName || 'Untitled Notebook'}
-              </h3>
+            <div className="flex justify-between items-center p-4 border-b border-gray-700 gap-3">
+              <div>
+                <h3 id="notebook-details-title" className="text-lg font-bold text-white">
+                  Gemini Notebook Details: {selectedNotebook.title || selectedNotebook.displayName || 'Untitled Notebook'}
+                </h3>
+                <a
+                  href={GEMINI_NOTEBOOK_WEB_APP_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-indigo-300 hover:text-indigo-200 underline"
+                >
+                  Open Gemini Notebook for business ({GEMINI_NOTEBOOK_WEB_APP_URL})
+                </a>
+              </div>
               <button
                 type="button"
                 onClick={() => setSelectedNotebook(null)}
@@ -208,7 +292,6 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
               </button>
             </div>
             <div className="p-4 overflow-y-auto flex-1 max-h-[70vh] flex flex-col gap-6">
-
               {/* Highlight extracted sources before raw dump */}
               {selectedNotebook?.sources && selectedNotebook.sources.length > 0 && (
                 <div>
@@ -228,7 +311,7 @@ const NotebookListViewer: React.FC<NotebookListViewerProps> = ({ config }) => {
                             {webUrl ? `Web: ${webUrl}` : driveMime ? `Google Drive (${driveMime})` : ytUrl ? `YouTube: ${ytUrl}` : 'Text / Document Source'}
                           </span>
                         </div>
-                      )
+                      );
                     })}
                   </div>
                 </div>

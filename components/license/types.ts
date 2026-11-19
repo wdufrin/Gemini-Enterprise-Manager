@@ -14,14 +14,23 @@
  * limitations under the License.
  */
 
+export type UserLicenseAssignmentState =
+  | 'ASSIGNED'
+  | 'UNASSIGNED'
+  | 'NO_LICENSE'
+  | 'NO_LICENSE_ATTEMPTED_LOGIN'
+  | 'BLOCKED'
+  | string;
+
 export interface UserLicense {
   name?: string;
   userPrincipal: string;
-  licenseAssignmentState?: 'ASSIGNED' | 'UNASSIGNED' | string;
+  licenseAssignmentState?: UserLicenseAssignmentState;
   licenseConfig?: string;
   lastLoginTime?: string;
   createTime?: string;
   updateTime?: string;
+  removeFirst?: boolean;
 }
 
 export interface LicenseConfig {

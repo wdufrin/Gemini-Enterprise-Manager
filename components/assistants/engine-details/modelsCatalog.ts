@@ -27,16 +27,26 @@ export interface EnterpriseModel {
     visibility?: ModelVisibility;
     visibilityNote?: string;
     isPartner?: boolean;
+    adminOverridable?: boolean;
+    supportedRegions?: string[];
 }
 
+export const VISION_IMAGE_MODEL_IDS = [
+    'gemini-3.1-flash-image',
+    'gemini-3-pro-image',
+    'gemini-2.5-flash-image',
+] as const;
+
 const KNOWN_INTERNAL_MODEL_IDS = new Set<string>([
-    'gemini-4-hydrogen',
     'gemini-4-hydrogen-fast',
     'gemini-4-hydrogen-f-fast',
     'gemini-4-argon-fast',
     'gemini-3.8-flash-fast',
     'claude-fable-5-1',
+    'claude-fable-5-2',
+    'claude-fable-5_2',
     'gpt-6.1-sol',
+    'openai-gpt-6_1-sol',
     'gemini-early-exp',
     'gemini-early-exp2',
     'gemini-flash-early-exp',
@@ -47,7 +57,7 @@ const KNOWN_INTERNAL_MODEL_IDS = new Set<string>([
 ]);
 
 export const isPartnerModelId = (id: string): boolean =>
-    id.startsWith('claude-') || id.startsWith('gpt-');
+    id.startsWith('claude-') || id.startsWith('gpt-') || id.startsWith('openai-');
 
 export const inferModelVisibility = (
     id: string,
@@ -79,6 +89,7 @@ export const inferModelVisibility = (
 };
 
 export const formatModelDisplayName = (id: string): string => {
+    if (id === 'gemini-4-neon') return 'Gemini 4 Neon';
     if (id === 'gemini-4-argon') return 'Gemini 4 Argon';
     if (id === 'gemini-4-argon-fast') return 'Gemini 4 Argon Fast';
     if (id === 'gemini-4-carbon') return 'Gemini 4 Carbon';
@@ -105,11 +116,13 @@ export const formatModelDisplayName = (id: string): string => {
     if (id === 'gemini-1.5-flash') return 'Gemini 1.5 Flash (Legacy)';
     if (id === 'claude-opus-5-5') return 'Claude Opus 5.5';
     if (id === 'claude-sonnet-5-5') return 'Claude Sonnet 5.5';
+    if (id === 'claude-fable-5-2' || id === 'claude-fable-5_2') return 'Claude Fable 5.2';
     if (id === 'claude-fable-5-1') return 'Claude Fable 5.1';
     if (id === 'claude-opus-5') return 'Claude Opus 5';
     if (id === 'claude-sonnet-5') return 'Claude Sonnet 5';
     if (id === 'claude-sonnet-4-5') return 'Claude Sonnet 4.5';
     if (id === 'gpt-6.1-sol') return 'GPT-6.1 Sol';
+    if (id === 'openai-gpt-6_1-sol') return 'OpenAI GPT-6.1 Sol';
 
     return id
         .split('-')
@@ -118,14 +131,20 @@ export const formatModelDisplayName = (id: string): string => {
 };
 
 export const getModelDefaultDescription = (id: string): string => {
+    if (id === 'gemini-4-neon') {
+        return 'Frontier Gemini 4 Pro reasoning model for complex analysis, coding, and agentic workflows.';
+    }
     if (id === 'gemini-4-argon' || id === 'gemini-4-argon-fast') {
         return 'Next-generation frontier reasoning model for complex analysis, coding, and agentic workflows.';
     }
     if (id === 'gemini-4-carbon') {
         return 'Next-generation balanced Gemini 4 intelligence model for web app, mobile, and Workflow Builder.';
     }
+    if (id === 'gemini-4-hydrogen') {
+        return 'Next-generation Gemini 4 Hydrogen reasoning model for complex enterprise tasks and agentic workflows.';
+    }
     if (id.startsWith('gemini-4-hydrogen')) {
-        return 'Internal / Sobi experimental Gemini 4 Hydrogen model.';
+        return 'Internal / Sobi experimental Gemini 4 Hydrogen Fast model.';
     }
     if (id === 'gemini-3-pro-image-preview' || id === 'gemini-3-pro-image') {
         return 'Built for complex image generation use cases, with increased factuality.';
@@ -160,19 +179,28 @@ export const getModelDefaultDescription = (id: string): string => {
     if (id === 'claude-sonnet-5-5' || id.startsWith('claude-sonnet')) {
         return 'Anthropic Claude model most efficient for everyday tasks and coding (3P partner model).';
     }
-    if (id === 'claude-fable-5-1') {
+    if (id === 'claude-fable-5-1' || id === 'claude-fable-5-2' || id === 'claude-fable-5_2' || id.startsWith('claude-fable')) {
         return 'Internal Sobi-allowlisted Anthropic Claude model for complex tasks.';
     }
-    if (id === 'gpt-6.1-sol') {
+    if (id === 'gpt-6.1-sol' || id === 'openai-gpt-6_1-sol' || id.startsWith('openai-') || id.startsWith('gpt-')) {
         return 'Unlaunched / Sobi-gated OpenAI GPT-6.1 Sol model for complex tasks.';
     }
-    if (id.includes('pro') || id.includes('ultra') || id.includes('thinking') || id.includes('argon')) {
+    if (id.includes('pro') || id.includes('ultra') || id.includes('thinking') || id.includes('argon') || id.includes('neon')) {
         return 'High-intelligence frontier model optimized for complex reasoning, multi-step problem solving, and analysis.';
     }
     return 'Frontier intelligence built for speed.';
 };
 
 export const STANDARD_ENTERPRISE_MODELS: EnterpriseModel[] = [
+    {
+        id: 'gemini-4-neon',
+        displayName: 'Gemini 4 Neon',
+        description: 'Frontier Gemini 4 Pro reasoning model for complex analysis, coding, and agentic workflows.',
+        isPreview: false,
+        category: 'Pro / Reasoning',
+        visibility: 'GA',
+        visibilityNote: 'GA across global, us, and eu (opt-in; unavailable on CMEK/Gov engines)',
+    },
     {
         id: 'gemini-4-argon',
         displayName: 'Gemini 4 Argon',
@@ -189,7 +217,16 @@ export const STANDARD_ENTERPRISE_MODELS: EnterpriseModel[] = [
         isPreview: false,
         category: 'Pro / Reasoning',
         visibility: 'GA',
-        visibilityNote: 'GA in web app, mobile, Workflow Builder, and AI Dev Tools (global, us, eu; opt-in)',
+        visibilityNote: 'GA in web app, mobile, Workflow Builder, and AI Dev Tools (global, us, eu; opt-in; unavailable on CMEK/Gov engines)',
+    },
+    {
+        id: 'gemini-4-hydrogen',
+        displayName: 'Gemini 4 Hydrogen',
+        description: 'Next-generation Gemini 4 Hydrogen reasoning model for complex enterprise tasks and agentic workflows.',
+        isPreview: false,
+        category: 'Pro / Reasoning',
+        visibility: 'GA',
+        visibilityNote: 'GA across global, us, and eu (opt-in)',
     },
     {
         id: 'gemini-3.8-flash',
@@ -198,7 +235,7 @@ export const STANDARD_ENTERPRISE_MODELS: EnterpriseModel[] = [
         isPreview: false,
         category: 'Flash / Speed',
         visibility: 'GA',
-        visibilityNote: 'GA across global, us, and eu',
+        visibilityNote: 'GA across global, us, eu, ca, asia-northeast1, europe-west2, and sg',
     },
     {
         id: 'gemini-3.7-flash',
@@ -287,7 +324,7 @@ export const STANDARD_ENTERPRISE_MODELS: EnterpriseModel[] = [
         isPreview: false,
         category: 'Vision & Image',
         visibility: 'GA',
-        visibilityNote: 'GA (Nano Banana Pro) in global, us, and eu',
+        visibilityNote: 'GA (Nano Banana Pro) in global only',
     },
     {
         id: 'gemini-2.5-flash-image',
@@ -334,6 +371,7 @@ export const categorizeModel = (modelId: string): string => {
         modelId.includes('pro') ||
         modelId.includes('ultra') ||
         modelId.includes('thinking') ||
+        modelId.includes('neon') ||
         modelId.includes('argon') ||
         modelId.includes('carbon') ||
         modelId.includes('hydrogen') ||
