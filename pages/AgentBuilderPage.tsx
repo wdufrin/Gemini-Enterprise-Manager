@@ -14,9 +14,13 @@
  * limitations under the License.
  */
 
-import React, { useMemo } from 'react';
-import CloudConsoleButton from '../components/CloudConsoleButton';
-import ProjectInput from '../components/ProjectInput';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { useInRouterContext, useSearchParams } from 'react-router-dom';
+import { Page } from '../types';
+import PageShell from '../components/layout/PageShell';
+import PageHeader from '../components/layout/PageHeader';
+import { SegmentedControl } from '../components/common/Tabs';
+import { useWorkspaceScope } from '../context/WorkspaceScopeContext';
 import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
 import A2aDeployModal from '../components/a2a/A2aDeployModal';
 import GitHubDeployModal from '../components/agent-builder/GitHubDeployModal';
@@ -73,24 +77,89 @@ export { useAgentBuilderState, DEFAULT_ADK_CONFIG };
 
 export interface AgentBuilderPageProps {
   projectNumber: string;
+  projectId?: string;
   setProjectNumber: (projectNumber: string) => void;
   context?: any;
   onBuildTriggered?: (buildId: string, projectId?: string) => void;
 }
 
+const BuilderUrlTabBridge: React.FC<{
+  activeMode: 'adk' | 'a2a';
+  onSyncFromUrl: (mode: 'adk' | 'a2a') => void;
+  writeUrlRef: React.MutableRefObject<((mode: 'adk' | 'a2a') => void) | null>;
+}> = ({ activeMode, onSyncFromUrl, writeUrlRef }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get('tab');
+  const activeModeRef = useRef(activeMode);
+  activeModeRef.current = activeMode;
+
+  writeUrlRef.current = (nextMode: 'adk' | 'a2a') => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', nextMode);
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  useEffect(() => {
+    if ((rawTab === 'adk' || rawTab === 'a2a') && rawTab !== activeModeRef.current) {
+      onSyncFromUrl(rawTab);
+    }
+  }, [rawTab, onSyncFromUrl]);
+
+  return null;
+};
+
 const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   projectNumber,
+  projectId,
   setProjectNumber,
   context,
   onBuildTriggered,
 }) => {
   const { toast } = useToast();
+  const inRouter = useInRouterContext();
+  const writeBuilderUrlRef = useRef<((mode: 'adk' | 'a2a') => void) | null>(null);
+  const { gcpRegion, setGcpRegion } = useWorkspaceScope();
   const b = useAgentBuilderState({
     projectNumber,
     setProjectNumber,
     context,
     onBuildTriggered,
   });
+
+  const handleBuilderModeChange = (mode: 'adk' | 'a2a') => {
+    b.setBuilderTab(mode);
+    writeBuilderUrlRef.current?.(mode);
+  };
+
+  // Sync deployProjectId automatically from global projectId / projectNumber
+  useEffect(() => {
+    const preferred = (projectId || projectNumber || '').trim();
+    if (projectId && b.deployProjectId !== projectId) {
+      b.setDeployProjectId(projectId);
+    } else if (!b.deployProjectId && preferred) {
+      b.setDeployProjectId(preferred);
+    }
+  }, [projectId, projectNumber, b.deployProjectId, b.setDeployProjectId]);
+
+  // Sync initial GCP region from shared WorkspaceScope when changed externally
+  useEffect(() => {
+    if (gcpRegion && gcpRegion !== b.vertexLocation) {
+      b.setVertexLocation(gcpRegion);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gcpRegion]);
+
+  const handleVertexLocationChange = (loc: string) => {
+    b.setVertexLocation(loc);
+    setGcpRegion(loc);
+  };
+
+  const effectiveProjectId = projectId || b.deployProjectId || projectNumber;
 
   // A2A Code Generation (memoized to eliminate double renders on keystroke)
   const a2aGeneratedCode = useMemo(
@@ -280,49 +349,51 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
   ];
 
   return (
-    <div className="space-y-6 flex flex-col xl:h-full min-h-[760px]">
-      <div className="flex flex-wrap justify-between items-center gap-3 shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold text-white">ADK Prototyper & Code Studio</h1>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Interactive ADK agent code generation, tool composition, and enterprise OAuth delegation
-            blueprints.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="bg-gray-800 p-1 rounded-lg border border-gray-700 flex items-center shrink-0">
+    <PageShell variant="locked">
+      {inRouter && (
+        <BuilderUrlTabBridge
+          activeMode={b.builderTab}
+          onSyncFromUrl={b.setBuilderTab}
+          writeUrlRef={writeBuilderUrlRef}
+        />
+      )}
+      <PageHeader
+        title="ADK Studio"
+        subtitle="Interactive ADK agent code generation, tool composition, and enterprise OAuth delegation blueprints."
+        consolePage={Page.AGENT_BUILDER}
+        projectId={effectiveProjectId}
+        projectNumber={projectNumber}
+        secondaryActions={
+          <>
+            <SegmentedControl
+              ariaLabel="Builder Runtime Mode"
+              size="xs"
+              value={b.builderTab}
+              onChange={handleBuilderModeChange}
+              items={[
+                { id: 'adk', label: 'ADK Agent (Engine)' },
+                { id: 'a2a', label: 'A2A Function (Cloud Run)' },
+              ]}
+            />
             <button
-              onClick={() => b.setBuilderTab('adk')}
-              className={`px-3.5 py-1.5 rounded-md text-xs xl:text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${b.builderTab === 'adk' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-            >
-              ADK Agent (Engine)
-            </button>
-            <button
-              onClick={() => b.setBuilderTab('a2a')}
-              className={`px-3.5 py-1.5 rounded-md text-xs xl:text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${b.builderTab === 'a2a' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-            >
-              A2A Function (Cloud Run)
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <button
+              type="button"
               onClick={b.handleClearDraft}
-              className="px-3 py-1.5 bg-red-900/30 hover:bg-red-900/50 text-xs text-red-300 rounded border border-red-700/60 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center px-3 h-9 bg-red-950/40 hover:bg-red-900/50 text-xs font-medium text-red-300 rounded-lg border border-red-800/60 transition-colors whitespace-nowrap shrink-0"
               title="Reset form to default state"
             >
               Clear Draft
             </button>
             <button
+              type="button"
               onClick={b.handleCheckBuildStatus}
-              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 rounded border border-gray-600 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center px-3 h-9 bg-gray-800 hover:bg-gray-700 text-xs font-medium text-gray-200 hover:text-white rounded-lg border border-gray-700 transition-colors whitespace-nowrap shrink-0"
               title="Check for active builds if status window is missing"
             >
               Check Build Status
             </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {b.builderPartialFailures.length > 0 && (
         <PartialResultsBanner
@@ -388,18 +459,17 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
       <div className="flex flex-col lg:flex-row gap-4 xl:gap-6 flex-1 min-h-0">
         {/* Left Column: Configuration (Box 1) */}
         <div className="bg-gray-800 p-4 rounded-lg shadow-md lg:w-5/12 xl:w-2/5 flex flex-col overflow-y-auto border border-gray-700 min-w-0">
-          <div className="flex justify-between items-center mb-3 shrink-0">
+          <div className="flex justify-between items-center gap-2 mb-3 shrink-0">
             <h2 className="text-lg font-semibold text-white">1. Configure Agent</h2>
-            <CloudConsoleButton
-              url={`https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=${projectNumber}`}
-            />
+            <span
+              data-testid="builder-project-badge"
+              className="px-2.5 py-1 rounded-md bg-gray-900/80 border border-gray-700 text-xs font-mono text-gray-300 truncate max-w-[200px]"
+              title={effectiveProjectId || 'Select project in top bar'}
+            >
+              {effectiveProjectId || 'No project set'}
+            </span>
           </div>
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Project Number</label>
-              <ProjectInput value={projectNumber} onChange={setProjectNumber} />
-            </div>
-
             {b.builderTab === 'adk' ? (
               <>
                 <AdkBasicSettings
@@ -407,7 +477,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
                   setAdkConfig={b.setAdkConfig}
                   handleAdkConfigChange={b.handleAdkConfigChange}
                   vertexLocation={b.vertexLocation}
-                  setVertexLocation={b.setVertexLocation}
+                  setVertexLocation={handleVertexLocationChange}
                   stagingBucket={b.stagingBucket}
                   setStagingBucket={b.setStagingBucket}
                   buckets={b.buckets}
@@ -449,8 +519,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
               <A2aConfigForm
                 a2aConfig={b.a2aConfig}
                 setA2aConfig={b.setA2aConfig}
-                handleA2aConfigChange={b.handleA2aConfigChange}
-                deployProjectId={b.deployProjectId}
+                handleA2aConfigChange={(e) => {
+                  b.handleA2aConfigChange(e);
+                  if (e.target.name === 'region') {
+                    setGcpRegion(e.target.value);
+                  }
+                }}
+                deployProjectId={effectiveProjectId}
                 setDeployProjectId={b.setDeployProjectId}
                 fetchProjectId={b.fetchProjectId}
                 isResolvingId={b.isResolvingId}
@@ -499,7 +574,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({
           setRegistrationNotice={b.setRegistrationNotice}
         />
       </div>
-    </div>
+    </PageShell>
   );
 };
 

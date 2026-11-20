@@ -15,8 +15,14 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Authorization, Config, Agent } from '../types';
+import { Authorization, Config, Agent, Page } from '../types';
 import * as api from '../services/apiService';
+import PageShell from '../components/layout/PageShell';
+import PageHeader from '../components/layout/PageHeader';
+import ScopeBar from '../components/layout/ScopeBar';
+import { Tabs } from '../components/common/Tabs';
+import { useWorkspaceScope } from '../context/WorkspaceScopeContext';
+import { GEMINI_ENTERPRISE_LOCATIONS } from '../utils/locations';
 import Spinner from '../components/Spinner';
 import AuthList from '../components/authorizations/AuthList';
 import AuthForm from '../components/authorizations/AuthForm';
@@ -92,11 +98,20 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   const [internalHasLoaded, setInternalHasLoaded] = useState(false);
   const hasLoaded = propHasLoaded ?? internalHasLoaded;
   const setHasLoaded = propSetHasLoaded ?? setInternalHasLoaded;
+  const { appLocation: scopedLocation, setAppLocation: setScopedLocation } = useWorkspaceScope();
   const [view, setView] = useState<'list' | 'form'>('list');
   const [authToEdit, setAuthToEdit] = useState<Authorization | null>(null);
   const [authToView, setAuthToView] = useState<Authorization | null>(null);
   const [authModalTab, setAuthModalTab] = useState<'config' | 'adk'>('config');
-  const [region, setRegion] = useState<string>('global');
+  const [region, setRegion] = useState<string>(() => config?.appLocation || scopedLocation || 'global');
+  const [activeTab, setActiveTab] = useState<'credentials' | 'wif-validator'>('credentials');
+
+  useEffect(() => {
+    if (scopedLocation && scopedLocation !== region && !config?.appLocation) {
+      setRegion(scopedLocation);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopedLocation]);
   
   // State for delete confirmation modal
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -104,8 +119,6 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   const [singleDeleteTargetId, setSingleDeleteTargetId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [partialFailures, setPartialFailures] = useState<PartialFailure[]>([]);
-
-  const [showWorkforceValidator, setShowWorkforceValidator] = useState(false);
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectId || projectNumber,
@@ -149,7 +162,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
     };
 
     try {
-      const discoveryLocations = ['global', 'us', 'eu'];
+      const discoveryLocations = Array.from(new Set(['global', 'us', 'eu', region]));
 
       const authPromises = discoveryLocations.map(async (loc) => {
         try {
@@ -481,6 +494,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
 
   const handleShowCreateForm = () => {
     setAuthToEdit(null);
+    setActiveTab('credentials');
     setView('form');
   };
 
@@ -496,6 +510,16 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
     fetchData();
   };
 
+  const displayedAuthorizations = useMemo(
+    () =>
+      authorizations.filter(
+        (auth) =>
+          auth.name?.includes(`/locations/${region}/`) ||
+          (region === 'global' && !auth.name?.includes('/locations/'))
+      ),
+    [authorizations, region]
+  );
+
   const renderContent = () => {
     if (isLoading && authorizations.length === 0) { return <Spinner />; }
     if (error && view === 'list') { return <div className="text-center text-red-400 mt-8">{error}</div>; }
@@ -508,10 +532,6 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
         authToEdit={authToEdit}
       />;
     }
-
-    const displayedAuthorizations = authorizations.filter(
-      auth => auth.name?.includes(`/locations/${region}/`) || (region === 'global' && !auth.name?.includes('/locations/'))
-    );
 
     return (
       <AuthList
@@ -531,73 +551,71 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   };
 
   return (
-    <div>
-      <div className="bg-gray-800 p-4 rounded-lg mb-6 shadow-md">
-            <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
-            <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
-                <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-300 font-mono h-[38px] flex items-center">
-                    {projectNumber || <span className="text-gray-500 italic">Not set (configure on Agents page)</span>}
-                </div>
-            </div>
-
-        <div className="mt-4">
-          <label className="block text-sm font-medium text-gray-400 mb-1">Region</label>
-          <select
-            value={region}
-            onChange={(e) => {
-              setRegion(e.target.value);
+    <PageShell variant="wide">
+      <PageHeader
+        title="Authorizations"
+        subtitle="Manage OAuth 2.0 and OIDC client authorizations bound to enterprise agents and MCP tools."
+        consolePage={Page.AUTHORIZATIONS}
+        projectId={projectId}
+        projectNumber={projectNumber}
+        onBack={view === 'form' ? handleCancelForm : undefined}
+        backLabel="Back to List"
+        onRefresh={() => void fetchData(true)}
+        isRefreshing={isLoading}
+        primaryAction={
+          view === 'list'
+            ? { label: '+ Create Authorization', onClick: handleShowCreateForm }
+            : undefined
+        }
+      >
+        {view === 'list' && (
+          <ScopeBar
+            embedded
+            locationId="authorizations-region-select"
+            locationLabel="Region"
+            locationValue={region}
+            onLocationChange={(nextReg) => {
+              setRegion(nextReg);
+              setScopedLocation(nextReg);
               setSelectedIds(new Set());
             }}
-            className="block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-sm text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-          >
-            <option value="global">Global</option>
-            <option value="us">US (Multi-region)</option>
-            <option value="eu">EU (Multi-region)</option>
-          </select>
-          <p className="mt-1 text-xs text-gray-500">
-            Select the region where you want to manage authorizations.
-          </p>
-        </div>
-
-            {view === 'list' && (
-                <button 
-                    onClick={() => fetchData(true)} 
-                    disabled={isLoading}
-                    className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500"
-                >
-                    {isLoading ? 'Loading...' : 'Refresh Authorizations'}
-                </button>
-            )}
-      </div>
-
-      {/* Tools Section */}
-      {view === 'list' && (
-        <div className="mb-6">
-          <button
-            onClick={() => setShowWorkforceValidator(!showWorkforceValidator)}
-            className="text-sm text-blue-400 hover:text-blue-300 underline focus:outline-none"
-          >
-            {showWorkforceValidator ? 'Hide Tools' : 'Show Advanced Tools (Workforce Pool Validator)'}
-          </button>
-
-          {showWorkforceValidator && (
-            <div className="mt-4 animate-fade-in-down">
-              <WorkforcePoolValidator config={apiConfig} />
-            </div>
-          )}
-        </div>
-      )}
-
-      {view === 'list' && partialFailures.length > 0 && (
-        <div className="mb-6">
-          <PartialResultsBanner
-            partialFailures={partialFailures}
-            onRetry={() => fetchData(true)}
+            locationOptions={GEMINI_ENTERPRISE_LOCATIONS.map((loc) => ({
+              value: loc.id,
+              label: loc.label,
+            }))}
           />
-        </div>
+        )}
+      </PageHeader>
+
+      {view === 'list' && (
+        <Tabs
+          syncSearchParam="tab"
+          ariaLabel="Authorization Sections"
+          activeTab={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              id: 'credentials',
+              label: 'OAuth Credentials',
+              count: displayedAuthorizations.length,
+            },
+            { id: 'wif-validator', label: 'Workforce Pool Validator' },
+          ]}
+        />
       )}
-      {renderContent()}
+
+      {view === 'list' && activeTab === 'credentials' && partialFailures.length > 0 && (
+        <PartialResultsBanner
+          partialFailures={partialFailures}
+          onRetry={() => fetchData(true)}
+        />
+      )}
+
+      {view === 'list' && activeTab === 'wif-validator' ? (
+        <WorkforcePoolValidator config={apiConfig} />
+      ) : (
+        renderContent()
+      )}
 
       {isDeleteModalOpen && (
         <ConfirmationModal
@@ -662,7 +680,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
           initialTab={authModalTab}
         />
       )}
-    </div>
+    </PageShell>
   );
 };
 

@@ -214,12 +214,14 @@ describe('UI/UX & Accessibility Forensic Audit Remediations', () => {
     expect(screen.getByText('Confluence KB')).toBeInTheDocument();
   });
 
-  it('P1-10: Sidebar sets aria-current="page" on active route, wraps nav landmark, and passes axe WCAG checks', async () => {
+  it('P1-10: Sidebar sets aria-current="page" on active route, wraps nav landmark, supports expandable sub-tabs, and passes axe WCAG checks', async () => {
+    const onNavigateRoute = vi.fn();
     const { container } = render(
       <GlobalDebugProvider>
         <Sidebar
           currentPage={Page.AGENTS}
           setCurrentPage={vi.fn()}
+          onNavigateRoute={onNavigateRoute}
           onShowInfo={vi.fn()}
           isCollapsed={false}
           onToggleCollapse={vi.fn()}
@@ -232,8 +234,28 @@ describe('UI/UX & Accessibility Forensic Audit Remediations', () => {
     const activeBtn = screen.getByRole('button', { name: Page.AGENTS });
     expect(activeBtn).toHaveAttribute('aria-current', 'page');
 
+    // Active expandable tab (GE Agent Manager) starts expanded automatically
+    expect(screen.getByRole('button', { name: 'Bulk Update' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Automated Pruner' })).toBeNull();
+
+    // Expanding another tab (Licenses) via chevron reveals its sub-tabs in-place without leaving current page
+    const expandLicensesBtn = screen.getByRole('button', { name: `Expand sub-tabs for ${Page.LICENSE}` });
+    expect(expandLicensesBtn).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(expandLicensesBtn);
+    expect(expandLicensesBtn).toHaveAttribute('aria-expanded', 'true');
+
+    const prunerSubLink = screen.getByRole('button', { name: 'Automated Pruner' });
+    expect(prunerSubLink).toBeInTheDocument();
+
     const axeRes = await runAxe(container);
     expect(axeRes.violations).toEqual([]);
+
+    fireEvent.click(prunerSubLink);
+    expect(onNavigateRoute).toHaveBeenCalledWith('/licenses?tab=automated_pruner');
+
+    // Re-clicking active item button toggles its sub-tabs collapsed/expanded
+    fireEvent.click(activeBtn);
+    expect(screen.queryByRole('button', { name: 'Bulk Update' })).toBeNull();
   });
 
   it('P0-7: IsolateUserModal blocks self-isolation of the active admin account until explicit self-lockout acknowledgment', async () => {

@@ -666,17 +666,16 @@ describe('AgentsPage (F5: Agent Manager, Consolidated Catalog & R2/R3)', () => {
 
     renderPage();
 
-    // While global agents are still loading, Refresh Agents button should show spinner and be disabled
-    const refreshBtn = await screen.findByTestId('refresh-agents-btn');
+    // While global agents are still loading, PageHeader Refresh button should show spinner and be disabled
     await waitFor(() => {
-      expect(screen.getByTestId('refresh-agents-spinner')).toBeInTheDocument();
+      const refreshBtn = screen.getByRole('button', { name: /Refreshing\.\.\./i });
       expect(refreshBtn).toBeDisabled();
-      expect(refreshBtn.textContent).toMatch(/Loading Agents/i);
+      expect(refreshBtn.querySelector('svg.animate-spin')).not.toBeNull();
     });
 
     // User switches Location from 'global' to 'us' BEFORE global agents finish loading
-    const locationSelect = screen.getByDisplayValue('global');
-    fireEvent.change(locationSelect, { target: { name: 'appLocation', value: 'us' } });
+    const locationSelect = screen.getByLabelText('Location');
+    fireEvent.change(locationSelect, { target: { value: 'us' } });
 
     // US Regional Agent loads
     await waitFor(() => {

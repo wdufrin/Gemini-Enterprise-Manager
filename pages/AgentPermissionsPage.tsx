@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import * as api from '../services/apiService';
-import { Agent, Config, IamPolicy, IamBinding, AppEngine, Assistant } from '../types';
-import ProjectInput from '../components/ProjectInput';
+import { Agent, Config, IamPolicy, IamBinding, AppEngine, Assistant, Page } from '../types';
+import PageShell from '../components/layout/PageShell';
+import PageHeader from '../components/layout/PageHeader';
 import PartialResultsBanner, { PartialFailure } from '../components/common/PartialResultsBanner';
 import { toErrorMessage } from '../utils/errors';
 import { useModalA11y } from '../hooks/useModalA11y';
 
 interface AgentPermissionsPageProps {
     projectNumber?: string;
+    projectId?: string;
     setProjectNumber?: (projectNumber: string) => void;
     config?: Config;
 }
@@ -24,15 +26,17 @@ interface PermissionRow {
 
 const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
     projectNumber: propProjectNumber,
-    setProjectNumber,
+    projectId: propProjectId,
     config: propConfig,
 }) => {
     const projectNumber = propProjectNumber ?? propConfig?.projectId ?? '';
+    const projectId = propProjectId ?? propConfig?.projectId ?? projectNumber;
     const [permissionsData, setPermissionsData] = useState<PermissionRow[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [partialFailures, setPartialFailures] = useState<PartialFailure[]>([]);
     const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
+    const [copiedScript, setCopiedScript] = useState(false);
     const scriptModalRef = useRef<HTMLDivElement>(null);
 
     useModalA11y({
@@ -41,6 +45,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
         containerRef: scriptModalRef,
     });
 
+    const [globalSearch, setGlobalSearch] = useState('');
     const [filters, setFilters] = useState({
         location: '',
         appName: '',
@@ -50,13 +55,45 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
         permission: ''
     });
 
+    const hasActiveFilters = useMemo(
+        () =>
+            Boolean(
+                globalSearch.trim() ||
+                Object.values(filters).some((val) => val.trim().length > 0),
+            ),
+        [globalSearch, filters],
+    );
+
+    const handleClearFilters = () => {
+        setGlobalSearch('');
+        setFilters({
+            location: '',
+            appName: '',
+            agentName: '',
+            agentType: '',
+            userId: '',
+            permission: '',
+        });
+    };
+
     const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setFilters(prev => ({ ...prev, [name]: value }));
     };
 
     const filteredData = useMemo(() => {
+        const q = globalSearch.trim().toLowerCase();
         return permissionsData.filter(row => {
+            if (q) {
+                const matchesQuickSearch =
+                    row.location.toLowerCase().includes(q) ||
+                    row.appName.toLowerCase().includes(q) ||
+                    row.agentName.toLowerCase().includes(q) ||
+                    row.agentType.toLowerCase().includes(q) ||
+                    row.userId.toLowerCase().includes(q) ||
+                    row.permission.toLowerCase().includes(q);
+                if (!matchesQuickSearch) return false;
+            }
             return (
                 row.location.toLowerCase().includes(filters.location.toLowerCase()) &&
                 row.appName.toLowerCase().includes(filters.appName.toLowerCase()) &&
@@ -66,7 +103,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
                 row.permission.toLowerCase().includes(filters.permission.toLowerCase())
             );
         });
-    }, [permissionsData, filters]);
+    }, [permissionsData, filters, globalSearch]);
 
     const exportToCsv = () => {
         if (filteredData.length === 0) return;
@@ -95,24 +132,12 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
         document.body.removeChild(link);
     };
 
-    const [config, setConfig] = useState(() => ({
+    const [config] = useState(() => ({
         appId: '',
         appLocation: 'global',
         collectionId: 'default_collection',
         assistantId: 'default_assistant',
     }));
-
-    const handleConfigChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setConfig(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleProjectNumberChange = (newValue: string) => {
-        if (setProjectNumber) {
-            setProjectNumber(newValue);
-        }
-        setConfig(prev => ({ ...prev, appId: '' }));
-    };
 
     const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
         ...config,
@@ -336,31 +361,57 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
         }
     }, [projectNumber, runPermissionsScan]);
 
+    const pythonScriptText = useMemo(() => {
+        const scriptProjectId = projectId || projectNumber || 'YOUR_PROJECT_ID';
+        return `import os\nimport csv\nimport requests\nimport google.auth\nfrom google.auth.transport.requests import Request\n\nPROJECT_ID = "${scriptProjectId}"\nLOCATIONS = ["global", "us", "eu"]\n\ndef get_access_token():\n    credentials, project = google.auth.default()\n    credentials.refresh(Request())\n    return credentials.token\n\ndef list_agent_permissions():\n    token = get_access_token()\n    headers = {\n        "Authorization": f"Bearer {token}",\n        "X-Goog-User-Project": PROJECT_ID\n    }\n    \n    rows = []\n    print(f"Scanning project: {PROJECT_ID}")\n    \n    for loc in LOCATIONS:\n        print(f"\\nScanning location: {loc}...")\n        endpoint = "discoveryengine.googleapis.com" if loc == "global" else f"{loc}-discoveryengine.googleapis.com"\n        url = f"https://{endpoint}/v1alpha/projects/{PROJECT_ID}/locations/{loc}/collections/default_collection/engines"\n        engines_res = requests.get(url, headers=headers).json()\n        \n        for engine in engines_res.get("engines", []):\n            engine_id = engine["name"].split("/")[-1]\n            engine_name = engine.get("displayName", engine_id)\n            \n            ast_url = f"{url}/{engine_id}/assistants"\n            ast_res = requests.get(ast_url, headers=headers).json()\n            \n            for ast in ast_res.get("assistants", []):\n                ast_id = ast["name"].split("/")[-1]\n                \n                agt_url = f"{ast_url}/{ast_id}/agents"\n                agt_res = requests.get(agt_url, headers=headers).json()\n                \n                for agent in agt_res.get("agents", []):\n                    agent_name = agent.get("displayName", agent["name"].split("/")[-1])\n                    \n                    iam_url = f"https://{endpoint}/v1alpha/{agent['name']}:getIamPolicy"\n                    iam_res = requests.get(iam_url, headers=headers).json()\n                    \n                    bindings = iam_res.get("bindings", [])\n                    if not bindings:\n                        rows.append([loc, engine_name, agent_name, "No Members", "None"])\n                        \n                    for binding in bindings:\n                        role = binding.get("role", "")\n                        for member in binding.get("members", []):\n                            rows.append([loc, engine_name, agent_name, member, role])\n                            print(f"Found: {agent_name} -> {member} ({role})")\n\n    # Write to CSV\n    with open("agent_permissions.csv", "w", newline="") as f:\n        writer = csv.writer(f)\n        writer.writerow(["Location", "App Name", "Agent Name", "Member", "Role"])\n        writer.writerows(rows)\n        print("\\nExport complete: agent_permissions.csv")\n\nif __name__ == "__main__":\n    list_agent_permissions()`;
+    }, [projectId, projectNumber]);
+
+    const handleCopyScript = async () => {
+        try {
+            if (navigator?.clipboard?.writeText) {
+                await navigator.clipboard.writeText(pythonScriptText);
+                setCopiedScript(true);
+                setTimeout(() => setCopiedScript(false), 2000);
+            }
+        } catch (err) {
+            console.warn('Failed to copy Python script:', err);
+        }
+    };
+
     return (
-        <div className="flex flex-col h-full gap-6 w-full min-w-0 max-w-full">
-            <div className="bg-gray-800 p-4 rounded-lg shadow-md shrink-0">
-                <div className="flex justify-between items-center mb-3">
-                    <h2 className="text-lg font-semibold text-white">Configuration</h2>
-                </div>
-                <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-                    <div className="flex-1 min-w-0">
-                        <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
-                        <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} />
-                    </div>
-                    <div className="flex items-end shrink-0">
+        <PageShell variant="locked">
+            <PageHeader
+                title="Agent Permissions"
+                subtitle="Read-only effective Cloud IAM & RBAC bindings across all Gemini Enterprise agents in global, us, and eu."
+                consolePage={Page.AGENT_PERMISSIONS}
+                projectId={projectId}
+                projectNumber={projectNumber}
+                onRefresh={() => void fetchPermissions()}
+                isRefreshing={isLoading}
+                refreshLabel="Scan All Locations"
+                secondaryActions={
+                    <>
                         <button
-                            onClick={fetchPermissions}
-                            disabled={isLoading}
-                            className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 min-h-[38px] h-auto whitespace-nowrap shrink-0"
+                            type="button"
+                            onClick={() => setIsScriptModalOpen(true)}
+                            className="inline-flex items-center px-3 h-9 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 hover:text-white text-xs sm:text-sm font-medium rounded-lg transition-colors"
                         >
-                            {isLoading ? 'Loading...' : 'Refetch All Locations'}
+                            View Python Script
                         </button>
-                    </div>
-                </div>
-            </div>
+                        <button
+                            type="button"
+                            onClick={exportToCsv}
+                            disabled={filteredData.length === 0 || isLoading}
+                            className="inline-flex items-center px-3 h-9 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 hover:text-white text-xs sm:text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Export CSV
+                        </button>
+                    </>
+                }
+            />
 
             {error && (
-                <div className="bg-red-900/30 border border-red-800 text-red-200 p-4 rounded-lg">
+                <div role="alert" className="bg-red-900/30 border border-red-800 text-red-200 p-4 rounded-lg shrink-0">
                     {error}
                 </div>
             )}
@@ -373,24 +424,29 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
             )}
 
             <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden shadow-sm w-full min-w-0 flex-1 flex flex-col min-h-0">
-                {!isLoading && permissionsData.length > 0 && (
-                    <div className="bg-gray-800/30 border-b border-gray-800 px-6 py-3 flex justify-between items-center">
-                        <span className="text-sm text-gray-400">
-                            Showing {filteredData.length} of {permissionsData.length} records
-                        </span>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => setIsScriptModalOpen(true)}
-                                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-300 text-sm font-medium rounded transition-colors"
-                            >
-                                View Python Script
-                            </button>
-                            <button onClick={exportToCsv} disabled={filteredData.length === 0} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-300 text-sm font-medium rounded transition-colors disabled:opacity-50">
-                                Export to CSV
-                            </button>
-                        </div>
+                <div className="bg-gray-800/40 border-b border-gray-800 px-4 sm:px-6 py-3 flex flex-wrap justify-between items-center gap-3 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[240px]">
+                        <input
+                            type="search"
+                            aria-label="Quick search agent permissions"
+                            placeholder="Quick search app, agent, principal, role, or location..."
+                            value={globalSearch}
+                            onChange={(e) => setGlobalSearch(e.target.value)}
+                            className="flex-1 min-w-[220px] max-w-md h-9 bg-gray-950/90 border border-gray-700 rounded-lg px-3 text-xs sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button
+                            type="button"
+                            onClick={handleClearFilters}
+                            disabled={!hasActiveFilters}
+                            className="inline-flex items-center px-3 h-9 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs sm:text-sm font-medium text-gray-200 hover:text-white rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            Clear Filters
+                        </button>
                     </div>
-                )}
+                    <span className="text-xs sm:text-sm text-gray-400 font-mono">
+                        Showing {filteredData.length} of {permissionsData.length} records
+                    </span>
+                </div>
                 {isLoading ? (
                     <div className="flex flex-col items-center justify-center py-24 text-gray-500 space-y-4">
                         <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
@@ -499,21 +555,31 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
                             <div className="bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                                 <div className="sm:flex sm:items-start">
                                     <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
-                                        <h3 className="text-lg leading-6 font-medium text-white mb-4" id="modal-title">
-                                            Python Script: Export Agent Permissions
-                                        </h3>
+                                        <div className="flex items-center justify-between gap-3 mb-4">
+                                            <h3 className="text-lg leading-6 font-medium text-white" id="modal-title">
+                                                Python Script: Export Agent Permissions
+                                            </h3>
+                                            <button
+                                                type="button"
+                                                data-testid="copy-python-script-btn"
+                                                onClick={() => void handleCopyScript()}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-colors shrink-0"
+                                            >
+                                                {copiedScript ? 'Copied!' : 'Copy Script'}
+                                            </button>
+                                        </div>
                                         <div className="mt-2 bg-gray-900 p-4 rounded-md overflow-x-auto border border-gray-700">
                                             <p className="text-sm text-gray-400 mb-4">
                                                 This script replicates the console&apos;s scanning logic. It iterates through all locations, extracts all apps, assistants, and agents, and finally lists the active IAM policies for each. It saves the output to a CSV file.
                                             </p>
                                             <pre className="text-sm font-mono text-blue-300 whitespace-pre-wrap select-all">
-                                                {`import os\nimport csv\nimport requests\nimport google.auth\nfrom google.auth.transport.requests import Request\n\nPROJECT_ID = "YOUR_PROJECT_ID"\nLOCATIONS = ["global", "us", "eu"]\n\ndef get_access_token():\n    credentials, project = google.auth.default()\n    credentials.refresh(Request())\n    return credentials.token\n\ndef list_agent_permissions():\n    token = get_access_token()\n    headers = {\n        "Authorization": f"Bearer {token}",\n        "X-Goog-User-Project": PROJECT_ID\n    }\n    \n    rows = []\n    print(f"Scanning project: {PROJECT_ID}")\n    \n    for loc in LOCATIONS:\n        print(f"\\nScanning location: {loc}...")\n        endpoint = "discoveryengine.googleapis.com" if loc == "global" else f"{loc}-discoveryengine.googleapis.com"\n        url = f"https://{endpoint}/v1alpha/projects/{PROJECT_ID}/locations/{loc}/collections/default_collection/engines"\n        engines_res = requests.get(url, headers=headers).json()\n        \n        for engine in engines_res.get("engines", []):\n            engine_id = engine["name"].split("/")[-1]\n            engine_name = engine.get("displayName", engine_id)\n            \n            ast_url = f"{url}/{engine_id}/assistants"\n            ast_res = requests.get(ast_url, headers=headers).json()\n            \n            for ast in ast_res.get("assistants", []):\n                ast_id = ast["name"].split("/")[-1]\n                \n                agt_url = f"{ast_url}/{ast_id}/agents"\n                agt_res = requests.get(agt_url, headers=headers).json()\n                \n                for agent in agt_res.get("agents", []):\n                    agent_name = agent.get("displayName", agent["name"].split("/")[-1])\n                    \n                    iam_url = f"https://{endpoint}/v1alpha/{agent['name']}:getIamPolicy"\n                    iam_res = requests.get(iam_url, headers=headers).json()\n                    \n                    bindings = iam_res.get("bindings", [])\n                    if not bindings:\n                        rows.append([loc, engine_name, agent_name, "No Members", "None"])\n                        \n                    for binding in bindings:\n                        role = binding.get("role", "")\n                        for member in binding.get("members", []):\n                            rows.append([loc, engine_name, agent_name, member, role])\n                            print(f"Found: {agent_name} -> {member} ({role})")\n\n    # Write to CSV\n    with open("agent_permissions.csv", "w", newline="") as f:\n        writer = csv.writer(f)\n        writer.writerow(["Location", "App Name", "Agent Name", "Member", "Role"])\n        writer.writerows(rows)\n        print("\\nExport complete: agent_permissions.csv")\n\nif __name__ == "__main__":\n    list_agent_permissions()`}
+                                                {pythonScriptText}
                                             </pre>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                            <div className="bg-gray-800 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg">
+                            <div className="bg-gray-800 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg gap-2">
                                 <button
                                     type="button"
                                     className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-gray-600 text-base font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 sm:ml-3 sm:w-auto sm:text-sm"
@@ -526,7 +592,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({
                     </div>
                 </div>
             )}
-        </div>
+        </PageShell>
     );
 };
 

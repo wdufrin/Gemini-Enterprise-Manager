@@ -49,15 +49,15 @@ describe('AgentPermissionsPage (Systemic Honesty)', () => {
 
   it('renders initial state when no scan has run and auto-fetches when projectNumber is set', async () => {
     const { unmount } = renderComponent('');
-    expect(screen.getByText('Configuration')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Refetch All Locations/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Agent Permissions' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Scan All Locations/i })).toBeInTheDocument();
     expect(screen.getByText('No agent permissions found.')).toBeInTheDocument();
     unmount();
 
     renderComponent('123456789');
     expect(screen.getByText(/Fetching IAM policies/i)).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Refetch All Locations/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Scan All Locations/i })).toBeInTheDocument();
       expect(screen.getByText('No agent permissions found.')).toBeInTheDocument();
     });
   });
@@ -70,7 +70,7 @@ describe('AgentPermissionsPage (Systemic Honesty)', () => {
 
     renderComponent();
 
-    const refetchBtn = await screen.findByRole('button', { name: /Refetch All Locations/i });
+    const refetchBtn = await screen.findByRole('button', { name: /Scan All Locations/i });
     fireEvent.click(refetchBtn);
 
     await waitFor(() => {
@@ -96,7 +96,7 @@ describe('AgentPermissionsPage (Systemic Honesty)', () => {
 
     renderComponent();
 
-    const refetchBtn = await screen.findByRole('button', { name: /Refetch All Locations/i });
+    const refetchBtn = await screen.findByRole('button', { name: /Scan All Locations/i });
     fireEvent.click(refetchBtn);
 
     await waitFor(() => {
@@ -144,7 +144,7 @@ describe('AgentPermissionsPage (Systemic Honesty)', () => {
 
     renderComponent();
 
-    const refetchBtn = await screen.findByRole('button', { name: /Refetch All Locations/i });
+    const refetchBtn = await screen.findByRole('button', { name: /Scan All Locations/i });
     fireEvent.click(refetchBtn);
 
     await waitFor(() => {
@@ -156,6 +156,26 @@ describe('AgentPermissionsPage (Systemic Honesty)', () => {
 
     // Ensure no error banner is displayed on fully successful scan
     expect(screen.queryByText(/could not be loaded/i)).toBeNull();
+
+    // Verify global quick search + Clear Filters + Copy Script inside Python Script modal
+    const quickSearch = screen.getByLabelText('Quick search agent permissions');
+    fireEvent.change(quickSearch, { target: { value: 'agent-dev@example.com' } });
+    expect(screen.getAllByText('agent-dev@example.com').length).toBeGreaterThan(0);
+    expect(screen.queryByText('admin@example.com (Inherited)')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Filters' }));
+    expect(screen.getAllByText('admin@example.com (Inherited)').length).toBeGreaterThan(0);
+
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText: writeTextMock } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View Python Script' }));
+    const copyBtn = await screen.findByTestId('copy-python-script-btn');
+    fireEvent.click(copyBtn);
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledTimes(1);
+    });
+    expect(writeTextMock.mock.calls[0][0]).toContain('PROJECT_ID = "123456789"');
   });
 });
 

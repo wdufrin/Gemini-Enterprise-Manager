@@ -14,37 +14,78 @@
  * limitations under the License.
  */
 
-import React, { useState } from 'react';
-import { Page } from '../types';
+import React, { useEffect, useState } from 'react';
+import { Page, UserProfile } from '../types';
 import { useGlobalDebug, ApiHistoryItem } from '../context/GlobalDebugContext';
 import CurlDetailsModal from './CurlDetailsModal';
-// ... imports
+
+interface SubNavLink {
+  label: string;
+  route: string;
+  isDefault?: boolean;
+}
 
 interface SidebarProps {
   currentPage: Page;
   setCurrentPage: (page: Page) => void;
+  onNavigateRoute?: (route: string) => void;
+  activeSearch?: string;
   onShowInfo: (infoKey: string) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   onOpenFeedback?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
+  userProfile?: UserProfile | null;
+  hasAccessToken?: boolean;
+  onSignOut?: () => void;
+}
+
+function getTabParamFromRoute(route: string): string | null {
+  const idx = route.indexOf('?');
+  if (idx === -1) return null;
+  return new URLSearchParams(route.slice(idx + 1)).get('tab');
 }
 
 const NavItem: React.FC<{
   page: Page;
   currentPage: Page;
   setCurrentPage: (page: Page) => void;
+  onNavigateRoute?: (route: string) => void;
+  activeSearch?: string;
+  subLinks?: SubNavLink[];
+  isExpanded: boolean;
+  onToggleExpand: (page: Page) => void;
   icon: React.ReactElement;
   onShowInfo: (infoKey: string) => void;
   isCollapsed: boolean;
   onCloseMobile?: () => void;
-}> = ({ page, currentPage, setCurrentPage, icon, onShowInfo, isCollapsed, onCloseMobile }) => {
+}> = ({
+  page,
+  currentPage,
+  setCurrentPage,
+  onNavigateRoute,
+  activeSearch = '',
+  subLinks,
+  isExpanded,
+  onToggleExpand,
+  icon,
+  onShowInfo,
+  isCollapsed,
+  onCloseMobile,
+}) => {
   const isCurrent = currentPage === page;
+  const hasSubLinks = Boolean(subLinks && subLinks.length > 0);
 
   const handleSelect = () => {
+    if (hasSubLinks && isCurrent) {
+      onToggleExpand(page);
+      return;
+    }
     setCurrentPage(page);
-    onCloseMobile?.();
+    if (!hasSubLinks) {
+      onCloseMobile?.();
+    }
   };
 
   if (isCollapsed) {
@@ -52,7 +93,10 @@ const NavItem: React.FC<{
       <div className="flex justify-center w-full mb-1 px-2 relative group">
         <button
           type="button"
-          onClick={handleSelect}
+          onClick={() => {
+            setCurrentPage(page);
+            onCloseMobile?.();
+          }}
           aria-label={page}
           aria-current={isCurrent ? 'page' : undefined}
           className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
@@ -62,102 +106,287 @@ const NavItem: React.FC<{
           }`}
           title={page}
         >
-          <span className="w-5 h-5 flex-shrink-0" aria-hidden="true">{icon}</span>
+          <span className="w-5 h-5 flex-shrink-0" aria-hidden="true">
+            {icon}
+          </span>
         </button>
       </div>
     );
   }
 
+  const currentTabParam = activeSearch ? new URLSearchParams(activeSearch).get('tab') : null;
+  const matchedExplicitSubLink =
+    hasSubLinks &&
+    currentTabParam &&
+    subLinks?.some((sub) => getTabParamFromRoute(sub.route) === currentTabParam);
+
   return (
-    <div className="relative flex items-center w-full min-w-0 group mb-0.5">
-      <button
-        type="button"
-        onClick={handleSelect}
-        aria-current={isCurrent ? 'page' : undefined}
-        title={page}
-        className={`flex items-center w-full min-w-0 pl-3 pr-8 py-2 text-[13px] font-medium rounded-lg transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
-          isCurrent
-            ? 'bg-blue-600/90 text-white shadow-sm'
-            : 'text-gray-300 hover:bg-gray-800/80 hover:text-white'
-        }`}
-      >
-        <span className={`w-4 h-4 flex-shrink-0 ${isCurrent ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`} aria-hidden="true">{icon}</span>
-        <span className="ml-2.5 truncate">{page}</span>
-      </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onShowInfo(page);
-        }}
-        aria-label={`Show API commands for ${page}`}
-        className={`absolute right-1.5 p-1 rounded-md opacity-0 group-hover:opacity-100 focus-within:opacity-100 focus-visible:opacity-100 transition-opacity duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
-          isCurrent
-            ? 'text-blue-100 hover:bg-blue-500 hover:text-white'
-            : 'text-gray-400 hover:bg-gray-700 hover:text-white'
-        }`}
-        title={`Show API commands for ${page}`}
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-        </svg>
-      </button>
+    <div className="w-full min-w-0 mb-0.5">
+      <div className="relative flex items-center w-full min-w-0 group">
+        <button
+          type="button"
+          onClick={handleSelect}
+          aria-current={isCurrent ? 'page' : undefined}
+          title={page}
+          className={`flex items-center w-full min-w-0 pl-3 ${
+            hasSubLinks ? 'pr-14' : 'pr-8'
+          } py-2 text-[13px] font-medium rounded-lg transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
+            isCurrent
+              ? 'bg-blue-600/90 text-white shadow-sm'
+              : 'text-gray-300 hover:bg-gray-800/80 hover:text-white'
+          }`}
+        >
+          <span
+            className={`w-4 h-4 flex-shrink-0 ${
+              isCurrent ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'
+            }`}
+            aria-hidden="true"
+          >
+            {icon}
+          </span>
+          <span className="ml-2.5 truncate">{page}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onShowInfo(page);
+          }}
+          aria-label={`Show API commands for ${page}`}
+          className={`absolute ${
+            hasSubLinks ? 'right-7' : 'right-1.5'
+          } p-1 rounded-md opacity-0 group-hover:opacity-100 focus-within:opacity-100 focus-visible:opacity-100 transition-opacity duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+            isCurrent
+              ? 'text-blue-100 hover:bg-blue-500 hover:text-white'
+              : 'text-gray-400 hover:bg-gray-700 hover:text-white'
+          }`}
+          title={`Show API commands for ${page}`}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-3.5 w-3.5"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              fillRule="evenodd"
+              d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
+
+        {hasSubLinks && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpand(page);
+            }}
+            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} sub-tabs for ${page}`}
+            aria-expanded={isExpanded}
+            className={`absolute right-1.5 p-1 rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+              isCurrent
+                ? 'text-blue-100 hover:bg-blue-500 hover:text-white'
+                : 'text-gray-400 hover:bg-gray-700 hover:text-white'
+            }`}
+            title={isExpanded ? `Collapse ${page} sub-tabs` : `Expand ${page} sub-tabs`}
+          >
+            <svg
+              className={`h-3.5 w-3.5 transition-transform duration-150 ${
+                isExpanded ? 'rotate-90' : ''
+              }`}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                fillRule="evenodd"
+                d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {hasSubLinks && isExpanded && subLinks && (
+        <div
+          className="ml-4 pl-2.5 border-l border-gray-800/90 mt-1 mb-1.5 space-y-0.5 animate-fadeIn"
+          role="group"
+          aria-label={`${page} sub-tabs`}
+        >
+          {subLinks.map((sub, idx) => {
+            const subTabParam = getTabParamFromRoute(sub.route);
+            const isSubActive =
+              isCurrent &&
+              (matchedExplicitSubLink
+                ? subTabParam === currentTabParam
+                : Boolean(sub.isDefault || (subTabParam === null && idx === 0) || idx === 0));
+            return (
+              <button
+                key={sub.route}
+                type="button"
+                onClick={() => {
+                  if (onNavigateRoute) {
+                    onNavigateRoute(sub.route);
+                  } else {
+                    setCurrentPage(page);
+                  }
+                  onCloseMobile?.();
+                }}
+                aria-current={isSubActive ? 'location' : undefined}
+                title={sub.label}
+                className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs transition-colors truncate focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
+                  isSubActive
+                    ? 'text-blue-300 bg-blue-950/60 font-semibold border border-blue-800/40'
+                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/70'
+                }`}
+              >
+                {sub.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowInfo, isCollapsed, onToggleCollapse, onOpenFeedback, isMobileOpen = false, onCloseMobile }) => {
+const Sidebar: React.FC<SidebarProps> = ({
+  currentPage,
+  setCurrentPage,
+  onNavigateRoute,
+  activeSearch = '',
+  onShowInfo,
+  isCollapsed,
+  onToggleCollapse,
+  onOpenFeedback,
+  isMobileOpen = false,
+  onCloseMobile,
+  userProfile,
+  hasAccessToken = false,
+  onSignOut,
+}) => {
   const { showCurlPreview, setShowCurlPreview, apiHistory, clearHistory } = useGlobalDebug();
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<ApiHistoryItem | null>(null);
   const [filterGet, setFilterGet] = useState(false);
+  const [expandedPages, setExpandedPages] = useState<Set<Page>>(() => new Set([currentPage]));
 
-  const filteredHistory = apiHistory.filter(item => !filterGet || item.method !== 'GET');
+  // Automatically expand the newly active page's sub-tabs while keeping sidebar compact
+  useEffect(() => {
+    setExpandedPages(new Set([currentPage]));
+  }, [currentPage]);
 
-  const navCategories = [
+  const handleToggleExpand = (page: Page) => {
+    setExpandedPages((prev) => {
+      const next = new Set(prev);
+      if (next.has(page)) {
+        next.delete(page);
+      } else {
+        next.add(page);
+      }
+      return next;
+    });
+  };
+
+  const filteredHistory = apiHistory.filter((item) => !filterGet || item.method !== 'GET');
+
+  const navCategories: Array<{
+    title: string;
+    items: Array<{ page: Page; icon: React.ReactElement; subLinks?: SubNavLink[] }>;
+  }> = [
     {
-      title: "Agent Management",
+      title: 'Apps & Agents',
       items: [
-        { page: Page.AGENTS, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" /></svg> },
-        { page: Page.SKILLS_REGISTRY, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 017 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0zM6 18a1 1 0 001-1v-2.065a8.935 8.935 0 00-2-.712V17a1 1 0 001 1z" /></svg> },
-        { page: Page.AGENT_BUILDER, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" /></svg> },
-        { page: Page.DEV_TOOLS, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg> },
+        { page: Page.ASSISTANT, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a2 2 0 00-2 2v8a2 2 0 002 2h2a2 2 0 002-2V4a2 2 0 00-2-2H9z" /><path d="M4 12a2 2 0 012-2h10a2 2 0 110 4H6a2 2 0 01-2-2z" /></svg>, subLinks: [
+          { label: 'All Engines & Apps', route: '/assistant', isDefault: true },
+          { label: 'Domains & Vanity URLs', route: '/assistant?tab=customize' },
+        ] },
+        { page: Page.AGENTS, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" /></svg>, subLinks: [
+          { label: 'Registered Agents', route: '/agents?tab=list', isDefault: true },
+          { label: 'Bulk Update', route: '/agents?tab=bulk-datasources' },
+        ] },
         { page: Page.AGENT_ENGINES, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 4a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H3a1 1 0 01-1-1V4z" /><path d="M2 10a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H3a1 1 0 01-1-1v-2z" /><path d="M2 16a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H3a1 1 0 01-1-1v-2z" /></svg> },
-      ]
-    },
-    {
-      title: "Knowledge & Resources",
-      items: [
-        { page: Page.DATA_STORES, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" /><path d="M3 8a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V8z" /><path d="M3 12a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" /></svg> },
-        { page: Page.GE_QUOTA_USAGE, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" /></svg> },
-      ]
-    },
-    {
-      title: "Testing & Analysis",
-      items: [
-        // { page: Page.CHAT, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 5v8a2 2 0 01-2 2h-5l-5 4v-4H4a2 2 0 01-2-2V5a2 2 0 012-2h12a2 2 0 012 2zM7 8H5v2h2V8zm2 0h2v2H9V8zm6 0h-2v2h2V8z" clipRule="evenodd" /></svg> },
-        // { page: Page.A2A_TESTER, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V3zm0 2v10h12V5H3z" clipRule="evenodd"/></svg> }, // Simple square for now as icon wasn't in original list
-        { page: Page.ASSISTANT, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a2 2 0 00-2 2v8a2 2 0 002 2h2a2 2 0 002-2V4a2 2 0 00-2-2H9z" /><path d="M4 12a2 2 0 012-2h10a2 2 0 110 4H6a2 2 0 01-2-2z" /></svg> },
-        { page: Page.LATENCY_LAB, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg> },
+        { page: Page.SKILLS_REGISTRY, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 017 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0zM6 18a1 1 0 001-1v-2.065a8.935 8.935 0 00-2-.712V17a1 1 0 001 1z" /></svg> },
         { page: Page.ARCHITECTURE, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M11 17a1 1 0 001.447.894l4-2A1 1 0 0017 15V9.236a1 1 0 00-1.447-.894l-4 1a1 1 0 00-.553.894V17zM15.211 6.276a1 1 0 000-1.788l-4.764-2.382a1 1 0 00-.894 0L4.789 4.488a1 1 0 000 1.788l4.764 2.382a1 1 0 00.894 0l4.764-2.382zM4.447 8.342A1 1 0 003 9.236V15a1 1 0 00.553.894l4 2A1 1 0 009 17v-5.764a1 1 0 00-.553-.894l-4-1z" /></svg> },
-      ]
+      ],
     },
     {
-      title: "Security & Access",
+      title: 'Knowledge & Integrations',
       items: [
-        { page: Page.AUTHORIZATIONS, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a4 4 0 100 8 4 4 0 000-8z" clipRule="evenodd" /></svg> },
+        { page: Page.DATA_STORES, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" /><path d="M3 8a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V8z" /><path d="M3 12a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" /></svg>, subLinks: [
+          { label: 'Data Stores', route: '/datastores?tab=datastores', isDefault: true },
+          { label: 'Enterprise Connectors', route: '/datastores?tab=connectors' },
+        ] },
+      ],
+    },
+    {
+      title: 'Build & Evaluation',
+      items: [
+        { page: Page.AGENT_BUILDER, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" /></svg>, subLinks: [
+          { label: 'ADK Agent (Engine)', route: '/builder?tab=adk', isDefault: true },
+          { label: 'A2A Function (Cloud Run)', route: '/builder?tab=a2a' },
+        ] },
+        { page: Page.LATENCY_LAB, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>, subLinks: [
+          { label: 'Latency Benchmark', route: '/latency-lab?tab=benchmark', isDefault: true },
+          { label: 'Skill A/B Lab', route: '/latency-lab?tab=skill-ab' },
+          { label: 'Fan-Out Inspector', route: '/latency-lab?tab=fan-out' },
+        ] },
+        { page: Page.DEV_TOOLS, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>, subLinks: [
+          { label: 'All Policy Domains', route: '/dev-tools?tab=all', isDefault: true },
+          { label: 'Agents & IDE', route: '/dev-tools?tab=core' },
+          { label: 'Browser & Plugins', route: '/dev-tools?tab=governance' },
+          { label: 'MCP Governance', route: '/dev-tools?tab=mcp' },
+          { label: 'Models & Residency', route: '/dev-tools?tab=models' },
+          { label: 'Telemetry & cURL', route: '/dev-tools?tab=logging' },
+        ] },
+      ],
+    },
+    {
+      title: 'Security & Governance',
+      items: [
+        { page: Page.AUTHORIZATIONS, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a4 4 0 100 8 4 4 0 000-8z" clipRule="evenodd" /></svg>, subLinks: [
+          { label: 'OAuth Credentials', route: '/authorizations?tab=credentials', isDefault: true },
+          { label: 'Workforce Pool Validator', route: '/authorizations?tab=wif-validator' },
+        ] },
         { page: Page.AGENT_PERMISSIONS, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg> },
-        { page: Page.MODEL_ARMOR, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2L3 5v6c0 3.55 3.14 6.84 7 7.93 3.86-1.09 7-4.38 7-7.93V5l-7-3z" /></svg> },
-        { page: Page.OBSERVABILITY, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg> },
-      ]
+        { page: Page.MODEL_ARMOR, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2L3 5v6c0 3.55 3.14 6.84 7 7.93 3.86-1.09 7-4.38 7-7.93V5l-7-3z" /></svg>, subLinks: [
+          { label: 'Activity Logs', route: '/model-armor?tab=logs', isDefault: true },
+          { label: 'Policy Configuration', route: '/model-armor?tab=policies' },
+          { label: 'Floor Settings & Tester', route: '/model-armor?tab=floor_and_tester' },
+        ] },
+        { page: Page.CONFIG_AUDIT, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm9.707 5.707a1 1 0 00-1.414-1.414L9 12.586l-1.293-1.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>, subLinks: [
+          { label: 'Drift & Parity Audit', route: '/config-audit?tab=parity', isDefault: true },
+          { label: 'Agent Promotion (dev → prod)', route: '/config-audit?tab=promotion' },
+          { label: 'Cloud Audit Logs', route: '/config-audit?tab=audit-logs' },
+        ] },
+      ],
     },
     {
-      title: "System",
+      title: 'Operations & FinOps',
       items: [
+        { page: Page.OBSERVABILITY, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>, subLinks: [
+          { label: 'Live Activity', route: '/observability?tab=live', isDefault: true },
+          { label: 'Operational Analytics', route: '/observability?tab=operational' },
+          { label: 'Policy & Governance', route: '/observability?tab=policy' },
+        ] },
+        { page: Page.GE_QUOTA_USAGE, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" /></svg>, subLinks: [
+          { label: 'Quota & Capacity Simulator', route: '/quota?tab=quota', isDefault: true },
+          { label: 'FinOps Cloud Billing', route: '/quota?tab=finops' },
+        ] },
+        { page: Page.LICENSE, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 2a1 1 0 00-1 1v1a1 1 0 002 0V3a1 1 0 00-1-1zM4 4h3a3 3 0 006 0h3a2 2 0 012 2v9a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zm2.5 7a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm2.45 4a2.5 2.5 0 10-4.9 0h4.9zM12 9a1 1 0 100 2h3a1 1 0 100-2h-3zm-1 4a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg>, subLinks: [
+          { label: 'User Assignments', route: '/licenses?tab=user_licenses', isDefault: true },
+          { label: 'Allocations (Billing)', route: '/licenses?tab=allocations' },
+          { label: 'Auto-Licensing & Overage', route: '/licenses?tab=user_store_policy' },
+          { label: 'Group Assignments', route: '/licenses?tab=group_assignments' },
+          { label: 'Automated Pruner', route: '/licenses?tab=automated_pruner' },
+        ] },
         { page: Page.BACKUP_RECOVERY, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" /><path fillRule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clipRule="evenodd" /></svg> },
-        { page: Page.CONFIG_AUDIT, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm9.707 5.707a1 1 0 00-1.414-1.414L9 12.586l-1.293-1.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg> },
-        { page: Page.LICENSE, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 2a1 1 0 00-1 1v1a1 1 0 002 0V3a1 1 0 00-1-1zM4 4h3a3 3 0 006 0h3a2 2 0 012 2v9a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zm2.5 7a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm2.45 4a2.5 2.5 0 10-4.9 0h4.9zM12 9a1 1 0 100 2h3a1 1 0 100-2h-3zm-1 4a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg> },
-      ]
-    }
+      ],
+    },
   ];
 
   return (
@@ -178,15 +407,35 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
         } ${isCollapsed ? 'lg:w-16' : 'lg:w-60 xl:w-64'} bg-[#0b0f19] border-r border-gray-800/90 flex flex-col h-screen overflow-hidden shrink-0`}
       >
         {/* Header */}
-        <div className={`flex items-center justify-between ${isCollapsed ? 'lg:justify-center px-3' : 'px-3.5 xl:px-4'} bg-[#0b0f19] border-b border-gray-800/90 shrink-0 h-14 transition-all duration-200`}>
+        <div
+          className={`flex items-center justify-between ${
+            isCollapsed ? 'lg:justify-center px-3' : 'px-3.5 xl:px-4'
+          } bg-[#0b0f19] border-b border-gray-800/90 shrink-0 h-14 transition-all duration-200`}
+        >
           <div className="flex items-center min-w-0">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-7 w-7 text-blue-500 flex-shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+              />
             </svg>
             {(!isCollapsed || isMobileOpen) && (
               <div className="flex flex-col ml-2.5 min-w-0 justify-center animate-fadeIn">
-                <span className="text-sm xl:text-base font-display font-bold text-gray-100 tracking-tight leading-none truncate">Gemini Enterprise</span>
-                <span className="text-[10px] text-gray-400 font-mono mt-1">Control Plane · v0.1119.404</span>
+                <span className="text-sm xl:text-base font-display font-bold text-gray-100 tracking-tight leading-none truncate">
+                  Gemini Enterprise
+                </span>
+                <span className="text-[10px] text-gray-400 font-mono mt-1">
+                  Control Plane · v0.1120.405
+                </span>
               </div>
             )}
           </div>
@@ -198,41 +447,53 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
               className="lg:hidden p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
               </svg>
             </button>
           )}
         </div>
-        
-        {/* Scrollable Navigation */}
-        <nav aria-label="Primary Navigation" className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar px-2.5 py-3 space-y-3.5">
-          {navCategories.map((group, index) => (
-            <div key={index} className="space-y-1">
-              {(!isCollapsed || isMobileOpen) && (
-                <h2 className="px-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 animate-fadeIn truncate">
-                  {group.title}
-                </h2>
-              )}
-              <div className="space-y-0.5">
-                {group.items.map(item => (
-                  <NavItem
-                    key={item.page}
-                    page={item.page}
-                    currentPage={currentPage}
-                    setCurrentPage={setCurrentPage}
-                    icon={item.icon}
-                    onShowInfo={onShowInfo}
-                    isCollapsed={isCollapsed && !isMobileOpen}
-                    onCloseMobile={onCloseMobile}
-                  />
-                ))}
+
+        {/* Scrollable Body */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar px-2.5 py-3">
+          <nav aria-label="Primary Navigation" className="space-y-3.5">
+            {navCategories.map((group) => (
+              <div key={group.title} className="space-y-1">
+                {(!isCollapsed || isMobileOpen) && (
+                  <h2 className="px-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 animate-fadeIn truncate">
+                    {group.title}
+                  </h2>
+                )}
+                <div className="space-y-0.5">
+                  {group.items.map((item) => (
+                    <NavItem
+                      key={item.page}
+                      page={item.page}
+                      currentPage={currentPage}
+                      setCurrentPage={setCurrentPage}
+                      onNavigateRoute={onNavigateRoute}
+                      activeSearch={activeSearch}
+                      subLinks={item.subLinks}
+                      isExpanded={expandedPages.has(item.page)}
+                      onToggleExpand={handleToggleExpand}
+                      icon={item.icon}
+                      onShowInfo={onShowInfo}
+                      isCollapsed={isCollapsed && !isMobileOpen}
+                      onCloseMobile={onCloseMobile}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </nav>
 
           {/* Debug Settings Section (Only shown when expanded) */}
           {(!isCollapsed || isMobileOpen) && (
-            <div className="pt-3 border-t border-gray-800/90 mt-3 animate-fadeIn">
+            <div className="pt-3 border-t border-gray-800/90 mt-3.5 animate-fadeIn">
               <h2 className="px-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
                 Settings &amp; Debug
               </h2>
@@ -256,123 +517,149 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
                 </p>
               </div>
 
-            {/* API History List */}
-            {showCurlPreview && apiHistory.length > 0 && (
-              <div className="mt-4 px-3">
-                <div className="flex justify-between items-center mb-2">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                      History ({filteredHistory.length})
-                    </h3>
+              {/* API History List */}
+              {showCurlPreview && apiHistory.length > 0 && (
+                <div className="mt-3 px-3">
+                  <div className="flex justify-between items-center mb-2">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                        History ({filteredHistory.length})
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setFilterGet(!filterGet)}
+                        className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                          filterGet
+                            ? 'bg-blue-900/50 text-blue-300 border-blue-800'
+                            : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
+                        }`}
+                        title="Toggle GET requests"
+                      >
+                        {filterGet ? 'No GET' : 'All'}
+                      </button>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setFilterGet(!filterGet)}
-                      className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${filterGet
-                        ? 'bg-blue-900/50 text-blue-300 border-blue-800'
-                        : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
-                        }`}
-                      title="Toggle GET requests"
+                      onClick={clearHistory}
+                      className="text-[10px] text-red-400 hover:text-red-300 uppercase"
                     >
-                      {filterGet ? 'No GET' : 'All'}
+                      Clear
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={clearHistory}
-                    className="text-[10px] text-red-400 hover:text-red-300 uppercase"
-                  >
-                    Clear
-                  </button>
+                  <div className="space-y-1 max-h-52 overflow-y-auto custom-scrollbar pr-1">
+                    {filteredHistory.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setSelectedHistoryItem(item)}
+                        className="w-full text-left p-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 transition-colors group"
+                      >
+                        <div className="flex justify-between items-start">
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              item.method === 'GET'
+                                ? 'bg-blue-900 text-blue-200'
+                                : item.method === 'POST'
+                                  ? 'bg-green-900 text-green-200'
+                                  : item.method === 'PATCH'
+                                    ? 'bg-yellow-900 text-yellow-200'
+                                    : item.method === 'DELETE'
+                                      ? 'bg-red-900 text-red-200'
+                                      : 'bg-gray-700 text-gray-300'
+                            }`}
+                          >
+                            {item.method}
+                          </span>
+                          <span className="text-[10px] text-gray-500">
+                            {item.timestamp.toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                        <div
+                          className="mt-1 text-xs text-gray-300 truncate font-mono"
+                          title={item.url}
+                        >
+                          {item.url.split('/').pop()?.split('?')[0] || item.url}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-1 max-h-60 overflow-y-auto custom-scrollbar pr-1">
-                  {filteredHistory.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setSelectedHistoryItem(item)}
-                      className="w-full text-left p-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 transition-colors group"
-                    >
-                      <div className="flex justify-between items-start">
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${item.method === 'GET' ? 'bg-blue-900 text-blue-200' :
-                          item.method === 'POST' ? 'bg-green-900 text-green-200' :
-                            item.method === 'PATCH' ? 'bg-yellow-900 text-yellow-200' :
-                              item.method === 'DELETE' ? 'bg-red-900 text-red-200' :
-                                'bg-gray-700 text-gray-300'
-                          }`}>
-                          {item.method}
-                        </span>
-                        <span className="text-[10px] text-gray-500">
-                          {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                        </span>
-                      </div>
-                      <div className="mt-1 text-xs text-gray-300 truncate font-mono" title={item.url}>
-                        {item.url.split('/').pop()?.split('?')[0] || item.url}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              )}
+            </div>
+          )}
+
+          <div className="h-2"></div>
+        </div>
+
+        {/* Mobile-only (<sm) Auth & Feedback Controls + Desktop Collapse Rail */}
+        <div className="p-2.5 border-t border-gray-800/90 shrink-0 bg-[#0b0f19] space-y-2">
+          {isMobileOpen && onSignOut && (userProfile || hasAccessToken) && (
+            <div className="sm:hidden flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-gray-900 border border-gray-800">
+              <span className="text-xs text-gray-300 truncate">
+                {userProfile?.email || 'Access Token Active'}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  onCloseMobile?.();
+                  onSignOut();
+                }}
+                className="text-xs font-medium text-red-400 hover:text-red-300 shrink-0"
+              >
+                Sign Out
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5">
+            {onOpenFeedback && isMobileOpen && (
+              <button
+                type="button"
+                onClick={() => {
+                  onCloseMobile?.();
+                  onOpenFeedback();
+                }}
+                aria-label="Report Issue or Feedback"
+                className="sm:hidden flex-1 flex items-center justify-center py-1.5 px-2 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-800"
+              >
+                <span className="text-[11px] font-medium truncate">Feedback</span>
+              </button>
             )}
-          </div>
-        )}
 
-        {/* Footer padding to ensure last items are clickable */}
-        <div className="h-2"></div>
-      </nav>
-
-      {/* Compact Footer Actions */}
-      <div className="p-2.5 border-t border-gray-800/90 shrink-0 bg-[#0b0f19] flex items-center gap-1.5">
-        {onOpenFeedback && (!isCollapsed || isMobileOpen) && (
-          <button
-            type="button"
-            onClick={() => {
-              onCloseMobile?.();
-              onOpenFeedback();
-            }}
-            aria-label="Report Issue or Feedback"
-            title="Report Issue or Feedback (PII-Sanitized GitHub Issue)"
-            className="flex-1 flex items-center justify-center py-1.5 px-2 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-800 hover:border-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 min-w-0"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-3.5 w-3.5 text-blue-400 shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              aria-hidden="true"
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              aria-label={isCollapsed ? 'Expand Navigation' : 'Collapse Navigation'}
+              className={`hidden lg:flex items-center justify-center py-1.5 px-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-800 hover:border-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 w-full`}
+              title={isCollapsed ? 'Expand Navigation' : 'Collapse Navigation'}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
-              />
-            </svg>
-            <span className="ml-1.5 text-[11px] font-medium truncate">
-              Feedback
-            </span>
-          </button>
-        )}
-
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          aria-label={isCollapsed ? "Expand Navigation" : "Collapse Navigation"}
-          className={`hidden lg:flex items-center justify-center py-1.5 px-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-800 hover:border-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${isCollapsed ? 'w-full' : 'shrink-0'}`}
-          title={isCollapsed ? "Expand Navigation" : "Collapse Navigation"}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className={`h-4 w-4 transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-          </svg>
-        </button>
-      </div>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className={`h-4 w-4 transition-transform duration-200 ${
+                  isCollapsed ? 'rotate-180' : ''
+                }`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+                />
+              </svg>
+              {!isCollapsed && (
+                <span className="ml-1.5 text-[11px] font-medium text-gray-400">Collapse</span>
+              )}
+            </button>
+          </div>
+        </div>
       </aside>
 
       <CurlDetailsModal
@@ -380,7 +667,9 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
         onClose={() => setSelectedHistoryItem(null)}
         curlCommand={selectedHistoryItem?.curlCommand || ''}
         historyItem={selectedHistoryItem}
-        title={`API Details: ${selectedHistoryItem?.method} ${selectedHistoryItem?.url.split('/').pop()?.split('?')[0]}`}
+        title={`API Details: ${selectedHistoryItem?.method} ${
+          selectedHistoryItem?.url.split('/').pop()?.split('?')[0]
+        }`}
       />
     </>
   );

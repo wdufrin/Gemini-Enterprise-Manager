@@ -70,7 +70,8 @@ interface UserLicensesTabProps {
   // Modals / Triggers
   setIsExportModalOpen: (open: boolean) => void;
   setIsPruneModalOpen: (open: boolean) => void;
-  setIsDeploymentModalOpen: (open: boolean) => void;
+  setIsDeploymentModalOpen?: (open: boolean) => void;
+  onSetupAutoPruner?: () => void;
   setJsonModalData: (data: UserLicense) => void;
   requestDelete: (license: UserLicense, type: 'revoke' | 'delete') => void;
   isActionLoading: boolean;
@@ -156,6 +157,7 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
   setIsExportModalOpen,
   setIsPruneModalOpen,
   setIsDeploymentModalOpen,
+  onSetupAutoPruner,
   setJsonModalData,
   requestDelete,
   isActionLoading,
@@ -308,7 +310,14 @@ export const UserLicensesTab: React.FC<UserLicensesTabProps> = ({
                 Prune Inactive
               </button>
               <button
-                onClick={() => setIsDeploymentModalOpen(true)}
+                type="button"
+                onClick={() => {
+                  if (onSetupAutoPruner) {
+                    onSetupAutoPruner();
+                  } else {
+                    setIsDeploymentModalOpen?.(true);
+                  }
+                }}
                 disabled={!projectNumber}
                 className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center whitespace-nowrap h-[38px]"
               >

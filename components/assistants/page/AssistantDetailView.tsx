@@ -17,6 +17,7 @@
 import React, { useState, useMemo } from 'react';
 import { Agent, AppEngine, Assistant, Config, UserProfile } from '../../../types';
 import { AssistantRowData } from '../../../hooks/useAssistantList';
+import { Tabs, TabItem } from '../../common/Tabs';
 import Spinner from '../../Spinner';
 import AssistantDetailsForm from '../AssistantDetailsForm';
 import EngineDetailsForm from '../EngineDetailsForm';
@@ -65,6 +66,7 @@ interface AssistantDetailViewProps {
   onAssistantUpdateSuccess: (assistant: Assistant) => void;
   onRefreshAgents: () => void;
   onOpenLatencyLab?: () => void;
+  onOpenPlayground?: () => void;
 }
 
 export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
@@ -89,6 +91,7 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
   onAssistantUpdateSuccess,
   onRefreshAgents,
   onOpenLatencyLab,
+  onOpenPlayground,
 }) => {
   // Declared before the early return below so hook order stays stable.
   const [redirectRefreshToken, setRedirectRefreshToken] = useState(0);
@@ -117,28 +120,47 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
     ],
   );
 
+  const tabItems = useMemo<readonly TabItem<AssistantDetailTab>[]>(
+    () => [
+      { id: 'overview', label: 'Overview' },
+      { id: 'agents', label: 'Agents' },
+      { id: 'skills', label: 'Skills', badge: 'Capabilities' },
+      ...(isGoogleInternal
+        ? [
+            {
+              id: 'memories' as const,
+              label: 'User Memories',
+              badge: 'Internal',
+            },
+          ]
+        : []),
+      {
+        id: 'datastores',
+        label: 'Connected DataStores',
+        badge: 'Beta',
+      },
+      { id: 'notebooks', label: 'Notebooks' },
+      { id: 'history', label: 'History' },
+      { id: 'customize', label: 'Domains & Vanity URLs' },
+    ],
+    [isGoogleInternal],
+  );
+
   if (!selectedRow.assistant) return null;
 
   return (
     <div className="space-y-6 animate-fade-in-up">
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700">
-        <div className="flex items-center gap-4 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900/85 p-4 rounded-xl shadow-md border border-gray-800/90">
+        <div className="flex items-center gap-3.5 min-w-0">
           <button
+            type="button"
             onClick={onBack}
-            className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors shrink-0"
+            aria-label="Back to Engines"
+            title="Back to Engines"
+            className="inline-flex items-center gap-1.5 px-3 h-9 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs sm:text-sm font-medium text-gray-200 hover:text-white transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-5 w-5"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path
-                fillRule="evenodd"
-                d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z"
-                clipRule="evenodd"
-              />
-            </svg>
+            <span aria-hidden="true">←</span>
+            <span>Back to Engines</span>
           </button>
           <div className="min-w-0">
             <h2 className="text-xl font-bold text-white truncate">
@@ -150,17 +172,40 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
           </div>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
-          {onOpenLatencyLab && (
+          {onOpenPlayground && (
             <button
               type="button"
-              onClick={onOpenLatencyLab}
-              className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-500 shadow-md flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              onClick={onOpenPlayground}
+              className="px-3.5 h-9 bg-emerald-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-emerald-500 shadow-xs flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 className="h-4 w-4 shrink-0"
                 viewBox="0 0 20 20"
                 fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <span>Open Playground</span>
+            </button>
+          )}
+          {onOpenLatencyLab && (
+            <button
+              type="button"
+              onClick={onOpenLatencyLab}
+              className="px-3.5 h-9 bg-indigo-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-indigo-500 shadow-xs flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4 shrink-0"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
               >
                 <path
                   fillRule="evenodd"
@@ -174,7 +219,7 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
           <button
             type="button"
             onClick={() => setIsEvaluateModalOpen(true)}
-            className="px-4 py-2 bg-purple-600 text-white text-sm font-semibold rounded-md hover:bg-purple-500 shadow-md flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            className="px-3.5 h-9 bg-purple-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-purple-500 shadow-xs flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -182,6 +227,7 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -196,14 +242,16 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
             </span>
           </button>
           <button
+            type="button"
             onClick={() => setIsAuditModalOpen(true)}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 shadow-md flex items-center gap-1 whitespace-nowrap shrink-0"
+            className="px-3.5 h-9 bg-blue-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-blue-500 shadow-xs flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               className="h-4 w-4 shrink-0"
               viewBox="0 0 20 20"
               fill="currentColor"
+              aria-hidden="true"
             >
               <path
                 fillRule="evenodd"
@@ -211,11 +259,12 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
                 clipRule="evenodd"
               />
             </svg>
-            Backup Usage Logging
+            <span>Backup Usage Logging</span>
           </button>
           <button
+            type="button"
             onClick={() => setIsExportModalOpen(true)}
-            className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 shadow-md whitespace-nowrap shrink-0"
+            className="px-3.5 h-9 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 hover:text-white text-xs sm:text-sm font-semibold rounded-lg shadow-xs whitespace-nowrap shrink-0 transition-colors"
           >
             Backup Analytics
           </button>
@@ -226,50 +275,14 @@ export const AssistantDetailView: React.FC<AssistantDetailViewProps> = ({
         <Spinner />
       ) : (
         <div className="space-y-6">
-          {/* Tabs Navigation */}
-          <div className="border-b border-gray-700 flex justify-between items-center overflow-x-auto">
-            <nav className="-mb-px flex space-x-4 xl:space-x-8 min-w-max" aria-label="Tabs">
-              {[
-                { key: 'overview', label: 'Overview' },
-                { key: 'agents', label: 'Agents' },
-                { key: 'skills', label: 'Skills', badge: 'Capabilities' },
-                ...(isGoogleInternal
-                  ? [
-                      {
-                        key: 'memories',
-                        label: 'User Memories',
-                        badge: 'Internal',
-                      },
-                    ]
-                  : []),
-                {
-                  key: 'datastores',
-                  label: 'Connected DataStores',
-                  badge: 'Beta',
-                },
-                { key: 'notebooks', label: 'Notebooks' },
-                { key: 'history', label: 'History' },
-                { key: 'customize', label: 'Customize' },
-              ].map((tabItem) => (
-                <button
-                  key={tabItem.key}
-                  onClick={() => setActiveTab(tabItem.key as AssistantDetailTab)}
-                  className={`${
-                    activeTab === tabItem.key
-                      ? 'border-blue-500 text-blue-400'
-                      : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm capitalize flex items-center gap-1.5`}
-                >
-                  <span>{tabItem.label}</span>
-                  {tabItem.badge && (
-                    <span className="px-1.5 py-0.2 bg-purple-900/60 text-purple-300 text-[10px] font-bold rounded-full border border-purple-600">
-                      {tabItem.badge}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </nav>
-          </div>
+          {/* Canonical WAI-ARIA Tabs Navigation */}
+          <Tabs
+            ariaLabel="Engine and Assistant Configuration"
+            syncSearchParam="tab"
+            activeTab={activeTab}
+            onChange={setActiveTab}
+            items={tabItems}
+          />
 
           {/* Tab Content */}
           <div className="py-4">

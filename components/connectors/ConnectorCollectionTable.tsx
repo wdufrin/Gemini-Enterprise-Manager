@@ -16,6 +16,7 @@
 
 import React, { useState, useMemo } from "react";
 import { Collection, DataConnector, Operation } from "../../types";
+import { RowActionMenu, RowActionMenuItem } from "../common/RowActionMenu";
 import { ValidationResult } from "./connectorDiagnostics";
 import { getConnectorCloneEligibility } from "./duplicate/duplicateFieldUtils";
 
@@ -635,115 +636,120 @@ export const ConnectorCollectionTable: React.FC<ConnectorCollectionTableProps> =
                       })()}
                     </td>
                     <td className="gem-sticky-action-td px-3 xl:px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        type="button"
-                        onClick={() => onCheckDataConnector(collection)}
-                        className="text-blue-400 hover:text-blue-300 font-semibold text-xs border border-blue-500/30 px-2.5 xl:px-3 py-1.5 rounded hover:bg-blue-500/10 transition-colors whitespace-nowrap shrink-0"
-                      >
-                        Run Diagnostics
-                      </button>
-                      <button
-                        type="button"
-                        disabled={loadingDetailsCollectionId === collection.name}
-                        onClick={() => onOpenDetails(collection)}
-                        className="inline-flex items-center gap-1.5 text-gray-300 hover:text-white font-semibold text-xs border border-gray-600 px-2.5 xl:px-3 py-1.5 rounded hover:bg-gray-700 disabled:opacity-60 transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0"
-                      >
-                        {loadingDetailsCollectionId === collection.name ? (
-                          <>
-                            <svg
-                              className="animate-spin h-3 w-3 text-blue-400 shrink-0"
-                              viewBox="0 0 24 24"
-                            >
-                              <circle
-                                className="opacity-25"
-                                cx="12"
-                                cy="12"
-                                r="10"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                              />
-                              <path
-                                className="opacity-75"
-                                fill="currentColor"
-                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                              />
-                            </svg>
-                            <span>Opening...</span>
-                          </>
-                        ) : (
-                          "Details"
-                        )}
-                      </button>
-                      {onOpenDeadLetter && collectionId !== "default_collection" && (() => {
-                        const detectedGcsPrefix = extractDeadLetterGcsPrefix(
-                          collection,
-                          result,
-                        );
-                        return (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onOpenDeadLetter(collection, detectedGcsPrefix)
-                            }
-                            className={`font-semibold text-xs border px-2.5 xl:px-3 py-1.5 rounded transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0 ${
-                              detectedGcsPrefix
-                                ? "text-orange-300 hover:text-orange-200 border-orange-500/50 bg-orange-950/30 hover:bg-orange-900/40"
-                                : "text-gray-300 hover:text-white border-gray-600 hover:bg-gray-700"
-                            }`}
-                            title={
-                              detectedGcsPrefix
+                      <div className="inline-flex items-center justify-end gap-1.5 xl:gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onCheckDataConnector(collection)}
+                          className="text-blue-400 hover:text-blue-300 font-semibold text-xs border border-blue-500/30 px-2.5 xl:px-3 py-1.5 rounded hover:bg-blue-500/10 transition-colors whitespace-nowrap shrink-0"
+                        >
+                          Run Diagnostics
+                        </button>
+                        <button
+                          type="button"
+                          disabled={loadingDetailsCollectionId === collection.name}
+                          onClick={() => onOpenDetails(collection)}
+                          className="inline-flex items-center gap-1.5 text-gray-300 hover:text-white font-semibold text-xs border border-gray-600 px-2.5 xl:px-3 py-1.5 rounded hover:bg-gray-700 disabled:opacity-60 transition-colors whitespace-nowrap shrink-0"
+                        >
+                          {loadingDetailsCollectionId === collection.name ? (
+                            <>
+                              <svg
+                                className="animate-spin h-3 w-3 text-blue-400 shrink-0"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                />
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                />
+                              </svg>
+                              <span>Opening...</span>
+                            </>
+                          ) : (
+                            "Details"
+                          )}
+                        </button>
+                        {(() => {
+                          if (collectionId === "default_collection") return null;
+                          const overflowItems: RowActionMenuItem[] = [];
+
+                          if (onOpenDeadLetter) {
+                            const detectedGcsPrefix = extractDeadLetterGcsPrefix(
+                              collection,
+                              result,
+                            );
+                            overflowItems.push({
+                              id: "dead-letter",
+                              label: "Dead-Letter",
+                              badge: detectedGcsPrefix ? "GCS" : undefined,
+                              title: detectedGcsPrefix
                                 ? `Inspect GCS dead-letter errors (${detectedGcsPrefix})`
-                                : "Inspect GCS dead-letter JSONL logs for this connector"
+                                : "Inspect GCS dead-letter JSONL logs for this connector",
+                              onClick: () =>
+                                onOpenDeadLetter(collection, detectedGcsPrefix),
+                            });
+                          }
+
+                          if (onOpenAlertPolicy) {
+                            overflowItems.push({
+                              id: "alert",
+                              label: "Alert",
+                              title:
+                                "Provision Cloud Monitoring sync failure alert policy",
+                              onClick: () => onOpenAlertPolicy(collection),
+                            });
+                          }
+
+                          if (isCloneEnabled) {
+                            const knownConnector =
+                              result?.dataConnector ||
+                              (result?.details &&
+                              typeof result.details === "object" &&
+                              "connectorState" in result.details
+                                ? (
+                                    result.details as {
+                                      connectorState?: unknown;
+                                    }
+                                  ).connectorState
+                                : undefined) ||
+                              collection.dataConnector;
+                            const eligibility = knownConnector
+                              ? getConnectorCloneEligibility(knownConnector)
+                              : { canClone: true };
+                            if (eligibility.canClone) {
+                              overflowItems.push({
+                                id: "clone",
+                                label: "Clone",
+                                badge: "Exp",
+                                title:
+                                  "Clone this connector to another project",
+                                onClick: () => onDuplicateConnector(collection),
+                              });
                             }
-                          >
-                            Dead-Letter
-                          </button>
-                        );
-                      })()}
-                      {onOpenAlertPolicy && collectionId !== "default_collection" && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenAlertPolicy(collection)}
-                          className="text-purple-300 hover:text-purple-200 font-semibold text-xs border border-purple-500/30 px-2.5 xl:px-3 py-1.5 rounded hover:bg-purple-500/10 transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0"
-                          title="Provision Cloud Monitoring sync failure alert policy"
-                        >
-                          Alert
-                        </button>
-                      )}
-                      {(() => {
-                        if (!isCloneEnabled || collectionId === "default_collection") return null;
-                        const knownConnector =
-                          result?.dataConnector ||
-                          (result?.details &&
-                          typeof result.details === "object" &&
-                          "connectorState" in result.details
-                            ? (result.details as { connectorState?: unknown }).connectorState
-                            : undefined) ||
-                          collection.dataConnector;
-                        const eligibility = knownConnector
-                          ? getConnectorCloneEligibility(knownConnector)
-                          : { canClone: true };
-                        if (!eligibility.canClone) return null;
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => onDuplicateConnector(collection)}
-                            className="text-amber-400 hover:text-amber-300 font-semibold text-xs border border-amber-500/30 px-2.5 xl:px-3 py-1.5 rounded hover:bg-amber-500/10 transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0"
-                            title="Clone this connector to another project"
-                          >
-                            Clone
-                          </button>
-                        );
-                      })()}
-                      {collectionId !== "default_collection" && (
-                        <button
-                          type="button"
-                          onClick={() => onRequestDelete(collection)}
-                          className="text-red-400 hover:text-red-300 font-semibold text-xs border border-red-500/30 px-2.5 xl:px-3 py-1.5 rounded hover:bg-red-500/10 transition-colors ml-1.5 xl:ml-2 whitespace-nowrap shrink-0"
-                        >
-                          Delete
-                        </button>
-                      )}
+                          }
+
+                          overflowItems.push({
+                            id: "delete",
+                            label: "Delete",
+                            danger: true,
+                            onClick: () => onRequestDelete(collection),
+                          });
+
+                          return (
+                            <RowActionMenu
+                              ariaLabel={`More actions for ${collection.displayName || collectionId}`}
+                              items={overflowItems}
+                            />
+                          );
+                        })()}
+                      </div>
                     </td>
                   </tr>
                 );

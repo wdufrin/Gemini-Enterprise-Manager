@@ -15,6 +15,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { Modal } from '../common/Modal';
 import { LicenseConfig, UserLicense } from './types';
 import { assignUserLicenses } from '../../services/api/licenses';
 import { getLocationFromResourceName } from '../../services/api/core';
@@ -278,8 +279,6 @@ export const BulkAssignCsvModal: React.FC<BulkAssignCsvModalProps> = ({
     [parsed.validEmails, selectedConfigObj, existingLicenses],
   );
 
-  if (!isOpen) return null;
-
   const readFileAsText = (file: File): Promise<string> => {
     if (typeof file.text === 'function') {
       return file.text();
@@ -393,212 +392,27 @@ export const BulkAssignCsvModal: React.FC<BulkAssignCsvModalProps> = ({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="bulk-assign-csv-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
-    >
-      <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-start justify-between border-b border-gray-700 pb-3">
-          <div>
-            <h3 id="bulk-assign-csv-title" className="text-lg font-bold text-white">
-              Bulk Assign User Licenses (Net-New Emails / CSV)
-            </h3>
-            <p className="text-xs text-gray-400 mt-1">
-              Pre-provision Gemini Enterprise seats for net-new employees before their first sign-in via chunked <code className="text-gray-300">:batchUpdateUserLicenses</code> calls.
-            </p>
-          </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      preventClose={isSubmitting}
+      size="2xl"
+      title="Bulk Assign User Licenses (Net-New Emails / CSV)"
+      titleId="bulk-assign-csv-title"
+      subtitle={
+        <>
+          Pre-provision Gemini Enterprise seats for net-new employees before their first sign-in via chunked{' '}
+          <code className="text-gray-300">:batchUpdateUserLicenses</code> calls.
+        </>
+      }
+      bodyClassName="p-6 space-y-4"
+      footer={
+        <>
           <button
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            aria-label="Close modal"
-            className="text-gray-400 hover:text-white text-lg font-bold px-2"
-          >
-            &times;
-          </button>
-        </div>
-
-        {/* Target License Config Selector */}
-        <div>
-          <label
-            htmlFor="csv-target-license-select"
-            className="block text-xs font-semibold uppercase tracking-wider text-gray-300 mb-1.5"
-          >
-            Target License Configuration
-          </label>
-          <select
-            id="csv-target-license-select"
-            aria-label="Target License Configuration"
-            data-testid="csv-target-license-select"
-            value={selectedConfigName}
-            onChange={(e) => setSelectedConfigName(e.target.value)}
-            disabled={isSubmitting}
-            className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Select License Configuration...</option>
-            {apiLicenseConfigs.map((cfg) => {
-              const id = cfg.name.split('/').pop() || cfg.name;
-              const label = cfg.displayName || id;
-              const total = cfg.licenseCount !== undefined ? ` (${cfg.licenseCount} total seats)` : '';
-              return (
-                <option key={cfg.name} value={cfg.name}>
-                  {label} — {cfg.subscriptionTier || 'GEMINI_ENTERPRISE'}
-                  {total}
-                </option>
-              );
-            })}
-          </select>
-          {selectedConfigObj && seatCheck.availableSeats !== null && (
-            <p data-testid="csv-available-seats-info" className="text-xs text-gray-400 mt-1">
-              Available capacity:{' '}
-              <strong className="text-blue-300">{seatCheck.availableSeats}</strong> of{' '}
-              <strong className="text-gray-200">{seatCheck.allocatedSeats}</strong> seats remaining (
-              {seatCheck.currentlyUsedSeats} assigned).
-            </p>
-          )}
-        </div>
-
-        {/* CSV Upload + Paste Textarea */}
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <label
-              htmlFor="csv-emails-textarea"
-              className="block text-xs font-semibold uppercase tracking-wider text-gray-300"
-            >
-              Employee Emails (Paste or Upload .CSV)
-            </label>
-            <label className="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-xs font-semibold text-white rounded cursor-pointer border border-gray-600">
-              <span>Upload .CSV</span>
-              <input
-                type="file"
-                accept=".csv,.txt,text/csv,text/plain"
-                aria-label="Upload CSV File"
-                data-testid="csv-file-upload-input"
-                onChange={(e) => void handleFileUpload(e)}
-                disabled={isSubmitting}
-                className="sr-only"
-              />
-            </label>
-          </div>
-          {uploadedFileName && (
-            <p className="text-xs text-indigo-300 font-mono">Loaded file: {uploadedFileName}</p>
-          )}
-          <textarea
-            id="csv-emails-textarea"
-            aria-label="Employee Emails or CSV"
-            data-testid="csv-emails-textarea"
-            rows={5}
-            value={rawEmailText}
-            onChange={(e) => setRawEmailText(e.target.value)}
-            disabled={isSubmitting}
-            placeholder={"email\nalice.new@company.com\nbob.new@company.com"}
-            className="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-xs text-gray-100 font-mono placeholder-gray-500 focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        {/* Live Validation Summary */}
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span
-            data-testid="csv-valid-count"
-            className="px-2.5 py-1 rounded bg-emerald-950/60 border border-emerald-800 text-emerald-200 font-semibold"
-          >
-            Valid Unique Emails: {parsed.validEmails.length}
-          </span>
-          {parsed.duplicateCount > 0 && (
-            <span
-              data-testid="csv-duplicate-count"
-              className="px-2.5 py-1 rounded bg-amber-950/60 border border-amber-800 text-amber-200"
-            >
-              Duplicates Deduplicated: {parsed.duplicateCount}
-            </span>
-          )}
-          {seatCheck.alreadyOnTargetCount > 0 && (
-            <span className="px-2.5 py-1 rounded bg-gray-900 border border-gray-700 text-gray-300">
-              Already on target config: {seatCheck.alreadyOnTargetCount} (Net-new seats needed: {seatCheck.netSeatsNeeded})
-            </span>
-          )}
-        </div>
-
-        {parsed.invalidEntries.length > 0 && (
-          <div
-            data-testid="csv-invalid-warning"
-            role="alert"
-            className="bg-red-950/50 border border-red-700 rounded-lg p-3 text-xs text-red-200 space-y-1.5"
-          >
-            <div className="font-bold">
-              Invalid Email Format Detected ({parsed.invalidEntries.length} entry{parsed.invalidEntries.length === 1 ? '' : 'ies'}):
-            </div>
-            <p>Fix or remove malformed entries before assigning seats:</p>
-            <div className="font-mono bg-black/40 p-2 rounded max-h-24 overflow-y-auto">
-              {parsed.invalidEntries.slice(0, 20).join(', ')}
-              {parsed.invalidEntries.length > 20 && ` ... (+${parsed.invalidEntries.length - 20} more)`}
-            </div>
-          </div>
-        )}
-
-        {seatCheck.exceedsCapacity && (
-          <div
-            data-testid="csv-seat-shortfall-error"
-            role="alert"
-            className="bg-red-950/60 border-2 border-red-600 rounded-lg p-3 text-xs text-red-100"
-          >
-            <strong>Seat Capacity Exceeded:</strong> Need{' '}
-            <strong>{seatCheck.netSeatsNeeded}</strong> net-new seat(s), but only{' '}
-            <strong>{seatCheck.availableSeats}</strong> seat(s) remain on this LicenseConfig (shortfall of{' '}
-            <strong>{seatCheck.seatShortfall}</strong> seat(s)). Distribute additional seats or reduce the CSV batch.
-          </div>
-        )}
-
-        {/* Typed ASSIGN Confirmation */}
-        <div className="bg-gray-900/80 border border-gray-700 rounded-lg p-3.5 space-y-2">
-          <label htmlFor="csv-confirm-assign-input" className="block text-xs text-gray-300">
-            Type <code className="text-white font-bold bg-gray-800 px-1.5 py-0.5 rounded">ASSIGN</code> to confirm provisioning{' '}
-            <strong className="text-white">{parsed.validEmails.length}</strong> user license(s)
-            {parsed.validEmails.length > BULK_ASSIGN_CHUNK_SIZE && (
-              <span>
-                {' '}
-                across {Math.ceil(parsed.validEmails.length / BULK_ASSIGN_CHUNK_SIZE)} chunks of {BULK_ASSIGN_CHUNK_SIZE}
-              </span>
-            )}
-            :
-          </label>
-          <input
-            id="csv-confirm-assign-input"
-            aria-label="Type ASSIGN to confirm"
-            data-testid="csv-confirm-input"
-            type="text"
-            value={confirmText}
-            onChange={(e) => setConfirmText(e.target.value.trim())}
-            disabled={isSubmitting}
-            placeholder="ASSIGN"
-            className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-white font-mono focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        {isSubmitting && progress && (
-          <div data-testid="csv-assign-progress" className="text-xs text-blue-300 font-mono">
-            Assigning batch chunk {progress.completed} of {progress.total}...
-          </div>
-        )}
-
-        {submitError && (
-          <div
-            data-testid="csv-submit-error"
-            role="alert"
-            className="bg-red-900/40 border border-red-700 rounded p-3 text-xs text-red-200"
-          >
-            {submitError}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-3 pt-2 border-t border-gray-700">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-md"
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm font-medium rounded-md transition-colors"
           >
             Cancel
           </button>
@@ -613,9 +427,182 @@ export const BulkAssignCsvModal: React.FC<BulkAssignCsvModalProps> = ({
               ? 'Assigning...'
               : `Assign ${parsed.validEmails.length > 0 ? parsed.validEmails.length : ''} License(s)`.replace(/\s+/g, ' ')}
           </button>
-        </div>
+        </>
+      }
+    >
+      {/* Target License Config Selector */}
+      <div>
+        <label
+          htmlFor="csv-target-license-select"
+          className="block text-xs font-semibold uppercase tracking-wider text-gray-300 mb-1.5"
+        >
+          Target License Configuration
+        </label>
+        <select
+          id="csv-target-license-select"
+          aria-label="Target License Configuration"
+          data-testid="csv-target-license-select"
+          value={selectedConfigName}
+          onChange={(e) => setSelectedConfigName(e.target.value)}
+          disabled={isSubmitting}
+          className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">Select License Configuration...</option>
+          {apiLicenseConfigs.map((cfg) => {
+            const id = cfg.name.split('/').pop() || cfg.name;
+            const label = cfg.displayName || id;
+            const total = cfg.licenseCount !== undefined ? ` (${cfg.licenseCount} total seats)` : '';
+            return (
+              <option key={cfg.name} value={cfg.name}>
+                {label} — {cfg.subscriptionTier || 'GEMINI_ENTERPRISE'}
+                {total}
+              </option>
+            );
+          })}
+        </select>
+        {selectedConfigObj && seatCheck.availableSeats !== null && (
+          <p data-testid="csv-available-seats-info" className="text-xs text-gray-400 mt-1">
+            Available capacity:{' '}
+            <strong className="text-blue-300">{seatCheck.availableSeats}</strong> of{' '}
+            <strong className="text-gray-200">{seatCheck.allocatedSeats}</strong> seats remaining (
+            {seatCheck.currentlyUsedSeats} assigned).
+          </p>
+        )}
       </div>
-    </div>
+
+      {/* CSV Upload + Paste Textarea */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label
+            htmlFor="csv-emails-textarea"
+            className="block text-xs font-semibold uppercase tracking-wider text-gray-300"
+          >
+            Employee Emails (Paste or Upload .CSV)
+          </label>
+          <label className="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-xs font-semibold text-white rounded cursor-pointer border border-gray-600">
+            <span>Upload .CSV</span>
+            <input
+              type="file"
+              accept=".csv,.txt,text/csv,text/plain"
+              aria-label="Upload CSV File"
+              data-testid="csv-file-upload-input"
+              onChange={(e) => void handleFileUpload(e)}
+              disabled={isSubmitting}
+              className="sr-only"
+            />
+          </label>
+        </div>
+        {uploadedFileName && (
+          <p className="text-xs text-indigo-300 font-mono">Loaded file: {uploadedFileName}</p>
+        )}
+        <textarea
+          id="csv-emails-textarea"
+          aria-label="Employee Emails or CSV"
+          data-testid="csv-emails-textarea"
+          rows={5}
+          value={rawEmailText}
+          onChange={(e) => setRawEmailText(e.target.value)}
+          disabled={isSubmitting}
+          placeholder={"email\nalice.new@company.com\nbob.new@company.com"}
+          className="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-xs text-gray-100 font-mono placeholder-gray-500 focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+
+      {/* Live Validation Summary */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span
+          data-testid="csv-valid-count"
+          className="px-2.5 py-1 rounded bg-emerald-950/60 border border-emerald-800 text-emerald-200 font-semibold"
+        >
+          Valid Unique Emails: {parsed.validEmails.length}
+        </span>
+        {parsed.duplicateCount > 0 && (
+          <span
+            data-testid="csv-duplicate-count"
+            className="px-2.5 py-1 rounded bg-amber-950/60 border border-amber-800 text-amber-200"
+          >
+            Duplicates Deduplicated: {parsed.duplicateCount}
+          </span>
+        )}
+        {seatCheck.alreadyOnTargetCount > 0 && (
+          <span className="px-2.5 py-1 rounded bg-gray-900 border border-gray-700 text-gray-300">
+            Already on target config: {seatCheck.alreadyOnTargetCount} (Net-new seats needed: {seatCheck.netSeatsNeeded})
+          </span>
+        )}
+      </div>
+
+      {parsed.invalidEntries.length > 0 && (
+        <div
+          data-testid="csv-invalid-warning"
+          role="alert"
+          className="bg-red-950/50 border border-red-700 rounded-lg p-3 text-xs text-red-200 space-y-1.5"
+        >
+          <div className="font-bold">
+            Invalid Email Format Detected ({parsed.invalidEntries.length} entry{parsed.invalidEntries.length === 1 ? '' : 'ies'}):
+          </div>
+          <p>Fix or remove malformed entries before assigning seats:</p>
+          <div className="font-mono bg-black/40 p-2 rounded max-h-24 overflow-y-auto">
+            {parsed.invalidEntries.slice(0, 20).join(', ')}
+            {parsed.invalidEntries.length > 20 && ` ... (+${parsed.invalidEntries.length - 20} more)`}
+          </div>
+        </div>
+      )}
+
+      {seatCheck.exceedsCapacity && (
+        <div
+          data-testid="csv-seat-shortfall-error"
+          role="alert"
+          className="bg-red-950/60 border-2 border-red-600 rounded-lg p-3 text-xs text-red-100"
+        >
+          <strong>Seat Capacity Exceeded:</strong> Need{' '}
+          <strong>{seatCheck.netSeatsNeeded}</strong> net-new seat(s), but only{' '}
+          <strong>{seatCheck.availableSeats}</strong> seat(s) remain on this LicenseConfig (shortfall of{' '}
+          <strong>{seatCheck.seatShortfall}</strong> seat(s)). Distribute additional seats or reduce the CSV batch.
+        </div>
+      )}
+
+      {/* Typed ASSIGN Confirmation */}
+      <div className="bg-gray-900/80 border border-gray-700 rounded-lg p-3.5 space-y-2">
+        <label htmlFor="csv-confirm-assign-input" className="block text-xs text-gray-300">
+          Type <code className="text-white font-bold bg-gray-800 px-1.5 py-0.5 rounded">ASSIGN</code> to confirm provisioning{' '}
+          <strong className="text-white">{parsed.validEmails.length}</strong> user license(s)
+          {parsed.validEmails.length > BULK_ASSIGN_CHUNK_SIZE && (
+            <span>
+              {' '}
+              across {Math.ceil(parsed.validEmails.length / BULK_ASSIGN_CHUNK_SIZE)} chunks of {BULK_ASSIGN_CHUNK_SIZE}
+            </span>
+          )}
+          :
+        </label>
+        <input
+          id="csv-confirm-assign-input"
+          aria-label="Type ASSIGN to confirm"
+          data-testid="csv-confirm-input"
+          type="text"
+          value={confirmText}
+          onChange={(e) => setConfirmText(e.target.value.trim())}
+          disabled={isSubmitting}
+          placeholder="ASSIGN"
+          className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-white font-mono focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+
+      {isSubmitting && progress && (
+        <div data-testid="csv-assign-progress" className="text-xs text-blue-300 font-mono">
+          Assigning batch chunk {progress.completed} of {progress.total}...
+        </div>
+      )}
+
+      {submitError && (
+        <div
+          data-testid="csv-submit-error"
+          role="alert"
+          className="bg-red-900/40 border border-red-700 rounded p-3 text-xs text-red-200"
+        >
+          {submitError}
+        </div>
+      )}
+    </Modal>
   );
 };
 

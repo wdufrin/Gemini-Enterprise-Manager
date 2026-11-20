@@ -15,11 +15,14 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useInRouterContext, useSearchParams } from 'react-router-dom';
 import { Agent, AppEngine, Assistant, Config, IamPolicy, Page, UserProfile } from '../types';
 import * as api from '../services/apiService';
-import ProjectInput from '../components/ProjectInput';
 import ChatWindow from '../components/agents/ChatWindow';
-import CloudConsoleButton from '../components/CloudConsoleButton';
+import { PageShell } from '../components/layout/PageShell';
+import { PageHeader } from '../components/layout/PageHeader';
+import { ScopeBar } from '../components/layout/ScopeBar';
+import { useWorkspaceScope } from '../context/WorkspaceScopeContext';
 import { useToast } from '../context/ToastContext';
 import { usePersistedConfig } from '../hooks/usePersistedConfig';
 import {
@@ -35,6 +38,68 @@ import {
   DEFAULT_BACKGROUND_CONCURRENCY,
   mapWithQuotaLimit,
 } from '../utils/quotaGuard';
+
+const VALID_DETAIL_TABS: readonly AssistantDetailTab[] = [
+  'overview',
+  'agents',
+  'skills',
+  'memories',
+  'datastores',
+  'notebooks',
+  'history',
+  'customize',
+];
+
+function readUrlTabParam(): AssistantDetailTab | null {
+  if (typeof window === 'undefined') return null;
+  const search =
+    window.location.search ||
+    (window.location.hash.includes('?')
+      ? window.location.hash.slice(window.location.hash.indexOf('?'))
+      : '');
+  if (!search) return null;
+  const raw = new URLSearchParams(search).get('tab');
+  return raw && (VALID_DETAIL_TABS as readonly string[]).includes(raw)
+    ? (raw as AssistantDetailTab)
+    : null;
+}
+
+const AssistantUrlTabBridge: React.FC<{
+  onUrlTab: (tab: AssistantDetailTab | null) => void;
+  onClearedToRoot?: () => void;
+  clearTabRef: React.MutableRefObject<(() => void) | null>;
+}> = ({ onUrlTab, onClearedToRoot, clearTabRef }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get('tab');
+  const prevRawTabRef = useRef<string | null>(rawTab);
+
+  clearTabRef.current = () => {
+    if (searchParams.has('tab')) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('tab');
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  };
+
+  useEffect(() => {
+    const valid =
+      rawTab && (VALID_DETAIL_TABS as readonly string[]).includes(rawTab)
+        ? (rawTab as AssistantDetailTab)
+        : null;
+    if (!rawTab && prevRawTabRef.current !== null) {
+      onClearedToRoot?.();
+    }
+    prevRawTabRef.current = rawTab;
+    onUrlTab(valid);
+  }, [rawTab, onUrlTab, onClearedToRoot]);
+
+  return null;
+};
 
 const toErrorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
@@ -53,7 +118,7 @@ interface AssistantPageProps {
 const AssistantPage: React.FC<AssistantPageProps> = ({
   projectNumber,
   projectId,
-  setProjectNumber,
+  setProjectNumber: _setProjectNumber,
   accessToken,
   userProfile,
   onBuildTriggered,
@@ -61,25 +126,44 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
   context,
 }) => {
   const { toast } = useToast();
+  const inRouter = useInRouterContext();
+  const {
+    appLocation: scopeLocation,
+    appId: scopeAppId,
+    setAppLocation: setScopeLocation,
+    setAppId: setScopeAppId,
+  } = useWorkspaceScope();
+
   const [config, setConfig] = usePersistedConfig<{ appLocation: string }>(
     'assistantPageConfig',
-    { appLocation: 'global' },
+    { appLocation: scopeLocation || 'global' },
     {
       migrate: (parsed) => ({
-        appLocation: parsed?.appLocation || 'global',
+        appLocation: parsed?.appLocation || scopeLocation || 'global',
       }),
     },
   );
 
+  // Sync incoming WorkspaceScope location changes into local persisted config
+  useEffect(() => {
+    if (scopeLocation && scopeLocation !== config.appLocation) {
+      setConfig((prev) =>
+        prev.appLocation === scopeLocation ? prev : { ...prev, appLocation: scopeLocation },
+      );
+    }
+  }, [scopeLocation, config.appLocation, setConfig]);
+
+  const effectiveLocation = scopeLocation || config.appLocation || 'global';
+
   const baseApiConfig: Config = useMemo(
     () => ({
       projectId: projectId || projectNumber,
-      appLocation: config.appLocation,
+      appLocation: effectiveLocation,
       collectionId: 'default_collection',
       appId: '',
       assistantId: 'default_assistant',
     }),
-    [projectNumber, projectId, config],
+    [projectNumber, projectId, effectiveLocation],
   );
 
   const {
@@ -106,7 +190,12 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
   const [isEvaluateModalOpen, setIsEvaluateModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<AssistantDetailTab>('overview');
+  const [urlTab, setUrlTab] = useState<AssistantDetailTab | null>(readUrlTabParam);
+  const [activeTab, setActiveTab] = useState<AssistantDetailTab>(
+    () => readUrlTabParam() ?? 'overview',
+  );
+  const clearTabRef = useRef<(() => void) | null>(null);
+  const autoSelectedUrlTabRef = useRef(false);
   const [aclProbeWarning, setAclProbeWarning] = useState<string | null>(null);
   const [agentDiscoveryWarning, setAgentDiscoveryWarning] = useState<string | null>(null);
   const [isDataStoreAclSupported, setIsDataStoreAclSupported] = useState<
@@ -118,12 +207,20 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
     return null;
   });
 
-  // Chat State
+  // Chat Playground State
+  const [chatTargetEngine, setChatTargetEngine] = useState<AppEngine | null>(null);
   const [activeChatConfig, setActiveChatConfig] = useState<{
     displayName: string;
     config: Config;
   } | null>(null);
   const handledContextEngineRef = useRef<string | null>(null);
+
+  const handleUrlTabChange = useCallback((nextUrlTab: AssistantDetailTab | null) => {
+    setUrlTab(nextUrlTab);
+    if (nextUrlTab) {
+      setActiveTab(nextUrlTab);
+    }
+  }, []);
 
   // Handle navigation context (e.g., "Test in Playground" from ArchitecturePage)
   useEffect(() => {
@@ -132,7 +229,8 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
 
     const parts = targetEngineName.split('/');
     const targetLocation = parts.length >= 4 ? parts[3] : undefined;
-    if (targetLocation && targetLocation !== config.appLocation) {
+    if (targetLocation && targetLocation !== effectiveLocation) {
+      setScopeLocation(targetLocation);
       setConfig((prev) => ({ ...prev, appLocation: targetLocation }));
       return;
     }
@@ -153,6 +251,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
       const assistantId = matchedRow.assistant?.name
         ? matchedRow.assistant.name.split('/').pop()!
         : 'default_assistant';
+      setChatTargetEngine(matchedRow.engine);
       setActiveChatConfig({
         displayName: matchedRow.engine.displayName,
         config: {
@@ -162,7 +261,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
         },
       });
     }
-  }, [context, config.appLocation, setConfig, rows, baseApiConfig]);
+  }, [context, effectiveLocation, setScopeLocation, setConfig, rows, baseApiConfig]);
 
   // Probe DataStore ACL feature capability for this project/location
   useEffect(() => {
@@ -210,15 +309,18 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
     };
   }, [selectedRow?.engine, baseApiConfig]);
 
-  const handleConfigChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setConfig((prev) => ({ ...prev, [name]: value }));
-    setSelectedRow(null);
-    setAgents([]);
-    setActiveTab('overview');
-    setAclProbeWarning(null);
-    setAgentDiscoveryWarning(null);
-  };
+  const handleLocationChange = useCallback(
+    (nextLocation: string) => {
+      setScopeLocation(nextLocation);
+      setConfig((prev) => ({ ...prev, appLocation: nextLocation }));
+      setSelectedRow(null);
+      setAgents([]);
+      setActiveTab('overview');
+      setAclProbeWarning(null);
+      setAgentDiscoveryWarning(null);
+    },
+    [setScopeLocation, setConfig],
+  );
 
   const hydrationAbortRef = useRef<AbortController | null>(null);
 
@@ -370,18 +472,56 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
     [baseApiConfig, toast],
   );
 
-  const handleRowClick = (row: AssistantRowData) => {
-    if (!row.assistant) {
-      toast.warning(
-        `This engine (${row.engine.displayName}) has not been fully initialized with an assistant yet. Please open the Assistant configuration or check Discovery Engine status.`,
-      );
-      return;
+  const openRowDetail = useCallback(
+    (row: AssistantRowData, overrideTab?: AssistantDetailTab) => {
+      if (!row.assistant) {
+        toast.warning(
+          `This engine (${row.engine.displayName}) has not been fully initialized with an assistant yet. Please open the Assistant configuration or check Discovery Engine status.`,
+        );
+        return;
+      }
+      const engineId = row.engine.name.split('/').pop()!;
+      setScopeAppId(engineId);
+      setSelectedRow(row);
+      if (overrideTab) {
+        setActiveTab(overrideTab);
+      } else if (urlTab) {
+        setActiveTab(urlTab);
+      }
+      const assistantId = row.assistant.name
+        ? row.assistant.name.split('/').pop()
+        : undefined;
+      fetchAgentsForAssistant(engineId, assistantId);
+    },
+    [toast, setScopeAppId, urlTab, fetchAgentsForAssistant],
+  );
+
+  // Auto-select engine & boot into ?tab=customize when deep-linking to /assistant?tab=customize
+  useEffect(() => {
+    if (
+      urlTab === 'customize' &&
+      !selectedRow &&
+      rows.length > 0 &&
+      !autoSelectedUrlTabRef.current
+    ) {
+      const configuredRows = rows.filter((r) => Boolean(r.assistant));
+      if (configuredRows.length === 0) return;
+
+      const matchedByScope = scopeAppId
+        ? configuredRows.find((r) => r.engine.name.endsWith(`/${scopeAppId}`))
+        : undefined;
+      const targetRow =
+        matchedByScope ?? (configuredRows.length === 1 ? configuredRows[0] : undefined);
+
+      if (targetRow) {
+        autoSelectedUrlTabRef.current = true;
+        openRowDetail(targetRow, 'customize');
+      }
     }
-    setSelectedRow(row);
-    const assistantId = row.assistant.name
-      ? row.assistant.name.split('/').pop()
-      : undefined;
-    fetchAgentsForAssistant(row.engine.name.split('/').pop()!, assistantId);
+  }, [urlTab, selectedRow, rows, scopeAppId, openRowDetail]);
+
+  const handleRowClick = (row: AssistantRowData) => {
+    openRowDetail(row);
   };
 
   const handleEvaluateClick = (row: AssistantRowData, e: React.MouseEvent) => {
@@ -392,32 +532,44 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
       );
       return;
     }
+    const engineId = row.engine.name.split('/').pop()!;
+    setScopeAppId(engineId);
     setSelectedRow(row);
     setIsEvaluateModalOpen(true);
     const assistantId = row.assistant.name
       ? row.assistant.name.split('/').pop()
       : undefined;
-    fetchAgentsForAssistant(row.engine.name.split('/').pop()!, assistantId);
+    fetchAgentsForAssistant(engineId, assistantId);
   };
+
+  const openPlaygroundForEngine = useCallback(
+    (engine: AppEngine, assistant?: Assistant | null) => {
+      const engineId = engine.name.split('/').pop()!;
+      const assistantId = assistant?.name
+        ? assistant.name.split('/').pop()!
+        : 'default_assistant';
+      const chatConfig: Config = {
+        ...baseApiConfig,
+        appId: engineId,
+        assistantId,
+      };
+      setChatTargetEngine(engine);
+      setActiveChatConfig({
+        displayName: engine.displayName,
+        config: chatConfig,
+      });
+    },
+    [baseApiConfig],
+  );
 
   const handleChatClick = (row: AssistantRowData, e: React.MouseEvent) => {
     e.stopPropagation();
-    const engineId = row.engine.name.split('/').pop()!;
-    const assistantId = row.assistant
-      ? row.assistant.name.split('/').pop()!
-      : 'default_assistant';
-    const chatConfig: Config = {
-      ...baseApiConfig,
-      appId: engineId,
-      assistantId: assistantId,
-    };
-    setActiveChatConfig({
-      displayName: row.engine.displayName,
-      config: chatConfig,
-    });
+    openPlaygroundForEngine(row.engine, row.assistant);
   };
 
   const handleBack = () => {
+    clearTabRef.current?.();
+    setUrlTab(null);
     setSelectedRow(null);
     setIsEvaluateModalOpen(false);
     setAgents([]);
@@ -447,7 +599,19 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
   };
 
   return (
-    <div className="space-y-6 relative">
+    <PageShell variant="wide" className="relative">
+      {inRouter && (
+        <AssistantUrlTabBridge
+          onUrlTab={handleUrlTabChange}
+          onClearedToRoot={() => {
+            autoSelectedUrlTabRef.current = false;
+            setSelectedRow(null);
+            setActiveTab('overview');
+          }}
+          clearTabRef={clearTabRef}
+        />
+      )}
+
       {(aclProbeWarning || agentDiscoveryWarning) && (
         <div
           role="alert"
@@ -459,45 +623,24 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
         </div>
       )}
 
-      {/* Configuration Header */}
+      {/* Standardized Page Header & Scope Bar in List Mode */}
       {!selectedRow && (
-        <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-semibold text-white">
-              Project Configuration
-            </h2>
-            <CloudConsoleButton
-              url={`https://console.cloud.google.com/gemini-enterprise/apps?project=${projectNumber}`}
-            />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">
-                Project ID / Number
-              </label>
-              <ProjectInput value={projectNumber} onChange={setProjectNumber} />
-            </div>
-            <div>
-              <label
-                htmlFor="appLocation"
-                className="block text-sm font-medium text-gray-400 mb-1"
-              >
-                Location
-              </label>
-              <select
-                id="appLocation"
-                name="appLocation"
-                value={config.appLocation}
-                onChange={handleConfigChange}
-                className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] focus:ring-blue-500"
-              >
-                <option value="global">global</option>
-                <option value="us">us</option>
-                <option value="eu">eu</option>
-              </select>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          title="Engines & Assistants"
+          subtitle="Configure Gemini Enterprise search & assistant apps, grounding policies, connected data stores, and custom domains."
+          consolePage={Page.ASSISTANT}
+          projectId={projectId}
+          projectNumber={projectNumber}
+          onRefresh={fetchEngines}
+          isRefreshing={isListLoading}
+        >
+          <ScopeBar
+            embedded
+            locationId="appLocation"
+            locationValue={effectiveLocation}
+            onLocationChange={handleLocationChange}
+          />
+        </PageHeader>
       )}
 
       {selectedRow ? (
@@ -521,6 +664,9 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
           onBuildTriggered={onBuildTriggered}
           onEngineUpdateSuccess={handleEngineUpdateSuccess}
           onAssistantUpdateSuccess={handleAssistantUpdateSuccess}
+          onOpenPlayground={() =>
+            openPlaygroundForEngine(selectedRow.engine, selectedRow.assistant)
+          }
           onOpenLatencyLab={
             onNavigate
               ? () =>
@@ -560,17 +706,23 @@ const AssistantPage: React.FC<AssistantPageProps> = ({
 
       {/* Floating Chat Window */}
       {activeChatConfig && (
-        <div className="fixed bottom-4 right-4 z-50 w-[min(450px,calc(100vw-2rem))] h-[min(600px,calc(100vh-5rem))] shadow-2xl rounded-lg overflow-hidden border border-gray-700 bg-gray-800 flex flex-col">
+        <div
+          data-engine-name={chatTargetEngine?.name}
+          className="fixed bottom-4 right-4 z-50 w-[min(450px,calc(100vw-2rem))] h-[min(600px,calc(100vh-5rem))] shadow-2xl rounded-lg overflow-hidden border border-gray-700 bg-gray-800 flex flex-col"
+        >
           <ChatWindow
             targetDisplayName={activeChatConfig.displayName}
             config={activeChatConfig.config}
             accessToken={accessToken}
-            onClose={() => setActiveChatConfig(null)}
+            onClose={() => {
+              setActiveChatConfig(null);
+              setChatTargetEngine(null);
+            }}
             userProfile={userProfile}
           />
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

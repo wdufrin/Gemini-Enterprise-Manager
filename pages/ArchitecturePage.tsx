@@ -16,13 +16,14 @@
 
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { GraphEdge, GraphNode, Page, ReasoningEngine, Agent } from '../types';
-import ProjectInput from '../components/ProjectInput';
+import { GraphEdge, GraphNode, Page, ReasoningEngine } from '../types';
 import ArchitectureGraph from '../components/architecture/ArchitectureGraph';
 import { ArchitectureMatrixTable } from '../components/architecture/ArchitectureMatrixTable';
 import CurlInfoModal from '../components/CurlInfoModal';
 import DetailsPanel from '../components/architecture/DetailsPanel';
-import * as api from '../services/apiService';
+import { PageShell } from '../components/layout/PageShell';
+import { PageHeader } from '../components/layout/PageHeader';
+import { SegmentedControl } from '../components/common/Tabs';
 import { useArchitectureScanner } from '../hooks/useArchitectureScanner';
 
 const InfoIcon: React.FC = () => (
@@ -71,7 +72,7 @@ interface ArchitecturePageProps {
 
 const ArchitecturePage: React.FC<ArchitecturePageProps> = ({ 
     projectNumber, 
-    setProjectNumber, 
+    setProjectNumber: _setProjectNumber, 
     onNavigate, 
     onDirectQuery,
     projectId,
@@ -111,6 +112,19 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
         }
         isLoadingRef.current = isLoading;
     }, [isLoading, error]);
+
+    // Exit full-screen canvas mode on Escape key
+    useEffect(() => {
+        if (!isFullScreen) return;
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.stopPropagation();
+                setIsFullScreen(false);
+            }
+        };
+        window.addEventListener('keydown', handleEscape);
+        return () => window.removeEventListener('keydown', handleEscape);
+    }, [isFullScreen]);
     
     const handleScanClick = () => {
         setIsLogExpanded(true);
@@ -256,56 +270,55 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
     }, [nodes]);
 
     return (
-        <div className="space-y-6 flex flex-col min-h-full">
+        <PageShell variant="locked">
             {isInfoModalOpen && (
                 <CurlInfoModal infoKey="ArchitectureScan" onClose={() => setIsInfoModalOpen(false)} />
             )}
-            
-            {/* Top Bar Config */}
-            <div className="bg-gray-800 p-4 rounded-lg shadow-md shrink-0">
-                <div className="flex flex-col md:flex-row gap-4 items-end">
-                    <div className="flex-1 w-full min-w-0">
-                        <div className="mb-1">
-                            <label className="block text-sm font-medium text-gray-400">Project ID / Number</label>
-                        </div>
-                        <ProjectInput value={projectNumber} onChange={setProjectNumber} />
-                    </div>
-                    <div className="flex items-end gap-2 w-full md:w-auto shrink-0">
-                        <button
-                            onClick={handleScanClick}
-                            disabled={isLoading || !projectNumber}
-                            className="flex-1 md:w-auto px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 h-[38px] flex items-center justify-center whitespace-nowrap"
-                        >
-                            {isLoading ? (
-                                <>
-                                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-                                    Scanning... {elapsedSeconds !== undefined ? `(${elapsedSeconds}s)` : ''}
-                                </>
-                            ) : 'Scan Project'}
-                        </button>
+
+            <PageHeader
+                title="Architecture"
+                subtitle="Interactive topology and dependency lineage across Apps, Assistants, Agents, Runtimes, and Data Stores."
+                consolePage={Page.ARCHITECTURE}
+                projectId={projectId}
+                projectNumber={projectNumber}
+                secondaryActions={
+                    <>
                         {isLoading && onCancelScan && (
                             <button
+                                type="button"
                                 onClick={onCancelScan}
-                                className="px-4 py-2 bg-red-600/90 hover:bg-red-600 text-white text-sm font-semibold rounded-md h-[38px] flex items-center justify-center whitespace-nowrap transition-colors"
+                                className="inline-flex items-center justify-center px-3.5 h-9 rounded-lg bg-red-600/90 hover:bg-red-600 text-white text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap"
                                 title="Cancel ongoing architecture scan"
                             >
                                 Cancel Scan
                             </button>
                         )}
                         <button
+                            type="button"
                             onClick={() => setIsInfoModalOpen(true)}
-                            className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 hover:text-white h-[38px] shrink-0"
+                            aria-label="Show API commands for scanning"
+                            className="inline-flex items-center justify-center px-2.5 h-9 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 hover:text-white transition-colors shrink-0"
                             title="Show API commands for scanning"
                         >
                             <InfoIcon />
                         </button>
-                    </div>
-                </div>
-            </div>
+                    </>
+                }
+                primaryAction={{
+                    label: isLoading
+                        ? `Scanning...${elapsedSeconds !== undefined ? ` (${elapsedSeconds}s)` : ''}`
+                        : 'Scan Project',
+                    onClick: handleScanClick,
+                    disabled: isLoading || !projectNumber,
+                    icon: isLoading ? (
+                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white shrink-0" />
+                    ) : undefined,
+                }}
+            />
 
             {/* Metrics */}
             {nodes.length > 0 && !isLoading && (
-                <div className="bg-gray-800 p-4 rounded-lg shadow-md shrink-0">
+                <div className="bg-gray-900/80 border border-gray-800 p-4 rounded-xl shadow-md shrink-0">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <MetricCard title="Agents" value={metrics.totalAgents} icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>} />
                         <MetricCard title="Agent Engines" value={metrics.totalEngines} icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>} />
@@ -317,8 +330,8 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
 
             {/* Logs */}
             {(logs.length > 0 || error) && (
-                 <div className="bg-gray-800 p-4 rounded-lg shadow-md shrink-0">
-                    <button onClick={() => setIsLogExpanded(p => !p)} className="flex justify-between items-center w-full text-left">
+                 <div className="bg-gray-900/85 border border-gray-800 p-4 rounded-xl shadow-md shrink-0">
+                    <button type="button" onClick={() => setIsLogExpanded(p => !p)} className="flex justify-between items-center w-full text-left">
                         <h3 className="text-md font-semibold text-white">Scan Log</h3>
                         <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-gray-400 transition-transform ${isLogExpanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
                            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -327,7 +340,7 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                     {isLogExpanded && (
                         <div className="mt-2">
                             {error && <div className="text-sm text-red-400 p-2 mb-2 bg-red-900/20 rounded-md">{error}</div>}
-                            <pre className="bg-gray-900 text-xs text-gray-300 p-3 rounded-md h-32 overflow-y-auto font-mono">
+                            <pre className="bg-gray-950 text-xs text-gray-300 p-3 rounded-md h-32 overflow-y-auto font-mono border border-gray-800">
                                 {logs.join('\n')}
                             </pre>
                         </div>
@@ -336,46 +349,40 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
             )}
             
             {/* Graph Container */}
-            <div className={isFullScreen ? "fixed inset-0 z-50 bg-gray-900 flex" : "flex-1 bg-gray-800 rounded-lg shadow-md overflow-hidden min-h-[500px] flex relative"}>
+            <div className={isFullScreen ? "fixed inset-0 z-50 bg-gray-900 flex" : "flex-1 bg-gray-900/85 border border-gray-800 rounded-xl shadow-md overflow-hidden min-h-[500px] flex relative"}>
                 
                 {/* Graph Controls Overlay */}
-                <div className="absolute top-4 right-4 z-10 flex flex-wrap justify-end gap-2 max-w-[calc(100%-2rem)]">
+                <div className="absolute top-4 right-4 z-10 flex flex-wrap items-center justify-end gap-2 max-w-[calc(100%-2rem)]">
                     {/* View Mode Toggle: Graph vs Accessible Table */}
                     {nodes.length > 0 && !isLoading && (
-                        <div className="flex rounded-md bg-gray-800/90 backdrop-blur-sm border border-gray-600 p-0.5 shadow-lg">
-                            <button
-                                type="button"
-                                onClick={() => setViewMode('graph')}
-                                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                                    viewMode === 'graph'
-                                        ? 'bg-blue-600 text-white shadow'
-                                        : 'text-gray-300 hover:text-white'
-                                }`}
-                                aria-pressed={viewMode === 'graph'}
-                                aria-label="Interactive Graph View"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-                                </svg>
-                                <span>Graph</span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setViewMode('table')}
-                                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                                    viewMode === 'table'
-                                        ? 'bg-blue-600 text-white shadow'
-                                        : 'text-gray-300 hover:text-white'
-                                }`}
-                                aria-pressed={viewMode === 'table'}
-                                aria-label="Accessible Table Matrix View (WCAG 2.1.1)"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                </svg>
-                                <span>Table (WCAG)</span>
-                            </button>
-                        </div>
+                        <SegmentedControl
+                            size="xs"
+                            ariaLabel="Architecture View Mode"
+                            value={viewMode}
+                            onChange={setViewMode}
+                            items={[
+                                {
+                                    id: 'graph',
+                                    label: 'Graph',
+                                    title: 'Interactive Graph View',
+                                    icon: (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                                        </svg>
+                                    ),
+                                },
+                                {
+                                    id: 'table',
+                                    label: 'Table (WCAG)',
+                                    title: 'Accessible Table Matrix View (WCAG 2.1.1)',
+                                    icon: (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                        </svg>
+                                    ),
+                                },
+                            ]}
+                        />
                     )}
 
                     {/* Search Input */}
@@ -383,12 +390,15 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                         <input 
                             type="text" 
                             placeholder="Filter resources..."
+                            aria-label="Filter architecture resources"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="bg-gray-800/80 backdrop-blur-sm border border-gray-600 rounded-md px-3 py-1.5 text-sm text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 w-44 sm:w-64 shadow-lg"
+                            className="h-8 bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-lg px-3 text-xs sm:text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 w-44 sm:w-64 shadow-lg"
                         />
                         {searchQuery && (
                             <button 
+                                type="button"
+                                aria-label="Clear resource filter"
                                 onClick={() => setSearchQuery('')}
                                 className="absolute right-2 top-1.5 text-gray-400 hover:text-white"
                             >
@@ -398,9 +408,11 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                     </div>
 
                     <button 
+                        type="button"
                         onClick={() => setIsFullScreen(!isFullScreen)} 
-                        className="p-2 bg-gray-800/80 backdrop-blur-sm rounded-md text-gray-300 hover:text-white hover:bg-gray-700 border border-gray-600 shadow-lg"
-                        title={isFullScreen ? "Exit Full Screen" : "Full Screen"}
+                        aria-label={isFullScreen ? "Exit Full Screen" : "Full Screen"}
+                        className="p-1.5 bg-gray-900/90 backdrop-blur-sm rounded-lg text-gray-300 hover:text-white hover:bg-gray-800 border border-gray-700 shadow-lg transition-colors"
+                        title={isFullScreen ? "Exit Full Screen (Esc)" : "Full Screen"}
                     >
                         <FullScreenIcon isFullScreen={isFullScreen} />
                     </button>
@@ -456,7 +468,7 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                     onDirectQuery={onDirectQuery}
                 />
             </div>
-        </div>
+        </PageShell>
     );
 };
 

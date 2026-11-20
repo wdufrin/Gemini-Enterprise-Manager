@@ -16,6 +16,7 @@
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import AssistantPage from './AssistantPage';
 import * as api from '../services/apiService';
@@ -77,6 +78,7 @@ describe('AssistantPage (F4: Playground, Engine/Assistant Management & R2/R3)', 
   beforeEach(() => {
     vi.clearAllMocks();
     storageStore = {};
+    Element.prototype.scrollIntoView = vi.fn();
 
     vi.mocked(api.listResources).mockImplementation(async (resourceType: string) => {
       if (resourceType === 'engines') {
@@ -288,6 +290,125 @@ describe('AssistantPage (F4: Playground, Engine/Assistant Management & R2/R3)', 
     expect(
       screen.getByRole('heading', { name: 'Enterprise Search & Assistant App' }),
     ).toBeInTheDocument();
+  });
+
+  it('renders standardized PageHeader, accessible Back to Engines button, Open Playground action, and boots into Domains & Vanity URLs on ?tab=customize', async () => {
+    render(
+      <MemoryRouter initialEntries={['/assistant?tab=customize']}>
+        <ToastProvider>
+          <AssistantPage
+            projectNumber="123456"
+            projectId="my-corp-project"
+            setProjectNumber={vi.fn()}
+            accessToken="mock-access-token"
+            userProfile={null}
+          />
+        </ToastProvider>
+      </MemoryRouter>
+    );
+
+    // Auto-selects the single configured engine and boots directly into Domains & Vanity URLs (?tab=customize)
+    const domainsTab = await screen.findByRole('tab', { name: /Domains & Vanity URLs/i });
+    expect(domainsTab).toHaveAttribute('aria-selected', 'true');
+
+    // Open Playground directly from the detail view header without returning to the list
+    const playgroundBtn = screen.getByRole('button', { name: /Open Playground/i });
+    fireEvent.click(playgroundBtn);
+    await waitFor(() => {
+      expect(document.querySelector(`[data-engine-name="${sampleEngine.name}"]`)).not.toBeNull();
+    });
+
+    // Accessible Back to Engines button returns to list mode with standardized PageHeader
+    const backBtn = screen.getByRole('button', { name: 'Back to Engines' });
+    expect(backBtn).toHaveTextContent(/Back to Engines/i);
+    fireEvent.click(backBtn);
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Engines & Assistants' }),
+    ).toBeInTheDocument();
+  });
+
+  it('never leaks previous global engines or No-Assistant rows into eu when switching Location rapidly while requests are in flight', async () => {
+    const globalOktaEngine = {
+      name: 'projects/123456/locations/global/collections/default_collection/engines/wdufrin_OKTA',
+      displayName: 'wdufrin_OKTA',
+      solutionType: 'SOLUTION_TYPE_GENERATIVE_CHAT' as const,
+    };
+    const euEntraEngine = {
+      name: 'projects/123456/locations/eu/collections/default_collection/engines/eu-entra-sso',
+      displayName: 'EU Entra Enterprise',
+      solutionType: 'SOLUTION_TYPE_SEARCH' as const,
+      appType: 'APP_TYPE_INTRANET',
+    };
+    const euEntraAssistant = {
+      name: 'projects/123456/locations/eu/collections/default_collection/engines/eu-entra-sso/assistants/default_assistant',
+      displayName: 'Default Assistant',
+      webGroundingType: 'WEB_GROUNDING_TYPE_GOOGLE_SEARCH',
+    };
+
+    let resolveSlowGlobalAssistant!: (val: typeof sampleAssistant) => void;
+    const slowGlobalAssistantPromise = new Promise<typeof sampleAssistant>((resolve) => {
+      resolveSlowGlobalAssistant = resolve;
+    });
+
+    vi.mocked(api.listResources).mockImplementation(async (resourceType: string, config) => {
+      if (resourceType === 'engines') {
+        return {
+          engines: config.appLocation === 'eu' ? [euEntraEngine] : [globalOktaEngine],
+        };
+      }
+      if (resourceType === 'assistants') {
+        return {
+          assistants: config.appLocation === 'eu' ? [euEntraAssistant] : [sampleAssistant],
+        };
+      }
+      return {};
+    });
+
+    const requestedAssistantPaths: string[] = [];
+    vi.mocked(api.getAssistant).mockImplementation((name: string, config) => {
+      requestedAssistantPaths.push(`${config.appLocation}:${name}`);
+      if (name.includes('/locations/eu/')) {
+        return Promise.resolve(euEntraAssistant);
+      }
+      return slowGlobalAssistantPromise;
+    });
+
+    renderPage();
+
+    // Wait for global engine list to populate before its slow getAssistant finishes
+    await waitFor(() => {
+      expect(api.listResources).toHaveBeenCalledWith(
+        'engines',
+        expect.objectContaining({ appLocation: 'global' }),
+      );
+    });
+
+    // Switch Location from global -> eu while global's slow getAssistant is still pending
+    const locationSelect = screen.getByLabelText('Location');
+    fireEvent.change(locationSelect, { target: { value: 'eu' } });
+
+    // EU Entra engine + configured assistant appear cleanly
+    expect(await screen.findByText('EU Entra Enterprise')).toBeInTheDocument();
+    expect(screen.queryByText('wdufrin_OKTA')).toBeNull();
+
+    // Now resolve the stale slow global getAssistant RPC
+    resolveSlowGlobalAssistant({
+      ...sampleAssistant,
+      name: 'projects/123456/locations/global/collections/default_collection/engines/wdufrin_OKTA/assistants/default_assistant',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('EU Entra Enterprise')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('wdufrin_OKTA')).toBeNull();
+    expect(screen.queryByText(/No Default Assistant Configured/i)).toBeNull();
+
+    // Critical guard check: must NEVER query eu-discoveryengine with global's wdufrin_OKTA engine
+    const mismatchedCalls = requestedAssistantPaths.filter((entry) =>
+      entry.startsWith('eu:') && entry.includes('wdufrin_OKTA'),
+    );
+    expect(mismatchedCalls).toEqual([]);
   });
 });
 

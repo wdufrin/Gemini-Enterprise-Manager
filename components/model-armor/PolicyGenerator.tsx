@@ -48,8 +48,17 @@ export interface ExclusionRuleDraft {
   regexPattern: string;
 }
 
+export const STANDALONE_TEMPLATE_LOCATIONS = [
+  'global',
+  'us',
+  'eu',
+  'us-central1',
+  'europe-west1',
+] as const;
+
 export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, engines, onRefresh }) => {
   const [policyName, setPolicyName] = useState('my-safety-policy-input');
+  const [standaloneLocation, setStandaloneLocation] = useState<string>('global');
   const [config, setConfig] = useState({
     pii: true,
     hateSpeech: 'HIGH',
@@ -279,8 +288,12 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
   }, [config, exclusionRules, logSanitizeOperations]);
 
   const selectedEngine = selectedEngineIndex >= 0 ? engines[selectedEngineIndex] ?? null : null;
-  const templateLocation = selectedEngine?.location || 'global';
+  const templateLocation = selectedEngine?.location || standaloneLocation;
   const templateResourceName = `projects/${projectId}/locations/${templateLocation}/templates/${policyName}`;
+  const modelArmorHost =
+    templateLocation === 'global'
+      ? 'modelarmor.googleapis.com'
+      : `modelarmor.${templateLocation}.rep.googleapis.com`;
 
   const targetAssistant = useMemo(() => {
     if (!selectedEngine || selectedEngine.status !== 'ok') return null;
@@ -310,7 +323,7 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
   -H "Content-Type: application/json" \\
   -d '${JSON.stringify(generatedJson)}' \\
-  "https://modelarmor.googleapis.com/v1/projects/${projectId}/locations/${templateLocation}/templates?templateId=${policyName}"`;
+  "https://${modelArmorHost}/v1/projects/${projectId}/locations/${templateLocation}/templates?templateId=${policyName}"`;
 
   const attachCommand = useMemo(() => {
     if (!selectedEngine) return '';
@@ -507,6 +520,27 @@ export const PolicyGenerator: React.FC<PolicyGeneratorProps> = ({ projectId, eng
                   {engines.map((eng, idx) => (
                     <option key={eng.name} value={idx}>
                       {eng.displayName || eng.name.split('/').pop()} ({eng.location})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {selectedEngineIndex === -1 && (
+              <div>
+                <label htmlFor="ma-template-location" className="block text-sm font-medium text-gray-300 mb-2">
+                  Template Location
+                </label>
+                <select
+                  id="ma-template-location"
+                  aria-label="Template Location"
+                  value={standaloneLocation}
+                  onChange={(e) => setStandaloneLocation(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-600 rounded-md px-3 py-2 text-white text-sm focus:ring-blue-500"
+                >
+                  {STANDALONE_TEMPLATE_LOCATIONS.map((loc) => (
+                    <option key={loc} value={loc}>
+                      {loc}
                     </option>
                   ))}
                 </select>

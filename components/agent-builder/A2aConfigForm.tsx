@@ -18,6 +18,7 @@ import React from 'react';
 import { A2aConfig, AgentTool } from '../../services/adkTemplates';
 import { CloudRunService, DataStore } from '../../types';
 import CloudRunAccessSelector from './CloudRunAccessSelector';
+import { BUILDER_GCP_REGIONS } from './AdkBasicSettings';
 
 export interface A2aConfigFormProps {
   a2aConfig: A2aConfig;
@@ -26,9 +27,9 @@ export interface A2aConfigFormProps {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => void;
   deployProjectId: string;
-  setDeployProjectId: (id: string) => void;
-  fetchProjectId: () => void;
-  isResolvingId: boolean;
+  setDeployProjectId?: (id: string) => void;
+  fetchProjectId?: () => void;
+  isResolvingId?: boolean;
   handleRewrite: (field: string) => void;
   rewritingField: string | null;
   dataStoreSearchTerm: string;
@@ -54,9 +55,6 @@ export const A2aConfigForm: React.FC<A2aConfigFormProps> = ({
   setA2aConfig,
   handleA2aConfigChange,
   deployProjectId,
-  setDeployProjectId,
-  fetchProjectId,
-  isResolvingId,
   handleRewrite,
   rewritingField,
   dataStoreSearchTerm,
@@ -76,26 +74,14 @@ export const A2aConfigForm: React.FC<A2aConfigFormProps> = ({
 }) => {
   return (
     <>
-      <div>
-        <label className="block text-sm font-medium text-gray-400 mb-1">Project ID</label>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={deployProjectId}
-            onChange={(e) => setDeployProjectId(e.target.value)}
-            className={`bg-gray-700 border rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] ${
-              /^\d+$/.test(deployProjectId) ? 'border-yellow-500' : 'border-gray-600'
-            }`}
-            placeholder="e.g. my-project-id"
-          />
-          <button
-            onClick={fetchProjectId}
-            disabled={isResolvingId}
-            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-md text-white disabled:opacity-50"
-          >
-            {isResolvingId ? '...' : '↻'}
-          </button>
-        </div>
+      <div
+        data-testid="a2a-target-project-badge"
+        className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-gray-900/70 border border-gray-700/80 text-xs"
+      >
+        <span className="text-gray-400 font-medium">Target Cloud Run Project</span>
+        <code className="font-mono text-blue-300 font-semibold truncate">
+          {deployProjectId || 'Select project in top bar'}
+        </code>
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-400 mb-1">Service Name</label>
@@ -154,16 +140,24 @@ export const A2aConfigForm: React.FC<A2aConfigFormProps> = ({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-400 mb-1">Region</label>
+        <label htmlFor="a2a-region-select" className="block text-sm font-medium text-gray-400 mb-1">
+          Region
+        </label>
         <select
+          id="a2a-region-select"
+          aria-label="Region"
           name="region"
           value={a2aConfig.region}
           onChange={handleA2aConfigChange}
           className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
         >
-          <option value="us-central1">us-central1</option>
-          <option value="europe-west1">europe-west1</option>
-          <option value="asia-east1">asia-east1</option>
+          {BUILDER_GCP_REGIONS.map((reg) => (
+            <option key={reg} value={reg}>
+              {reg}
+            </option>
+          ))}
+          {!BUILDER_GCP_REGIONS.includes(a2aConfig.region as (typeof BUILDER_GCP_REGIONS)[number]) &&
+            a2aConfig.region && <option value={a2aConfig.region}>{a2aConfig.region}</option>}
         </select>
       </div>
       <div>

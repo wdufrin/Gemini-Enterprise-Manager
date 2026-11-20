@@ -1,29 +1,64 @@
-import React from 'react';
-import CostsUI from '../components/dashboard/CostsUI';
-import CloudConsoleButton from '../components/CloudConsoleButton';
+import React, { useState } from 'react';
+import { Page } from '../types';
+import PageShell from '../components/layout/PageShell';
+import PageHeader from '../components/layout/PageHeader';
+import { Tabs, TabItem } from '../components/common/Tabs';
+import CostsUI, { QuotaCostSectionId } from '../components/dashboard/CostsUI';
 
 interface Props {
-    projectNumber: string;
+  projectNumber: string;
+  projectId?: string;
 }
 
-const GEQuotaUsagePage: React.FC<Props> = ({ projectNumber }) => {
-    return (
-        <div className="max-w-7xl mx-auto space-y-6">
-            <div className="flex flex-wrap justify-between items-start gap-4">
-                <div>
-                    <h1 className="text-2xl xl:text-3xl font-bold text-white tracking-tight">Gemini Enterprise Quota Usage</h1>
-                    <p className="mt-1.5 text-sm text-gray-400">
-                        Model and calculate your organization&apos;s pooled Gemini Enterprise quotas, single-user quota limits, and overage thresholds.
-                    </p>
-                </div>
-                <CloudConsoleButton url={`https://console.cloud.google.com/gemini-enterprise/usage-and-spending?project=${projectNumber}`} />
-            </div>
-            
-            <div>
-                <CostsUI projectNumber={projectNumber} />
-            </div>
-        </div>
-    );
+const QUOTA_COST_TABS: readonly TabItem<QuotaCostSectionId>[] = [
+  { id: 'quota', label: 'Quota & Capacity Simulator' },
+  { id: 'finops', label: 'FinOps Cloud Billing (BigQuery)' },
+];
+
+function getInitialQuotaSection(): QuotaCostSectionId {
+  if (typeof window === 'undefined') return 'quota';
+  const search = window.location.search || window.location.hash.split('?')[1] || '';
+  const tabParam = new URLSearchParams(search).get('tab');
+  if (tabParam === 'finops' || tabParam === 'quota') {
+    return tabParam;
+  }
+  return 'quota';
+}
+
+const GEQuotaUsagePage: React.FC<Props> = ({ projectNumber, projectId }) => {
+  const [activeSection, setActiveSection] = useState<QuotaCostSectionId>(getInitialQuotaSection);
+  const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  return (
+    <PageShell variant="wide">
+      <PageHeader
+        title="Quota & Cost Estimator"
+        subtitle="Simulate pooled Gemini Enterprise capacity, monitor live Cloud Monitoring utilization, and query BigQuery FinOps spend."
+        consolePage={Page.GE_QUOTA_USAGE}
+        projectId={projectId}
+        projectNumber={projectNumber}
+        onRefresh={() => setRefreshTrigger((n) => n + 1)}
+        isRefreshing={isRefreshing}
+        refreshDisabled={!projectNumber}
+      />
+
+      <Tabs
+        items={QUOTA_COST_TABS}
+        activeTab={activeSection}
+        onChange={setActiveSection}
+        ariaLabel="Quota and FinOps sections"
+        syncSearchParam="tab"
+      />
+
+      <CostsUI
+        projectNumber={projectNumber}
+        activeSection={activeSection}
+        refreshTrigger={refreshTrigger}
+        onLoadingChange={setIsRefreshing}
+      />
+    </PageShell>
+  );
 };
 
 export default GEQuotaUsagePage;

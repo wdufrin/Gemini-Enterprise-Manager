@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Agent, Config, ConfigAuditItem, ConfigAuditSummary } from '../types';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Agent, Config, ConfigAuditItem, ConfigAuditSummary, Page } from '../types';
 import {
   AgentPromotionOutcome,
   AgentPromotionRemapping,
@@ -27,6 +27,10 @@ import {
   runConfigAudit,
 } from '../services/configAuditService';
 import * as api from '../services/apiService';
+import PageShell from '../components/layout/PageShell';
+import PageHeader from '../components/layout/PageHeader';
+import { Tabs, TabItem } from '../components/common/Tabs';
+import { Modal } from '../components/common/Modal';
 import ProjectEngineSelector, {
   ProjectEngineSelectorValue,
 } from '../components/common/ProjectEngineSelector';
@@ -39,6 +43,22 @@ interface ConfigAuditPageProps {
 }
 
 type AuditTabId = 'parity' | 'promotion' | 'audit-logs';
+
+const AUDIT_TAB_ITEMS: readonly TabItem<AuditTabId>[] = [
+  { id: 'parity', label: 'Environment Drift & Parity Audit' },
+  { id: 'promotion', label: 'Cross-Project Agent Promotion (dev → prod)' },
+  { id: 'audit-logs', label: 'Cloud Audit Logs (Admin Trail)' },
+];
+
+function getInitialAuditTab(): AuditTabId {
+  if (typeof window === 'undefined') return 'parity';
+  const search = window.location.search || window.location.hash.split('?')[1] || '';
+  const tabParam = new URLSearchParams(search).get('tab');
+  if (tabParam === 'parity' || tabParam === 'promotion' || tabParam === 'audit-logs') {
+    return tabParam;
+  }
+  return 'parity';
+}
 
 function parseKeyValueLines(raw: string): Record<string, string> {
   const map: Record<string, string> = {};
@@ -64,11 +84,17 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
   projectNumber,
   projectId,
 }) => {
-  const [activeTab, setActiveTab] = useState<AuditTabId>('parity');
+  const [activeTab, setActiveTab] = useState<AuditTabId>(getInitialAuditTab);
+
+  const initialGlobalProject = projectId || projectNumber || '';
+  const prevProjectPropsRef = useRef<{ projectId?: string; projectNumber: string }>({
+    projectId,
+    projectNumber,
+  });
 
   // Source & Destination Environment State
   const [sourceEnv, setSourceEnv] = useState<ProjectEngineSelectorValue>(() => ({
-    project: projectNumber || projectId || '',
+    project: initialGlobalProject,
     location: 'global',
     engine: 'default_engine',
   }));
@@ -79,14 +105,37 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
     engine: 'default_engine',
   });
 
-  // Keep source project in sync if props update
+  // Keep source project reactively synced when global header project changes
   useEffect(() => {
-    setSourceEnv((prev) => {
-      if (!prev.project && (projectNumber || projectId)) {
-        return { ...prev, project: projectNumber || projectId || '' };
-      }
-      return prev;
-    });
+    const prevProps = prevProjectPropsRef.current;
+    const projectIdChanged = projectId !== prevProps.projectId;
+    const projectNumberChanged = projectNumber !== prevProps.projectNumber;
+
+    const effectiveNext =
+      projectIdChanged && projectId
+        ? projectId
+        : projectNumberChanged && projectNumber
+          ? projectIdChanged
+            ? projectId || projectNumber
+            : projectNumber
+          : projectId || projectNumber || '';
+
+    prevProjectPropsRef.current = { projectId, projectNumber };
+
+    if ((projectIdChanged || projectNumberChanged) && effectiveNext) {
+      setSourceEnv((prev) => {
+        if (prev.project === effectiveNext) return prev;
+        return {
+          ...prev,
+          project: effectiveNext,
+          engine: 'default_engine',
+        };
+      });
+      setSourceAgents([]);
+      setSelectedAgentNames(new Set());
+    } else if (effectiveNext) {
+      setSourceEnv((prev) => (prev.project ? prev : { ...prev, project: effectiveNext }));
+    }
   }, [projectNumber, projectId]);
 
   // -------------------------------------------------------------
@@ -130,6 +179,7 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
   const [updateExistingByName, setUpdateExistingByName] = useState<boolean>(true);
 
   const [isPromoting, setIsPromoting] = useState<boolean>(false);
+  const [isPromoteConfirmOpen, setIsPromoteConfirmOpen] = useState<boolean>(false);
   const [promotionOutcomes, setPromotionOutcomes] = useState<AgentPromotionOutcome[] | null>(null);
   const [promotionError, setPromotionError] = useState<string | null>(null);
 
@@ -324,14 +374,33 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
     return buildPromotedAgentPayload(candidate, targetPromotionConfig, remappingConfig);
   }, [sourceAgents, previewAgentName, selectedAgentNames, targetPromotionConfig, remappingConfig]);
 
-  const handlePromoteSelectedAgents = async () => {
+  const selectedSourceAgents = useMemo(
+    () => sourceAgents.filter((a) => selectedAgentNames.has(a.name)),
+    [sourceAgents, selectedAgentNames],
+  );
+
+  const handleRequestPromoteAgents = () => {
     if (!targetEnv.project.trim() || !targetEnv.engine.trim()) {
       setPromotionError('Please specify Target Project ID and Target Gemini Enterprise App ID.');
       return;
     }
-    const chosen = sourceAgents.filter((a) => selectedAgentNames.has(a.name));
-    if (chosen.length === 0) {
+    if (selectedSourceAgents.length === 0) {
       setPromotionError('Select at least one source agent to promote.');
+      return;
+    }
+    setPromotionError(null);
+    setIsPromoteConfirmOpen(true);
+  };
+
+  const handlePromoteSelectedAgents = async () => {
+    if (!targetEnv.project.trim() || !targetEnv.engine.trim()) {
+      setPromotionError('Please specify Target Project ID and Target Gemini Enterprise App ID.');
+      setIsPromoteConfirmOpen(false);
+      return;
+    }
+    if (selectedSourceAgents.length === 0) {
+      setPromotionError('Select at least one source agent to promote.');
+      setIsPromoteConfirmOpen(false);
       return;
     }
     setIsPromoting(true);
@@ -339,14 +408,16 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
     setPromotionOutcomes(null);
     try {
       const results = await promoteAgentsToTarget({
-        agents: chosen,
+        agents: selectedSourceAgents,
         targetConfig: targetPromotionConfig,
         remapping: remappingConfig,
         updateExistingByName,
       });
       setPromotionOutcomes(results);
+      setIsPromoteConfirmOpen(false);
     } catch (err: unknown) {
       setPromotionError(err instanceof Error ? err.message : 'Agent promotion failed.');
+      setIsPromoteConfirmOpen(false);
     } finally {
       setIsPromoting(false);
     }
@@ -395,61 +466,121 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
   }, [auditSummary]);
 
   return (
-    <div className="space-y-6 text-gray-100">
-      {/* Header Banner */}
-      <div className="mb-2 flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-gray-800 pb-5">
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-bold text-white tracking-tight">App Configuration Audit</h1>
+    <PageShell variant="wide" className="text-gray-100">
+      <Modal
+        isOpen={isPromoteConfirmOpen}
+        onClose={() => !isPromoting && setIsPromoteConfirmOpen(false)}
+        preventClose={isPromoting}
+        size="lg"
+        title="Confirm Cross-Project Agent Promotion"
+        subtitle={`Live Discovery Engine write operation into ${targetEnv.project.trim()} (${targetEnv.location}/${targetEnv.engine.trim()})`}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setIsPromoteConfirmOpen(false)}
+              disabled={isPromoting}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-xs sm:text-sm font-medium rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              data-testid="confirm-promote-agents-btn"
+              onClick={() => void handlePromoteSelectedAgents()}
+              disabled={isPromoting}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold rounded-lg shadow transition-colors"
+            >
+              {isPromoting
+                ? 'Promoting Agents...'
+                : `Confirm & Promote (${selectedSourceAgents.length})`}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4 text-xs text-gray-300">
+          <div className="bg-amber-950/40 border border-amber-700/70 rounded-lg p-3 text-amber-100 leading-relaxed">
+            You are about to execute live <code className="font-mono text-amber-200">createAgent</code>
+            {updateExistingByName && (
+              <>
+                {' '}
+                / <code className="font-mono text-amber-200">updateAgent</code> (in-place overwrite enabled)
+              </>
+            )}{' '}
+            mutations against destination project{' '}
+            <strong className="font-mono text-white">{targetEnv.project.trim()}</strong>.
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="bg-gray-900/80 border border-gray-700 rounded-lg p-3">
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-blue-400 mb-1">
+                Source Baseline
+              </div>
+              <div className="font-mono text-white truncate">{sourceEnv.project.trim()}</div>
+              <div className="text-gray-400 mt-0.5">
+                {sourceEnv.location} &bull; {sourceEnv.engine.trim() || 'default_engine'}
+              </div>
+            </div>
+            <div className="bg-gray-900/80 border border-emerald-800/70 rounded-lg p-3">
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-emerald-400 mb-1">
+                Destination Target
+              </div>
+              <div className="font-mono text-white truncate">{targetEnv.project.trim()}</div>
+              <div className="text-gray-400 mt-0.5">
+                {targetEnv.location} &bull; {targetEnv.engine.trim() || 'default_engine'}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-gray-400 mb-1.5">
+              Selected Agents ({selectedSourceAgents.length})
+            </div>
+            <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 max-h-44 overflow-y-auto">
+              {selectedSourceAgents.map((agt) => (
+                <li key={agt.name} className="px-3 py-2 flex items-center justify-between gap-2">
+                  <span className="font-medium text-white truncate">
+                    {agt.displayName || agt.name.split('/').pop()}
+                  </span>
+                  <span className="font-mono text-[11px] text-blue-300 shrink-0">
+                    {inferAgentTypeLabel(agt)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </Modal>
+
+      <PageHeader
+        title="App Configuration Audit"
+        subtitle="Audit Source vs. Destination parity (Engines, Assistants, Registered Agents, DataStores, Skills), promote agents across environments, export Terraform HCL, and inspect Cloud Audit Logs."
+        consolePage={Page.CONFIG_AUDIT}
+        projectId={projectId}
+        projectNumber={projectNumber}
+        badges={
+          <>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-900/80 text-blue-300 border border-blue-700/50 whitespace-nowrap">
               Drift, IaC &amp; Governance
             </span>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-900/80 text-emerald-300 border border-emerald-700/50 whitespace-nowrap">
               Enterprise Cutover Suite
             </span>
-          </div>
-          <p className="text-sm text-gray-400 mt-1">
-            Audit Source vs. Destination parity (Engines, Assistants, Registered Agents, DataStores, Skills), promote agents across environments, export Terraform HCL, and inspect Cloud Audit Logs.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {activeTab === 'parity' && (
-            <button
-              type="button"
-              onClick={() => void handleExportProjectTerraform()}
-              disabled={isExportingTf || !sourceEnv.project.trim()}
-              data-testid="export-project-terraform-btn"
-              className="px-3.5 py-2 bg-indigo-950/80 hover:bg-indigo-900 disabled:opacity-50 text-indigo-200 text-xs font-semibold rounded-lg border border-indigo-700/70 flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap shrink-0"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4 text-indigo-400 shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-                />
-              </svg>
-              {isExportingTf ? 'Exporting HCL...' : 'Export Project as Terraform (.tf)'}
-            </button>
-          )}
-
-          {activeTab === 'parity' && auditSummary && (
-            <>
+          </>
+        }
+        secondaryActions={
+          <>
+            {activeTab === 'parity' && (
               <button
-                onClick={handleDownloadMarkdown}
-                className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium rounded-lg border border-gray-700 flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap shrink-0"
-                title="Download Executive Markdown Report"
+                type="button"
+                onClick={() => void handleExportProjectTerraform()}
+                disabled={isExportingTf || !sourceEnv.project.trim()}
+                data-testid="export-project-terraform-btn"
+                className="px-3.5 h-9 bg-indigo-950/80 hover:bg-indigo-900 disabled:opacity-50 text-indigo-200 text-xs font-semibold rounded-lg border border-indigo-700/70 flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap shrink-0"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4 text-gray-400 shrink-0"
+                  className="h-4 w-4 text-indigo-400 shrink-0"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -458,85 +589,72 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
                   />
                 </svg>
-                Export Report (.md)
+                {isExportingTf ? 'Exporting HCL...' : 'Export Project as Terraform (.tf)'}
               </button>
-              <button
-                onClick={handleDownloadJson}
-                className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium rounded-lg border border-gray-700 flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap shrink-0"
-                title="Download JSON Summary"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4 text-gray-400 shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
+            )}
+
+            {activeTab === 'parity' && auditSummary && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleDownloadMarkdown}
+                  className="px-3 h-9 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium rounded-lg border border-gray-700 flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap shrink-0"
+                  title="Download Executive Markdown Report"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                  />
-                </svg>
-                Export JSON
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4 text-gray-400 shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    />
+                  </svg>
+                  Export Report (.md)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadJson}
+                  className="px-3 h-9 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium rounded-lg border border-gray-700 flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap shrink-0"
+                  title="Download JSON Summary"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4 text-gray-400 shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                    />
+                  </svg>
+                  Export JSON
+                </button>
+              </>
+            )}
+          </>
+        }
+      />
 
-      {/* Stitch-styled 3-Tab Switcher */}
-      <div
-        role="tablist"
-        aria-label="Configuration Governance Tabs"
-        className="flex flex-wrap items-center gap-2 bg-gray-900/80 p-1.5 rounded-xl border border-gray-800"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'parity'}
-          onClick={() => setActiveTab('parity')}
-          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
-            activeTab === 'parity'
-              ? 'bg-blue-600 text-white shadow'
-              : 'text-gray-400 hover:text-white hover:bg-gray-800'
-          }`}
-        >
-          <span>Environment Drift &amp; Parity Audit</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'promotion'}
-          onClick={() => setActiveTab('promotion')}
-          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
-            activeTab === 'promotion'
-              ? 'bg-blue-600 text-white shadow'
-              : 'text-gray-400 hover:text-white hover:bg-gray-800'
-          }`}
-        >
-          <span>Cross-Project Agent Promotion (dev &rarr; prod)</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'audit-logs'}
-          onClick={() => setActiveTab('audit-logs')}
-          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
-            activeTab === 'audit-logs'
-              ? 'bg-blue-600 text-white shadow'
-              : 'text-gray-400 hover:text-white hover:bg-gray-800'
-          }`}
-        >
-          <span>Cloud Audit Logs (Admin Trail)</span>
-        </button>
-      </div>
+      <Tabs
+        items={AUDIT_TAB_ITEMS}
+        activeTab={activeTab}
+        onChange={setActiveTab}
+        ariaLabel="Configuration Governance Tabs"
+        syncSearchParam="tab"
+      />
 
       {/* Exported Project Terraform Preview Panel */}
       {activeTab === 'parity' && (exportedTfHcl || exportTfError) && (
@@ -1251,7 +1369,8 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
               <div className="pt-2">
                 <button
                   type="button"
-                  onClick={() => void handlePromoteSelectedAgents()}
+                  data-testid="open-promote-confirm-btn"
+                  onClick={handleRequestPromoteAgents}
                   disabled={
                     isPromoting ||
                     selectedAgentNames.size === 0 ||
@@ -1325,9 +1444,9 @@ const ConfigAuditPage: React.FC<ConfigAuditPageProps> = ({
       {/* TAB 3: CLOUD AUDIT LOGS (ADMIN GOVERNANCE TRAIL)                  */}
       {/* ================================================================= */}
       {activeTab === 'audit-logs' && (
-        <AdminAuditTrailPanel projectId={sourceEnv.project || projectId || projectNumber} />
+        <AdminAuditTrailPanel projectId={projectId || projectNumber || sourceEnv.project} />
       )}
-    </div>
+    </PageShell>
   );
 };
 

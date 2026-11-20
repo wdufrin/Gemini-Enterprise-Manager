@@ -325,6 +325,49 @@ describe('AgentBuilderPage - Helper Functions', () => {
       expect(container.querySelector('input[name="thinkingBudget"]')).toBeDefined();
       expect(container.querySelector('select[name="thinkingLevel"]')).toBeNull();
     });
+
+    it('standardizes PageHeader, SegmentedControl mode toggle, expanded 10-region selectors, and removes duplicate project inputs', () => {
+      renderWithProviders(
+        <AgentBuilderPage
+          projectNumber="123456789"
+          projectId="enterprise-prod-id"
+          setProjectNumber={() => {}}
+        />
+      );
+
+      expect(screen.getByRole('heading', { name: 'ADK Studio' })).toBeInTheDocument();
+      expect(screen.queryByText('Project Number')).toBeNull();
+
+      const expectedRegions = [
+        'us-central1',
+        'us-east1',
+        'us-east4',
+        'us-west1',
+        'europe-west1',
+        'europe-west2',
+        'europe-west4',
+        'asia-northeast1',
+        'asia-southeast1',
+        'asia-east1',
+      ];
+
+      const adkLocSelect = screen.getByLabelText('Agent Location') as HTMLSelectElement;
+      const adkRegions = Array.from(adkLocSelect.options).map((o) => o.value);
+      expect(adkRegions).toEqual(expectedRegions);
+
+      // Switch to A2A Function (Cloud Run) via SegmentedControl
+      const a2aBtn = screen.getByRole('button', { name: 'A2A Function (Cloud Run)' });
+      act(() => {
+        fireEvent.click(a2aBtn);
+      });
+
+      expect(screen.getByTestId('a2a-target-project-badge')).toHaveTextContent('enterprise-prod-id');
+      expect(screen.queryByPlaceholderText('e.g. my-project-id')).toBeNull();
+
+      const a2aRegionSelect = screen.getByLabelText('Region') as HTMLSelectElement;
+      const a2aRegions = Array.from(a2aRegionSelect.options).map((o) => o.value);
+      expect(a2aRegions).toEqual(expectedRegions);
+    });
   });
 
   // The bug this guards against shipped because the validation rule and the

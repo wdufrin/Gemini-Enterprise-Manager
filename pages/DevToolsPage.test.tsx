@@ -285,6 +285,42 @@ describe('DevToolsPage & Licensing Workstream 4 UI', () => {
       const errBanner = await screen.findByTestId('devtools-error-banner');
       expect(errBanner).toHaveTextContent(/403 PERMISSION_DENIED/);
     });
+
+    it('tracks dirty edits, surfaces sticky unsaved-changes bar, supports Discard, and guards location switch', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm');
+      renderWithEnrollment(<DevToolsPage projectNumber="999888777" projectId="ent-prod-999" />);
+      await waitFor(() => expect(mockedApi.getDevToolsConfig).toHaveBeenCalledTimes(1));
+
+      expect(screen.getByRole('heading', { name: 'AI Developer Tools' })).toBeInTheDocument();
+      expect(screen.queryByTestId('devtools-unsaved-bar')).not.toBeInTheDocument();
+
+      // Mutate /boost command toggle -> sticky unsaved bar appears
+      const boostToggle = screen.getByTestId('boost-command-toggle') as HTMLInputElement;
+      expect(boostToggle.checked).toBe(true);
+      fireEvent.click(boostToggle);
+      expect(boostToggle.checked).toBe(false);
+      expect(screen.getByTestId('devtools-unsaved-bar')).toHaveTextContent(/Unsaved policy changes/i);
+
+      // Attempt to switch location while dirty and cancel confirm -> stays on global
+      confirmSpy.mockReturnValueOnce(false);
+      const locSelect = screen.getByLabelText(/Gemini Enterprise Location/i) as HTMLSelectElement;
+      fireEvent.change(locSelect, { target: { value: 'us' } });
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(locSelect.value).toBe('global');
+      expect(mockedApi.getDevToolsConfig).toHaveBeenCalledTimes(1);
+
+      // Click Discard -> restores boostToggle to true and hides unsaved bar
+      fireEvent.click(screen.getByTestId('discard-devtools-changes-btn'));
+      expect(boostToggle.checked).toBe(true);
+      expect(screen.queryByTestId('devtools-unsaved-bar')).not.toBeInTheDocument();
+
+      // Filter policy domains using canonical Tabs
+      fireEvent.click(screen.getByRole('tab', { name: 'MCP Governance' }));
+      expect(screen.getByTestId('mcp-allowlist-input')).toBeInTheDocument();
+      expect(screen.queryByTestId('boost-command-toggle')).not.toBeInTheDocument();
+
+      confirmSpy.mockRestore();
+    });
   });
 
   describe('UserStoreConfigTab & AllocationsTab Enhancements', () => {

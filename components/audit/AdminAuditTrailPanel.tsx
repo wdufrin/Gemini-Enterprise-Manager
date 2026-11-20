@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AUDIT_GOVERNANCE_SERVICES,
   AuditGovernanceService,
@@ -46,10 +46,23 @@ export const AdminAuditTrailPanel: React.FC<AdminAuditTrailPanelProps> = ({ proj
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showFilterPreview, setShowFilterPreview] = useState<boolean>(false);
+  const [syncedGlobalProject, setSyncedGlobalProject] = useState<string>(projectId || '');
+  const prevProjectIdRef = useRef<string>(projectId || '');
 
   useEffect(() => {
-    if (projectId && !targetProject) {
-      setTargetProject(projectId);
+    const nextProj = projectId || '';
+    if (nextProj !== prevProjectIdRef.current) {
+      prevProjectIdRef.current = nextProj;
+      if (nextProj) {
+        setTargetProject(nextProj);
+        setEntries([]);
+        setNextPageToken(undefined);
+        setExecutedFilter('');
+        setSyncedGlobalProject(nextProj);
+      }
+    } else if (nextProj && !targetProject) {
+      setTargetProject(nextProj);
+      setSyncedGlobalProject(nextProj);
     }
   }, [projectId, targetProject]);
 
@@ -105,9 +118,9 @@ export const AdminAuditTrailPanel: React.FC<AdminAuditTrailPanelProps> = ({ proj
     if (targetProject.trim()) {
       void loadAuditLogs();
     }
-    // Only auto-query on initial project availability or window/service pill change
+    // Auto-query on initial project availability, global project switch, or window/service pill change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeWindow, serviceFilter]);
+  }, [syncedGlobalProject, timeWindow, serviceFilter]);
 
   const handleExportCsv = () => {
     if (entries.length === 0) return;

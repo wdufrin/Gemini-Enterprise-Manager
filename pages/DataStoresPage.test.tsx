@@ -19,6 +19,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import DataStoresPage from './DataStoresPage';
+import { WorkspaceScopeProvider } from '../context/WorkspaceScopeContext';
 import {
   QueryHistoryList,
   getDocumentPreview,
@@ -91,9 +92,11 @@ describe('DataStoresPage, DataStoreDetails & QueryHistoryList (F7: Module 6 Data
 
   const renderPage = () =>
     render(
-      <MemoryRouter>
-        <DataStoresPage projectNumber="123456" setProjectNumber={vi.fn()} />
-      </MemoryRouter>
+      <WorkspaceScopeProvider projectKey="123456">
+        <MemoryRouter>
+          <DataStoresPage projectNumber="123456" setProjectNumber={vi.fn()} />
+        </MemoryRouter>
+      </WorkspaceScopeProvider>
     );
 
   it('renders data stores list and opens DataStoreDetails when clicking View', async () => {
@@ -219,6 +222,76 @@ describe('DataStoresPage, DataStoreDetails & QueryHistoryList (F7: Module 6 Data
         },
         expect.objectContaining({ projectId: '123456' })
       );
+    });
+  });
+
+  it('preserves Location (eu) across Data Stores and Enterprise Connectors tabs via WorkspaceScopeContext and supports client-side DataStore search', async () => {
+    sessionStorage.clear();
+    vi.mocked(api.listResources).mockImplementation(async (resourceType: string) => {
+      if (resourceType === 'dataStores') {
+        return {
+          dataStores: [
+            sampleDataStore,
+            {
+              name: 'projects/123456/locations/eu/collections/default_collection/dataStores/ds-gdpr-eu',
+              displayName: 'EU GDPR Legal Repository',
+              solutionTypes: ['SOLUTION_TYPE_SEARCH'],
+            },
+          ],
+        };
+      }
+      if (resourceType === 'collections') {
+        return {
+          collections: [
+            {
+              name: 'projects/123456/locations/eu/collections/sharepoint-eu',
+              displayName: 'SharePoint EU',
+            },
+          ],
+        };
+      }
+      if (resourceType === 'engines') {
+        return { engines: [] };
+      }
+      return {};
+    });
+
+    renderPage();
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Connectors & Data Stores' }),
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText('EU GDPR Legal Repository')).toBeInTheDocument();
+    });
+
+    // Verify Create New button uses canonical blue-600 styling and client-side search filters rows
+    const createNewBtn = screen.getByRole('button', { name: 'Create New' });
+    expect(createNewBtn.className).toContain('bg-blue-600');
+
+    const dsSearch = screen.getByLabelText('Search data stores');
+    fireEvent.change(dsSearch, { target: { value: 'GDPR' } });
+    expect(screen.getByText('EU GDPR Legal Repository')).toBeInTheDocument();
+    expect(screen.queryByText('Technical Service Manuals')).not.toBeInTheDocument();
+
+    // Select EU location on Data Stores tab
+    const locationSelect = screen.getByLabelText('Location') as HTMLSelectElement;
+    fireEvent.change(locationSelect, { target: { value: 'eu' } });
+    expect(locationSelect.value).toBe('eu');
+
+    // Switch to Enterprise Connectors tab -> must preserve 'eu' and NEVER reset back to 'global'
+    fireEvent.click(screen.getByRole('tab', { name: 'Enterprise Connectors' }));
+
+    const connectorsLocSelect = (await screen.findByLabelText('Location')) as HTMLSelectElement;
+    expect(connectorsLocSelect.value).toBe('eu');
+
+    await waitFor(() => {
+      expect(api.listResources).toHaveBeenCalledWith(
+        'collections',
+        expect.objectContaining({ appLocation: 'eu' })
+      );
+      expect(screen.getByText('SharePoint EU')).toBeInTheDocument();
     });
   });
 });

@@ -34,12 +34,20 @@ interface ConnectorsPageProps {
   setProjectNumber?: (projectNumber: string) => void;
   accessToken?: string;
   config?: Config;
+  sharedLocation?: string;
+  onSharedLocationChange?: (location: string) => void;
+  onLoadingChange?: (isLoading: boolean) => void;
+  registerRefresh?: React.MutableRefObject<(() => void) | null>;
 }
 
 const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
   projectNumber: propProjectNumber,
   setProjectNumber: propSetProjectNumber,
   config: propConfig,
+  sharedLocation,
+  onSharedLocationChange,
+  onLoadingChange,
+  registerRefresh,
 }) => {
   const projectNumber = propProjectNumber ?? propConfig?.projectId ?? "";
   const setProjectNumber = propSetProjectNumber ?? (() => {});
@@ -81,7 +89,23 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({
     handleLocationChange,
     associationWarning,
     setAssociationWarning,
-  } = useConnectorsPage({ projectNumber });
+  } = useConnectorsPage({
+    projectNumber,
+    sharedLocation,
+    onSharedLocationChange,
+  });
+
+  React.useEffect(() => {
+    onLoadingChange?.(isLoading);
+  }, [isLoading, onLoadingChange]);
+
+  React.useEffect(() => {
+    if (!registerRefresh) return;
+    registerRefresh.current = fetchCollections;
+    return () => {
+      registerRefresh.current = null;
+    };
+  }, [registerRefresh, fetchCollections]);
 
   const [enableExperimentalClone, setEnableExperimentalClone] = React.useState(true);
   const [isCreateByoMcpOpen, setIsCreateByoMcpOpen] = React.useState(false);

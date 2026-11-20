@@ -84,6 +84,8 @@ export const ProjectEngineSelector: React.FC<ProjectEngineSelectorProps> = ({
   valueRef.current = value;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const isInitialMountRef = useRef<boolean>(true);
+  const lastObservedLocationRef = useRef<string>(value.location);
 
   const badgeColorClass = {
     blue: 'bg-blue-500',
@@ -99,14 +101,22 @@ export const ProjectEngineSelector: React.FC<ProjectEngineSelectorProps> = ({
     amber: 'focus:ring-amber-500',
   }[badgeColor];
 
-  // Fetch Engines / Apps when project or location changes
+  // Fetch Engines / Apps when project or location changes (debounced 250ms on project typing)
   useEffect(() => {
     const proj = value.project.trim();
+    const isInitial = isInitialMountRef.current;
+    isInitialMountRef.current = false;
+
+    const locationChanged = lastObservedLocationRef.current !== value.location;
+    lastObservedLocationRef.current = value.location;
+
     if (!proj) {
       setApps([]);
       setAppsLoadError(null);
+      setIsLoadingApps(false);
       return;
     }
+
     let isMounted = true;
     const fetchApps = async () => {
       setIsLoadingApps(true);
@@ -148,9 +158,20 @@ export const ProjectEngineSelector: React.FC<ProjectEngineSelectorProps> = ({
       }
     };
 
-    fetchApps();
+    if (isInitial || locationChanged) {
+      void fetchApps();
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    const timerId = window.setTimeout(() => {
+      void fetchApps();
+    }, 250);
+
     return () => {
       isMounted = false;
+      window.clearTimeout(timerId);
     };
   }, [value.project, value.location]);
 

@@ -516,6 +516,14 @@ curl -X GET \\
     description: "Restoring an App/Engine requires creating a data store for it first, then creating the engine itself.",
     commands: [{ title: 'Create Engine', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{"displayName": "[ENGINE_DISPLAY_NAME]", "solutionType": "SOLUTION_TYPE_SEARCH", "dataStoreIds": ["[NEW_DATA_STORE_ID]"]}' "https://[LOCATION]-discoveryengine.googleapis.com/v1beta/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines?engineId=[ENGINE_ID]"` }]
   },
+  'Backup:ReasoningEngine': {
+    description: "Backing up a Vertex AI Reasoning Engine exports its regional runtime metadata, package spec, and deployment configuration to GCS.",
+    commands: [{ title: 'Get Reasoning Engine Metadata', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[GCP_REGION]-aiplatform.googleapis.com/v1beta1/projects/[PROJECT_ID]/locations/[GCP_REGION]/reasoningEngines/[REASONING_ENGINE_ID]"` }]
+  },
+  'Restore:ReasoningEngine': {
+    description: "Restoring a Vertex AI Reasoning Engine recreates the runtime in its target regional Vertex AI endpoint.",
+    commands: [{ title: 'Create Reasoning Engine', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{"displayName": "[DISPLAY_NAME]", "spec": {...}}' "https://[GCP_REGION]-aiplatform.googleapis.com/v1beta1/projects/[PROJECT_ID]/locations/[GCP_REGION]/reasoningEngines"` }]
+  },
   'Backup:Assistant': {
     description: "Backing up a single Assistant involves getting its details and then listing its agents.",
     commands: [{ title: 'Get Assistant Details', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]"` }]
@@ -742,26 +750,29 @@ curl -X GET \\
     ]
   },
   [Page.CONFIG_AUDIT]: {
-    description: "These are the REST API calls for auditing project configuration, active APIs, and IAM service agents.",
+    description: "REST API calls used by App Config Audit for cross-environment Discovery Engine parity diffing, dev -> prod agent promotion, and Cloud Audit Logs (`cloudaudit.googleapis.com/activity`) inspection.",
     commands: [
       {
-        title: 'Get Project Metadata',
+        title: 'Compare Engine & Assistant Parity (Source vs Target)',
         command: `curl -X GET \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  "https://cloudresourcemanager.googleapis.com/v1/projects/[YOUR_PROJECT_ID]"`
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/default_assistant"`
       },
       {
-        title: 'List Enabled Service APIs',
-        command: `curl -X GET \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  "https://serviceusage.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/services?filter=state:ENABLED"`
-      },
-      {
-        title: 'Get Project IAM Policy',
+        title: 'Promote Agent Configuration to Target Environment',
         command: `curl -X POST \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "Content-Type: application/json" \\
-  "https://cloudresourcemanager.googleapis.com/v1/projects/[YOUR_PROJECT_ID]:getIamPolicy"`
+  -d '{"displayName": "[AGENT_NAME]", "description": "[DESCRIPTION]"}' \\
+  "https://[TARGET_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[TARGET_PROJECT_ID]/locations/[TARGET_LOCATION]/collections/default_collection/engines/[TARGET_ENGINE_ID]/assistants/default_assistant/agents"`
+      },
+      {
+        title: 'Query Admin Activity Cloud Audit Logs',
+        command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -d '{"resourceNames": ["projects/[YOUR_PROJECT_ID]"], "filter": "logName:\\"cloudaudit.googleapis.com%2Factivity\\" AND protoPayload.serviceName=(\\"discoveryengine.googleapis.com\\" OR \\"modelarmor.googleapis.com\\")", "orderBy": "timestamp desc", "pageSize": 50}' \\
+  "https://logging.googleapis.com/v2/entries:list"`
       }
     ]
   },

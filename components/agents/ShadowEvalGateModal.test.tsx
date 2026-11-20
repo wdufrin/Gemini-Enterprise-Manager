@@ -416,7 +416,7 @@ describe('Item #7: Multi-Engine Cross-Region Fleet View, Metadata Cache & 30d BQ
     });
 
     // Switch Engine selector to __ALL_ENGINES__ (Unified Fleet View)
-    const engineSelect = screen.getByLabelText(/Gemini Enterprise ID/i);
+    const engineSelect = screen.getByLabelText(/Gemini Enterprise App/i);
     fireEvent.change(engineSelect, {
       target: { name: 'appId', value: ALL_ENGINES_VALUE },
     });
@@ -699,7 +699,7 @@ describe('Critical Fleet, Evaluation & Runtime Pagination Bug Fixes', () => {
       />,
     );
 
-    const abTabBtn = await screen.findByRole('button', {
+    const abTabBtn = await screen.findByRole('tab', {
       name: /2\. Before vs\. After Skill A\/B Lab/i,
     });
     fireEvent.click(abTabBtn);
@@ -721,7 +721,7 @@ describe('Critical Fleet, Evaluation & Runtime Pagination Bug Fixes', () => {
       />,
     );
 
-    const locSelect = screen.getByLabelText(/GCP Location/i) as HTMLSelectElement;
+    const locSelect = screen.getByLabelText(/GCP Region/i) as HTMLSelectElement;
     const optionValues = Array.from(locSelect.options).map((o) => o.value);
     expect(optionValues).toEqual(
       expect.arrayContaining([

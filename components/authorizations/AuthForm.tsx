@@ -402,7 +402,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
   };
   
   return (
-    <div className="bg-gray-800 shadow-xl rounded-lg p-6 max-w-7xl mx-auto">
+    <div className="bg-gray-800 shadow-xl rounded-xl border border-gray-700/80 p-6 w-full">
         <div className="flex justify-between items-start mb-6">
             <h2 className="text-2xl font-bold text-white">{authToEdit ? 'Update Authorization' : 'Create New Authorization'}</h2>
             <button type="button" onClick={onCancel} className="text-gray-400 hover:text-white">&larr; Back to list</button>

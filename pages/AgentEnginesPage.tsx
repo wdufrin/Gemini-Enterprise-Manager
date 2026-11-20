@@ -14,17 +14,38 @@
  * limitations under the License.
  */
 
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { ReasoningEngine, CloudRunService, Page } from "../types";
 import EngineDetails from "../components/agent-engines/EngineDetails";
 import McpServerDetails from "../components/mcp-servers/McpServerDetails";
-import CloudConsoleButton from "../components/CloudConsoleButton";
+import { PageShell } from "../components/layout/PageShell";
+import { PageHeader } from "../components/layout/PageHeader";
+import { ScopeBar, ScopeOption } from "../components/layout/ScopeBar";
+import { useWorkspaceScope } from "../context/WorkspaceScopeContext";
 import { useAgentEngines, UnifiedResource } from "../hooks/useAgentEngines";
 import { AgentEnginesTable } from "../components/agent-engines/AgentEnginesTable";
 import { AgentEnginesModals } from "../components/agent-engines/AgentEnginesModals";
 
+const GCP_REGION_OPTIONS: ScopeOption[] = [
+  { value: "us-central1", label: "us-central1" },
+  { value: "us-east1", label: "us-east1" },
+  { value: "us-east4", label: "us-east4" },
+  { value: "us-south1", label: "us-south1" },
+  { value: "us-west1", label: "us-west1" },
+  { value: "northamerica-northeast1", label: "northamerica-northeast1" },
+  { value: "europe-west1", label: "europe-west1" },
+  { value: "europe-west2", label: "europe-west2" },
+  { value: "europe-west3", label: "europe-west3" },
+  { value: "europe-west4", label: "europe-west4" },
+  { value: "asia-east1", label: "asia-east1" },
+  { value: "asia-northeast1", label: "asia-northeast1" },
+  { value: "asia-southeast1", label: "asia-southeast1" },
+  { value: "australia-southeast1", label: "australia-southeast1" },
+];
+
 interface AgentEnginesPageProps {
   projectNumber: string;
+  projectId?: string;
   accessToken: string;
   onDirectQuery: (engine: ReasoningEngine) => void;
   onNavigate?: (page: Page, context?: any) => void;
@@ -32,11 +53,12 @@ interface AgentEnginesPageProps {
 
 const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
   projectNumber,
+  projectId,
   accessToken,
   onDirectQuery,
   onNavigate,
 }) => {
-  const [location, setLocation] = useState("us-central1");
+  const { gcpRegion: location, setGcpRegion: setLocation } = useWorkspaceScope();
   const [viewMode, setViewMode] = useState<"list" | "details">("list");
   const [selectedResource, setSelectedResource] =
     useState<UnifiedResource | null>(null);
@@ -135,82 +157,57 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
     );
   };
 
+  const handleRefresh = useCallback(() => {
+    void fetchResources({ forceRefresh: true });
+  }, [fetchResources]);
+
+  const handleRegionChange = useCallback(
+    (nextRegion: string) => {
+      setLocation(nextRegion);
+      setViewMode("list");
+      setSelectedResource(null);
+    },
+    [setLocation],
+  );
+
   return (
-    <div>
-      <div className="bg-gray-800 p-4 rounded-lg mb-6 shadow-md">
-        <div className="flex justify-between items-center mb-3">
-          <h2 className="text-lg font-semibold text-white">Configuration</h2>
-          <CloudConsoleButton
-            url={`https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=${projectNumber}`}
-          />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Project ID / Number
-            </label>
-            <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-300 font-mono h-[38px] flex items-center">
-              {projectNumber || (
-                <span className="text-gray-500 italic">Not set</span>
-              )}
-            </div>
-          </div>
-          <div>
-            <label
-              htmlFor="location"
-              className="block text-sm font-medium text-gray-400 mb-1"
-            >
-              GCP Location
-            </label>
-            <select
-              id="location"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full"
-            >
-              <option value="us-central1">us-central1</option>
-              <option value="us-east1">us-east1</option>
-              <option value="us-east4">us-east4</option>
-              <option value="us-south1">us-south1</option>
-              <option value="us-west1">us-west1</option>
-              <option value="northamerica-northeast1">northamerica-northeast1</option>
-              <option value="europe-west1">europe-west1</option>
-              <option value="europe-west2">europe-west2</option>
-              <option value="europe-west3">europe-west3</option>
-              <option value="europe-west4">europe-west4</option>
-              <option value="asia-east1">asia-east1</option>
-              <option value="asia-northeast1">asia-northeast1</option>
-              <option value="asia-southeast1">asia-southeast1</option>
-              <option value="australia-southeast1">australia-southeast1</option>
-            </select>
-          </div>
-        </div>
-        {viewMode === "list" && (
-          <div className="mt-4 flex flex-wrap items-center gap-3">
+    <PageShell variant="wide">
+      <PageHeader
+        title="Agent Runtimes"
+        subtitle="Manage Vertex AI Reasoning Engines, Cloud Run A2A services, and active runtime sessions."
+        consolePage={Page.AGENT_ENGINES}
+        projectId={projectId}
+        projectNumber={projectNumber}
+        onRefresh={viewMode === "list" ? handleRefresh : undefined}
+        isRefreshing={isLoading}
+        secondaryActions={
+          viewMode === "list" &&
+          resources.some((r) => r.type === "Agent Engine") ? (
             <button
               type="button"
-              onClick={() => fetchResources({ forceRefresh: true })}
-              disabled={isLoading}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-500 disabled:bg-gray-600 transition-colors"
+              onClick={loadSessionCounts}
+              disabled={isLoading || isLoadingSessionCounts}
+              title="Queries active session counts across Agent Engines (throttled to protect Vertex AI project quotas)"
+              className="inline-flex items-center gap-1.5 px-3 h-9 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs sm:text-sm font-medium text-gray-200 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
-              {isLoading ? "Loading..." : "Refresh Resources"}
-            </button>
-            {resources.some((r) => r.type === "Agent Engine") && (
-              <button
-                type="button"
-                onClick={loadSessionCounts}
-                disabled={isLoading || isLoadingSessionCounts}
-                title="Queries active session counts across Agent Engines (throttled to protect Vertex AI project quotas)"
-                className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 text-xs font-semibold rounded-lg disabled:opacity-50 transition-colors"
-              >
+              <span>
                 {isLoadingSessionCounts
                   ? "Loading Sessions..."
                   : "Load Session Counts"}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+              </span>
+            </button>
+          ) : undefined
+        }
+      >
+        <ScopeBar
+          embedded
+          locationLabel="GCP Region"
+          locationId="gcpLocation"
+          locationValue={location}
+          onLocationChange={handleRegionChange}
+          locationOptions={GCP_REGION_OPTIONS}
+        />
+      </PageHeader>
 
       {renderContent()}
 
@@ -233,7 +230,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({
         onCloseAgentCard={() => setAgentCardEngine(null)}
         apiConfig={apiConfig}
       />
-    </div>
+    </PageShell>
   );
 };
 

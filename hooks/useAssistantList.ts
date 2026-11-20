@@ -14,9 +14,14 @@
  * limitations under the License.
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { AppEngine, Assistant, Config } from '../types';
 import * as api from '../services/apiService';
+
+function extractLocationFromResourceName(name: string): string | null {
+  const match = name.match(/\/locations\/([^/]+)\//);
+  return match ? match[1] : null;
+}
 
 export interface AssistantRowData {
   engine: AppEngine;
@@ -82,6 +87,12 @@ export function useAssistantList(projectNumber: string, baseApiConfig: Config) {
     key: 'displayName',
     direction: 'asc',
   });
+
+  // Monotonic sequence counters prevent slow responses from a previous location/project
+  // from overwriting newly selected location engines or rows (e.g., global OKTA leaking into eu).
+  const enginesFetchSeqRef = useRef(0);
+  const detailsFetchSeqRef = useRef(0);
+  const isFetchingEnginesRef = useRef(false);
 
   const handleSort = (key: SortKey) => {
     setSortConfig((current) => ({
@@ -162,10 +173,18 @@ export function useAssistantList(projectNumber: string, baseApiConfig: Config) {
   }, [rows, sortConfig]);
 
   const fetchEngines = useCallback(async () => {
+    const seq = ++enginesFetchSeqRef.current;
+    detailsFetchSeqRef.current += 1;
+
     if (!projectNumber) {
+      isFetchingEnginesRef.current = false;
+      setRows([]);
+      setAllEngines([]);
       setListError('Project Number is required.');
+      setIsListLoading(false);
       return;
     }
+    isFetchingEnginesRef.current = true;
     setIsListLoading(true);
     setListError(null);
     setRows([]);
@@ -176,12 +195,17 @@ export function useAssistantList(projectNumber: string, baseApiConfig: Config) {
         ...baseApiConfig,
         appId: '',
       });
+      if (seq !== enginesFetchSeqRef.current) return;
       const engines: AppEngine[] = enginesRes.engines || [];
       setAllEngines(engines);
     } catch (err: any) {
+      if (seq !== enginesFetchSeqRef.current) return;
       setListError(err.message || 'Failed to fetch engines list.');
     } finally {
-      setIsListLoading(false);
+      if (seq === enginesFetchSeqRef.current) {
+        isFetchingEnginesRef.current = false;
+        setIsListLoading(false);
+      }
     }
   }, [baseApiConfig, projectNumber]);
 
@@ -206,8 +230,25 @@ export function useAssistantList(projectNumber: string, baseApiConfig: Config) {
   }, [filteredEngines, page]);
 
   useEffect(() => {
+    let cancelled = false;
+    const detailsSeq = ++detailsFetchSeqRef.current;
+
     const fetchPageDetails = async () => {
       if (paginatedEngines.length === 0) {
+        setRows([]);
+        if (!isFetchingEnginesRef.current) {
+          setIsListLoading(false);
+        }
+        return;
+      }
+
+      // Guard against transient render frames where baseApiConfig.appLocation has just
+      // switched (e.g., global -> eu) before fetchEngines clears previous allEngines.
+      const hasMismatchedLocation = paginatedEngines.some((engine) => {
+        const loc = extractLocationFromResourceName(engine.name);
+        return loc !== null && loc !== baseApiConfig.appLocation;
+      });
+      if (hasMismatchedLocation) {
         setRows([]);
         return;
       }
@@ -221,7 +262,9 @@ export function useAssistantList(projectNumber: string, baseApiConfig: Config) {
           appId,
           suppressErrorLog: true,
         };
-        const assistantName = `projects/${baseApiConfig.projectId}/locations/${baseApiConfig.appLocation}/collections/default_collection/engines/${appId}/assistants/default_assistant`;
+        const assistantName = engine.name.includes('/engines/')
+          ? `${engine.name}/assistants/default_assistant`
+          : `projects/${baseApiConfig.projectId}/locations/${baseApiConfig.appLocation}/collections/default_collection/engines/${appId}/assistants/default_assistant`;
 
         try {
           const assistant = await api.getAssistant(
@@ -230,6 +273,9 @@ export function useAssistantList(projectNumber: string, baseApiConfig: Config) {
           );
           return { engine, assistant };
         } catch (e: any) {
+          if (cancelled || detailsSeq !== detailsFetchSeqRef.current) {
+            return { engine, assistant: null, error: e.message };
+          }
           try {
             const listRes = await api.listAssistants(assistantConfig, 1);
             if (listRes.assistants && listRes.assistants.length > 0) {
@@ -243,11 +289,17 @@ export function useAssistantList(projectNumber: string, baseApiConfig: Config) {
       });
 
       const results = await Promise.all(rowPromises);
+      if (cancelled || detailsSeq !== detailsFetchSeqRef.current) return;
       setRows(results);
-      setIsListLoading(false);
+      if (!isFetchingEnginesRef.current) {
+        setIsListLoading(false);
+      }
     };
 
     fetchPageDetails();
+    return () => {
+      cancelled = true;
+    };
   }, [paginatedEngines, baseApiConfig]);
 
   useEffect(() => {

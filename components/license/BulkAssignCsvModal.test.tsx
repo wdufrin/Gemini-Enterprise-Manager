@@ -23,6 +23,10 @@ import {
   evaluateSeatCapacity,
 } from './BulkAssignCsvModal';
 import * as licensesApi from '../../services/api/licenses';
+import * as apiService from '../../services/apiService';
+import LicensePage from '../../pages/LicensePage';
+import { ToastProvider } from '../../context/ToastContext';
+import { WorkspaceScopeProvider } from '../../context/WorkspaceScopeContext';
 import {
   getCachedUserLicenses,
   setCachedUserLicenses,
@@ -34,7 +38,22 @@ vi.mock('../../services/api/licenses', () => ({
   assignUserLicenses: vi.fn(),
 }));
 
+vi.mock('../../services/apiService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/apiService')>();
+  return {
+    ...actual,
+    listUserStoreLicenses: vi.fn(),
+    listLicenseConfigs: vi.fn(),
+    assignUserLicenses: vi.fn(),
+    getLicenseConfig: vi.fn(),
+    listCloudRunServices: vi.fn().mockResolvedValue({ services: [] }),
+    getProject: vi.fn().mockResolvedValue({ projectId: 'ent-proj-999', projectNumber: '999' }),
+    getCloudSchedulerJob: vi.fn().mockRejectedValue(new Error('404')),
+  };
+});
+
 const mockedAssign = vi.mocked(licensesApi.assignUserLicenses);
+const mockedApiService = vi.mocked(apiService);
 
 describe('BulkAssignCsvModal & Regional License Cache / Pruner Fixes (Item #10a)', () => {
   beforeEach(async () => {
@@ -212,5 +231,119 @@ describe('BulkAssignCsvModal & Regional License Cache / Pruner Fixes (Item #10a)
     expect(euPython).toContain('f"https://{normalized_loc}-discoveryengine.googleapis.com/v1"');
     expect(euPython).toContain('CHUNK_SIZE = 100');
     expect(euPython).toContain('for idx in range(0, len(inactive_principals), CHUNK_SIZE):');
+  });
+
+  it('closes on Escape via canonical Modal portal (z-[70]), blocks Escape while submitting, and passes custom userStoreId', async () => {
+    let resolveBatch: () => void = () => undefined;
+    mockedAssign.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveBatch = () => resolve({ name: 'operations/batch-custom', done: true });
+        }),
+    );
+
+    const onClose = vi.fn();
+    const poolConfig = {
+      name: 'projects/123/locations/us/licenseConfigs/us-std-pool',
+      displayName: 'US Standard Pool',
+      licenseCount: 50,
+      subscriptionTier: 'GEMINI_ENTERPRISE',
+    };
+
+    render(
+      <BulkAssignCsvModal
+        isOpen={true}
+        onClose={onClose}
+        projectNumber="123"
+        appLocation="us"
+        userStoreId="custom_emea_user_store"
+        apiLicenseConfigs={[poolConfig]}
+        existingLicenses={[]}
+      />,
+    );
+
+    const dialog = screen.getByRole('dialog', {
+      name: /Bulk Assign User Licenses/i,
+    });
+    expect(dialog.parentElement).toBe(document.body);
+    expect(dialog.className).toContain('z-[70]');
+
+    // Pressing Escape when idle invokes onClose
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // Start an in-flight batch assignment and verify Escape is blocked while submitting
+    onClose.mockClear();
+    fireEvent.change(screen.getByTestId('csv-emails-textarea'), {
+      target: { value: 'contractor.one@corp.us' },
+    });
+    fireEvent.change(screen.getByTestId('csv-confirm-input'), {
+      target: { value: 'ASSIGN' },
+    });
+    fireEvent.click(screen.getByTestId('csv-assign-submit-button'));
+
+    await waitFor(() => expect(mockedAssign).toHaveBeenCalledTimes(1));
+    expect(mockedAssign.mock.calls[0][1]).toBe('custom_emea_user_store');
+
+    // Negative check: Escape must NOT close modal while batch request is in flight
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+
+    resolveBatch();
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('wires custom User Store ID from LicensePage ScopeBar into CSV bulk assignment and switches to Automated License Pruner tab', async () => {
+    sessionStorage.clear();
+    const poolConfig = {
+      name: 'projects/999/locations/eu/licenseConfigs/eu-ent-pool',
+      displayName: 'EU Enterprise Pool',
+      licenseCount: 100,
+      state: 'ACTIVE',
+      subscriptionTier: 'GEMINI_ENTERPRISE',
+    };
+    mockedApiService.listUserStoreLicenses.mockResolvedValue({ userLicenses: [] });
+    mockedApiService.listLicenseConfigs.mockResolvedValue({ licenseConfigs: [poolConfig] });
+    mockedApiService.assignUserLicenses.mockResolvedValue({ name: 'operations/ok', done: true });
+
+    render(
+      <ToastProvider>
+        <WorkspaceScopeProvider projectKey="999">
+          <LicensePage projectNumber="999" projectId="ent-proj-999" setProjectNumber={vi.fn()} />
+        </WorkspaceScopeProvider>
+      </ToastProvider>,
+    );
+
+    await waitFor(() => expect(mockedApiService.listLicenseConfigs).toHaveBeenCalled());
+
+    // Change Location and custom User Store ID in LicensePage ScopeBar
+    fireEvent.change(screen.getByLabelText('Location'), { target: { value: 'eu' } });
+    fireEvent.change(screen.getByLabelText('User Store ID'), {
+      target: { value: 'custom_eu_store' },
+    });
+
+    // Open CSV Bulk Assign modal from UserLicensesTab and submit
+    fireEvent.click(screen.getByTestId('open-bulk-assign-csv-button'));
+    fireEvent.change(await screen.findByTestId('csv-emails-textarea'), {
+      target: { value: 'alice.eu@corp.eu' },
+    });
+    fireEvent.change(screen.getByTestId('csv-confirm-input'), {
+      target: { value: 'ASSIGN' },
+    });
+    fireEvent.click(screen.getByTestId('csv-assign-submit-button'));
+
+    await waitFor(() => expect(mockedApiService.assignUserLicenses).toHaveBeenCalledTimes(1));
+    expect(mockedApiService.assignUserLicenses).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: '999', appLocation: 'eu' }),
+      'custom_eu_store',
+      ['alice.eu@corp.eu'],
+      poolConfig.name,
+    );
+
+    // Clicking Setup Auto-Pruner switches directly to Tab 5 instead of opening a duplicate modal
+    fireEvent.click(screen.getByRole('button', { name: /Setup Auto-Pruner/i }));
+    expect(
+      screen.getByRole('tab', { name: /Automated License Pruner/i }),
+    ).toHaveAttribute('aria-selected', 'true');
   });
 });

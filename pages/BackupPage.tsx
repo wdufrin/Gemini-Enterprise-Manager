@@ -22,7 +22,9 @@ import BackupLogConsole from '../components/backup/BackupLogConsole';
 import BackupModals from '../components/backup/BackupModals';
 import { useBackupOperations } from '../hooks/useBackupOperations';
 import type { RestoreProcessor } from '../hooks/useBackupOperations';
-import { Config } from '../types';
+import PageShell from '../components/layout/PageShell';
+import PageHeader from '../components/layout/PageHeader';
+import { Config, Page } from '../types';
 
 // Re-export validateBackupSchema for backward compatibility and tests
 export { validateBackupSchema };
@@ -30,6 +32,7 @@ export { validateBackupSchema };
 export interface BackupPageProps {
   accessToken?: string;
   projectNumber?: string;
+  projectId?: string;
   setProjectNumber?: (projectNumber: string) => void;
   config?: Config;
 }
@@ -37,6 +40,7 @@ export interface BackupPageProps {
 const BackupPage: React.FC<BackupPageProps> = ({
   accessToken = '',
   projectNumber: propProjectNumber,
+  projectId,
   setProjectNumber = () => {},
   config,
 }) => {
@@ -115,8 +119,12 @@ const BackupPage: React.FC<BackupPageProps> = ({
     },
   ];
 
+  const consoleBucketUrl = ops.selectedBucket
+    ? `https://console.cloud.google.com/storage/browser/${ops.selectedBucket}?project=${projectId || projectNumber}`
+    : undefined;
+
   return (
-    <div className="space-y-6">
+    <PageShell variant="wide">
       {/* Modals */}
       <BackupModals
         chatHistoryArchiveData={ops.chatHistoryArchiveData}
@@ -147,6 +155,15 @@ const BackupPage: React.FC<BackupPageProps> = ({
         restoreConfirmData={ops.restoreConfirmData}
         onCloseRestoreConfirm={() => ops.setRestoreConfirmData(null)}
         onExecuteRestoreConfirm={ops.executeConfirmedRestore}
+      />
+
+      <PageHeader
+        title="Backup & Recovery"
+        subtitle="Export and restore Discovery Engine, Assistant, Agent, and Vertex AI Reasoning Engine snapshots in Cloud Storage."
+        consolePage={Page.BACKUP_RECOVERY}
+        projectId={projectId}
+        projectNumber={projectNumber}
+        consoleUrl={consoleBucketUrl}
       />
 
       {/* Discovery Warnings Banner */}
@@ -256,7 +273,7 @@ const BackupPage: React.FC<BackupPageProps> = ({
         error={ops.error}
         logs={ops.logs}
       />
-    </div>
+    </PageShell>
   );
 };
 

@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Agent, AppEngine, Config, IamPolicy, SortableAgentKey, SortDirection, Assistant, UserProfile } from '../types';
+import { Agent, AppEngine, Config, IamPolicy, Page, SortableAgentKey, SortDirection, Assistant, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import AgentList from '../components/agents/AgentList';
@@ -25,9 +25,12 @@ import BulkAgentDatasourcesPanel from '../components/agents/BulkAgentDatasources
 import BulkEditSharePublishModal from '../components/agents/BulkEditSharePublishModal';
 import ShadowEvalGateModal, { resolveAgentStreamConfig } from '../components/agents/ShadowEvalGateModal';
 import ChatWindow from '../components/agents/ChatWindow';
-import ProjectInput from '../components/ProjectInput';
 import ConfirmationModal from '../components/ConfirmationModal';
-import CloudConsoleButton from '../components/CloudConsoleButton';
+import { PageShell } from '../components/layout/PageShell';
+import { PageHeader } from '../components/layout/PageHeader';
+import { ScopeBar } from '../components/layout/ScopeBar';
+import { Tabs } from '../components/common/Tabs';
+import { useWorkspaceScope } from '../context/WorkspaceScopeContext';
 import { usePersistedConfig } from '../hooks/usePersistedConfig';
 import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
@@ -48,14 +51,28 @@ type ViewMode = 'list' | 'form' | 'details' | 'bulk-datasources';
 
 interface AgentsPageProps {
   projectNumber: string;
+  projectId?: string;
   setProjectNumber: (projectNumber: string) => void;
   accessToken: string;
   userProfile?: UserProfile | null;
   context?: { agentToEdit?: Agent } | null;
 }
 
-const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber, accessToken, userProfile = null, context }) => {
+const AgentsPage: React.FC<AgentsPageProps> = ({
+  projectNumber,
+  projectId,
+  setProjectNumber: _setProjectNumber,
+  accessToken,
+  userProfile = null,
+  context,
+}) => {
   const { toast } = useToast();
+  const {
+    appLocation: scopeLocation,
+    appId: scopeAppId,
+    updateScope,
+  } = useWorkspaceScope();
+
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [testingAgent, setTestingAgent] = useState<Agent | null>(null);
@@ -78,30 +95,66 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     };
   }, []);
 
-  // Configuration state with persistent sessionStorage
+  // Configuration state with persistent sessionStorage + WorkspaceScopeContext sync
   const [config, setConfig] = usePersistedConfig(
     'agentsPageConfig',
     {
-      appLocation: 'global',
-      appId: '',
+      appLocation: scopeLocation || 'global',
+      appId: scopeAppId || '',
       collectionId: 'default_collection',
       assistantId: 'default_assistant',
     },
     {
       migrate: (parsed) => ({
-        appLocation: parsed?.appLocation || 'global',
-        appId: parsed?.appId || '',
+        appLocation: scopeLocation || parsed?.appLocation || 'global',
+        appId: scopeAppId || parsed?.appId || '',
         collectionId: 'default_collection',
         assistantId: 'default_assistant',
       }),
     }
   );
 
+  const prevScopeRef = useRef({ appLocation: scopeLocation, appId: scopeAppId });
+  useEffect(() => {
+    const prev = prevScopeRef.current;
+    if (prev.appLocation === scopeLocation && prev.appId === scopeAppId) return;
+    prevScopeRef.current = { appLocation: scopeLocation, appId: scopeAppId };
+    setConfig((curr) => {
+      const nextLoc = scopeLocation || curr.appLocation;
+      const nextAppId =
+        curr.appId === ALL_ENGINES_VALUE && prev.appLocation === scopeLocation
+          ? curr.appId
+          : scopeAppId;
+      if (curr.appLocation === nextLoc && curr.appId === nextAppId) return curr;
+      return { ...curr, appLocation: nextLoc, appId: nextAppId };
+    });
+  }, [scopeLocation, scopeAppId, setConfig]);
+
+  // Reset dependent fields when project changes from top header
+  const prevProjectRef = useRef(projectNumber);
+  useEffect(() => {
+    if (prevProjectRef.current === projectNumber) return;
+    prevProjectRef.current = projectNumber;
+    hydrationAbortRef.current?.abort();
+    agentsFetchSeqRef.current += 1;
+    appsFetchSeqRef.current += 1;
+    setIsLoading(false);
+    setIsHydratingAgents(false);
+    setAgents([]);
+    setSelectedAgents(new Set());
+    setSelectedAgent(null);
+    setHydrationWarning(null);
+    setApps([]);
+    prevScopeRef.current = { ...prevScopeRef.current, appId: '' };
+    updateScope({ appId: '' });
+    setConfig((prev) => ({ ...prev, appId: '' }));
+  }, [projectNumber, updateScope, setConfig]);
+
   // Handle navigation context
   useEffect(() => {
     if (context && context.agentToEdit) {
       const targetAgent: Agent = context.agentToEdit;
-      
+
       const parseAgentName = (name: string) => {
         const parts = name.split('/');
         if (parts.length >= 12) {
@@ -117,7 +170,9 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
 
       const parsed = parseAgentName(targetAgent.name);
       if (parsed) {
-        setConfig(prev => ({
+        prevScopeRef.current = { appLocation: parsed.location, appId: parsed.engineId };
+        updateScope({ appLocation: parsed.location, appId: parsed.engineId });
+        setConfig((prev) => ({
           ...prev,
           appLocation: parsed.location,
           appId: parsed.engineId,
@@ -126,11 +181,11 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         setViewMode('form');
       }
     }
-  }, [context, setConfig]);
+  }, [context, setConfig, updateScope]);
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
   const [deletingAgentIds, setDeletingAgentIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
-  
+
   // State for delete confirmation & bulk edit/share/publish modals
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isBulkEditSharePublishOpen, setIsBulkEditSharePublishOpen] = useState(false);
@@ -142,47 +197,60 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   const [apps, setApps] = useState<AppEngine[]>([]);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
 
-  const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    // Invalidate any in-flight agent fetch/hydration when Location or Engine changes
-    hydrationAbortRef.current?.abort();
-    agentsFetchSeqRef.current += 1;
-    setIsLoading(false);
-    setIsHydratingAgents(false);
-    setAgents([]);
-    setSelectedAgents(new Set());
-    setSelectedAgent(null);
-    setHydrationWarning(null);
-    setConfig(prev => {
-        const newConfig = { ...prev, [name]: value };
-        // Reset children when parent changes
-        if (name === 'appLocation') {
-            appsFetchSeqRef.current += 1;
-            newConfig.appId = '';
-            setApps([]);
-        }
-        return newConfig;
-    });
-  };
-  
-  const handleProjectNumberChange = (newValue: string) => {
-    hydrationAbortRef.current?.abort();
-    agentsFetchSeqRef.current += 1;
-    appsFetchSeqRef.current += 1;
-    setIsLoading(false);
-    setIsHydratingAgents(false);
-    setAgents([]);
-    setSelectedAgents(new Set());
-    setSelectedAgent(null);
-    setHydrationWarning(null);
-    setProjectNumber(newValue);
-    // Reset dependent fields when project changes
-    setConfig(prev => ({
+  const handleLocationSelectChange = useCallback(
+    (nextLocation: string) => {
+      hydrationAbortRef.current?.abort();
+      agentsFetchSeqRef.current += 1;
+      appsFetchSeqRef.current += 1;
+      setIsLoading(false);
+      setIsHydratingAgents(false);
+      setAgents([]);
+      setApps([]);
+      setSelectedAgents(new Set());
+      setSelectedAgent(null);
+      setHydrationWarning(null);
+      prevScopeRef.current = { appLocation: nextLocation, appId: '' };
+      updateScope({ appLocation: nextLocation, appId: '' });
+      setConfig((prev) => ({
         ...prev,
+        appLocation: nextLocation,
         appId: '',
-    }));
-    setApps([]);
-  };
+      }));
+    },
+    [setConfig, updateScope],
+  );
+
+  const handleEngineSelectChange = useCallback(
+    (nextAppId: string) => {
+      hydrationAbortRef.current?.abort();
+      agentsFetchSeqRef.current += 1;
+      setIsLoading(false);
+      setIsHydratingAgents(false);
+      setAgents([]);
+      setSelectedAgents(new Set());
+      setSelectedAgent(null);
+      setHydrationWarning(null);
+      const scopedId = nextAppId === ALL_ENGINES_VALUE ? '' : nextAppId;
+      prevScopeRef.current = { ...prevScopeRef.current, appId: scopedId };
+      updateScope({ appId: scopedId });
+      setConfig((prev) => ({
+        ...prev,
+        appId: nextAppId,
+      }));
+    },
+    [setConfig, updateScope],
+  );
+
+  const engineOptions = useMemo(
+    () => [
+      { value: ALL_ENGINES_VALUE, label: 'All Regions & Engines (Fleet View)' },
+      ...apps.map((a) => {
+        const id = a.name.split('/').pop() || '';
+        return { value: id, label: a.displayName || id };
+      }),
+    ],
+    [apps],
+  );
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       ...config,
@@ -218,17 +286,25 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             if (fetchedApps.length === 1) {
                 const singleAppId = fetchedApps[0].name.split('/').pop();
                 if (singleAppId) {
-                    setConfig(prev =>
-                        prev.appLocation === targetLocation && !prev.appId
-                            ? { ...prev, appId: singleAppId }
-                            : prev
-                    );
+                    setConfig(prev => {
+                        if (prev.appLocation === targetLocation && !prev.appId) {
+                            prevScopeRef.current = { appLocation: targetLocation, appId: singleAppId };
+                            updateScope({ appId: singleAppId });
+                            return { ...prev, appId: singleAppId };
+                        }
+                        return prev;
+                    });
                 }
             } else if (fetchedApps.length > 1) {
                 setConfig(prev => {
                     if (prev.appLocation !== targetLocation || !prev.appId || prev.appId === ALL_ENGINES_VALUE) return prev;
                     const stillExists = fetchedApps.some(a => a.name.split('/').pop() === prev.appId);
-                    return stillExists ? prev : { ...prev, appId: '' };
+                    if (!stillExists) {
+                        prevScopeRef.current = { ...prevScopeRef.current, appId: '' };
+                        updateScope({ appId: '' });
+                        return { ...prev, appId: '' };
+                    }
+                    return prev;
                 });
             }
         } catch (err) {
@@ -242,7 +318,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         }
     };
     fetchApps();
-  }, [projectNumber, config.appLocation, config.collectionId, setConfig]);
+  }, [projectNumber, config.appLocation, config.collectionId, setConfig, updateScope]);
 
   const fetchAgents = useCallback(async () => {
     hydrationAbortRef.current?.abort();
@@ -885,7 +961,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   };
 
   return (
-    <div className="space-y-6">
+    <PageShell variant="wide">
       {hydrationWarning && (
         <div
           role="alert"
@@ -903,145 +979,63 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         </div>
       )}
 
-      <div className="bg-gray-900/90 border border-gray-800 p-4 rounded-xl shadow-md">
-        <div className="flex flex-wrap justify-between items-center gap-3 mb-3">
-            <div>
-              <h1 className="text-lg sm:text-xl font-display font-bold text-white tracking-tight">Agent Fleet Command Center</h1>
-              <p className="text-xs text-gray-400">Govern, inspect, test, and share Discovery Engine, ADK, and A2A agents.</p>
-            </div>
-            <CloudConsoleButton 
-                url={config.appId && config.appId !== ALL_ENGINES_VALUE ? 
-                    `https://console.cloud.google.com/gemini-enterprise/locations/${config.appLocation}/engines/${config.appId}/agentic/agents?project=${projectNumber}` : 
-                    `https://console.cloud.google.com/vertex-ai/agents/agent-engines?referrer=search&project=${projectNumber}`
-                }
-            />
-        </div>
-        <div className="flex flex-col lg:flex-row lg:items-end gap-3 xl:gap-4">
-          <div className="flex-1 min-w-0">
-            <label className="block text-xs font-medium text-gray-400 mb-1 whitespace-nowrap">Project ID / Number</label>
-            <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} />
-          </div>
-          <div className="w-full sm:w-36 shrink-0">
-            <label htmlFor="appLocation" className="block text-xs font-medium text-gray-400 mb-1 whitespace-nowrap">Location</label>
-            <select id="appLocation" name="appLocation" value={config.appLocation} onChange={handleConfigChange} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 w-full h-[38px]">
-              <option value="global">global</option>
-              <option value="us">us</option>
-              <option value="eu">eu</option>
-            </select>
-          </div>
-          <div className="flex-1 min-w-0">
-            <label htmlFor="appId" className="block text-xs font-medium text-gray-400 mb-1 whitespace-nowrap">Gemini Enterprise ID</label>
-            <select id="appId" name="appId" value={config.appId} onChange={handleConfigChange} disabled={!projectNumber || isLoadingApps} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 w-full h-[38px] disabled:bg-gray-800/50 disabled:text-gray-400">
-              <option value="">{isLoadingApps ? 'Loading...' : '-- Select Gemini Enterprise --'}</option>
-              <option value={ALL_ENGINES_VALUE}>All Regions &amp; Engines (Fleet View)</option>
-              {apps.map(a => {
-                  const appId = a.name.split('/').pop() || '';
-                  return <option key={a.name} value={appId}>{a.displayName || appId}</option>
-              })}
-            </select>
-          </div>
-          {(viewMode === 'list' || viewMode === 'bulk-datasources') && (
-             <div className="shrink-0">
-                <button 
-                    type="button"
-                    data-testid="refresh-agents-btn"
-                    onClick={() => { invalidateAgentMetadataCache(); void fetchAgents(); }} 
-                    disabled={isLoading || isLoadingApps || isHydratingAgents}
-                    aria-busy={isLoading || isLoadingApps || isHydratingAgents}
-                    title={
-                      isLoading || isLoadingApps
-                        ? 'Loading agents for the selected region and engine...'
-                        : isHydratingAgents
-                          ? 'Hydrating agent metadata and IAM ownership...'
-                          : 'Refresh Agents'
-                    }
-                    className="w-full lg:w-auto px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-wait min-h-[38px] whitespace-nowrap shrink-0 flex items-center justify-center gap-2 transition-colors"
-                >
-                    {isLoading || isLoadingApps || isHydratingAgents ? (
-                      <>
-                        <svg
-                          data-testid="refresh-agents-spinner"
-                          className="animate-spin h-4 w-4 text-white shrink-0"
-                          xmlns="http://www.w3.org/2000/svg"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="4"
-                          />
-                          <path
-                            className="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                          />
-                        </svg>
-                        <span>
-                          {isLoading || isLoadingApps
-                            ? 'Loading Agents...'
-                            : 'Syncing Metadata...'}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <svg
-                          className="h-4 w-4 text-blue-100 shrink-0"
-                          xmlns="http://www.w3.org/2000/svg"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                          aria-hidden="true"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                          />
-                        </svg>
-                        <span>Refresh Agents</span>
-                      </>
-                    )}
-                </button>
-             </div>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="GE Agent Manager"
+        subtitle="Govern, inspect, test, and share Discovery Engine, ADK, and A2A agents."
+        consolePage={Page.AGENTS}
+        consoleUrl={
+          config.appId && config.appId !== ALL_ENGINES_VALUE
+            ? `https://console.cloud.google.com/gemini-enterprise/locations/${config.appLocation}/engines/${config.appId}/agentic/agents?project=${projectId || projectNumber}`
+            : undefined
+        }
+        projectId={projectId}
+        projectNumber={projectNumber}
+        onRefresh={
+          viewMode === 'list' || viewMode === 'bulk-datasources'
+            ? () => {
+                invalidateAgentMetadataCache();
+                void fetchAgents();
+              }
+            : undefined
+        }
+        isRefreshing={isLoading || isLoadingApps || isHydratingAgents}
+      >
+        <ScopeBar
+          embedded
+          locationId="appLocation"
+          locationValue={config.appLocation}
+          onLocationChange={handleLocationSelectChange}
+          engineLabel="Gemini Enterprise App"
+          engineId="appId"
+          engineValue={config.appId}
+          onEngineChange={handleEngineSelectChange}
+          engineOptions={engineOptions}
+          enginePlaceholder="-- Select Gemini Enterprise --"
+          engineLoading={isLoadingApps}
+          engineDisabled={!projectNumber || isLoadingApps}
+        />
+      </PageHeader>
 
       {(viewMode === 'list' || viewMode === 'bulk-datasources') && (
-        <div className="flex items-center gap-2 border-b border-gray-700">
-          <button
-            type="button"
-            onClick={() => setViewMode('list')}
-            className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
-              viewMode === 'list'
-                ? 'border-blue-500 text-white'
-                : 'border-transparent text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            Registered Agents ({agents.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('bulk-datasources')}
-            data-testid="bulk-update-tab-btn"
-            className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
-              viewMode === 'bulk-datasources'
-                ? 'border-cyan-400 text-cyan-300'
-                : 'border-transparent text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            <span>Bulk Update (IAM, Settings &amp; Datasources)</span>
-            <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-              IAM · Settings · DataStores
-            </span>
-          </button>
-        </div>
+        <Tabs
+          ariaLabel="Agent Manager Workspace"
+          syncSearchParam="tab"
+          activeTab={viewMode}
+          onChange={(tabId) => setViewMode(tabId)}
+          items={[
+            {
+              id: 'list',
+              label: 'Registered Agents',
+              count: agents.length,
+            },
+            {
+              id: 'bulk-datasources',
+              label: 'Bulk Update (IAM, Settings & Datasources)',
+              badge: 'IAM · Settings · DataStores',
+              testId: 'bulk-update-tab-btn',
+            },
+          ]}
+        />
       )}
 
       {renderContent()}
@@ -1129,7 +1123,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             <p className="mt-4 text-sm text-yellow-300">This action cannot be undone.</p>
         </ConfirmationModal>
       )}
-    </div>
+    </PageShell>
   );
 };
 

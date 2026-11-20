@@ -26,6 +26,19 @@ import {
 import { GcsBucket } from '../../types';
 import * as api from '../../services/apiService';
 
+export const BUILDER_GCP_REGIONS = [
+  'us-central1',
+  'us-east1',
+  'us-east4',
+  'us-west1',
+  'europe-west1',
+  'europe-west2',
+  'europe-west4',
+  'asia-northeast1',
+  'asia-southeast1',
+  'asia-east1',
+] as const;
+
 export interface AdkBasicSettingsProps {
   adkConfig: AdkAgentConfig;
   setAdkConfig: React.Dispatch<React.SetStateAction<AdkAgentConfig>>;
@@ -191,15 +204,23 @@ export const AdkBasicSettings: React.FC<AdkBasicSettingsProps> = ({
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-400 mb-1">Agent Location</label>
+        <label htmlFor="adk-agent-location" className="block text-sm font-medium text-gray-400 mb-1">
+          Agent Location
+        </label>
         <select
+          id="adk-agent-location"
+          aria-label="Agent Location"
           value={vertexLocation}
           onChange={(e) => setVertexLocation(e.target.value)}
           className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"
         >
-          <option value="us-central1">us-central1</option>
-          <option value="europe-west1">europe-west1</option>
-          <option value="asia-east1">asia-east1</option>
+          {BUILDER_GCP_REGIONS.map((reg) => (
+            <option key={reg} value={reg}>
+              {reg}
+            </option>
+          ))}
+          {!BUILDER_GCP_REGIONS.includes(vertexLocation as (typeof BUILDER_GCP_REGIONS)[number]) &&
+            vertexLocation && <option value={vertexLocation}>{vertexLocation}</option>}
         </select>
       </div>
       <div>

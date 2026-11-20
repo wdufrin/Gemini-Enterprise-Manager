@@ -39,8 +39,9 @@ import {
 import { useToast } from '../../context/ToastContext';
 import { toErrorMessage } from '../../utils/errors';
 import ConfirmationModal from '../ConfirmationModal';
+import { Tabs } from '../common/Tabs';
 
-type DetailsSubTab = 'overview' | 'datasources' | 'sharing' | 'raw';
+type DetailsSubTab = 'overview' | 'datasources' | 'iam' | 'raw';
 
 interface AgentDetailsProps {
     agent: Agent;
@@ -1404,52 +1405,19 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
                 </div>
             )}
 
-            {/* Sub-Tab Navigation */}
-            <div className="mt-6 border-b border-gray-700 flex flex-wrap gap-2">
-                <button
-                    type="button"
-                    onClick={() => setActiveSubTab('overview')}
-                    className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
-                        activeSubTab === 'overview'
-                            ? 'border-blue-500 text-white'
-                            : 'border-transparent text-gray-400 hover:text-gray-200'
-                    }`}
-                >
-                    Overview &amp; Configuration
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveSubTab('datasources')}
-                    className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
-                        activeSubTab === 'datasources'
-                            ? 'border-cyan-400 text-cyan-300'
-                            : 'border-transparent text-gray-400 hover:text-gray-200'
-                    }`}
-                >
-                    Connectors &amp; Data Stores
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveSubTab('sharing')}
-                    className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
-                        activeSubTab === 'sharing'
-                            ? 'border-purple-400 text-purple-300'
-                            : 'border-transparent text-gray-400 hover:text-gray-200'
-                    }`}
-                >
-                    Sharing &amp; IAM
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveSubTab('raw')}
-                    className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
-                        activeSubTab === 'raw'
-                            ? 'border-teal-400 text-teal-300'
-                            : 'border-transparent text-gray-400 hover:text-gray-200'
-                    }`}
-                >
-                    Raw View &amp; JSON
-                </button>
+            {/* Canonical Sub-Tab Navigation */}
+            <div className="mt-6">
+                <Tabs
+                    ariaLabel="Agent Details Sections"
+                    activeTab={activeSubTab}
+                    onChange={setActiveSubTab}
+                    items={[
+                        { id: 'overview', label: 'Overview & Configuration' },
+                        { id: 'datasources', label: 'Connectors & Data Stores' },
+                        { id: 'iam', label: 'Sharing & IAM' },
+                        { id: 'raw', label: 'Raw View & JSON' },
+                    ]}
+                />
             </div>
 
             {/* TAB 1: OVERVIEW & CONFIGURATION */}
@@ -1855,7 +1823,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({
             )}
 
             {/* TAB 3: SHARING & IAM */}
-            {activeSubTab === 'sharing' && (
+            {activeSubTab === 'iam' && (
                 <div className="mt-6 space-y-6">
                     {/* Sharing Status & Controls Card */}
                     <div className="p-4 bg-gray-900/40 border border-gray-700 rounded-lg space-y-4">

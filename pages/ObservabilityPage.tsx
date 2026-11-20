@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import CloudConsoleButton from '../components/CloudConsoleButton';
 import { listLoggingSinks, listBigQueryTables, runBigQueryQuery, gapiRequest, LoggingSink, BigQueryTable, BigQueryQueryResponse } from '../services/apiService';
 import ObservabilityDashboard from '../components/dashboard/ObservabilityDashboard';
 import { OperationalAnalyticsDashboard } from '../components/dashboard/operational/OperationalAnalyticsDashboard';
 import { ObservabilityDataDictionaryModal } from '../components/dashboard/operational/ObservabilityDataDictionaryModal';
 import { AgentObservabilityPolicyModal } from '../components/dashboard/operational/AgentObservabilityPolicyModal';
+import PageShell from '../components/layout/PageShell';
+import PageHeader from '../components/layout/PageHeader';
+import { Tabs, TabItem } from '../components/common/Tabs';
 import { useToast } from '../context/ToastContext';
 import { toErrorMessage } from '../utils/errors';
-import { Config } from '../types';
+import { Config, Page } from '../types';
 import {
     ACCELERATION_TABLE_ID,
     ACTIVITY_PROJECTION_SQL,
@@ -41,7 +43,30 @@ function useSafeToast() {
 interface Props {
     projectNumber?: string;
     projectId?: string;
+    setProjectNumber?: (projectNumber: string) => void;
     config?: Config;
+}
+
+type ObservabilityTabId = 'live' | 'operational' | 'policy';
+
+const OBSERVABILITY_TABS: readonly TabItem<ObservabilityTabId>[] = [
+    { id: 'live', label: 'Live Activity' },
+    { id: 'operational', label: 'Operational Analytics', badge: '11 Views' },
+    { id: 'policy', label: 'Policy & Telemetry Governance' },
+];
+
+function getInitialObservabilityTab(): ObservabilityTabId {
+    if (typeof window === 'undefined') return 'live';
+    const search = window.location.search || window.location.hash.split('?')[1] || '';
+    const params = new URLSearchParams(search);
+    const tabParam = params.get('tab');
+    if (tabParam === 'live' || tabParam === 'operational' || tabParam === 'policy') {
+        return tabParam;
+    }
+    if (window.location.hash.includes('view=') || window.location.search.includes('view=')) {
+        return 'operational';
+    }
+    return 'live';
 }
 
 interface ObservabilityDashboardMetrics {
@@ -66,17 +91,11 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
     const [dashboardData, setDashboardData] = useState<ObservabilityDashboardMetrics | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [timeRange, setTimeRange] = useState(1);
-    const [activeDashboardTab, setActiveDashboardTab] = useState<'live' | 'operational' | 'policy'>(() => {
-        if (typeof window !== 'undefined' && (window.location.hash.includes('view=') || window.location.search.includes('view='))) {
-            return 'operational';
-        }
-        return 'live';
-    });
+    const [activeDashboardTab, setActiveDashboardTab] = useState<ObservabilityTabId>(getInitialObservabilityTab);
     const [selectedSinkName, setSelectedSinkName] = useState<string | null>(null);
     const [sinksLoading, setSinksLoading] = useState(false);
     const [queryLoading, setQueryLoading] = useState(false);
     const [showDataDictionary, setShowDataDictionary] = useState(false);
-    const [showPolicyModal, setShowPolicyModal] = useState(false);
     const [isTablesExpanded, setIsTablesExpanded] = useState(false);
     const [isSinksExpanded, setIsSinksExpanded] = useState(false);
 
@@ -790,46 +809,29 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
     const tableObjectCount = datasetObjects.length - viewObjectCount;
 
     return (
-        <div className="flex-1 overflow-auto bg-[#0b0f19] custom-scrollbar">
-            <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-                <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                    <div>
-                        <h1 className="text-2xl font-display font-bold text-white tracking-tight">Observability &amp; Telemetry</h1>
-                        <p className="mt-1 text-xs sm:text-sm text-gray-400">
-                            Monitor Cloud Logging sinks, BigQuery analytics, and agent latency percentiles.
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap shrink-0">
-                        <button
-                            type="button"
-                            onClick={() => setShowPolicyModal(true)}
-                            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gray-900 hover:bg-gray-800 text-purple-300 hover:text-purple-200 border border-gray-800 hover:border-gray-700 transition-all shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                            title="Open Agent Observability Policy & Telemetry Coverage Hub"
-                        >
-                            <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10c0-1.718-.433-3.333-1.2-4.782" />
-                            </svg>
-                            <span>Policy &amp; Coverage</span>
-                            <span className="text-[10px] bg-purple-900/80 text-purple-200 px-1.5 py-0.5 rounded border border-purple-700/60 font-bold">
-                                Policy Hub
-                            </span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setShowDataDictionary(true)}
-                            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gray-900 hover:bg-gray-800 text-blue-300 hover:text-blue-200 border border-gray-800 hover:border-gray-700 transition-all shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                            title="Open Observability Data Dictionary & Tables Reference"
-                        >
-                            <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                            </svg>
-                            <span>Data Dictionary</span>
-                        </button>
-                        <CloudConsoleButton url={`https://console.cloud.google.com/logs/query?project=${projectNumber}`} />
-                    </div>
-                </div>
-                
-                <div className="mt-3 bg-gray-900/90 p-3.5 sm:p-4 rounded-xl border border-gray-800">
+        <PageShell variant="wide">
+            <PageHeader
+                title="Observability"
+                subtitle="Monitor Cloud Logging sinks, BigQuery analytics, and agent latency percentiles."
+                consolePage={Page.OBSERVABILITY}
+                projectId={projectId}
+                projectNumber={projectNumber}
+                secondaryActions={
+                    <button
+                        type="button"
+                        onClick={() => setShowDataDictionary(true)}
+                        className="inline-flex items-center gap-2 px-3 h-9 text-xs sm:text-sm font-medium rounded-lg bg-gray-800 hover:bg-gray-700 text-blue-300 hover:text-blue-200 border border-gray-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                        title="Open Observability Data Dictionary & Tables Reference"
+                    >
+                        <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                        </svg>
+                        <span>Data Dictionary</span>
+                    </button>
+                }
+            />
+            
+            <div className="bg-gray-900/90 p-3.5 sm:p-4 rounded-xl border border-gray-800">
                     <div className="flex flex-wrap justify-between items-center gap-3">
                         <div className="flex items-center gap-2.5 flex-wrap">
                             <h2 className="text-sm font-semibold text-white">Log Router Sinks &amp; Tables</h2>
@@ -1051,8 +1053,9 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                     )}
                 </div>
 
-                {/* Compact Telemetry Coverage Callout */}
-                <div className="mt-3 px-3.5 py-2.5 rounded-xl border border-gray-800 bg-gray-900/60 flex flex-wrap items-center justify-between gap-3">
+            {/* Compact Telemetry Coverage Callout */}
+            {activeDashboardTab !== 'policy' && (
+                <div className="px-3.5 py-2.5 rounded-xl border border-gray-800 bg-gray-900/60 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2.5 text-xs min-w-0">
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 font-semibold shrink-0">
                             Coverage: ~65% App / ~35% Agent OTel
@@ -1063,136 +1066,89 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                     </div>
                     <button
                         type="button"
-                        onClick={() => setShowPolicyModal(true)}
+                        onClick={() => setActiveDashboardTab('policy')}
                         className="text-xs text-indigo-300 hover:text-white font-semibold px-2.5 py-1 rounded-lg bg-indigo-950/50 hover:bg-indigo-900/70 border border-indigo-800/60 transition-colors whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                     >
                         Manage Policy &amp; Auto-Enabler →
                     </button>
                 </div>
+            )}
 
-                <div className="mt-5">
-                    {/* Dashboard Mode Tabs */}
-                    <div className="flex flex-wrap border-b border-gray-800 mb-4" role="tablist" aria-label="Observability dashboard views">
-                        <button
-                            type="button"
-                            role="tab"
-                            aria-selected={activeDashboardTab === 'live'}
-                            onClick={() => setActiveDashboardTab('live')}
-                            className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-                                activeDashboardTab === 'live'
-                                    ? 'border-blue-500 text-blue-400 font-semibold'
-                                    : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
-                            }`}
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                            Live Activity
-                        </button>
-                        <button
-                            type="button"
-                            role="tab"
-                            aria-selected={activeDashboardTab === 'operational'}
-                            onClick={() => setActiveDashboardTab('operational')}
-                            className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-                                activeDashboardTab === 'operational'
-                                    ? 'border-blue-500 text-blue-400 font-semibold'
-                                    : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
-                            }`}
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                            </svg>
-                            Operational Analytics
-                            <span className="text-[10px] bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded border border-blue-700/50">
-                                11 Views
-                            </span>
-                        </button>
-                        <button
-                            type="button"
-                            role="tab"
-                            aria-selected={activeDashboardTab === 'policy'}
-                            onClick={() => setActiveDashboardTab('policy')}
-                            className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-                                activeDashboardTab === 'policy'
-                                    ? 'border-purple-500 text-purple-400 font-semibold'
-                                    : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
-                            }`}
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                            </svg>
-                            Policy &amp; Telemetry Governance
-                        </button>
-                    </div>
+            <Tabs
+                items={OBSERVABILITY_TABS}
+                activeTab={activeDashboardTab}
+                onChange={setActiveDashboardTab}
+                ariaLabel="Observability dashboard views"
+                syncSearchParam="tab"
+            />
 
-                    {activeDashboardTab === 'live' ? (
-                        <div>
-                            <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
-                                <div className="flex items-center gap-3">
-                                    <h2 className="text-xl font-semibold text-white">Live Activity Dashboard</h2>
-                                    {queryLoading && (
-                                        <div className="flex items-center gap-1.5 text-xs text-blue-300 bg-blue-950/70 border border-blue-800/70 px-2.5 py-0.5 rounded-full">
-                                            <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-blue-400"></div>
-                                            <span>Querying {timeRange}d BigQuery shards...</span>
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <label htmlFor="observability-time-range" className="text-xs text-gray-400">Time Range:</label>
-                                    <select
-                                        id="observability-time-range"
-                                        aria-label="Observability Time Range"
-                                        value={timeRange}
-                                        onChange={(e) => setTimeRange(parseInt(e.target.value, 10))}
-                                        className="text-xs bg-gray-800 text-white border border-gray-700 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
-                                    >
-                                        <option value={1}>1 Day</option>
-                                        <option value={7}>7 Days</option>
-                                        <option value={30}>30 Days</option>
-                                    </select>
-                                </div>
+            <div>
+                {activeDashboardTab === 'live' ? (
+                    <div>
+                        <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
+                            <div className="flex items-center gap-3">
+                                <h2 className="text-xl font-semibold text-white">Live Activity Dashboard</h2>
+                                {queryLoading && (
+                                    <div className="flex items-center gap-1.5 text-xs text-blue-300 bg-blue-950/70 border border-blue-800/70 px-2.5 py-0.5 rounded-full">
+                                        <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-blue-400"></div>
+                                        <span>Querying {timeRange}d BigQuery shards...</span>
+                                    </div>
+                                )}
                             </div>
-                            {datasetId && tables.length > 0 && (
-                                <ObservabilityAccelerationPanel
-                                    enabled={isAccelerationEnabled}
-                                    watermark={accelerationWatermark}
-                                    windowStart={accelerationWindowStart}
-                                    busy={accelerationBusy}
-                                    error={accelerationError}
-                                    lastInsertedRows={accelerationLastInserted}
-                                    onEnable={() => runAccelerationAction('enabling')}
-                                    onRefresh={() => runAccelerationAction('refreshing')}
-                                    onDisable={() => runAccelerationAction('disabling')}
-                                />
-                            )}
-                            <ObservabilityDashboard
-                                datasetId={datasetId}
-                                customData={dashboardData}
-                                timeRange={timeRange}
-                                setTimeRange={setTimeRange}
-                                isLoading={queryLoading || sinksLoading}
-                            />
+                            <div className="flex items-center gap-2">
+                                <label htmlFor="observability-time-range" className="text-xs text-gray-400">Time Range:</label>
+                                <select
+                                    id="observability-time-range"
+                                    aria-label="Observability Time Range"
+                                    value={timeRange}
+                                    onChange={(e) => setTimeRange(parseInt(e.target.value, 10))}
+                                    className="text-xs bg-gray-800 text-white border border-gray-700 rounded-lg px-2.5 h-9 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                                >
+                                    <option value={1}>1 Day</option>
+                                    <option value={7}>7 Days</option>
+                                    <option value={30}>30 Days</option>
+                                </select>
+                            </div>
                         </div>
-                    ) : activeDashboardTab === 'operational' ? (
-                        <OperationalAnalyticsDashboard
-                            projectId={projectId}
-                            projectNumber={projectNumber}
+                        {datasetId && tables.length > 0 && (
+                            <ObservabilityAccelerationPanel
+                                enabled={isAccelerationEnabled}
+                                watermark={accelerationWatermark}
+                                windowStart={accelerationWindowStart}
+                                busy={accelerationBusy}
+                                error={accelerationError}
+                                lastInsertedRows={accelerationLastInserted}
+                                onEnable={() => runAccelerationAction('enabling')}
+                                onRefresh={() => runAccelerationAction('refreshing')}
+                                onDisable={() => runAccelerationAction('disabling')}
+                            />
+                        )}
+                        <ObservabilityDashboard
                             datasetId={datasetId}
-                            tables={tables}
-                            onRefreshTables={refreshTables}
+                            customData={dashboardData}
+                            timeRange={timeRange}
+                            setTimeRange={setTimeRange}
+                            isLoading={queryLoading || sinksLoading}
                         />
-                    ) : (
-                        <AgentObservabilityPolicyModal
-                            isOpen={true}
-                            inline={true}
-                            onClose={() => setActiveDashboardTab('live')}
-                            projectId={projectId}
-                            projectNumber={projectNumber}
-                            activeDatasetId={datasetId}
-                        />
-                    )}
-                </div>
+                    </div>
+                ) : activeDashboardTab === 'operational' ? (
+                    <OperationalAnalyticsDashboard
+                        projectId={projectId}
+                        projectNumber={projectNumber}
+                        datasetId={datasetId}
+                        tables={tables}
+                        onRefreshTables={refreshTables}
+                    />
+                ) : (
+                    <AgentObservabilityPolicyModal
+                        isOpen={true}
+                        inline={true}
+                        onClose={() => setActiveDashboardTab('live')}
+                        projectId={projectId}
+                        projectNumber={projectNumber}
+                        activeDatasetId={datasetId}
+                    />
+                )}
             </div>
 
             <ObservabilityDataDictionaryModal
@@ -1200,15 +1156,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber: propProjectNumber, 
                 onClose={() => setShowDataDictionary(false)}
                 activeDatasetId={datasetId}
             />
-
-            <AgentObservabilityPolicyModal
-                isOpen={showPolicyModal}
-                onClose={() => setShowPolicyModal(false)}
-                projectId={projectId}
-                projectNumber={projectNumber}
-                activeDatasetId={datasetId}
-            />
-        </div>
+        </PageShell>
     );
 };
 

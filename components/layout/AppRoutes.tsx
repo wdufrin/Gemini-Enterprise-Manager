@@ -104,7 +104,7 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
     case Page.LICENSE:
       return <LicensePage {...projectProps} onBuildTriggered={onBuildTriggered} />;
     case Page.GE_QUOTA_USAGE:
-      return <GEQuotaUsagePage projectNumber={projectNumber} />;
+      return <GEQuotaUsagePage projectNumber={projectNumber} projectId={projectId} />;
     case Page.ARCHITECTURE:
       return (
         <ArchitecturePage 

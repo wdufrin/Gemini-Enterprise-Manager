@@ -15,9 +15,8 @@
  */
 
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { Collection, Config, DataStore, IamPolicy } from '../types';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Collection, Config, DataStore, IamPolicy, Page } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import DataStoreList from '../components/datastores/DataStoreList';
@@ -26,10 +25,31 @@ import CreateDataStoreModal from '../components/datastores/CreateDataStoreModal'
 import EditDataStoreModal from '../components/datastores/EditDataStoreModal';
 import SetDataStoreIamPolicyModal from '../components/assistants/SetDataStoreIamPolicyModal';
 import ConfirmationModal from '../components/ConfirmationModal';
-import CloudConsoleButton from '../components/CloudConsoleButton';
+import { PageShell } from '../components/layout/PageShell';
+import { PageHeader } from '../components/layout/PageHeader';
+import { ScopeBar } from '../components/layout/ScopeBar';
+import { Tabs } from '../components/common/Tabs';
+import { useWorkspaceScope } from '../context/WorkspaceScopeContext';
 import { usePersistedConfig } from '../hooks/usePersistedConfig';
 import ConnectorsPage from './ConnectorsPage';
 import { toErrorMessage } from '../utils/errors';
+
+function resolveInitialKnowledgeTab(
+  initialTab?: 'datastores' | 'connectors',
+): 'datastores' | 'connectors' {
+  if (initialTab === 'connectors') return 'connectors';
+  if (typeof window !== 'undefined') {
+    const search =
+      window.location.search ||
+      (window.location.hash.includes('?')
+        ? window.location.hash.slice(window.location.hash.indexOf('?'))
+        : '');
+    if (search && new URLSearchParams(search).get('tab') === 'connectors') {
+      return 'connectors';
+    }
+  }
+  return 'datastores';
+}
 
 interface DataStoresPageProps {
   projectNumber?: string;
@@ -53,18 +73,18 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
   config: propConfig,
 }) => {
   const projectNumber = propProjectNumber ?? propConfig?.projectId ?? '';
-  const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') === 'connectors' || initialTab === 'connectors' ? 'connectors' : 'datastores';
+  const {
+    appLocation: scopeLocation,
+    collectionId: scopeCollectionId,
+    setAppLocation: setScopeLocation,
+    setCollectionId: setScopeCollectionId,
+  } = useWorkspaceScope();
 
-  const handleTabChange = (tab: 'datastores' | 'connectors') => {
-    const newParams = new URLSearchParams(searchParams);
-    if (tab === 'connectors') {
-      newParams.set('tab', 'connectors');
-    } else {
-      newParams.delete('tab');
-    }
-    setSearchParams(newParams);
-  };
+  const [activeTab, setActiveTab] = useState<'datastores' | 'connectors'>(() =>
+    resolveInitialKnowledgeTab(initialTab),
+  );
+  const [isConnectorsLoading, setIsConnectorsLoading] = useState(false);
+  const connectorsRefreshRef = useRef<(() => void) | null>(null);
   const [dataStores, setDataStores] = useState<DataStore[]>([]);
   const [selectedDataStore, setSelectedDataStore] = useState<DataStore | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -106,32 +126,65 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
   const [config, setConfig] = usePersistedConfig(
     'dataStoresPageConfig',
     {
-      appLocation: 'global',
-      collectionId: 'default_collection',
+      appLocation: scopeLocation || 'global',
+      collectionId: scopeCollectionId || 'default_collection',
     },
     {
       migrate: (parsed) => ({
-        appLocation: parsed?.appLocation || 'global',
-        collectionId: parsed?.collectionId || 'default_collection',
+        appLocation: scopeLocation || parsed?.appLocation || 'global',
+        collectionId: scopeCollectionId || parsed?.collectionId || 'default_collection',
       }),
     }
   );
 
-  const handleConfigChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setConfig(prev => ({ ...prev, [name]: value }));
-  };
+  // Sync WorkspaceScope location/collection changes into local persisted config
+  useEffect(() => {
+    setConfig((prev) => {
+      const nextLoc = scopeLocation || prev.appLocation;
+      const nextCol = scopeCollectionId || prev.collectionId;
+      if (prev.appLocation === nextLoc && prev.collectionId === nextCol) return prev;
+      return { ...prev, appLocation: nextLoc, collectionId: nextCol };
+    });
+  }, [scopeLocation, scopeCollectionId, setConfig]);
+
+  const dataStoresFetchSeqRef = useRef(0);
+
+  const handleLocationChange = useCallback(
+    (nextLocation: string) => {
+      dataStoresFetchSeqRef.current += 1;
+      setDataStores([]);
+      setAvailableCollections([]);
+      setSelectedDataStore(null);
+      setViewMode('list');
+      setScopeLocation(nextLocation);
+      setConfig((prev) => ({ ...prev, appLocation: nextLocation }));
+    },
+    [setScopeLocation, setConfig],
+  );
+
+  const handleCollectionChange = useCallback(
+    (nextCollectionId: string) => {
+      setScopeCollectionId(nextCollectionId);
+      setConfig((prev) => ({ ...prev, collectionId: nextCollectionId }));
+    },
+    [setScopeCollectionId, setConfig],
+  );
+
+  const effectiveLocation = scopeLocation || config.appLocation || 'global';
+  const effectiveCollectionId = scopeCollectionId || config.collectionId || 'default_collection';
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
-      ...config,
+      appLocation: effectiveLocation,
+      collectionId: effectiveCollectionId,
       projectId: projectId || projectNumber,
       // Dummy values for other required config properties
       appId: '',
       assistantId: '',
-  }), [config, projectNumber, projectId]);
+  }), [effectiveLocation, effectiveCollectionId, projectNumber, projectId]);
 
   // Fetch available collections when project/location changes
   useEffect(() => {
+    if (activeTab !== 'datastores') return;
     let isMounted = true;
     const fetchCollections = async () => {
       if (!projectNumber) return;
@@ -158,42 +211,52 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [projectNumber, config.appLocation]);
+  }, [projectNumber, effectiveLocation, activeTab, apiConfig]);
 
   const fetchDataStores = useCallback(async (token?: string) => {
-    if (!projectNumber || !config.collectionId) {
+    const seq = ++dataStoresFetchSeqRef.current;
+    if (!projectNumber || !effectiveCollectionId) {
         setDataStores([]);
         setError("Project ID/Number and Collection ID are required to list data stores.");
+        setIsLoading(false);
         return;
     }
     setIsLoading(true);
     setError(null);
+    if (!token) {
+      setDataStores([]);
+    }
     try {
       const response = await api.listResources('dataStores', apiConfig, token);
+      if (seq !== dataStoresFetchSeqRef.current) return;
       setDataStores(response.dataStores || []);
       setNextPageToken(response.nextPageToken || null);
     } catch (err: any) {
+      if (seq !== dataStoresFetchSeqRef.current) return;
       setError(err.message || 'Failed to fetch data stores.');
       setDataStores([]);
       setNextPageToken(null);
     } finally {
-      setIsLoading(false);
+      if (seq === dataStoresFetchSeqRef.current) {
+        setIsLoading(false);
+      }
     }
-  }, [apiConfig, projectNumber, config.collectionId]);
-  
-  // Auto-fetch data stores on mount or config change
+  }, [apiConfig, projectNumber, effectiveCollectionId]);
+
+  // Auto-fetch data stores on mount or config change when Data Stores tab is active
   useEffect(() => {
+    if (activeTab !== 'datastores') return;
     setPageToken(undefined);
     setNextPageToken(null);
     setPageHistory([]);
     setCurrentPageIndex(1);
-    if (projectNumber && config.collectionId) {
+    if (projectNumber && effectiveCollectionId) {
         fetchDataStores();
     } else {
         setDataStores([]);
     }
     setSelectedDataStores(new Set());
-  }, [fetchDataStores, projectNumber, config.appLocation, config.collectionId]);
+  }, [fetchDataStores, projectNumber, effectiveLocation, effectiveCollectionId, activeTab]);
 
   const handleNextPage = () => {
     if (!nextPageToken || isLoading) return;
@@ -432,52 +495,55 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
 
   const collectionOptions = useMemo(() => {
     const ids = new Set(availableCollections.map(c => c.name.split('/').pop() || c.name));
-    if (config.collectionId) ids.add(config.collectionId);
+    if (effectiveCollectionId) ids.add(effectiveCollectionId);
     if (!ids.has('default_collection')) ids.add('default_collection');
     return Array.from(ids);
-  }, [availableCollections, config.collectionId]);
+  }, [availableCollections, effectiveCollectionId]);
+
+  const handleHeaderRefresh = useCallback(() => {
+    if (activeTab === 'connectors') {
+      connectorsRefreshRef.current?.();
+    } else {
+      void fetchDataStores(pageToken);
+    }
+  }, [activeTab, fetchDataStores, pageToken]);
 
   return (
-    <div className="space-y-6">
-      {/* Sub-tab Switcher: Data Stores vs Connectors */}
-      <div className="flex border-b border-gray-700 gap-2">
-        <button
-          type="button"
-          onClick={() => handleTabChange('datastores')}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-            activeTab === 'datastores'
-              ? 'text-blue-400 border-blue-400 font-semibold'
-              : 'text-gray-400 border-transparent hover:text-white hover:border-gray-600'
-          }`}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" />
-            <path d="M3 8a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V8z" />
-            <path d="M3 12a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" />
-          </svg>
-          Data Stores
-        </button>
-        <button
-          type="button"
-          onClick={() => handleTabChange('connectors')}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-            activeTab === 'connectors'
-              ? 'text-blue-400 border-blue-400 font-semibold'
-              : 'text-gray-400 border-transparent hover:text-white hover:border-gray-600'
-          }`}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
-          </svg>
-          Connectors
-        </button>
-      </div>
+    <PageShell variant="wide">
+      <PageHeader
+        title="Connectors & Data Stores"
+        subtitle="Manage Discovery Engine RAG Data Stores, 3P Enterprise SaaS Connectors, and BYO MCP servers."
+        consolePage={Page.DATA_STORES}
+        projectId={projectId}
+        projectNumber={projectNumber}
+        onRefresh={
+          activeTab === 'connectors' || viewMode === 'list'
+            ? handleHeaderRefresh
+            : undefined
+        }
+        isRefreshing={activeTab === 'connectors' ? isConnectorsLoading : isLoading}
+      />
+
+      <Tabs
+        ariaLabel="Knowledge and Integrations Sections"
+        syncSearchParam="tab"
+        activeTab={activeTab}
+        onChange={setActiveTab}
+        items={[
+          { id: 'datastores', label: 'Data Stores' },
+          { id: 'connectors', label: 'Enterprise Connectors' },
+        ]}
+      />
 
       {activeTab === 'connectors' ? (
         <ConnectorsPage
           projectNumber={projectNumber}
           setProjectNumber={setProjectNumber || (() => {})}
           accessToken={accessToken || ''}
+          sharedLocation={effectiveLocation}
+          onSharedLocationChange={handleLocationChange}
+          onLoadingChange={setIsConnectorsLoading}
+          registerRefresh={connectorsRefreshRef}
         />
       ) : (
         <>
@@ -513,83 +579,66 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
               currentPolicy={iamTargetPolicy}
             />
           )}
-          <div className="bg-gray-800 p-4 rounded-lg shadow-md">
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-lg font-semibold text-white">Configuration</h2>
-              <CloudConsoleButton url={`https://console.cloud.google.com/gen-app-builder/data-stores?project=${projectNumber}`} />
-            </div>
-            <div className="flex flex-col lg:flex-row lg:items-end gap-3 xl:gap-4">
-              <div className="flex-1 min-w-[200px]">
-                <label className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Project ID / Number</label>
-                <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-300 font-mono h-[38px] flex items-center min-w-0 overflow-hidden">
-                  <span className="truncate">{projectNumber || <span className="text-gray-500 italic">Not set (configure on Agents page)</span>}</span>
-                </div>
-              </div>
-              <div className="w-full sm:w-40 shrink-0">
-                <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Location</label>
-                <select name="appLocation" value={config.appLocation} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[38px]">
-                  <option value="global">global</option>
-                  <option value="us">us</option>
-                  <option value="eu">eu</option>
-                </select>
-              </div>
-              <div className="flex-1 min-w-[200px]">
-                <label htmlFor="collectionId" className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">Collection ID</label>
-                {collectionOptions.length > 1 ? (
-                  <select
-                    id="collectionId"
-                    name="collectionId"
-                    value={config.collectionId}
-                    onChange={handleConfigChange}
-                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[38px]"
-                  >
-                    {collectionOptions.map((id) => {
-                      const colObj = availableCollections.find(c => (c.name.split('/').pop() || c.name) === id);
-                      return (
-                        <option key={id} value={id}>
-                          {colObj?.displayName ? `${colObj.displayName} (${id})` : id}
-                        </option>
+
+          {viewMode === 'list' && (
+            <ScopeBar
+              locationId="appLocation"
+              locationValue={effectiveLocation}
+              onLocationChange={handleLocationChange}
+              collectionValue={collectionOptions.length > 1 ? effectiveCollectionId : undefined}
+              onCollectionChange={collectionOptions.length > 1 ? handleCollectionChange : undefined}
+              collectionLabel="Collection ID"
+              collectionOptions={
+                collectionOptions.length > 1
+                  ? collectionOptions.map((id) => {
+                      const colObj = availableCollections.find(
+                        (c) => (c.name.split('/').pop() || c.name) === id,
                       );
-                    })}
-                  </select>
-                ) : (
-                  <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-300 font-mono h-[38px] flex items-center justify-between min-w-0 overflow-hidden">
-                    <span className="truncate">{config.collectionId || 'default_collection'}</span>
-                    {isLoadingCollections && <Spinner className="h-3.5 w-3.5 border-2 ml-2 shrink-0" />}
+                      return {
+                        value: id,
+                        label: colObj?.displayName
+                          ? `${colObj.displayName} (${id})`
+                          : id,
+                      };
+                    })
+                  : undefined
+              }
+            >
+              {collectionOptions.length <= 1 && (
+                <div className="min-w-[190px]">
+                  <span className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1 whitespace-nowrap">
+                    Collection ID
+                  </span>
+                  <div className="h-9 bg-gray-950/90 border border-gray-700/90 rounded-lg px-3 text-xs sm:text-sm text-gray-300 font-mono flex items-center justify-between min-w-0 overflow-hidden">
+                    <span className="truncate">{effectiveCollectionId || 'default_collection'}</span>
+                    {isLoadingCollections && (
+                      <Spinner className="h-3.5 w-3.5 border-2 ml-2 shrink-0" />
+                    )}
                   </div>
-                )}
-              </div>
-              {viewMode === 'list' && (
-                <div className="shrink-0">
-                  <button 
-                    onClick={() => fetchDataStores(pageToken)} 
-                    disabled={isLoading}
-                    className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 min-h-[38px] whitespace-nowrap shrink-0 flex items-center justify-center"
-                  >
-                    {isLoading ? 'Loading...' : 'Fetch Data Stores'}
-                  </button>
                 </div>
               )}
-            </div>
-            {collectionWarning && (
-              <div
-                role="alert"
-                data-testid="collection-discovery-warning"
-                className="mt-3 text-xs text-amber-300 bg-amber-900/30 border border-amber-700/60 p-2.5 rounded-md flex items-center justify-between"
+            </ScopeBar>
+          )}
+
+          {collectionWarning && (
+            <div
+              role="alert"
+              data-testid="collection-discovery-warning"
+              className="text-xs text-amber-300 bg-amber-900/30 border border-amber-700/60 p-2.5 rounded-lg flex items-center justify-between"
+            >
+              <span>
+                <strong>Collection Discovery Notice:</strong> {collectionWarning}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCollectionWarning(null)}
+                className="ml-3 text-amber-400 hover:text-white text-xs underline"
               >
-                <span>
-                  <strong>Collection Discovery Notice:</strong> {collectionWarning}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setCollectionWarning(null)}
-                  className="ml-3 text-amber-400 hover:text-white text-xs underline"
-                >
-                  Dismiss
-                </button>
-              </div>
-            )}
-          </div>
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {renderContent()}
 
           {dataStoresToDelete.length > 0 && (
@@ -615,7 +664,7 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({
           )}
         </>
       )}
-    </div>
+    </PageShell>
   );
 };
 

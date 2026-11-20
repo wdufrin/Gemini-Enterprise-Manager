@@ -173,8 +173,11 @@ describe('ObservabilityPage', () => {
         const policyTab = await screen.findByRole('tab', { name: /Policy & Telemetry Governance/i });
         expect(policyTab).toHaveAttribute('aria-selected', 'false');
 
-        fireEvent.click(policyTab);
+        // Clicking the coverage banner CTA switches directly to the canonical Policy tab instead of opening a duplicate modal
+        const bannerCta = screen.getByRole('button', { name: /Manage Policy & Auto-Enabler/i });
+        fireEvent.click(bannerCta);
         expect(policyTab).toHaveAttribute('aria-selected', 'true');
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(screen.getByText('Agent Observability Policy & Telemetry Governance')).toBeInTheDocument();
 
         const eventarcSubTab = screen.getByRole('tab', { name: /Option 1: Eventarc Auto-Enabler/i });

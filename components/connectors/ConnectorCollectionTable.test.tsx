@@ -121,8 +121,14 @@ describe('ConnectorCollectionTable', () => {
     expect(screen.getByText('None')).toBeTruthy();
   });
 
-  it('hides Clone buttons by default until the Experimental Clone toggle is enabled, then shows Clone only for eligible connectors', () => {
-    const props = createProps();
+  it('hides Clone in RowActionMenu by default until the Experimental Clone toggle is enabled, then exposes Clone only for eligible connectors alongside Dead-Letter, Alert, and Delete', () => {
+    const onOpenDeadLetter = vi.fn();
+    const onOpenAlertPolicy = vi.fn();
+    const props = {
+      ...createProps(),
+      onOpenDeadLetter,
+      onOpenAlertPolicy,
+    };
     props.validationResults = {
       'projects/123/locations/global/collections/jira-prod': {
         status: 'success',
@@ -132,6 +138,7 @@ describe('ConnectorCollectionTable', () => {
           dataSource: 'servicenow',
           connectorType: 'THIRD_PARTY',
           connectorModes: ['DATA_INGESTION'],
+          errorConfig: { gcsPrefix: 'gs://acme-dead-letters/snow/' },
         },
       },
       'projects/123/locations/global/collections/confluence-kb': {
@@ -152,21 +159,39 @@ describe('ConnectorCollectionTable', () => {
 
     render(<ConnectorCollectionTable {...props} />);
 
+    // default_collection has no destructive/secondary overflow actions
+    expect(
+      screen.queryByRole('button', { name: /More actions for Default Collection/i }),
+    ).toBeNull();
+
     // Experimental badge and toggle checkbox are rendered in the toolbar, off by default
     expect(screen.getByText('Experimental')).toBeTruthy();
     const cloneToggle = screen.getByLabelText('Enable experimental connector cloning') as HTMLInputElement;
     expect(cloneToggle.checked).toBe(false);
-    expect(screen.queryAllByRole('button', { name: 'Clone' })).toHaveLength(0);
+
+    // Open RowActionMenu for Jira Production while Experimental Clone is OFF -> Dead-Letter, Alert, Delete appear, Clone does NOT
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Jira Production' }));
+    expect(screen.queryByRole('menuitem', { name: /Clone/i })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: /Dead-Letter/i }));
+    expect(onOpenDeadLetter).toHaveBeenCalledWith(
+      COLLECTIONS[0],
+      'gs://acme-dead-letters/snow/',
+    );
 
     // Enable the experimental clone toggle
     fireEvent.click(cloneToggle);
     expect(cloneToggle.checked).toBe(true);
 
-    // Only servicenow (headless password/2LO ingestion) should have a Clone button;
-    // confluence DATA_INGESTION requires a 3LO browser refresh_token and default_collection is excluded.
-    const cloneButtons = screen.getAllByRole('button', { name: 'Clone' });
-    expect(cloneButtons).toHaveLength(1);
-    fireEvent.click(cloneButtons[0]);
+    // Negative check: Confluence DATA_INGESTION requires a 3LO browser refresh_token -> Clone must NOT appear in its RowActionMenu
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Confluence KB' }));
+    expect(screen.queryByRole('menuitem', { name: /Clone/i })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: /Alert/i }));
+    expect(onOpenAlertPolicy).toHaveBeenCalledWith(COLLECTIONS[1]);
+
+    // Positive check: ServiceNow headless ingestion IS eligible -> Clone appears in RowActionMenu and invokes onDuplicateConnector
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Jira Production' }));
+    const cloneMenuItem = screen.getByRole('menuitem', { name: /Clone/i });
+    fireEvent.click(cloneMenuItem);
     expect(props.onDuplicateConnector).toHaveBeenCalledWith(COLLECTIONS[0]);
   });
 

@@ -45,9 +45,9 @@ interface LicenseModalsProps {
   onCloseExportModal: () => void;
   filteredUserLicenses: UserLicense[];
   licenseNames: Record<string, string>;
-  // Pruner Deployment Modal
-  isDeploymentModalOpen: boolean;
-  onCloseDeploymentModal: () => void;
+  // Pruner Deployment Modal (optional legacy fallback; canonical workspace is Tab 5)
+  isDeploymentModalOpen?: boolean;
+  onCloseDeploymentModal?: () => void;
   // Single Delete Confirmation Modal
   licenseToDelete: UserLicense | null;
   isDeleteModalOpen: boolean;
@@ -154,7 +154,7 @@ export const LicenseModals: React.FC<LicenseModalsProps> = ({
         licenseNames={licenseNames}
       />
 
-      {isDeploymentModalOpen && (
+      {isDeploymentModalOpen && onCloseDeploymentModal && (
         <PrunerDeploymentModal
           isOpen={isDeploymentModalOpen}
           onClose={onCloseDeploymentModal}

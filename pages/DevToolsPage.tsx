@@ -14,18 +14,34 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import * as api from '../services/apiService';
 import {
   DevToolsConfig,
   DevToolsFileAccessPolicy,
   DevToolsJavascriptExecutionPolicy,
   DevToolsTerminalAutoExecutionPolicy,
+  Page,
 } from '../types';
 import { GEMINI_ENTERPRISE_LOCATIONS, isModelSupportedInRegion } from '../utils/locations';
 import { useProjectEnrollment } from '../context/ProjectEnrollmentContext';
+import { useWorkspaceScope } from '../context/WorkspaceScopeContext';
+import PageShell from '../components/layout/PageShell';
+import PageHeader from '../components/layout/PageHeader';
+import ScopeBar from '../components/layout/ScopeBar';
+import { Tabs, TabItem } from '../components/common/Tabs';
 import { toErrorMessage } from '../utils/errors';
-import ProjectInput from '../components/ProjectInput';
+
+export type DevToolsPolicyTab = 'all' | 'core' | 'governance' | 'mcp' | 'models' | 'logging';
+
+const DEVTOOLS_TAB_ITEMS: readonly TabItem<DevToolsPolicyTab>[] = [
+  { id: 'all', label: 'All Policy Domains' },
+  { id: 'core', label: 'Agents & IDE' },
+  { id: 'governance', label: 'Browser & Plugins' },
+  { id: 'mcp', label: 'MCP Governance' },
+  { id: 'models', label: 'Models & Residency' },
+  { id: 'logging', label: 'Telemetry & cURL' },
+];
 
 export interface DevToolsPageProps {
   projectNumber: string;
@@ -216,7 +232,6 @@ export function buildDevToolsCurlPreview(
 const DevToolsPage: React.FC<DevToolsPageProps> = ({
   projectNumber,
   projectId,
-  setProjectNumber,
 }) => {
   const effectiveProjectId = (projectId || projectNumber || '').trim();
   const {
@@ -226,8 +241,12 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
     isTrustedTester,
     refreshEnrollment,
   } = useProjectEnrollment();
+  const { appLocation: scopedLocation, setAppLocation: setScopedLocation } = useWorkspaceScope();
 
-  const [location, setLocation] = useState<string>('global');
+  const [location, setLocation] = useState<string>(() => scopedLocation || 'global');
+  const [activeTab, setActiveTab] = useState<DevToolsPolicyTab>('all');
+  const [isDirty, setIsDirty] = useState<boolean>(false);
+  const lastLoadedConfigRef = useRef<DevToolsConfig>({});
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -235,6 +254,14 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [showCurlPreview, setShowCurlPreview] = useState<boolean>(true);
   const [copiedCurlType, setCopiedCurlType] = useState<'get' | 'patch' | null>(null);
+
+  // Keep local location synchronized if global workspace scope changes externally while clean
+  useEffect(() => {
+    if (scopedLocation && scopedLocation !== location && !isDirty) {
+      setLocation(scopedLocation);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopedLocation]);
 
   // Master Switch
   const [devToolsEnabled, setDevToolsEnabled] = useState<boolean>(false);
@@ -315,10 +342,40 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
     setPromptAndResponseLoggingEnabled(
       Boolean(cfg.loggingConfig?.promptAndResponseLoggingEnabled),
     );
+    setIsDirty(false);
   }, []);
+
+  const handleDiscardChanges = useCallback(() => {
+    hydrateFromConfig(lastLoadedConfigRef.current);
+    setSaveSuccess(null);
+    setError(null);
+  }, [hydrateFromConfig]);
+
+  const handleLocationChange = useCallback(
+    (nextLoc: string) => {
+      if (nextLoc === location) return;
+      if (
+        isDirty &&
+        typeof window !== 'undefined' &&
+        typeof window.confirm === 'function' &&
+        !window.confirm(
+          `You have unsaved AI Developer Tools policy changes in "${location}". Discard changes and switch location to "${nextLoc}"?`,
+        )
+      ) {
+        return;
+      }
+      setIsDirty(false);
+      setLocation(nextLoc);
+      setScopedLocation(nextLoc);
+    },
+    [location, isDirty, setScopedLocation],
+  );
+
+  const configFetchSeqRef = useRef(0);
 
   const fetchConfig = useCallback(async () => {
     if (!effectiveProjectId) return;
+    const seq = ++configFetchSeqRef.current;
     setIsLoading(true);
     setError(null);
     setUninitializedNotice(null);
@@ -329,20 +386,29 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
         projectId: effectiveProjectId,
         appLocation: location,
       });
-      hydrateFromConfig(cfg || {});
+      if (seq !== configFetchSeqRef.current) return;
+      const resolvedCfg = cfg || {};
+      lastLoadedConfigRef.current = resolvedCfg;
+      hydrateFromConfig(resolvedCfg);
     } catch (err: unknown) {
+      if (seq !== configFetchSeqRef.current) return;
       const msg = toErrorMessage(err);
       const status = (err as { status?: number; code?: number } | undefined)?.status ??
         (err as { status?: number; code?: number } | undefined)?.code;
       if (status === 404 || /\b404\b|not[_\s-]?found/i.test(msg)) {
+        lastLoadedConfigRef.current = {};
+        hydrateFromConfig({});
         setUninitializedNotice(
           `No DevToolsConfig singleton exists yet in ${location} (${msg}). Configure settings below and click Save Policy to initialize it.`,
         );
       } else {
+        setIsDirty(false);
         setError(`Failed to load DevToolsConfig (${location}): ${msg}`);
       }
     } finally {
-      setIsLoading(false);
+      if (seq === configFetchSeqRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [effectiveProjectId, location, hydrateFromConfig]);
 
@@ -456,6 +522,7 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
     current: string[],
     setter: React.Dispatch<React.SetStateAction<string[]>>,
   ) => {
+    setIsDirty(true);
     if (current.includes(item)) {
       setter(current.filter((x) => x !== item));
     } else {
@@ -492,6 +559,7 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
         projectId: effectiveProjectId,
         appLocation: location,
       });
+      lastLoadedConfigRef.current = updated || {};
       hydrateFromConfig(updated);
       setUninitializedNotice(null);
       setSaveSuccess(`Saved AI Developer Tools policy for ${effectiveProjectId} (${location}).`);
@@ -537,8 +605,71 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
     urlValidation.valid &&
     mcpValidation.valid;
 
+  const showCore = activeTab === 'all' || activeTab === 'core';
+  const showGovernance = activeTab === 'all' || activeTab === 'governance';
+  const showMcp = activeTab === 'all' || activeTab === 'mcp';
+  const showModels = activeTab === 'all' || activeTab === 'models';
+  const showLogging = activeTab === 'all' || activeTab === 'logging';
+
   return (
-    <div className="space-y-6">
+    <PageShell variant="wide">
+      <PageHeader
+        title="AI Developer Tools"
+        subtitle="Configure organization-wide Google Antigravity, IDE plugin, MCP allowlist, and data-residency governance."
+        consolePage={Page.DEV_TOOLS}
+        projectId={projectId}
+        projectNumber={projectNumber}
+        onRefresh={() => void fetchConfig()}
+        isRefreshing={isLoading}
+        refreshDisabled={!effectiveProjectId}
+        secondaryActions={
+          <button
+            type="button"
+            onClick={() => setShowCurlPreview((prev) => !prev)}
+            className="inline-flex items-center px-3 h-9 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs sm:text-sm font-medium text-gray-200 hover:text-white transition-colors"
+          >
+            {showCurlPreview ? 'Hide cURL' : 'Show cURL'}
+          </button>
+        }
+        primaryAction={{
+          label: isSaving ? 'Saving...' : 'Save Policy',
+          onClick: () => void handleSave(),
+          disabled: !canSave,
+          testId: 'save-devtools-config-btn',
+        }}
+      >
+        <ScopeBar
+          embedded
+          locationId="devtools-location-select"
+          locationLabel="Gemini Enterprise Location"
+          locationValue={location}
+          onLocationChange={handleLocationChange}
+          locationOptions={GEMINI_ENTERPRISE_LOCATIONS.map((loc) => ({
+            value: loc.id,
+            label: loc.label,
+          }))}
+          actions={
+            <label className="inline-flex items-center cursor-pointer shrink-0 bg-gray-950/70 border border-gray-800 rounded-lg px-3 h-9">
+              <input
+                type="checkbox"
+                aria-label="Enable AI Developer Tools"
+                data-testid="devtools-enabled-toggle"
+                checked={devToolsEnabled}
+                onChange={(e) => {
+                  setDevToolsEnabled(e.target.checked);
+                  setIsDirty(true);
+                }}
+                className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="ml-2 text-xs sm:text-sm font-medium text-gray-200">
+                <code className="font-mono text-blue-300 mr-1">devToolsEnabled:</code>
+                {devToolsEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </label>
+          }
+        />
+      </PageHeader>
+
       {/* Sunset & Transition Banner */}
       <div
         data-testid="code-assist-sunset-banner"
@@ -623,132 +754,48 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
         </button>
       </div>
 
-      {/* Header Controls & Master Switch */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-5 shadow-md space-y-5">
-        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">
-                Project ID / Number
-              </label>
-              {setProjectNumber ? (
-                <ProjectInput value={projectNumber} onChange={setProjectNumber} />
-              ) : (
-                <div className="bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-sm text-gray-200 font-mono h-[38px] flex items-center">
-                  {effectiveProjectId || 'Not set'}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label
-                htmlFor="devtools-location-select"
-                className="block text-sm font-medium text-gray-400 mb-1"
-              >
-                Gemini Enterprise Location
-              </label>
-              <select
-                id="devtools-location-select"
-                aria-label="Gemini Enterprise Location"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 h-[38px]"
-              >
-                {GEMINI_ENTERPRISE_LOCATIONS.map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => void fetchConfig()}
-              disabled={isLoading || !effectiveProjectId}
-              className="px-3.5 py-2 rounded-md bg-gray-700 hover:bg-gray-600 border border-gray-600 text-sm font-medium text-gray-200 disabled:opacity-50"
-            >
-              {isLoading ? 'Loading...' : 'Refresh'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowCurlPreview((prev) => !prev)}
-              className="px-3.5 py-2 rounded-md bg-gray-700 hover:bg-gray-600 border border-gray-600 text-sm font-medium text-gray-200"
-            >
-              {showCurlPreview ? 'Hide cURL' : 'Show cURL'}
-            </button>
-            <button
-              type="button"
-              data-testid="save-devtools-config-btn"
-              onClick={() => void handleSave()}
-              disabled={!canSave}
-              className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 text-sm font-semibold text-white disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed"
-            >
-              {isSaving ? 'Saving...' : 'Save Policy'}
-            </button>
-          </div>
+      {error && (
+        <div
+          role="alert"
+          data-testid="devtools-error-banner"
+          className="bg-red-900/30 border border-red-800 rounded-md p-3 text-sm text-red-200"
+        >
+          {error}
         </div>
+      )}
 
-        {error && (
-          <div
-            role="alert"
-            data-testid="devtools-error-banner"
-            className="bg-red-900/30 border border-red-800 rounded-md p-3 text-sm text-red-200"
-          >
-            {error}
-          </div>
-        )}
-
-        {uninitializedNotice && (
-          <div
-            data-testid="devtools-uninitialized-banner"
-            className="bg-amber-900/30 border border-amber-800 rounded-md p-3 text-sm text-amber-200"
-          >
-            {uninitializedNotice}
-          </div>
-        )}
-
-        {saveSuccess && (
-          <div
-            role="status"
-            data-testid="devtools-save-success"
-            className="bg-green-900/30 border border-green-800 rounded-md p-3 text-sm text-green-200"
-          >
-            {saveSuccess}
-          </div>
-        )}
-
-        {/* Master Switch */}
-        <div className="pt-4 border-t border-gray-700 flex items-center justify-between gap-4">
-          <div>
-            <h2 className="text-base font-semibold text-gray-100">
-              Enable AI Developer Tools &amp; Google Antigravity (<code className="text-xs font-mono text-blue-300">devToolsEnabled</code>)
-            </h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Master switch governing whether licensed users in this project and location can launch Google Antigravity, IDE extensions, and AI developer tool runtimes.
-            </p>
-          </div>
-          <label className="inline-flex items-center cursor-pointer shrink-0">
-            <input
-              type="checkbox"
-              aria-label="Enable AI Developer Tools"
-              data-testid="devtools-enabled-toggle"
-              checked={devToolsEnabled}
-              onChange={(e) => setDevToolsEnabled(e.target.checked)}
-              className="h-5 w-5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="ml-2 text-sm font-medium text-gray-200">
-              {devToolsEnabled ? 'Enabled' : 'Disabled'}
-            </span>
-          </label>
+      {uninitializedNotice && (
+        <div
+          data-testid="devtools-uninitialized-banner"
+          className="bg-amber-900/30 border border-amber-800 rounded-md p-3 text-sm text-amber-200"
+        >
+          {uninitializedNotice}
         </div>
-      </div>
+      )}
+
+      {saveSuccess && (
+        <div
+          role="status"
+          data-testid="devtools-save-success"
+          className="bg-green-900/30 border border-green-800 rounded-md p-3 text-sm text-green-200"
+        >
+          {saveSuccess}
+        </div>
+      )}
+
+      <Tabs
+        items={DEVTOOLS_TAB_ITEMS}
+        activeTab={activeTab}
+        onChange={setActiveTab}
+        ariaLabel="AI Developer Tools Policy Domains"
+        syncSearchParam="tab"
+      />
 
       {/* Grid of Policy Cards */}
+      {(showCore || showGovernance || showMcp) && (
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* 1. Antigravity Agent Security (agentConfig) */}
+        {showCore && (
         <section className="bg-gray-800 border border-gray-700 rounded-lg p-5 space-y-4">
           <div>
             <h3 className="text-base font-semibold text-gray-100">
@@ -772,7 +819,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
               type="checkbox"
               aria-label="Sandbox Mode Enabled"
               checked={sandboxModeEnabled}
-              onChange={(e) => setSandboxModeEnabled(e.target.checked)}
+              onChange={(e) => {
+                setSandboxModeEnabled(e.target.checked);
+                setIsDirty(true);
+              }}
               className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600"
             />
           </label>
@@ -788,7 +838,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
               id="outside-workspace-file-policy"
               aria-label="Outside-Workspace File Access Policy"
               value={outsideWorkspaceFileAccessPolicy}
-              onChange={(e) => setOutsideWorkspaceFileAccessPolicy(e.target.value)}
+              onChange={(e) => {
+                setOutsideWorkspaceFileAccessPolicy(e.target.value);
+                setIsDirty(true);
+              }}
               className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="FILE_ACCESS_POLICY_DENY">
@@ -814,7 +867,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
               id="terminal-auto-exec-policy"
               aria-label="Terminal Command Auto-Execution Policy"
               value={terminalCommandAutoExecutionPolicy}
-              onChange={(e) => setTerminalCommandAutoExecutionPolicy(e.target.value)}
+              onChange={(e) => {
+                setTerminalCommandAutoExecutionPolicy(e.target.value);
+                setIsDirty(true);
+              }}
               className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="TERMINAL_COMMAND_AUTO_EXECUTION_POLICY_REQUIRE_REVIEW">
@@ -829,8 +885,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
             </select>
           </div>
         </section>
+        )}
 
         {/* 2. Browser Actuation Policy (browserConfig) */}
+        {showGovernance && (
         <section className="bg-gray-800 border border-gray-700 rounded-lg p-5 space-y-4">
           <div>
             <h3 className="text-base font-semibold text-gray-100">
@@ -854,7 +912,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
               type="checkbox"
               aria-label="Browser Actuation Enabled"
               checked={browserEnabled}
-              onChange={(e) => setBrowserEnabled(e.target.checked)}
+              onChange={(e) => {
+                setBrowserEnabled(e.target.checked);
+                setIsDirty(true);
+              }}
               className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600"
             />
           </label>
@@ -870,7 +931,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
               id="js-execution-policy"
               aria-label="JavaScript Execution Policy"
               value={javascriptExecutionPolicy}
-              onChange={(e) => setJavascriptExecutionPolicy(e.target.value)}
+              onChange={(e) => {
+                setJavascriptExecutionPolicy(e.target.value);
+                setIsDirty(true);
+              }}
               className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="JAVASCRIPT_EXECUTION_POLICY_DISABLED">
@@ -898,7 +962,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
               data-testid="actuation-allowed-urls-input"
               rows={3}
               value={actuationUrlsText}
-              onChange={(e) => setActuationUrlsText(e.target.value)}
+              onChange={(e) => {
+                setActuationUrlsText(e.target.value);
+                setIsDirty(true);
+              }}
               placeholder="https://console.cloud.google.com&#10;https://*.corp.example.com"
               className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-xs font-mono text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -918,8 +985,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
             )}
           </div>
         </section>
+        )}
 
         {/* 3. Slash Commands & Plugins (featureConfig & pluginConfig) */}
+        {showGovernance && (
         <section className="bg-gray-800 border border-gray-700 rounded-lg p-5 space-y-4">
           <div>
             <h3 className="text-base font-semibold text-gray-100">
@@ -944,7 +1013,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
                 type="checkbox"
                 aria-label="Remote Control Enabled"
                 checked={remoteControlEnabled}
-                onChange={(e) => setRemoteControlEnabled(e.target.checked)}
+                onChange={(e) => {
+                  setRemoteControlEnabled(e.target.checked);
+                  setIsDirty(true);
+                }}
                 className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600"
               />
             </label>
@@ -963,7 +1035,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
                 aria-label="Enable /boost Command"
                 data-testid="boost-command-toggle"
                 checked={boostCommandEnabled}
-                onChange={(e) => setBoostCommandEnabled(e.target.checked)}
+                onChange={(e) => {
+                  setBoostCommandEnabled(e.target.checked);
+                  setIsDirty(true);
+                }}
                 className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600"
               />
             </label>
@@ -982,7 +1057,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
                 aria-label="Enable /teamwork and /swarm Multi-Agent Commands"
                 data-testid="teamwork-swarm-toggle"
                 checked={teamworkAndSwarmEnabled}
-                onChange={(e) => setTeamworkAndSwarmEnabled(e.target.checked)}
+                onChange={(e) => {
+                  setTeamworkAndSwarmEnabled(e.target.checked);
+                  setIsDirty(true);
+                }}
                 className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600"
               />
             </label>
@@ -1000,7 +1078,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
                 type="checkbox"
                 aria-label="Disable Plugins"
                 checked={pluginsDisabled}
-                onChange={(e) => setPluginsDisabled(e.target.checked)}
+                onChange={(e) => {
+                  setPluginsDisabled(e.target.checked);
+                  setIsDirty(true);
+                }}
                 className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600"
               />
             </label>
@@ -1018,14 +1099,19 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
                 type="checkbox"
                 aria-label="Disable Plugin Marketplace"
                 checked={marketplaceDisabled}
-                onChange={(e) => setMarketplaceDisabled(e.target.checked)}
+                onChange={(e) => {
+                  setMarketplaceDisabled(e.target.checked);
+                  setIsDirty(true);
+                }}
                 className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600"
               />
             </label>
           </div>
         </section>
+        )}
 
         {/* 4. MCP Governance (mcpConfig) */}
+        {showMcp && (
         <section className="bg-gray-800 border border-gray-700 rounded-lg p-5 space-y-4">
           <div className="flex items-start justify-between gap-2">
             <div>
@@ -1059,7 +1145,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
               type="checkbox"
               aria-label="MCP Servers Enabled"
               checked={mcpEnabled}
-              onChange={(e) => setMcpEnabled(e.target.checked)}
+              onChange={(e) => {
+                setMcpEnabled(e.target.checked);
+                setIsDirty(true);
+              }}
               className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600"
             />
           </label>
@@ -1077,7 +1166,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
               data-testid="mcp-allowlist-input"
               rows={6}
               value={mcpAllowlistText}
-              onChange={(e) => setMcpAllowlistText(e.target.value)}
+              onChange={(e) => {
+                setMcpAllowlistText(e.target.value);
+                setIsDirty(true);
+              }}
               className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-xs font-mono text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {!mcpValidation.valid && (
@@ -1091,9 +1183,12 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
             )}
           </div>
         </section>
+        )}
       </div>
+      )}
 
       {/* 5. Authorized Models & Residency (modelConfig & residencyConfig) */}
+      {showModels && (
       <section className="bg-gray-800 border border-gray-700 rounded-lg p-5 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
@@ -1123,7 +1218,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
             {allowedModels.length > 0 && (
               <button
                 type="button"
-                onClick={() => setAllowedModels([])}
+                onClick={() => {
+                  setAllowedModels([]);
+                  setIsDirty(true);
+                }}
                 className="text-xs text-blue-400 hover:text-blue-300 underline"
               >
                 Clear selection (allow all 1P models)
@@ -1239,8 +1337,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
           </div>
         )}
       </section>
+      )}
 
       {/* 6. Compliance Logging (loggingConfig) */}
+      {showLogging && (
       <section className="bg-gray-800 border border-gray-700 rounded-lg p-5 space-y-4">
         <div>
           <h3 className="text-base font-semibold text-gray-100">
@@ -1265,7 +1365,10 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
               type="checkbox"
               aria-label="Metadata Logging Enabled"
               checked={metadataLoggingEnabled}
-              onChange={(e) => setMetadataLoggingEnabled(e.target.checked)}
+              onChange={(e) => {
+                setMetadataLoggingEnabled(e.target.checked);
+                setIsDirty(true);
+              }}
               className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600"
             />
           </label>
@@ -1283,15 +1386,19 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
               type="checkbox"
               aria-label="Prompt and Response Logging Enabled"
               checked={promptAndResponseLoggingEnabled}
-              onChange={(e) => setPromptAndResponseLoggingEnabled(e.target.checked)}
+              onChange={(e) => {
+                setPromptAndResponseLoggingEnabled(e.target.checked);
+                setIsDirty(true);
+              }}
               className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600"
             />
           </label>
         </div>
       </section>
+      )}
 
       {/* Live cURL Preview */}
-      {showCurlPreview && (
+      {showLogging && (activeTab === 'logging' || showCurlPreview) && (
         <section
           data-testid="devtools-curl-preview"
           className="bg-gray-800 border border-gray-700 rounded-lg p-5 space-y-4"
@@ -1340,7 +1447,43 @@ const DevToolsPage: React.FC<DevToolsPageProps> = ({
           </div>
         </section>
       )}
-    </div>
+
+      {/* Sticky Bottom Unsaved Policy Changes Bar */}
+      {isDirty && (
+        <div
+          data-testid="devtools-unsaved-bar"
+          className="sticky bottom-3 z-30 bg-gray-900/95 backdrop-blur-md border border-amber-600/70 rounded-xl px-4 py-3 shadow-2xl flex flex-wrap items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-2.5 text-xs sm:text-sm text-amber-200 font-medium">
+            <span
+              className="h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse shrink-0"
+              aria-hidden="true"
+            />
+            <span>Unsaved policy changes</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="discard-devtools-changes-btn"
+              onClick={handleDiscardChanges}
+              disabled={isSaving}
+              className="px-3 py-1.5 h-9 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs sm:text-sm font-medium text-gray-200 hover:text-white transition-colors disabled:opacity-50"
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              data-testid="sticky-save-devtools-btn"
+              onClick={() => void handleSave()}
+              disabled={!canSave}
+              className="px-3.5 py-1.5 h-9 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold shadow-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSaving ? 'Saving...' : 'Save Policy'}
+            </button>
+          </div>
+        </div>
+      )}
+    </PageShell>
   );
 };
 

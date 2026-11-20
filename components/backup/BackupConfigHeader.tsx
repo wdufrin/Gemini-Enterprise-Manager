@@ -14,14 +14,26 @@
  * limitations under the License.
  */
 
-import React from 'react';
-import ProjectInput from '../ProjectInput';
-import CloudConsoleButton from '../CloudConsoleButton';
+import React, { useEffect, useRef } from 'react';
 import { AppEngine, ReasoningEngine, GcsBucket } from '../../types';
+import { GEMINI_ENTERPRISE_LOCATIONS } from '../../utils/locations';
+import { useWorkspaceScope } from '../../context/WorkspaceScopeContext';
+
+export const AGENT_ENGINE_REGIONS = [
+  'us-central1',
+  'us-east1',
+  'us-east4',
+  'us-west1',
+  'europe-west1',
+  'europe-west2',
+  'europe-west4',
+  'asia-northeast1',
+  'asia-east1',
+] as const;
 
 export interface BackupConfigHeaderProps {
-  projectNumber: string;
-  onProjectNumberChange: (val: string) => void;
+  projectNumber?: string;
+  onProjectNumberChange?: (val: string) => void;
   config: {
     appLocation: string;
     appId: string;
@@ -41,9 +53,13 @@ export interface BackupConfigHeaderProps {
   isLoadingBuckets: boolean;
 }
 
+const SELECT_CLASS =
+  'w-full h-9 bg-gray-950/90 border border-gray-700/90 rounded-lg px-3 text-xs sm:text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50';
+
+const LABEL_CLASS =
+  'block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1';
+
 export const BackupConfigHeader: React.FC<BackupConfigHeaderProps> = ({
-  projectNumber,
-  onProjectNumberChange,
   config,
   onConfigChange,
   apps,
@@ -55,46 +71,91 @@ export const BackupConfigHeader: React.FC<BackupConfigHeaderProps> = ({
   onBucketChange,
   isLoadingBuckets,
 }) => {
+  const workspaceScope = useWorkspaceScope();
+  const lastSyncedScopeRef = useRef<{ appLocation: string; gcpRegion: string }>({
+    appLocation: '',
+    gcpRegion: '',
+  });
+
+  useEffect(() => {
+    if (
+      workspaceScope.appLocation &&
+      workspaceScope.appLocation !== lastSyncedScopeRef.current.appLocation
+    ) {
+      lastSyncedScopeRef.current.appLocation = workspaceScope.appLocation;
+      if (workspaceScope.appLocation !== config.appLocation) {
+        onConfigChange({
+          target: { name: 'appLocation', value: workspaceScope.appLocation },
+        } as React.ChangeEvent<HTMLSelectElement>);
+      }
+    }
+  }, [workspaceScope.appLocation, config.appLocation, onConfigChange]);
+
+  useEffect(() => {
+    if (
+      workspaceScope.gcpRegion &&
+      workspaceScope.gcpRegion !== lastSyncedScopeRef.current.gcpRegion &&
+      (AGENT_ENGINE_REGIONS as readonly string[]).includes(workspaceScope.gcpRegion)
+    ) {
+      lastSyncedScopeRef.current.gcpRegion = workspaceScope.gcpRegion;
+      if (workspaceScope.gcpRegion !== config.reasoningEngineLocation) {
+        onConfigChange({
+          target: { name: 'reasoningEngineLocation', value: workspaceScope.gcpRegion },
+        } as React.ChangeEvent<HTMLSelectElement>);
+      }
+    }
+  }, [workspaceScope.gcpRegion, config.reasoningEngineLocation, onConfigChange]);
+
+  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    if (name === 'appLocation') {
+      lastSyncedScopeRef.current.appLocation = value;
+      workspaceScope.setAppLocation(value);
+    } else if (name === 'reasoningEngineLocation') {
+      lastSyncedScopeRef.current.gcpRegion = value;
+      workspaceScope.setGcpRegion(value);
+    } else if (name === 'appId') {
+      workspaceScope.setAppId(value);
+    }
+    onConfigChange(e);
+  };
+
   return (
-    <div className="bg-gray-800 p-4 rounded-lg shadow-md">
-      <div className="flex justify-between items-center mb-3">
-        <h2 className="text-lg font-semibold text-white">Configuration for Backup & Restore</h2>
-        <CloudConsoleButton
-          url={`https://console.cloud.google.com/storage/browser/${selectedBucket}?project=${projectNumber}`}
-        />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <section
+      aria-label="Backup Scope & Target Configuration"
+      className="bg-gray-900/75 border border-gray-800/90 rounded-xl p-4 sm:p-5 shadow-md"
+    >
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
         <div>
-          <label className="block text-sm font-medium text-gray-400 mb-1">
-            Target Project ID / Number
-          </label>
-          <ProjectInput value={projectNumber} onChange={onProjectNumberChange} />
-        </div>
-        <div>
-          <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1">
+          <label htmlFor="appLocation" className={LABEL_CLASS}>
             Target Location (Discovery)
           </label>
           <select
+            id="appLocation"
             name="appLocation"
             value={config.appLocation}
-            onChange={onConfigChange}
-            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]"
+            onChange={handleSelectChange}
+            className={SELECT_CLASS}
           >
-            <option value="global">global</option>
-            <option value="us">us</option>
-            <option value="eu">eu</option>
+            {GEMINI_ENTERPRISE_LOCATIONS.map((loc) => (
+              <option key={loc.id} value={loc.id}>
+                {loc.label}
+              </option>
+            ))}
           </select>
         </div>
+
         <div>
-          <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">
-            Target Gemini Enterprise ID
+          <label htmlFor="appId" className={LABEL_CLASS}>
+            Target Gemini Enterprise App
           </label>
           <select
+            id="appId"
             name="appId"
             value={config.appId}
-            onChange={onConfigChange}
+            onChange={handleSelectChange}
             disabled={isLoadingApps || apps.length === 0}
-            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50"
+            className={SELECT_CLASS}
           >
             <option value="">{isLoadingApps ? 'Loading...' : '-- Select App --'}</option>
             {apps.map((a) => {
@@ -109,36 +170,35 @@ export const BackupConfigHeader: React.FC<BackupConfigHeaderProps> = ({
         </div>
 
         <div>
-          <label
-            htmlFor="reasoningEngineLocation"
-            className="block text-sm font-medium text-gray-400 mb-1"
-          >
+          <label htmlFor="reasoningEngineLocation" className={LABEL_CLASS}>
             Agent Engine Location
           </label>
           <select
+            id="reasoningEngineLocation"
             name="reasoningEngineLocation"
             value={config.reasoningEngineLocation}
-            onChange={onConfigChange}
-            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]"
+            onChange={handleSelectChange}
+            className={SELECT_CLASS}
           >
-            <option value="us-central1">us-central1</option>
-            <option value="europe-west1">europe-west1</option>
-            <option value="asia-east1">asia-east1</option>
+            {AGENT_ENGINE_REGIONS.map((region) => (
+              <option key={region} value={region}>
+                {region}
+              </option>
+            ))}
           </select>
         </div>
+
         <div>
-          <label
-            htmlFor="reasoningEngineId"
-            className="block text-sm font-medium text-gray-400 mb-1"
-          >
+          <label htmlFor="reasoningEngineId" className={LABEL_CLASS}>
             Target Agent Engine
           </label>
           <select
+            id="reasoningEngineId"
             name="reasoningEngineId"
             value={config.reasoningEngineId}
-            onChange={onConfigChange}
+            onChange={handleSelectChange}
             disabled={isLoadingReasoningEngines || reasoningEngines.length === 0}
-            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50"
+            className={SELECT_CLASS}
           >
             <option value="">
               {isLoadingReasoningEngines ? 'Loading...' : '-- Select Engine --'}
@@ -153,30 +213,30 @@ export const BackupConfigHeader: React.FC<BackupConfigHeaderProps> = ({
             })}
           </select>
         </div>
+
         <div>
-          <label className="block text-sm font-medium text-gray-400 mb-1">
+          <label htmlFor="backupBucket" className={LABEL_CLASS}>
             Backup Bucket (GCS)
           </label>
-          <div className="flex gap-2">
-            <select
-              value={selectedBucket}
-              onChange={(e) => onBucketChange(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 h-[42px]"
-              disabled={isLoadingBuckets || buckets.length === 0}
-            >
-              <option value="">
-                {isLoadingBuckets ? 'Loading buckets...' : '-- Select Bucket --'}
+          <select
+            id="backupBucket"
+            value={selectedBucket}
+            onChange={(e) => onBucketChange(e.target.value)}
+            className={SELECT_CLASS}
+            disabled={isLoadingBuckets || buckets.length === 0}
+          >
+            <option value="">
+              {isLoadingBuckets ? 'Loading buckets...' : '-- Select Bucket --'}
+            </option>
+            {buckets.map((b) => (
+              <option key={b.name} value={b.name}>
+                {b.name}
               </option>
-              {buckets.map((b) => (
-                <option key={b.name} value={b.name}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </div>
+            ))}
+          </select>
         </div>
       </div>
-    </div>
+    </section>
   );
 };
 

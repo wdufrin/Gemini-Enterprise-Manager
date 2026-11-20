@@ -121,8 +121,13 @@ ORDER BY net_spend DESC
 LIMIT 100;`;
 };
 
+export type QuotaCostSectionId = 'quota' | 'finops';
+
 interface Props {
     projectNumber?: string;
+    activeSection?: QuotaCostSectionId;
+    refreshTrigger?: number;
+    onLoadingChange?: (loading: boolean) => void;
 }
 
 interface HydratedProjectLicense extends Partial<LicenseConfig> {
@@ -459,7 +464,12 @@ interface QuotaCardProps {
     multiplier?: number;
 }
 
-const CostsUI: React.FC<Props> = ({ projectNumber }) => {
+const CostsUI: React.FC<Props> = ({
+    projectNumber,
+    activeSection,
+    refreshTrigger = 0,
+    onLoadingChange,
+}) => {
     const [edition, setEdition] = useState<GeminiEnterpriseEdition>('Standard');
     const [licenses, setLicenses] = useState<number | ''>('');
     const [showInstructions, setShowInstructions] = useState(false);
@@ -520,7 +530,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             }
         };
         fetchAccounts();
-    }, [projectNumber]);
+    }, [projectNumber, refreshTrigger]);
 
     const applyConfigSelection = useCallback((configName: string, locName: string, availableConfigs: BillingAccountLicenseConfig[]) => {
         setSelectedConfigName(configName);
@@ -694,7 +704,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             }
         };
         fetchProjectLicenses();
-    }, [projectNumber]);
+    }, [projectNumber, refreshTrigger]);
 
     const multiplierValidation = useMemo(
         () => validateSingleUserMultiplier(singleUserMultiplierRaw),
@@ -823,7 +833,11 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
             }
         };
         fetchMetrics();
-    }, [projectNumber, edition, selectedLocation]);
+    }, [projectNumber, edition, selectedLocation, refreshTrigger]);
+
+    useEffect(() => {
+        onLoadingChange?.(isLoading || isFetchingMetrics);
+    }, [isLoading, isFetchingMetrics, onLoadingChange]);
 
     const QuotaCard: React.FC<QuotaCardProps> = ({ title, value, usage, unit, tooltip, singleUserCap, multiplier }) => {
         const isUnavailable = usage === undefined || usage === null;
@@ -976,8 +990,13 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
         );
     }, [finOpsRows]);
 
+    const showQuotaSection = !activeSection || activeSection === 'quota';
+    const showFinOpsSection = !activeSection || activeSection === 'finops';
+
     return (
         <div className="space-y-6">
+            {showQuotaSection && (
+            <>
             <div className="bg-gray-800 p-5 xl:p-6 rounded-lg shadow-md border border-gray-700">
                 <h2 className="text-lg font-semibold text-white mb-4">Quota Configuration</h2>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
@@ -1425,8 +1444,11 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     </div>
                 </div>
             </div>
+            </>
+            )}
 
             {/* Real FinOps Cloud Billing Export (BigQuery) Section */}
+            {showFinOpsSection && (
             <div
                 data-testid="finops-billing-export-section"
                 className="bg-gray-800 p-5 xl:p-6 rounded-lg shadow-md border border-gray-700 space-y-4"
@@ -1607,7 +1629,9 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     </div>
                 )}
             </div>
+            )}
             
+            {showQuotaSection && (
              <div className="bg-blue-900/30 border border-blue-800 p-4 rounded-lg flex items-start gap-3">
                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1625,6 +1649,7 @@ const CostsUI: React.FC<Props> = ({ projectNumber }) => {
                     </p>
                  </div>
              </div>
+            )}
         </div>
     );
 };

@@ -98,17 +98,58 @@ describe('AgentEnginesPage, EngineDetails & DirectQueryChatWindow (F6: Module 5 
     });
   });
 
-  it('renders AgentEnginesPage with project configuration and disambiguation guidance', async () => {
+  it('renders AgentEnginesPage with standardized Agent Runtimes header, quick search, runtime-type filter, and accessible sortable headers', async () => {
+    vi.mocked(api.listCloudRunServices).mockResolvedValueOnce({
+      services: [
+        {
+          name: 'projects/test-proj-123/locations/us-central1/services/partner-a2a-service',
+          uri: 'https://partner-a2a-service.run.app',
+          template: {
+            containers: [
+              {
+                env: [{ name: 'AGENT_DISPLAY_NAME', value: 'Partner A2A CloudRun' }],
+              },
+            ],
+          },
+        } as never,
+      ],
+    });
+
     render(
       <AgentEnginesPage
         projectNumber="test-proj-123"
+        projectId="test-proj-id"
         accessToken="test-token"
         onDirectQuery={vi.fn()}
       />
     );
 
-    expect(screen.getByText('Configuration')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Agent Runtimes' }),
+    ).toBeInTheDocument();
     expect(await screen.findByText('SupplyChain_ADK_Runtime')).toBeInTheDocument();
+    expect(await screen.findByText('Partner A2A CloudRun')).toBeInTheDocument();
+
+    // Accessible sortable headers expose <button> inside <th aria-sort="...">
+    const sortByNameBtn = screen.getByRole('button', { name: /Sort by Display Name/i });
+    expect(sortByNameBtn.closest('th')).toHaveAttribute('aria-sort', 'none');
+    fireEvent.click(sortByNameBtn);
+    expect(sortByNameBtn.closest('th')).toHaveAttribute('aria-sort', 'ascending');
+
+    // SegmentedControl runtime-type filter filters between Agent Engine and Cloud Run
+    fireEvent.click(screen.getByRole('button', { name: /Cloud Run/i }));
+    expect(screen.queryByText('SupplyChain_ADK_Runtime')).not.toBeInTheDocument();
+    expect(screen.getByText('Partner A2A CloudRun')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^All/i }));
+    expect(screen.getByText('SupplyChain_ADK_Runtime')).toBeInTheDocument();
+
+    // Quick-search input filters runtimes client-side
+    const searchInput = screen.getByLabelText('Search agent runtimes');
+    fireEvent.change(searchInput, { target: { value: 'SupplyChain' } });
+    expect(screen.getByText('SupplyChain_ADK_Runtime')).toBeInTheDocument();
+    expect(screen.queryByText('Partner A2A CloudRun')).not.toBeInTheDocument();
+    fireEvent.change(searchInput, { target: { value: '' } });
 
     // Quota guard: mounting AgentEnginesPage must NOT eagerly fan out listReasoningEngineSessions per runtime
     // or enumerate DataConnector collections via listResources('collections')

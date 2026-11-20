@@ -133,6 +133,47 @@ describe('AuthorizationsPage', () => {
     fireEvent.click(clientIdCheckbox);
     expect(screen.getByText(longClientId)).toBeInTheDocument();
   });
+
+  it('filters authorizations client-side by ID, Client ID, or URI and switches to Workforce Pool Validator tab', async () => {
+    vi.mocked(api.listAuthorizations).mockResolvedValue({
+      authorizations: [
+        {
+          name: 'projects/12345/locations/global/authorizations/jira-oauth',
+          displayName: 'Jira OAuth',
+          serverSideOauth2: {
+            clientId: 'jira-client-id-111',
+            authorizationUri: 'https://auth.atlassian.com/authorize',
+            tokenUri: 'https://auth.atlassian.com/oauth/token',
+          },
+        },
+        {
+          name: 'projects/12345/locations/global/authorizations/servicenow-oauth',
+          displayName: 'ServiceNow OAuth',
+          serverSideOauth2: {
+            clientId: 'snow-client-id-222',
+            authorizationUri: 'https://acme.service-now.com/oauth_auth.do',
+            tokenUri: 'https://acme.service-now.com/oauth_token.do',
+          },
+        },
+      ],
+    });
+
+    render(<AuthorizationsPage projectNumber="12345" projectId="test-proj" />);
+
+    expect(screen.getByRole('heading', { name: 'Authorizations' })).toBeInTheDocument();
+    expect(await screen.findByText('jira-oauth')).toBeInTheDocument();
+    expect(screen.getByText('servicenow-oauth')).toBeInTheDocument();
+
+    // Filter by URI substring
+    const filterInput = screen.getByLabelText('Filter authorizations');
+    fireEvent.change(filterInput, { target: { value: 'service-now.com' } });
+    expect(screen.getByText('servicenow-oauth')).toBeInTheDocument();
+    expect(screen.queryByText('jira-oauth')).not.toBeInTheDocument();
+
+    // Switch to Workforce Pool Validator tab via canonical Tabs
+    fireEvent.click(screen.getByRole('tab', { name: /Workforce Pool Validator/i }));
+    expect(screen.queryByText('servicenow-oauth')).not.toBeInTheDocument();
+  });
 });
 
 

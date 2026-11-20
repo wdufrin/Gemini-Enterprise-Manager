@@ -15,6 +15,7 @@
  */
 
 import React, { useState, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { DiscoverySession, Config } from '../../types';
 import { RestoreStatusBar } from './RestoreStatusBar';
 import { useChatArchiveRestore } from '../../hooks/useChatArchiveRestore';
@@ -116,12 +117,19 @@ export const ChatHistoryArchiveViewer: React.FC<ChatHistoryArchiveViewerProps> =
     [sessions, selectedSessionId],
   );
 
-  return (
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget && !restoreStatus.isRestoring) {
+      onClose();
+    }
+  };
+
+  const viewerContent = (
     <div
-      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex justify-center items-center p-4 animate-fade-in"
+      className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-xs flex justify-center items-center p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="chat-archive-title"
+      onClick={handleBackdropClick}
     >
       <div
         ref={containerRef}
@@ -162,8 +170,11 @@ export const ChatHistoryArchiveViewer: React.FC<ChatHistoryArchiveViewerProps> =
               {filteredSessions.length} / {sessions.length} sessions
             </span>
             <button
+              type="button"
               onClick={onClose}
-              className="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-gray-800 transition-colors"
+              disabled={restoreStatus.isRestoring}
+              aria-label="Close archive viewer"
+              className="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-40"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -487,6 +498,12 @@ export const ChatHistoryArchiveViewer: React.FC<ChatHistoryArchiveViewerProps> =
       </div>
     </div>
   );
+
+  if (typeof document !== 'undefined' && document.body) {
+    return createPortal(viewerContent, document.body);
+  }
+
+  return viewerContent;
 };
 
 export default ChatHistoryArchiveViewer;

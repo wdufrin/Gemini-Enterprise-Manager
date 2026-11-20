@@ -15,10 +15,12 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Config, LogEntry } from '../types';
+import { Config, LogEntry, Page } from '../types';
 import * as api from '../services/apiService';
 import { toErrorMessage } from '../utils/errors';
-import CloudConsoleButton from '../components/CloudConsoleButton';
+import PageShell from '../components/layout/PageShell';
+import PageHeader from '../components/layout/PageHeader';
+import { Tabs } from '../components/common/Tabs';
 import { useModelArmorPolicies } from '../hooks/useModelArmorPolicies';
 import { SanitizationAuditTab } from '../components/model-armor/SanitizationAuditTab';
 import { ActivePoliciesViewer } from '../components/model-armor/ActivePoliciesViewer';
@@ -30,7 +32,7 @@ import { FloorSettingsAndSanitizeTester } from '../components/model-armor/FloorS
 const ShieldIcon = () => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
-    className="h-6 w-6 text-blue-400"
+    className="h-5 w-5"
     fill="none"
     viewBox="0 0 24 24"
     stroke="currentColor"
@@ -46,10 +48,11 @@ const ShieldIcon = () => (
 
 export interface ModelArmorPageProps {
   projectNumber: string;
+  projectId?: string;
   setProjectNumber: (projectNumber: string) => void;
 }
 
-const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
+const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber, projectId }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -140,62 +143,46 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
   }, [filterBlockedOnly, filterExclusionsOnly, filterText, daysFilter, projectNumber]);
 
   return (
-    <div className="space-y-4">
-      {/* Header & Main Controls */}
-      <div className="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-sm">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 border-b border-gray-700 pb-4">
-          <div className="flex items-center gap-4">
-            <div>
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <ShieldIcon />
-                Model Armor Manager
-              </h2>
-              <p className="text-sm text-gray-400 mt-1">
-                Monitor content safety violations and configure protection policies.
-              </p>
-            </div>
-          </div>
-          <div className="w-full md:w-auto">
-            <CloudConsoleButton url={cloudConsoleUrl} />
-          </div>
-        </div>
+    <PageShell variant="wide">
+      <PageHeader
+        title="Model Armor"
+        subtitle="Configure prompt-injection shields, PII/SDP guardrails, floor settings, and live sanitization probes."
+        icon={<ShieldIcon />}
+        consolePage={Page.MODEL_ARMOR}
+        projectId={projectId}
+        projectNumber={projectNumber}
+        secondaryActions={
+          activeTab === 'logs' ? (
+            <a
+              href={cloudConsoleUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 h-9 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs sm:text-sm font-medium text-gray-200 hover:text-white transition-colors"
+            >
+              <span>Logs Explorer</span>
+            </a>
+          ) : undefined
+        }
+      />
 
-        {/* Tabs */}
-        <div className="flex border-b border-gray-700 mb-4">
-          <button
-            onClick={() => setActiveTab('logs')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'logs'
-                ? 'text-blue-400 border-blue-400'
-                : 'text-gray-400 border-transparent hover:text-white hover:border-gray-600'
-            }`}
-          >
-            Activity Logs
-          </button>
-          <button
-            onClick={() => setActiveTab('policies')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'policies'
-                ? 'text-blue-400 border-blue-400'
-                : 'text-gray-400 border-transparent hover:text-white hover:border-gray-600'
-            }`}
-          >
-            Policy Configuration
-          </button>
-          <button
-            onClick={() => setActiveTab('floor_and_tester')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'floor_and_tester'
-                ? 'text-blue-400 border-blue-400'
-                : 'text-gray-400 border-transparent hover:text-white hover:border-gray-600'
-            }`}
-          >
-            Floor Settings &amp; Live Tester
-          </button>
-        </div>
+      <Tabs
+        syncSearchParam="tab"
+        ariaLabel="Model Armor Sections"
+        activeTab={activeTab}
+        onChange={setActiveTab}
+        items={[
+          { id: 'logs', label: 'Activity Logs' },
+          { id: 'policies', label: 'Policy Configuration' },
+          { id: 'floor_and_tester', label: 'Floor Settings & Live Tester' },
+        ]}
+      />
 
-        {/* Filters Row (Only for Logs) */}
-        {activeTab === 'logs' && (
+      {/* Activity Logs View */}
+      {activeTab === 'logs' && (
+        <div
+          data-testid="model-armor-logs-panel"
+          className="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-sm space-y-4"
+        >
           <SanitizationAuditTab
             projectNumber={projectNumber}
             logs={logs}
@@ -216,8 +203,8 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
             onRequestPolicies={policyState.fetchPoliciesAndAssociations}
             onPolicyUpdated={policyState.fetchPoliciesAndAssociations}
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Policies View */}
       {activeTab === 'policies' && (
@@ -237,14 +224,14 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
             isLoading={policyState.isPoliciesLoading}
           />
           <PolicyGenerator
-            projectId={projectNumber || '[YOUR_PROJECT_ID]'}
+            projectId={projectId || projectNumber || '[YOUR_PROJECT_ID]'}
             engines={policyState.enginesList}
             onRefresh={policyState.fetchPoliciesAndAssociations}
           />
           {policyState.cloningTemplate && (
             <CloneTemplateModal
               template={policyState.cloningTemplate}
-              currentProjectId={projectNumber || ''}
+              currentProjectId={projectId || projectNumber || ''}
               onClose={() => policyState.setCloningTemplate(null)}
               onSuccess={() => {
                 policyState.setCloningTemplate(null);
@@ -259,13 +246,13 @@ const ModelArmorPage: React.FC<ModelArmorPageProps> = ({ projectNumber }) => {
       {activeTab === 'floor_and_tester' && (
         <div className="animate-fade-in-up">
           <FloorSettingsAndSanitizeTester
-            projectId={projectNumber}
+            projectId={projectId || projectNumber}
             templates={policyState.templates}
             onRefreshTemplates={policyState.fetchPoliciesAndAssociations}
           />
         </div>
       )}
-    </div>
+    </PageShell>
   );
 };
 

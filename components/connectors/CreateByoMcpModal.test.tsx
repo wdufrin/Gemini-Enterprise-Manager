@@ -648,6 +648,9 @@ describe("Item #6 Sync SLA Monitor, Dead-Letter JSONL Inspector, Alert Modal & D
     expect(
       screen.getByRole("button", { name: /\+ Create BYO MCP Connector/i }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Clone$/i })).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: /More actions for ServiceNow IT/i }),
+    );
+    expect(screen.getByRole("menuitem", { name: /^Clone/i })).toBeInTheDocument();
   });
 });

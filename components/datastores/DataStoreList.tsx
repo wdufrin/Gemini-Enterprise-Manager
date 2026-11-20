@@ -15,7 +15,7 @@
  */
 
 
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { DataStore } from '../../types';
 
 type SortKey = 'displayName' | 'name' | 'solutionTypes';
@@ -73,7 +73,26 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
   onPrevPage,
   isLoading,
 }) => {
-  const isAllSelected = dataStores.length > 0 && selectedDataStores.size === dataStores.length;
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredDataStores = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return dataStores;
+    return dataStores.filter((store) => {
+      const storeId = (store.name.split('/').pop() || '').toLowerCase();
+      const displayName = (store.displayName || '').toLowerCase();
+      const solutions = (store.solutionTypes || []).join(' ').toLowerCase();
+      return (
+        displayName.includes(q) ||
+        storeId.includes(q) ||
+        solutions.includes(q)
+      );
+    });
+  }, [dataStores, searchQuery]);
+
+  const isAllSelected =
+    filteredDataStores.length > 0 &&
+    filteredDataStores.every((ds) => selectedDataStores.has(ds.name));
   
   const SortableHeader: React.FC<{ label: string; sortKey: SortKey; className?: string }> = ({ label, sortKey, className = '' }) => {
     const isSorted = sortConfig.key === sortKey;
@@ -107,31 +126,89 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
   };
 
   return (
-    <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
-      <div className="p-4 border-b border-gray-700 flex flex-wrap justify-between items-center gap-3">
-        <h2 className="text-xl font-bold text-white">Data Stores</h2>
-        <div className="flex flex-wrap items-center gap-3">
+    <div className="bg-gray-900/90 border border-gray-800 shadow-xl rounded-xl overflow-hidden">
+      <div className="p-4 border-b border-gray-800 flex flex-wrap justify-between items-center gap-3">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-lg sm:text-xl font-bold text-white">Data Stores</h2>
+          {dataStores.length > 0 && (
+            <span className="px-2 py-0.5 text-xs font-mono rounded-full bg-gray-800 border border-gray-700 text-gray-300">
+              {filteredDataStores.length}/{dataStores.length}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          {dataStores.length > 0 && (
+            <div className="relative w-full sm:w-64">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter data stores..."
+                aria-label="Search data stores"
+                className="w-full h-9 bg-gray-950/90 border border-gray-700/90 rounded-lg pl-8 pr-7 text-xs sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <svg
+                className="w-4 h-4 text-gray-500 absolute left-2.5 top-2.5 pointer-events-none"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear data store search"
+                  className="absolute right-2 top-2 text-gray-400 hover:text-white text-xs"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          )}
+
           {selectedDataStores.size > 0 && (
             <>
-              <span className="text-sm text-gray-300 whitespace-nowrap">{selectedDataStores.size} selected</span>
+              <span className="text-xs sm:text-sm text-gray-300 whitespace-nowrap">{selectedDataStores.size} selected</span>
               <button
+                type="button"
                 onClick={onDeleteSelected}
-                className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700 whitespace-nowrap shrink-0"
+                className="px-3.5 h-9 bg-red-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-red-700 whitespace-nowrap shrink-0 transition-colors"
               >
                 Delete Selected
               </button>
             </>
           )}
-           <button
-                onClick={onCreateNew}
-                className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 whitespace-nowrap shrink-0"
-            >
-                Create New
-            </button>
+          <button
+            type="button"
+            onClick={onCreateNew}
+            className="px-4 h-9 bg-blue-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-blue-500 whitespace-nowrap shrink-0 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+          >
+            Create New
+          </button>
         </div>
       </div>
       {dataStores.length === 0 ? (
         <p className="text-gray-400 p-6 text-center">No data stores found for the provided configuration.</p>
+      ) : filteredDataStores.length === 0 ? (
+        <div className="p-8 text-center space-y-2.5">
+          <p className="text-sm text-gray-400">No data stores match your search filter.</p>
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs font-semibold text-white rounded-lg transition-colors"
+          >
+            Clear Filter
+          </button>
+        </div>
       ) : (
         <div className="gem-table-container" role="region" aria-label="Data stores table" tabIndex={0}>
           <table className="min-w-full divide-y divide-gray-700">
@@ -153,7 +230,7 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
               </tr>
             </thead>
             <tbody className="bg-gray-800 divide-y divide-gray-700">
-              {dataStores.map((store) => {
+              {filteredDataStores.map((store) => {
                 const isDeleting = deletingDataStoreIds.has(store.name);
                 const isSelected = selectedDataStores.has(store.name);
                 const storeId = store.name.split('/').pop() || '';

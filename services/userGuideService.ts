@@ -70,28 +70,28 @@ export type GuideCategory = typeof GUIDE_CATEGORIES[number];
  * The 17 active sidebar Page values rendered in components/Sidebar.tsx across 5 groups.
  */
 export const ACTIVE_SIDEBAR_PAGES = [
-  // Group 1: Agent Management
-  Page.AGENTS,
-  Page.SKILLS_REGISTRY,
-  Page.AGENT_BUILDER,
-  Page.DEV_TOOLS,
-  Page.AGENT_ENGINES,
-  // Group 2: Knowledge & Resources
-  Page.DATA_STORES,
-  Page.GE_QUOTA_USAGE,
-  // Group 3: Testing & Analysis
+  // Group 1: Apps & Agents
   Page.ASSISTANT,
-  Page.LATENCY_LAB,
+  Page.AGENTS,
+  Page.AGENT_ENGINES,
+  Page.SKILLS_REGISTRY,
   Page.ARCHITECTURE,
-  // Group 4: Security & Access
+  // Group 2: Knowledge & Integrations
+  Page.DATA_STORES,
+  // Group 3: Build & Evaluation
+  Page.AGENT_BUILDER,
+  Page.LATENCY_LAB,
+  Page.DEV_TOOLS,
+  // Group 4: Security & Governance
   Page.AUTHORIZATIONS,
   Page.AGENT_PERMISSIONS,
   Page.MODEL_ARMOR,
-  Page.OBSERVABILITY,
-  // Group 5: System
-  Page.BACKUP_RECOVERY,
   Page.CONFIG_AUDIT,
+  // Group 5: Operations & FinOps
+  Page.OBSERVABILITY,
+  Page.GE_QUOTA_USAGE,
   Page.LICENSE,
+  Page.BACKUP_RECOVERY,
 ] as const;
 
 /**
@@ -101,90 +101,90 @@ export const TAB_MAPPING: Record<
   (typeof ACTIVE_SIDEBAR_PAGES)[number],
   { label: string; sectionId: string; group: string }
 > = {
+  [Page.ASSISTANT]: {
+    label: 'Engines & Assistants',
+    sectionId: 'ch2-engines-assistants',
+    group: 'Apps & Agents',
+  },
   [Page.AGENTS]: {
     label: 'GE Agent Manager',
     sectionId: 'ch1-ge-agent-manager',
-    group: 'Agent Management',
-  },
-  [Page.SKILLS_REGISTRY]: {
-    label: 'Skills Registry',
-    sectionId: 'ch1-skills-registry',
-    group: 'Agent Management',
-  },
-  [Page.AGENT_BUILDER]: {
-    label: 'ADK Studio',
-    sectionId: 'ch1-adk-studio',
-    group: 'Agent Management',
-  },
-  [Page.DEV_TOOLS]: {
-    label: 'AI Developer Tools',
-    sectionId: 'ch1-ai-developer-tools',
-    group: 'Agent Management',
+    group: 'Apps & Agents',
   },
   [Page.AGENT_ENGINES]: {
     label: 'Agent Runtimes',
     sectionId: 'ch1-agent-runtimes',
-    group: 'Agent Management',
+    group: 'Apps & Agents',
   },
-  [Page.DATA_STORES]: {
-    label: 'Connectors & Data Stores',
-    sectionId: 'ch2-connectors-data-stores',
-    group: 'Knowledge & Resources',
-  },
-  [Page.GE_QUOTA_USAGE]: {
-    label: 'Quota & Cost Estimator',
-    sectionId: 'ch2-quota-cost-estimator',
-    group: 'Knowledge & Resources',
-  },
-  [Page.ASSISTANT]: {
-    label: 'Engines & Assistants',
-    sectionId: 'ch2-engines-assistants',
-    group: 'Testing & Analysis',
-  },
-  [Page.LATENCY_LAB]: {
-    label: 'Latency Testing Lab',
-    sectionId: 'ch2-latency-testing-lab',
-    group: 'Testing & Analysis',
+  [Page.SKILLS_REGISTRY]: {
+    label: 'Skills Registry',
+    sectionId: 'ch1-skills-registry',
+    group: 'Apps & Agents',
   },
   [Page.ARCHITECTURE]: {
     label: 'Architecture',
     sectionId: 'ch2-architecture',
-    group: 'Testing & Analysis',
+    group: 'Apps & Agents',
+  },
+  [Page.DATA_STORES]: {
+    label: 'Connectors & Data Stores',
+    sectionId: 'ch2-connectors-data-stores',
+    group: 'Knowledge & Integrations',
+  },
+  [Page.AGENT_BUILDER]: {
+    label: 'ADK Studio',
+    sectionId: 'ch1-adk-studio',
+    group: 'Build & Evaluation',
+  },
+  [Page.LATENCY_LAB]: {
+    label: 'Latency Testing Lab',
+    sectionId: 'ch2-latency-testing-lab',
+    group: 'Build & Evaluation',
+  },
+  [Page.DEV_TOOLS]: {
+    label: 'AI Developer Tools',
+    sectionId: 'ch1-ai-developer-tools',
+    group: 'Build & Evaluation',
   },
   [Page.AUTHORIZATIONS]: {
     label: 'Authorizations',
     sectionId: 'ch3-authorizations',
-    group: 'Security & Access',
+    group: 'Security & Governance',
   },
   [Page.AGENT_PERMISSIONS]: {
     label: 'Agent Permissions',
     sectionId: 'ch3-agent-permissions',
-    group: 'Security & Access',
+    group: 'Security & Governance',
   },
   [Page.MODEL_ARMOR]: {
     label: 'Model Armor',
     sectionId: 'ch3-model-armor',
-    group: 'Security & Access',
-  },
-  [Page.OBSERVABILITY]: {
-    label: 'Observability',
-    sectionId: 'ch3-observability',
-    group: 'Security & Access',
-  },
-  [Page.BACKUP_RECOVERY]: {
-    label: 'Backup & Recovery',
-    sectionId: 'ch4-backup-recovery',
-    group: 'System',
+    group: 'Security & Governance',
   },
   [Page.CONFIG_AUDIT]: {
     label: 'App Config Audit',
     sectionId: 'ch4-app-config-audit',
-    group: 'System',
+    group: 'Security & Governance',
+  },
+  [Page.OBSERVABILITY]: {
+    label: 'Observability',
+    sectionId: 'ch3-observability',
+    group: 'Operations & FinOps',
+  },
+  [Page.GE_QUOTA_USAGE]: {
+    label: 'Quota & Cost Estimator',
+    sectionId: 'ch2-quota-cost-estimator',
+    group: 'Operations & FinOps',
   },
   [Page.LICENSE]: {
     label: 'Licenses',
     sectionId: 'ch4-licenses',
-    group: 'System',
+    group: 'Operations & FinOps',
+  },
+  [Page.BACKUP_RECOVERY]: {
+    label: 'Backup & Recovery',
+    sectionId: 'ch4-backup-recovery',
+    group: 'Operations & FinOps',
   },
 };
 

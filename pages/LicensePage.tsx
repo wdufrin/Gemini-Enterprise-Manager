@@ -15,25 +15,37 @@
  */
 
 import React from 'react';
-import ProjectInput from '../components/ProjectInput';
-import { useLicenseManagement } from '../hooks/useLicenseManagement';
+import { Page } from '../types';
+import PageShell from '../components/layout/PageShell';
+import PageHeader from '../components/layout/PageHeader';
+import ScopeBar from '../components/layout/ScopeBar';
+import { Tabs, TabItem } from '../components/common/Tabs';
+import { useLicenseManagement, LicenseTabId } from '../hooks/useLicenseManagement';
 import { UserLicensesTab } from '../components/license/UserLicensesTab';
 import { AllocationsTab } from '../components/license/AllocationsTab';
 import { UserStoreConfigTab } from '../components/license/UserStoreConfigTab';
 import { GroupAssignmentsTab } from '../components/license/GroupAssignmentsTab';
 import { LicenseModals } from '../components/license/LicenseModals';
 import { PrunerDeploymentModal } from '../components/license/PrunerDeploymentModal';
-import { GEMINI_ENTERPRISE_LOCATIONS } from '../utils/locations';
 
 export interface LicensePageProps {
   projectNumber: string;
+  projectId?: string;
   setProjectNumber: (projectNumber: string) => void;
   onBuildTriggered?: (buildId: string, projectId?: string) => void;
 }
 
+const LICENSE_TAB_ITEMS: readonly TabItem<LicenseTabId>[] = [
+  { id: 'user_licenses', label: 'User Assignments' },
+  { id: 'allocations', label: 'Allocation Management (Billing Account)' },
+  { id: 'user_store_policy', label: 'Auto-Licensing & Overage Policy' },
+  { id: 'group_assignments', label: 'Group License Assignments' },
+  { id: 'automated_pruner', label: 'Automated License Pruner' },
+];
+
 const LicensePage: React.FC<LicensePageProps> = ({
   projectNumber,
-  setProjectNumber,
+  projectId,
   onBuildTriggered,
 }) => {
   const licenseState = useLicenseManagement(projectNumber);
@@ -44,7 +56,7 @@ const LicensePage: React.FC<LicensePageProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <PageShell variant="wide">
       <LicenseModals
         projectNumber={projectNumber}
         apiConfig={licenseState.apiConfig}
@@ -60,8 +72,6 @@ const LicensePage: React.FC<LicensePageProps> = ({
         onCloseExportModal={() => licenseState.setIsExportModalOpen(false)}
         filteredUserLicenses={licenseState.filteredUserLicenses}
         licenseNames={licenseState.licenseNames}
-        isDeploymentModalOpen={licenseState.isDeploymentModalOpen}
-        onCloseDeploymentModal={() => licenseState.setIsDeploymentModalOpen(false)}
         licenseToDelete={licenseState.licenseToDelete}
         isDeleteModalOpen={licenseState.isDeleteModalOpen}
         onCloseDeleteModal={() => licenseState.setIsDeleteModalOpen(false)}
@@ -70,17 +80,17 @@ const LicensePage: React.FC<LicensePageProps> = ({
         distributeModalProps={licenseState.distributeModalProps}
         onCloseDistributeModal={() => licenseState.setDistributeModalProps(null)}
         onDistributeSuccess={() => {
-          licenseState.fetchBillingConfigs();
+          void licenseState.fetchBillingConfigs();
           if (licenseState.distributeModalProps?.currentProjectNumber === projectNumber) {
-            licenseState.fetchUserLicenses();
+            void licenseState.fetchUserLicenses();
           }
         }}
         retractModalProps={licenseState.retractModalProps}
         onCloseRetractModal={() => licenseState.setRetractModalProps(null)}
         onRetractSuccess={() => {
-          licenseState.fetchBillingConfigs();
+          void licenseState.fetchBillingConfigs();
           if (licenseState.retractModalProps?.currentProjectNumber === projectNumber) {
-            licenseState.fetchUserLicenses();
+            void licenseState.fetchUserLicenses();
           }
         }}
         isGroupDeploymentModalOpen={licenseState.isGroupDeploymentModalOpen}
@@ -107,35 +117,28 @@ const LicensePage: React.FC<LicensePageProps> = ({
         isDeletingService={licenseState.isDeletingService}
       />
 
-      {/* Configuration Header */}
-      <div className="bg-gray-800 p-4 rounded-lg shadow-md">
-        <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
-            <ProjectInput value={projectNumber} onChange={setProjectNumber} />
-          </div>
-          <div>
-            <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1">
-              Location
-            </label>
-            <select
-              id="appLocation"
-              name="appLocation"
-              aria-label="Location"
-              value={licenseState.apiConfig.appLocation}
-              onChange={licenseState.handleApiConfigChange}
-              className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[38px]"
+      <PageHeader
+        title="Licenses"
+        subtitle="Manage Gemini Enterprise seat assignments, CSV onboarding, billing allocations, overage policy, and automated pruning."
+        consolePage={Page.LICENSE}
+        projectId={projectId}
+        projectNumber={projectNumber}
+        onRefresh={() => void licenseState.fetchUserLicenses(true)}
+        isRefreshing={licenseState.isLicensesLoading}
+        refreshDisabled={!projectNumber}
+      >
+        <ScopeBar
+          embedded
+          locationValue={licenseState.apiConfig.appLocation}
+          onLocationChange={licenseState.setAppLocation}
+          locationId="appLocation"
+          locationLabel="Location"
+        >
+          <div className="min-w-[200px] sm:min-w-[240px]">
+            <label
+              htmlFor="userStoreId"
+              className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1"
             >
-              {GEMINI_ENTERPRISE_LOCATIONS.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="userStoreId" className="block text-sm font-medium text-gray-400 mb-1">
               User Store ID
             </label>
             <input
@@ -145,86 +148,26 @@ const LicensePage: React.FC<LicensePageProps> = ({
               aria-label="User Store ID"
               value={licenseState.apiConfig.userStoreId}
               onChange={licenseState.handleApiConfigChange}
-              className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white w-full h-[38px]"
+              placeholder="default_user_store"
+              className="w-full h-9 bg-gray-950/90 border border-gray-700/90 rounded-lg px-3 text-xs sm:text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-        </div>
-      </div>
+        </ScopeBar>
+      </PageHeader>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-700">
-        <nav className="-mb-px flex flex-wrap gap-6" aria-label="License management sections" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={licenseState.activeTab === 'user_licenses'}
-            onClick={() => licenseState.setActiveTab('user_licenses')}
-            className={`${
-              licenseState.activeTab === 'user_licenses'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
-          >
-            User Assignments
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={licenseState.activeTab === 'allocations'}
-            onClick={() => licenseState.setActiveTab('allocations')}
-            className={`${
-              licenseState.activeTab === 'allocations'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
-          >
-            Allocation Management (Billing Account)
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={licenseState.activeTab === 'user_store_policy'}
-            onClick={() => licenseState.setActiveTab('user_store_policy')}
-            className={`${
-              licenseState.activeTab === 'user_store_policy'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
-          >
-            Auto-Licensing &amp; Overage Policy
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={licenseState.activeTab === 'group_assignments'}
-            onClick={() => licenseState.setActiveTab('group_assignments')}
-            className={`${
-              licenseState.activeTab === 'group_assignments'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
-          >
-            Group License Assignments
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={licenseState.activeTab === 'automated_pruner'}
-            onClick={() => licenseState.setActiveTab('automated_pruner')}
-            className={`${
-              licenseState.activeTab === 'automated_pruner'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
-          >
-            Automated License Pruner
-          </button>
-        </nav>
-      </div>
+      <Tabs
+        items={LICENSE_TAB_ITEMS}
+        activeTab={licenseState.activeTab}
+        onChange={licenseState.setActiveTab}
+        ariaLabel="License management sections"
+        syncSearchParam="tab"
+      />
 
       {licenseState.activeTab === 'user_licenses' ? (
         <UserLicensesTab
           projectNumber={projectNumber}
+          appLocation={licenseState.apiConfig.appLocation}
+          userStoreId={licenseState.apiConfig.userStoreId}
           userLicenses={licenseState.userLicenses}
           filteredUserLicenses={licenseState.filteredUserLicenses}
           sortedUserLicenses={licenseState.sortedUserLicenses}
@@ -269,7 +212,10 @@ const LicensePage: React.FC<LicensePageProps> = ({
           apiLicenseConfigs={licenseState.apiLicenseConfigs}
           setIsExportModalOpen={licenseState.setIsExportModalOpen}
           setIsPruneModalOpen={licenseState.setIsPruneModalOpen}
-          setIsDeploymentModalOpen={licenseState.setIsDeploymentModalOpen}
+          onSetupAutoPruner={() => licenseState.setActiveTab('automated_pruner')}
+          isBulkAssignCsvModalOpen={licenseState.isBulkAssignCsvModalOpen}
+          setIsBulkAssignCsvModalOpen={licenseState.setIsBulkAssignCsvModalOpen}
+          onExecuteBulkAssignCsv={licenseState.handleBulkAssignCsvEmails}
           setJsonModalData={licenseState.setJsonModalData}
           requestDelete={licenseState.requestDelete}
           isActionLoading={licenseState.isActionLoading}
@@ -330,7 +276,7 @@ const LicensePage: React.FC<LicensePageProps> = ({
           onOpenManualPrune={() => licenseState.setIsPruneModalOpen(true)}
         />
       )}
-    </div>
+    </PageShell>
   );
 };
 

@@ -327,6 +327,8 @@ export function useBackupOperations({
   const { projectId, appLocation, reasoningEngineLocation } = apiConfig;
   useEffect(() => {
     if (!projectId) return;
+    let cancelled = false;
+    setApps([]);
     async function fetchApps() {
       setIsLoadingApps(true);
       try {
@@ -336,6 +338,7 @@ export function useBackupOperations({
             projectId,
             appLocation,
           })) || {};
+        if (cancelled) return;
         const fetched = response.engines || [];
         setApps(fetched);
         if (fetched.length > 0) {
@@ -343,20 +346,26 @@ export function useBackupOperations({
           setConfig((p) => (p.appId ? p : { ...p, appId: firstId }));
         }
       } catch (e) {
+        if (cancelled) return;
         console.error('Failed to fetch apps:', e);
         appendDiscoveryWarning(
           `Discovery Engine Apps (${appLocation}): ${toErrorMessage(e, 'Failed to list apps')}`
         );
       } finally {
-        setIsLoadingApps(false);
+        if (!cancelled) setIsLoadingApps(false);
       }
     }
     fetchApps();
+    return () => {
+      cancelled = true;
+    };
   }, [projectId, appLocation, apiConfig, appendDiscoveryWarning]);
 
   // Fetch Agent Engines
   useEffect(() => {
     if (!projectId) return;
+    let cancelled = false;
+    setReasoningEngines([]);
     async function fetchREs() {
       setIsLoadingReasoningEngines(true);
       try {
@@ -365,6 +374,7 @@ export function useBackupOperations({
           projectId,
           reasoningEngineLocation,
         });
+        if (cancelled) return;
         const engines = Array.isArray(rawEngines) ? rawEngines : [];
         setReasoningEngines(engines);
         if (engines.length === 1) {
@@ -372,15 +382,19 @@ export function useBackupOperations({
           setConfig((p) => (p.reasoningEngineId === id ? p : { ...p, reasoningEngineId: id }));
         }
       } catch (e) {
+        if (cancelled) return;
         console.error('Failed to fetch agent engines:', e);
         appendDiscoveryWarning(
           `Vertex AI Agent Engines (${reasoningEngineLocation}): ${toErrorMessage(e, 'Failed to list reasoning engines')}`
         );
       } finally {
-        setIsLoadingReasoningEngines(false);
+        if (!cancelled) setIsLoadingReasoningEngines(false);
       }
     }
     fetchREs();
+    return () => {
+      cancelled = true;
+    };
   }, [projectId, reasoningEngineLocation, apiConfig, appendDiscoveryWarning]);
 
   const executeOperation = async (section: string, operation: () => Promise<void>) => {

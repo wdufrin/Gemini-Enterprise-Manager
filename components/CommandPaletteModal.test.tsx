@@ -88,4 +88,18 @@ describe('CommandPaletteModal', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(props.onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('indexes AI Developer Tools (Page.DEV_TOOLS) and deep-links sub-tabs via onNavigateRoute', () => {
+    const onNavigateRoute = vi.fn();
+    renderPalette({ onNavigateRoute });
+    const input = screen.getByLabelText('Command Palette Search');
+
+    fireEvent.change(input, { target: { value: 'antigravity' } });
+    expect(screen.getByText(Page.DEV_TOOLS)).toBeTruthy();
+
+    fireEvent.change(input, { target: { value: 'finops' } });
+    expect(screen.getByText(/FinOps Cloud Billing Export/i)).toBeTruthy();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onNavigateRoute).toHaveBeenCalledWith('/quota?tab=finops');
+  });
 });

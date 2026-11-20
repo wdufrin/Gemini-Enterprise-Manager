@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Config, Collection, DataConnector, AppEngine, DataStore, Operation } from "../types";
 import * as api from "../services/apiService";
+import { useWorkspaceScope } from "../context/WorkspaceScopeContext";
 import { toErrorMessage } from "../utils/errors";
 import {
   ValidationResult,
@@ -26,16 +27,51 @@ import { getConnectorCloneEligibility } from "../components/connectors/duplicate
 
 interface UseConnectorsPageProps {
   projectNumber: string;
+  sharedLocation?: string;
+  onSharedLocationChange?: (location: string) => void;
 }
 
-export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
-  const [config, setConfig] = useState<Config>({
+export function useConnectorsPage({
+  projectNumber,
+  sharedLocation,
+  onSharedLocationChange,
+}: UseConnectorsPageProps) {
+  const { appLocation: scopeLocation, setAppLocation: setScopeLocation } =
+    useWorkspaceScope();
+  const effectiveSharedLocation = sharedLocation || scopeLocation || "global";
+
+  const [config, setConfigState] = useState<Config>({
     projectId: projectNumber,
-    appLocation: "global",
+    appLocation: effectiveSharedLocation,
     collectionId: "default_collection",
     appId: "",
     assistantId: "",
   });
+
+  useEffect(() => {
+    setConfigState((prev) =>
+      prev.appLocation === effectiveSharedLocation
+        ? prev
+        : { ...prev, appLocation: effectiveSharedLocation },
+    );
+  }, [effectiveSharedLocation]);
+
+  const setConfig: React.Dispatch<React.SetStateAction<Config>> = useCallback(
+    (action) => {
+      setConfigState((prev) => {
+        const next =
+          typeof action === "function"
+            ? (action as (prev: Config) => Config)(prev)
+            : action;
+        if (next.appLocation && next.appLocation !== prev.appLocation) {
+          setScopeLocation(next.appLocation);
+          onSharedLocationChange?.(next.appLocation);
+        }
+        return next;
+      });
+    },
+    [setScopeLocation, onSharedLocationChange],
+  );
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -68,13 +104,15 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
 
   const [isBulkScanning, setIsBulkScanning] = useState(false);
   const [scanDurationHours, setScanDurationHours] = useState<number | "">(2);
+  const collectionsFetchSeqRef = useRef(0);
 
   useEffect(() => {
-    setConfig((prev) => ({ ...prev, projectId: projectNumber }));
+    setConfigState((prev) => ({ ...prev, projectId: projectNumber }));
   }, [projectNumber]);
 
   const fetchCollections = useCallback(async () => {
     if (!config.projectId) return;
+    const seq = ++collectionsFetchSeqRef.current;
     setIsLoading(true);
     setError(null);
     setAssociationWarning(null);
@@ -85,6 +123,7 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
 
     try {
       const response = await api.listResources("collections", config);
+      if (seq !== collectionsFetchSeqRef.current) return;
       const cols = response.collections || [];
       setCollections(cols);
 
@@ -93,8 +132,10 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
       // Fetch engines for associations mapping
       try {
         const enginesRes = await api.listResources("engines", { ...config, appId: "" });
+        if (seq !== collectionsFetchSeqRef.current) return;
         setEngines(enginesRes.engines || []);
       } catch (e: unknown) {
+        if (seq !== collectionsFetchSeqRef.current) return;
         console.error("Failed to fetch engines for associations:", e);
         assocErrors.push(`Engines lookup failed (${toErrorMessage(e)})`);
       }
@@ -105,22 +146,27 @@ export function useConnectorsPage({ projectNumber }: UseConnectorsPageProps) {
           ...config,
           collectionId: "default_collection",
         });
+        if (seq !== collectionsFetchSeqRef.current) return;
         setDataStores(dataStoresRes.dataStores || []);
       } catch (e: unknown) {
+        if (seq !== collectionsFetchSeqRef.current) return;
         console.error("Failed to fetch data stores for associations:", e);
         assocErrors.push(`DataStores lookup failed (${toErrorMessage(e)})`);
       }
 
-      if (assocErrors.length > 0) {
+      if (seq === collectionsFetchSeqRef.current && assocErrors.length > 0) {
         setAssociationWarning(
           `Could not verify Associated Apps for collections: ${assocErrors.join("; ")}.`
         );
       }
     } catch (err: unknown) {
+      if (seq !== collectionsFetchSeqRef.current) return;
       console.error("Failed to fetch collections:", err);
       setError(toErrorMessage(err, "Failed to fetch collections."));
     } finally {
-      setIsLoading(false);
+      if (seq === collectionsFetchSeqRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [config]);
 

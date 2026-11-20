@@ -24,6 +24,7 @@ import Spinner from './components/Spinner';
 import { pageToRoute, routeToPage } from './utils/routeUtils';
 import { Page, ReasoningEngine, UserProfile, ServiceAgentValidation, UserPermissionsValidation, ProjectEnrollmentStatus } from './types';
 import { ProjectEnrollmentProvider } from './context/ProjectEnrollmentContext';
+import { WorkspaceScopeProvider } from './context/WorkspaceScopeContext';
 import AccessTokenInput from './components/AccessTokenInput';
 import { initGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
@@ -101,7 +102,7 @@ const InnerApp: React.FC = () => {
     } else if (location.pathname === '/connectors') {
       navigate('/datastores?tab=connectors', { replace: true });
     } else if (location.pathname === '/vanity-urls' || location.pathname === '/domains' || location.pathname === '/custom-domains') {
-      navigate('/assistant', { replace: true });
+      navigate('/assistant?tab=customize', { replace: true });
     }
   }, [location.pathname, navigate]);
 
@@ -611,6 +612,14 @@ const InnerApp: React.FC = () => {
     navigate(pageToRoute(page));
   };
 
+  const handleNavigateRoute = useCallback(
+    (routeWithQuery: string) => {
+      setPageContext(null);
+      navigate(routeWithQuery);
+    },
+    [navigate]
+  );
+
   const handleDirectQuery = (engine: ReasoningEngine) => {
     setDirectQueryEngine(engine);
   };
@@ -658,6 +667,7 @@ const InnerApp: React.FC = () => {
       isGapiReady={isGapiReady}
       initialEnrollment={projectEnrollment}
     >
+      <WorkspaceScopeProvider projectKey={projectId || projectNumber}>
       <div className="flex h-screen w-full overflow-hidden bg-[#0b0f19] text-gray-100 font-sans">
         <a
           href="#main-workspace"
@@ -668,12 +678,17 @@ const InnerApp: React.FC = () => {
         <Sidebar
           currentPage={currentPage}
           setCurrentPage={handleMenuClick}
+          onNavigateRoute={handleNavigateRoute}
+          activeSearch={location.search}
           onShowInfo={handleShowInfo}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           onOpenFeedback={() => setIsFeedbackModalOpen(true)}
           isMobileOpen={isMobileSidebarOpen}
           onCloseMobile={() => setIsMobileSidebarOpen(false)}
+          userProfile={userProfile}
+          hasAccessToken={Boolean(accessToken)}
+          onSignOut={handleSignOut}
         />
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           <header className="bg-gray-900/95 border-b border-gray-800 px-3 sm:px-4 h-14 flex items-center justify-between gap-2 sm:gap-3 shrink-0">
@@ -688,8 +703,8 @@ const InnerApp: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>
-              <Breadcrumbs currentPage={currentPage} context={pageContext} />
-              <span className="text-gray-600 hidden md:inline select-none" aria-hidden="true">/</span>
+              <Breadcrumbs currentPage={currentPage} context={pageContext} onSelectPage={handleMenuClick} />
+              <div className="h-4 w-px bg-gray-800 hidden md:block shrink-0" aria-hidden="true" />
               <HeaderProjectInput
                 projectId={projectId}
                 projectNumber={projectNumber}
@@ -777,6 +792,7 @@ const InnerApp: React.FC = () => {
         onClose={() => setIsCommandPaletteOpen(false)}
         currentPage={currentPage}
         onNavigate={handleMenuClick}
+        onNavigateRoute={handleNavigateRoute}
         isSidebarCollapsed={isSidebarCollapsed}
         onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
         onOpenFeedback={() => setIsFeedbackModalOpen(true)}
@@ -806,6 +822,7 @@ const InnerApp: React.FC = () => {
         onGoogleSignIn={handleGoogleSignIn}
         onSetAccessToken={handleSetAccessToken}
       />
+      </WorkspaceScopeProvider>
     </ProjectEnrollmentProvider>
   );
 };

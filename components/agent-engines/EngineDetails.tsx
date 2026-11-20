@@ -20,7 +20,7 @@ import * as api from "../../services/apiService";
 import Spinner from "../Spinner";
 import ConfirmationModal from "../ConfirmationModal";
 import AgentEngineMetricsViewer from "../assistants/AgentEngineMetricsViewer";
-import CloudConsoleButton from "../CloudConsoleButton";
+import { Tabs } from "../common/Tabs";
 import AgentCardModal from "./AgentCardModal";
 import { useModalA11y } from "../../hooks/useModalA11y";
 
@@ -275,30 +275,16 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({
           </div>
         </div>
 
-        <div className="mt-4 border-b border-gray-700 flex justify-between items-center">
-          <nav className="-mb-px flex space-x-4" aria-label="Tabs">
-            <button
-              onClick={() => setActiveTab("details")}
-              className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${activeTab === "details" ? "border-blue-500 text-blue-400" : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300"}`}
-            >
-              Details
-            </button>
-            <button
-              onClick={() => setActiveTab("metrics")}
-              className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${activeTab === "metrics" ? "border-blue-500 text-blue-400" : "border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300"}`}
-            >
-              Metrics
-            </button>
-          </nav>
-          <div className="py-2">
-            <CloudConsoleButton
-              url={
-                activeTab === "details"
-                  ? `https://console.cloud.google.com/vertex-ai/agents/agent-engines/locations/${engine.name.split("/")[3]}/agent-engines/${engineId}/dashboard?project=${config.projectId}&pageState=(%22timeRange%22:(%22duration%22:%22PT1H%22))`
-                  : `https://console.cloud.google.com/monitoring?project=${config.projectId}`
-              }
-            />
-          </div>
+        <div className="mt-4">
+          <Tabs
+            ariaLabel="Engine Details Tabs"
+            activeTab={activeTab}
+            onChange={setActiveTab}
+            items={[
+              { id: "details", label: "Details" },
+              { id: "metrics", label: "Metrics" },
+            ]}
+          />
         </div>
 
         {activeTab === "details" && (

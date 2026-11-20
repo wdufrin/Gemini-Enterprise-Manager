@@ -34,6 +34,7 @@ interface CommandPaletteModalProps {
   onClose: () => void;
   currentPage: Page;
   onNavigate: (page: Page) => void;
+  onNavigateRoute?: (routeWithQuery: string) => void;
   isSidebarCollapsed: boolean;
   onToggleSidebar: () => void;
   onOpenFeedback?: () => void;
@@ -44,6 +45,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
   onClose,
   currentPage,
   onNavigate,
+  onNavigateRoute,
   isSidebarCollapsed,
   onToggleSidebar,
   onOpenFeedback,
@@ -68,152 +70,349 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
     }
   }, [isOpen]);
 
-  const items: CommandPaletteItem[] = useMemo(
-    () => [
+  const items: CommandPaletteItem[] = useMemo(() => {
+    const goSubRoute = (routeWithQuery: string, fallbackPage: Page) => {
+      if (onNavigateRoute) {
+        onNavigateRoute(routeWithQuery);
+      } else {
+        onNavigate(fallbackPage);
+      }
+    };
+
+    return [
+      // 1. Apps & Agents
+      {
+        id: 'nav-assistant',
+        label: Page.ASSISTANT,
+        category: 'Apps & Agents',
+        description:
+          'Configure Gemini Enterprise Apps, Assistants, StreamAssist Playground, Vanity URLs, and Web Widgets',
+        keywords: [
+          'engines',
+          'assistants',
+          'apps',
+          'playground',
+          'chat',
+          'vanity urls',
+          'domains',
+          'prompt chips',
+          'memories',
+        ],
+        badge: currentPage === Page.ASSISTANT ? 'Current' : undefined,
+        action: () => onNavigate(Page.ASSISTANT),
+      },
       {
         id: 'nav-agents',
         label: Page.AGENTS,
-        category: 'Agent Management',
-        description: 'Manage, register, inspect, and test Gemini Enterprise agents and catalog templates',
-        keywords: ['agents', 'catalog', 'register', 'deep research', 'marketplace'],
+        category: 'Apps & Agents',
+        description:
+          'Manage, register, inspect, shadow-evaluate, and bulk-update Gemini Enterprise agents',
+        keywords: [
+          'agents',
+          'fleet',
+          'catalog',
+          'register',
+          'deep research',
+          'marketplace',
+          'shadow eval',
+        ],
         badge: currentPage === Page.AGENTS ? 'Current' : undefined,
         action: () => onNavigate(Page.AGENTS),
       },
       {
-        id: 'nav-skills',
-        label: Page.SKILLS_REGISTRY,
-        category: 'Agent Management',
-        description: 'Browse, import, and validate reusable ADK agent skills and instructions',
-        keywords: ['skills', 'registry', 'instructions', 'markdown', 'github'],
-        badge: currentPage === Page.SKILLS_REGISTRY ? 'Current' : undefined,
-        action: () => onNavigate(Page.SKILLS_REGISTRY),
-      },
-      {
-        id: 'nav-builder',
-        label: Page.AGENT_BUILDER,
-        category: 'Agent Management',
-        description: 'Design, configure, and deploy custom ADK agents to Vertex AI Agent Engine or Cloud Run',
-        keywords: ['adk', 'studio', 'builder', 'deploy', 'scaffold', 'code'],
-        badge: currentPage === Page.AGENT_BUILDER ? 'Current' : undefined,
-        action: () => onNavigate(Page.AGENT_BUILDER),
-      },
-      {
         id: 'nav-runtimes',
         label: Page.AGENT_ENGINES,
-        category: 'Agent Management',
-        description: 'Inspect Vertex AI Reasoning Engines, Cloud Run services, A2A cards, and Dialogflow CX',
+        category: 'Apps & Agents',
+        description:
+          'Inspect Vertex AI Reasoning Engines, Cloud Run services, A2A cards, and session counts',
         keywords: ['runtimes', 'reasoning engines', 'cloud run', 'dialogflow', 'a2a', 'vertex'],
         badge: currentPage === Page.AGENT_ENGINES ? 'Current' : undefined,
         action: () => onNavigate(Page.AGENT_ENGINES),
       },
       {
-        id: 'nav-datastores',
-        label: Page.DATA_STORES,
-        category: 'Knowledge & Resources',
-        description: 'Manage Discovery Engine Data Stores, Enterprise Connectors, and BYO MCP servers',
-        keywords: ['connectors', 'data stores', 'rag', 'mcp', 'collections', 'search', 'documents'],
-        badge: currentPage === Page.DATA_STORES ? 'Current' : undefined,
-        action: () => onNavigate(Page.DATA_STORES),
-      },
-      {
-        id: 'nav-quota',
-        label: Page.GE_QUOTA_USAGE,
-        category: 'Knowledge & Resources',
-        description: 'Monitor Cloud Monitoring quota utilization and estimate Gemini Enterprise & Vertex AI costs',
-        keywords: ['quota', 'cost', 'pricing', 'estimator', 'limits', 'qpm'],
-        badge: currentPage === Page.GE_QUOTA_USAGE ? 'Current' : undefined,
-        action: () => onNavigate(Page.GE_QUOTA_USAGE),
-      },
-      {
-        id: 'nav-assistant',
-        label: Page.ASSISTANT,
-        category: 'Testing & Analysis',
-        description: 'Configure App Engines, Assistants, StreamAssist Playground, Vanity URLs, and Web Widgets',
-        keywords: ['engines', 'assistants', 'playground', 'chat', 'vanity urls', 'domains', 'prompt chips', 'memories'],
-        badge: currentPage === Page.ASSISTANT ? 'Current' : undefined,
-        action: () => onNavigate(Page.ASSISTANT),
-      },
-      {
-        id: 'nav-latency-lab',
-        label: Page.LATENCY_LAB,
-        category: 'Testing & Analysis',
-        description: 'Run live :streamAssist latency benchmarks, Before/After Skill A/B tests, and DataStore/Connector fan-out diagnostics',
-        keywords: ['latency', 'benchmark', 'performance', 'ttfb', 'streamassist', 'ab test', 'skills', 'fanout'],
-        badge: currentPage === Page.LATENCY_LAB ? 'Current' : undefined,
-        action: () => onNavigate(Page.LATENCY_LAB),
+        id: 'nav-skills',
+        label: Page.SKILLS_REGISTRY,
+        category: 'Apps & Agents',
+        description:
+          'Browse, publish, scan, and deploy enterprise ADK agent skills and governance policies',
+        keywords: ['skills', 'registry', 'instructions', 'markdown', 'github', 'scan'],
+        badge: currentPage === Page.SKILLS_REGISTRY ? 'Current' : undefined,
+        action: () => onNavigate(Page.SKILLS_REGISTRY),
       },
       {
         id: 'nav-architecture',
         label: Page.ARCHITECTURE,
-        category: 'Testing & Analysis',
-        description: 'Explore interactive resource topology graph across Apps, Assistants, Agents, and Data Stores',
-        keywords: ['architecture', 'graph', 'topology', 'diagram', 'relationships'],
+        category: 'Apps & Agents',
+        description:
+          'Explore interactive resource topology graph and lineage table across Apps, Assistants, Agents, and Data Stores',
+        keywords: ['architecture', 'graph', 'topology', 'diagram', 'relationships', 'lineage'],
         badge: currentPage === Page.ARCHITECTURE ? 'Current' : undefined,
         action: () => onNavigate(Page.ARCHITECTURE),
       },
+
+      // 2. Knowledge & Integrations
+      {
+        id: 'nav-datastores',
+        label: Page.DATA_STORES,
+        category: 'Knowledge & Integrations',
+        description:
+          'Manage Discovery Engine Data Stores, document imports, Enterprise Connectors, and BYO MCP servers',
+        keywords: ['data stores', 'rag', 'collections', 'search', 'documents', 'schema'],
+        badge: currentPage === Page.DATA_STORES ? 'Current' : undefined,
+        action: () => goSubRoute('/datastores?tab=datastores', Page.DATA_STORES),
+      },
+      {
+        id: 'sub-connectors',
+        label: 'Enterprise Connectors & BYO MCP',
+        category: 'Knowledge & Integrations',
+        description:
+          'Inspect 3P SaaS Connectors, create BYO MCP servers, view GCS dead-letter logs, and configure sync alerts',
+        keywords: [
+          'connectors',
+          'byomcp',
+          'mcp',
+          'dead letter',
+          'sla',
+          'sync alerts',
+          'jira',
+          'sharepoint',
+          'confluence',
+        ],
+        badge: 'Sub-Tab',
+        action: () => goSubRoute('/datastores?tab=connectors', Page.DATA_STORES),
+      },
+
+      // 3. Build & Evaluation
+      {
+        id: 'nav-builder',
+        label: Page.AGENT_BUILDER,
+        category: 'Build & Evaluation',
+        description:
+          'Design, scaffold, and deploy custom ADK agents to Vertex AI Agent Engine or Cloud Run',
+        keywords: ['adk', 'studio', 'builder', 'deploy', 'scaffold', 'code', 'prototyper'],
+        badge: currentPage === Page.AGENT_BUILDER ? 'Current' : undefined,
+        action: () => onNavigate(Page.AGENT_BUILDER),
+      },
+      {
+        id: 'nav-latency-lab',
+        label: Page.LATENCY_LAB,
+        category: 'Build & Evaluation',
+        description:
+          'Run live :streamAssist latency benchmarks, Before/After Skill A/B tests, and fan-out diagnostics',
+        keywords: [
+          'latency',
+          'benchmark',
+          'performance',
+          'ttfb',
+          'streamassist',
+          'ab test',
+          'skills',
+          'fanout',
+        ],
+        badge: currentPage === Page.LATENCY_LAB ? 'Current' : undefined,
+        action: () => onNavigate(Page.LATENCY_LAB),
+      },
+      {
+        id: 'nav-devtools',
+        label: Page.DEV_TOOLS,
+        category: 'Build & Evaluation',
+        description:
+          'Configure singleton AI Developer Tools & Google Antigravity governance, MCP allowlists, and residency policies',
+        keywords: [
+          'ai developer tools',
+          'devtools',
+          'antigravity',
+          'ide',
+          'mcp policy',
+          'plugins',
+          'browser config',
+          'residency',
+        ],
+        badge: currentPage === Page.DEV_TOOLS ? 'Current' : undefined,
+        action: () => onNavigate(Page.DEV_TOOLS),
+      },
+
+      // 4. Security & Governance
       {
         id: 'nav-authorizations',
         label: Page.AUTHORIZATIONS,
-        category: 'Security & Access',
-        description: 'Create and manage OAuth 2.0 client authorizations for enterprise agents and tools',
-        keywords: ['oauth', 'authorizations', 'tokens', 'credentials', 'security', 'client id'],
+        category: 'Security & Governance',
+        description:
+          'Create and manage OAuth 2.0 client authorizations and Secret Manager bindings for enterprise agents',
+        keywords: [
+          'oauth',
+          'authorizations',
+          'tokens',
+          'credentials',
+          'secret manager',
+          'workforce pool',
+          'client id',
+        ],
         badge: currentPage === Page.AUTHORIZATIONS ? 'Current' : undefined,
         action: () => onNavigate(Page.AUTHORIZATIONS),
       },
       {
         id: 'nav-permissions',
         label: Page.AGENT_PERMISSIONS,
-        category: 'Security & Access',
-        description: 'Audit and export IAM policy bindings across all Gemini Enterprise agents',
-        keywords: ['iam', 'permissions', 'roles', 'access', 'bindings', 'export'],
+        category: 'Security & Governance',
+        description:
+          'Audit and export effective IAM policy bindings across all Gemini Enterprise agents',
+        keywords: ['iam', 'permissions', 'roles', 'access', 'bindings', 'export', 'rbac'],
         badge: currentPage === Page.AGENT_PERMISSIONS ? 'Current' : undefined,
         action: () => onNavigate(Page.AGENT_PERMISSIONS),
       },
       {
         id: 'nav-model-armor',
         label: Page.MODEL_ARMOR,
-        category: 'Security & Access',
-        description: 'Configure Model Armor safety templates, prompt injection shields, and SDP PII redaction',
-        keywords: ['model armor', 'safety', 'guardrails', 'jailbreak', 'pii', 'sdp', 'security'],
+        category: 'Security & Governance',
+        description:
+          'Configure Model Armor safety templates, prompt injection shields, floor settings, and live sanitization probes',
+        keywords: [
+          'model armor',
+          'safety',
+          'guardrails',
+          'jailbreak',
+          'pii',
+          'sdp',
+          'security',
+          'floor settings',
+          'sanitize',
+        ],
         badge: currentPage === Page.MODEL_ARMOR ? 'Current' : undefined,
         action: () => onNavigate(Page.MODEL_ARMOR),
       },
       {
-        id: 'nav-observability',
-        label: Page.OBSERVABILITY,
-        category: 'Security & Access',
-        description: 'Analyze BigQuery operational views, Cloud Logging traces, token usage, and user feedback',
-        keywords: ['observability', 'telemetry', 'bigquery', 'logs', 'traces', 'analytics', 'metrics', 'feedback'],
-        badge: currentPage === Page.OBSERVABILITY ? 'Current' : undefined,
-        action: () => onNavigate(Page.OBSERVABILITY),
-      },
-      {
-        id: 'nav-backup',
-        label: Page.BACKUP_RECOVERY,
-        category: 'System',
-        description: 'Create snapshots, export/import configurations, and restore Discovery Engine resources',
-        keywords: ['backup', 'recovery', 'restore', 'snapshot', 'export', 'import', 'gcs'],
-        badge: currentPage === Page.BACKUP_RECOVERY ? 'Current' : undefined,
-        action: () => onNavigate(Page.BACKUP_RECOVERY),
-      },
-      {
         id: 'nav-audit',
         label: Page.CONFIG_AUDIT,
-        category: 'System',
-        description: 'Run automated best-practice and security compliance audits across your project',
-        keywords: ['config audit', 'compliance', 'check', 'diagnostics', 'health'],
+        category: 'Security & Governance',
+        description:
+          'Compare environment parity drift, export Terraform (.tf), promote dev->prod agents, and inspect Cloud Audit Logs',
+        keywords: [
+          'config audit',
+          'drift',
+          'parity',
+          'terraform',
+          'hcl',
+          'promotion',
+          'compliance',
+          'diagnostics',
+        ],
         badge: currentPage === Page.CONFIG_AUDIT ? 'Current' : undefined,
         action: () => onNavigate(Page.CONFIG_AUDIT),
       },
       {
+        id: 'sub-audit-logs',
+        label: 'Cloud Audit Logs (Admin Trail)',
+        category: 'Security & Governance',
+        description:
+          'Query real cloudaudit.googleapis.com/activity entries across Discovery Engine, Model Armor, Vertex AI, and IAM',
+        keywords: ['cloud audit logs', 'admin trail', 'cloudaudit', 'activity logs', 'who changed'],
+        badge: 'Sub-Tab',
+        action: () => goSubRoute('/config-audit?tab=audit-logs', Page.CONFIG_AUDIT),
+      },
+      {
+        id: 'sub-agent-promotion',
+        label: 'Cross-Project Agent Promotion (dev -> prod)',
+        category: 'Security & Governance',
+        description:
+          'Diff and promote selected agents across environments with automatic target engine path rewriting',
+        keywords: ['promotion', 'dev to prod', 'cutover', 'migrate agents'],
+        badge: 'Sub-Tab',
+        action: () => goSubRoute('/config-audit?tab=promotion', Page.CONFIG_AUDIT),
+      },
+
+      // 5. Operations & FinOps
+      {
+        id: 'nav-observability',
+        label: Page.OBSERVABILITY,
+        category: 'Operations & FinOps',
+        description:
+          'Analyze BigQuery operational views, Cloud Logging traces, token usage, and user feedback',
+        keywords: [
+          'observability',
+          'telemetry',
+          'bigquery',
+          'logs',
+          'traces',
+          'analytics',
+          'metrics',
+          'feedback',
+        ],
+        badge: currentPage === Page.OBSERVABILITY ? 'Current' : undefined,
+        action: () => onNavigate(Page.OBSERVABILITY),
+      },
+      {
+        id: 'nav-quota',
+        label: Page.GE_QUOTA_USAGE,
+        category: 'Operations & FinOps',
+        description:
+          'Monitor Cloud Monitoring quota utilization, simulate capacity, and query FinOps BigQuery Billing exports',
+        keywords: ['quota', 'cost', 'pricing', 'estimator', 'limits', 'qpm'],
+        badge: currentPage === Page.GE_QUOTA_USAGE ? 'Current' : undefined,
+        action: () => onNavigate(Page.GE_QUOTA_USAGE),
+      },
+      {
+        id: 'sub-finops',
+        label: 'FinOps Cloud Billing Export (BigQuery)',
+        category: 'Operations & FinOps',
+        description:
+          'Query real Month-to-Date net GCP SKU spend with dry-run byte guardrails from BigQuery billing tables',
+        keywords: ['finops', 'billing export', 'mtd spend', 'sku cost', 'bigquery billing'],
+        badge: 'Sub-Tab',
+        action: () => goSubRoute('/quota?tab=finops', Page.GE_QUOTA_USAGE),
+      },
+      {
         id: 'nav-licenses',
         label: Page.LICENSE,
-        category: 'System',
-        description: 'Inspect and manage Gemini Enterprise user license assignments and billing tiers',
-        keywords: ['licenses', 'seats', 'users', 'billing', 'subscriptions'],
+        category: 'Operations & FinOps',
+        description:
+          'Manage user license assignments, CSV bulk onboarding, billing allocations, overage policy, and auto-pruner',
+        keywords: [
+          'licenses',
+          'seats',
+          'users',
+          'billing',
+          'subscriptions',
+          'csv bulk',
+          'overage',
+          'payg',
+          'userstore',
+        ],
         badge: currentPage === Page.LICENSE ? 'Current' : undefined,
         action: () => onNavigate(Page.LICENSE),
       },
+      {
+        id: 'sub-license-pruner',
+        label: 'Automated License Pruner',
+        category: 'Operations & FinOps',
+        description:
+          'Deploy scheduled Cloud Run Functions + Cloud Scheduler job to reclaim inactive Gemini Enterprise seats',
+        keywords: ['pruner', 'reclaim seats', 'inactive users', 'auto pruner'],
+        badge: 'Sub-Tab',
+        action: () => goSubRoute('/licenses?tab=automated_pruner', Page.LICENSE),
+      },
+      {
+        id: 'sub-vanity-urls',
+        label: 'Domains & Vanity URLs (GLB / Private PSC)',
+        category: 'Apps & Agents',
+        description:
+          'Configure custom corporate domains, Global Load Balancers, Private Service Connect, and Terraform HCL',
+        keywords: ['vanity urls', 'custom domains', 'dns', 'psc', 'load balancer', 'ssl'],
+        badge: 'Sub-Tab',
+        action: () => goSubRoute('/assistant?tab=customize', Page.ASSISTANT),
+      },
+      {
+        id: 'nav-backup',
+        label: Page.BACKUP_RECOVERY,
+        category: 'Operations & FinOps',
+        description:
+          'Create GCS snapshots, export/import configurations, and restore Discovery Engine & Vertex AI resources',
+        keywords: ['backup', 'recovery', 'restore', 'snapshot', 'export', 'import', 'gcs', 'dr'],
+        badge: currentPage === Page.BACKUP_RECOVERY ? 'Current' : undefined,
+        action: () => onNavigate(Page.BACKUP_RECOVERY),
+      },
+
+      // Quick Actions
       {
         id: 'action-toggle-sidebar',
         label: isSidebarCollapsed ? 'Expand Sidebar Navigation' : 'Collapse Sidebar Navigation',
@@ -224,9 +423,12 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
       },
       {
         id: 'action-toggle-curl',
-        label: showCurlPreview ? 'Disable API Request History Recording' : 'Enable API Request History Recording',
+        label: showCurlPreview
+          ? 'Disable API Request History Recording'
+          : 'Enable API Request History Recording',
         category: 'Quick Actions',
-        description: 'Toggle recording of outgoing REST requests and cURL commands in the sidebar History panel',
+        description:
+          'Toggle recording of outgoing REST requests and cURL commands in the sidebar History panel',
         keywords: ['curl', 'debug', 'history', 'api', 'requests', 'interaction details'],
         badge: showCurlPreview ? 'ON' : 'OFF',
         action: () => setShowCurlPreview(!showCurlPreview),
@@ -235,7 +437,8 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
         id: 'action-open-docs',
         label: 'Open User Guide & Documentation',
         category: 'Quick Actions',
-        description: 'View in-app setup guides, architecture documentation, and troubleshooting manuals',
+        description:
+          'View in-app setup guides, architecture documentation, and troubleshooting manuals',
         keywords: ['docs', 'help', 'manual', 'user guide', 'documentation'],
         action: () => window.dispatchEvent(new CustomEvent('gem:open-user-guide')),
       },
@@ -251,20 +454,40 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
             },
           ]
         : []),
-    ],
-    [currentPage, isSidebarCollapsed, onNavigate, onOpenFeedback, onToggleSidebar, setShowCurlPreview, showCurlPreview]
-  );
+    ];
+  }, [
+    currentPage,
+    isSidebarCollapsed,
+    onNavigate,
+    onNavigateRoute,
+    onOpenFeedback,
+    onToggleSidebar,
+    setShowCurlPreview,
+    showCurlPreview,
+  ]);
 
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return items;
-    return items.filter(
-      (item) =>
-        item.label.toLowerCase().includes(q) ||
-        item.category.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q) ||
-        item.keywords.some((k) => k.toLowerCase().includes(q))
-    );
+    return items
+      .map((item, index) => {
+        let score = 0;
+        const labelLower = item.label.toLowerCase();
+        if (labelLower === q) score += 100;
+        else if (labelLower.startsWith(q)) score += 75;
+        else if (labelLower.includes(q)) score += 55;
+
+        if (item.keywords.some((k) => k.toLowerCase() === q)) score += 60;
+        else if (item.keywords.some((k) => k.toLowerCase().includes(q))) score += 40;
+
+        if (item.description.toLowerCase().includes(q)) score += 20;
+        if (item.category.toLowerCase().includes(q)) score += 10;
+
+        return { item, score, index };
+      })
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map((entry) => entry.item);
   }, [items, query]);
 
   useEffect(() => {
@@ -273,13 +496,20 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
 
   useEffect(() => {
     if (!isOpen || !modalRef.current) return;
-    const activeOption = modalRef.current.querySelector<HTMLElement>(`[data-palette-index="${selectedIndex}"]`);
+    const activeOption = modalRef.current.querySelector<HTMLElement>(
+      `[data-palette-index="${selectedIndex}"]`
+    );
     if (activeOption && typeof activeOption.scrollIntoView === 'function') {
       activeOption.scrollIntoView({ block: 'nearest' });
     }
   }, [selectedIndex, isOpen]);
 
   if (!isOpen) return null;
+
+  const activeDescendantId =
+    filteredItems.length > 0 && filteredItems[selectedIndex]
+      ? `cmd-palette-opt-${filteredItems[selectedIndex].id}`
+      : undefined;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -322,6 +552,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -334,9 +565,14 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
             ref={inputRef}
             id="command-palette-title"
             type="text"
+            role="combobox"
+            aria-expanded={filteredItems.length > 0}
+            aria-controls="command-palette-listbox"
+            aria-activedescendant={activeDescendantId}
+            aria-autocomplete="list"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Jump to any page or run an action... (e.g., Observability, Connectors, Model Armor)"
+            placeholder="Jump to any page, sub-tab, or action... (e.g., DevTools, Connectors, FinOps, Audit Logs)"
             aria-label="Command Palette Search"
             className="w-full bg-transparent text-sm text-white placeholder-gray-500 focus:outline-none"
           />
@@ -351,13 +587,21 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
               No matching pages or actions found for &ldquo;{query}&rdquo;.
             </div>
           ) : (
-            <div className="space-y-1">
+            <div
+              id="command-palette-listbox"
+              role="listbox"
+              aria-label="Matching pages and actions"
+              className="space-y-1"
+            >
               {filteredItems.map((item, idx) => {
                 const isSelected = idx === selectedIndex;
                 return (
                   <button
                     key={item.id}
+                    id={`cmd-palette-opt-${item.id}`}
                     type="button"
+                    role="option"
+                    aria-selected={isSelected}
                     data-palette-index={idx}
                     onMouseEnter={() => setSelectedIndex(idx)}
                     onClick={() => {
@@ -371,7 +615,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
                     }`}
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-semibold text-white truncate">
                           {item.label}
                         </span>
@@ -384,13 +628,9 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-gray-400 truncate mt-0.5">
-                        {item.description}
-                      </p>
+                      <p className="text-xs text-gray-400 truncate mt-0.5">{item.description}</p>
                     </div>
-                    <span className="text-xs text-gray-500 font-mono shrink-0">
-                      ↵
-                    </span>
+                    <span className="text-xs text-gray-500 font-mono shrink-0">↵</span>
                   </button>
                 );
               })}
@@ -419,9 +659,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
               Close
             </span>
           </div>
-          <span className="font-mono text-[10px] text-gray-500">
-            Shortcut: ⌘K / Ctrl+K
-          </span>
+          <span className="font-mono text-[10px] text-gray-500">Shortcut: ⌘K / Ctrl+K</span>
         </div>
       </div>
     </div>

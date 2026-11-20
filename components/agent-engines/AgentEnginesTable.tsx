@@ -14,9 +14,83 @@
  * limitations under the License.
  */
 
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { ReasoningEngine, Agent, CloudRunService, Page } from "../../types";
 import { UnifiedResource, SortColumn, SortDirection } from "../../hooks/useAgentEngines";
+import { SegmentedControl } from "../common/Tabs";
+
+export type RuntimeTypeFilter = "all" | "agent-engine" | "cloud-run";
+
+const SortArrow: React.FC<{ direction: SortDirection }> = ({ direction }) => {
+  const path =
+    direction === "asc"
+      ? "M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z"
+      : "M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z";
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="h-4 w-4 shrink-0"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path fillRule="evenodd" d={path} clipRule="evenodd" />
+    </svg>
+  );
+};
+
+const SortableHeader: React.FC<{
+  label: string;
+  column: Exclude<SortColumn, null>;
+  sortColumn: SortColumn;
+  sortDirection: SortDirection;
+  onSort: (column: SortColumn) => void;
+  className?: string;
+}> = ({
+  label,
+  column,
+  sortColumn,
+  sortDirection,
+  onSort,
+  className = "",
+}) => {
+  const isSorted = sortColumn === column;
+  const sortAria = isSorted
+    ? sortDirection === "asc"
+      ? "ascending"
+      : "descending"
+    : "none";
+  return (
+    <th
+      scope="col"
+      aria-sort={sortAria}
+      className={`px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap ${className}`.trim()}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        aria-label={`Sort by ${label}, currently ${
+          isSorted
+            ? sortDirection === "asc"
+              ? "ascending"
+              : "descending"
+            : "unsorted"
+        }`}
+        className="flex items-center gap-1 group text-inherit uppercase font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded p-0.5 transition-colors hover:text-white"
+      >
+        <span>{label}</span>
+        <span
+          className={`text-gray-400 ${
+            isSorted ? "opacity-100" : "opacity-0 group-hover:opacity-50"
+          }`}
+          aria-hidden="true"
+        >
+          <SortArrow direction={isSorted ? sortDirection : "asc"} />
+        </span>
+      </button>
+    </th>
+  );
+};
 
 interface AgentEnginesTableProps {
   resources: UnifiedResource[];
@@ -65,23 +139,131 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
   onViewResource,
   onNavigate,
 }) => {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [runtimeFilter, setRuntimeFilter] = useState<RuntimeTypeFilter>("all");
+
+  const counts = useMemo(() => {
+    let agentEngines = 0;
+    let cloudRun = 0;
+    for (const r of resources) {
+      if (r.type === "Agent Engine") agentEngines += 1;
+      else cloudRun += 1;
+    }
+    return {
+      all: resources.length,
+      agentEngines,
+      cloudRun,
+    };
+  }, [resources]);
+
+  const filteredResources = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return resources.filter((res) => {
+      if (runtimeFilter === "agent-engine" && res.type !== "Agent Engine") {
+        return false;
+      }
+      if (runtimeFilter === "cloud-run" && res.type === "Agent Engine") {
+        return false;
+      }
+      if (!q) return true;
+      const usingAgents = agentsByResource[res.id] || [];
+      return (
+        res.displayName.toLowerCase().includes(q) ||
+        res.shortId.toLowerCase().includes(q) ||
+        res.type.toLowerCase().includes(q) ||
+        usingAgents.some((a) =>
+          (a.displayName || "").toLowerCase().includes(q),
+        )
+      );
+    });
+  }, [resources, runtimeFilter, searchQuery, agentsByResource]);
+
   const isAllSelected =
-    selectedIds.size === resources.length && resources.length > 0;
+    filteredResources.length > 0 &&
+    filteredResources.every((r) => selectedIds.has(r.id));
 
   return (
-    <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
-      <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-        <h2 className="text-xl font-bold text-white">Available Agents</h2>
-        <div className="flex items-center gap-4">
+    <div className="bg-gray-900/90 border border-gray-800 shadow-xl rounded-xl overflow-hidden">
+      <div className="p-4 border-b border-gray-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-lg sm:text-xl font-bold text-white">
+            Available Runtimes
+          </h2>
+          <span className="px-2 py-0.5 text-xs font-mono rounded-full bg-gray-800 border border-gray-700 text-gray-300">
+            {filteredResources.length}/{resources.length}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          {resources.length > 0 && (
+            <>
+              <div className="relative w-full sm:w-64">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter runtimes by name or ID..."
+                  aria-label="Search agent runtimes"
+                  className="w-full h-9 bg-gray-950/90 border border-gray-700/90 rounded-lg pl-8 pr-7 text-xs sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <svg
+                  className="w-4 h-4 text-gray-500 absolute left-2.5 top-2.5 pointer-events-none"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    aria-label="Clear runtime search"
+                    className="absolute right-2 top-2 text-gray-400 hover:text-white text-xs"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+
+              <SegmentedControl
+                size="xs"
+                ariaLabel="Filter by runtime type"
+                value={runtimeFilter}
+                onChange={setRuntimeFilter}
+                items={[
+                  { id: "all", label: "All", count: counts.all },
+                  {
+                    id: "agent-engine",
+                    label: "Agent Engine",
+                    count: counts.agentEngines,
+                  },
+                  {
+                    id: "cloud-run",
+                    label: "Cloud Run",
+                    count: counts.cloudRun,
+                  },
+                ]}
+              />
+            </>
+          )}
+
           {selectedIds.size > 0 && (
-            <div className="flex items-center gap-4 border-l border-gray-700 pl-4">
-              <span className="text-sm text-gray-300">
+            <div className="flex items-center gap-2.5 border-l border-gray-700 pl-3">
+              <span className="text-xs sm:text-sm text-gray-300 whitespace-nowrap">
                 {selectedIds.size} selected
               </span>
               <button
+                type="button"
                 onClick={() => onOpenDeleteModal()}
                 disabled={isDeleting}
-                className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700 disabled:bg-red-800"
+                className="px-3.5 h-9 bg-red-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-red-700 disabled:bg-red-800 transition-colors"
               >
                 Delete Selected
               </button>
@@ -123,7 +305,24 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
           No available agent resources found in this location.
         </p>
       )}
-      {resources.length > 0 && (
+      {resources.length > 0 && filteredResources.length === 0 && (
+        <div className="p-8 text-center space-y-2.5">
+          <p className="text-sm text-gray-400">
+            No runtimes match your current search or runtime type filter.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchQuery("");
+              setRuntimeFilter("all");
+            }}
+            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs font-semibold text-white rounded-lg transition-colors"
+          >
+            Clear Filters
+          </button>
+        </div>
+      )}
+      {filteredResources.length > 0 && (
         <div className="gem-table-container" role="region" aria-label="Agent engines table" tabIndex={0}>
           <table className="min-w-full divide-y divide-gray-700">
             <thead className="bg-gray-700/50">
@@ -131,67 +330,42 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
                 <th scope="col" className="px-3 xl:px-5 py-3 w-10">
                   <input
                     type="checkbox"
+                    aria-label="Select all runtimes"
                     checked={isAllSelected}
                     onChange={onToggleSelectAll}
                     className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
                   />
                 </th>
-                <th
-                  scope="col"
-                  className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors whitespace-nowrap"
-                  onClick={() => onSort("displayName")}
-                >
-                  <div className="flex items-center gap-1">
-                    Display Name
-                    {sortColumn === "displayName" && (
-                      <span className="text-gray-400">
-                        {sortDirection === "asc" ? "↑" : "↓"}
-                      </span>
-                    )}
-                  </div>
-                </th>
-                <th
-                  scope="col"
-                  className="px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors whitespace-nowrap"
-                  onClick={() => onSort("type")}
-                >
-                  <div className="flex items-center gap-1">
-                    Type
-                    {sortColumn === "type" && (
-                      <span className="text-gray-400">
-                        {sortDirection === "asc" ? "↑" : "↓"}
-                      </span>
-                    )}
-                  </div>
-                </th>
-                <th
-                  scope="col"
-                  className="gem-col-xl px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors whitespace-nowrap"
-                  onClick={() => onSort("shortId")}
-                >
-                  <div className="flex items-center gap-1">
-                    Resource ID
-                    {sortColumn === "shortId" && (
-                      <span className="text-gray-400">
-                        {sortDirection === "asc" ? "↑" : "↓"}
-                      </span>
-                    )}
-                  </div>
-                </th>
-                <th
-                  scope="col"
-                  className="gem-col-lg px-3 xl:px-5 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors whitespace-nowrap"
-                  onClick={() => onSort("usedByAgents")}
-                >
-                  <div className="flex items-center gap-1">
-                    Used By Agents
-                    {sortColumn === "usedByAgents" && (
-                      <span className="text-gray-400">
-                        {sortDirection === "asc" ? "↑" : "↓"}
-                      </span>
-                    )}
-                  </div>
-                </th>
+                <SortableHeader
+                  label="Display Name"
+                  column="displayName"
+                  sortColumn={sortColumn}
+                  sortDirection={sortDirection}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Type"
+                  column="type"
+                  sortColumn={sortColumn}
+                  sortDirection={sortDirection}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Resource ID"
+                  column="shortId"
+                  sortColumn={sortColumn}
+                  sortDirection={sortDirection}
+                  onSort={onSort}
+                  className="gem-col-xl"
+                />
+                <SortableHeader
+                  label="Used By Agents"
+                  column="usedByAgents"
+                  sortColumn={sortColumn}
+                  sortDirection={sortDirection}
+                  onSort={onSort}
+                  className="gem-col-lg"
+                />
                 <th
                   scope="col"
                   className="gem-sticky-action-th px-3 xl:px-5 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap"
@@ -201,7 +375,7 @@ export const AgentEnginesTable: React.FC<AgentEnginesTableProps> = ({
               </tr>
             </thead>
             <tbody className="bg-gray-800 divide-y divide-gray-700">
-              {resources.map((res) => {
+              {filteredResources.map((res) => {
                 const isSelected = selectedIds.has(res.id);
                 const usingAgents = agentsByResource[res.id] || [];
                 const isRE = res.type === "Agent Engine";

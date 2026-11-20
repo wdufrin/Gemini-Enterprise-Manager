@@ -222,7 +222,7 @@ describe('LatencyLabPage', () => {
     );
 
     expect(
-      await screen.findByText('Gemini Enterprise Latency Testing Lab'),
+      await screen.findByRole('heading', { name: 'Latency Testing Lab' }),
     ).toBeInTheDocument();
     expect(await screen.findByText('Grade B')).toBeInTheDocument();
     expect(screen.getByText('MODERATE')).toBeInTheDocument();
@@ -309,7 +309,7 @@ describe('LatencyLabPage', () => {
 
     // Switch to Tab 2: Before vs. After Skill A/B Lab
     fireEvent.click(
-      screen.getByRole('button', { name: /2\. Before vs\. After Skill A\/B Lab/i }),
+      screen.getByRole('tab', { name: /2\. Before vs\. After Skill A\/B Lab/i }),
     );
 
     // Step 1: Run Baseline
@@ -363,7 +363,7 @@ describe('LatencyLabPage', () => {
 
     // Switch to Tab 2 and clear Trigger Description -> verify deployment is rejected
     fireEvent.click(
-      screen.getByRole('button', { name: /2\. Before vs\. After Skill A\/B Lab/i }),
+      screen.getByRole('tab', { name: /2\. Before vs\. After Skill A\/B Lab/i }),
     );
     const descInput = screen.getByLabelText(
       /Skill Trigger Description \(Matched by Planner against User Prompts\)/i,
@@ -581,7 +581,7 @@ describe('LatencyLabPage', () => {
     await screen.findByText('Grade B');
 
     fireEvent.click(
-      screen.getByRole('button', { name: /2\. Before vs\. After Skill A\/B Lab/i }),
+      screen.getByRole('tab', { name: /2\. Before vs\. After Skill A\/B Lab/i }),
     );
 
     // Step 1: Run Baseline -> must call api.disableAgent on the already-ENABLED skill first

@@ -527,7 +527,7 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
             />
         );
 
-        fireEvent.click(screen.getByRole('button', { name: /Sharing & IAM/i }));
+        fireEvent.click(screen.getByRole('tab', { name: /Sharing & IAM/i }));
 
         // Toggle scope to All Users in App
         fireEvent.click(screen.getByRole('button', { name: 'All Users in App' }));
@@ -945,7 +945,7 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
             />
         );
 
-        const sharingTab = await screen.findByRole('button', { name: /Sharing & IAM/i });
+        const sharingTab = await screen.findByRole('tab', { name: /Sharing & IAM/i });
         fireEvent.click(sharingTab);
 
         const makePrivateBtn = await screen.findByRole('button', { name: 'Private (Unshare)' });
@@ -1009,7 +1009,7 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
         // Proactive warning banner should render when agent.authorizations is present
         expect(await screen.findByText(/Deprecated/i)).toBeTruthy();
 
-        const sharingTab = screen.getByRole('button', { name: /Sharing & IAM/i });
+        const sharingTab = screen.getByRole('tab', { name: /Sharing & IAM/i });
         fireEvent.click(sharingTab);
 
         const restrictedBtn = await screen.findByRole('button', { name: 'Restricted IAM' });
@@ -1330,7 +1330,7 @@ describe('resolveAvailableAppModels & AgentDetails Low-Code Model Selector', () 
         });
 
         // 3. Access Proposals (AgentIamProposal) queue in Sharing & IAM tab
-        fireEvent.click(screen.getByRole('button', { name: /Sharing & IAM/i }));
+        fireEvent.click(screen.getByRole('tab', { name: /Sharing & IAM/i }));
         fireEvent.click(screen.getByTestId('load-iam-proposals-btn'));
 
         expect(await screen.findByTestId('iam-proposal-card-prop-101')).toBeTruthy();

@@ -15,10 +15,15 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useInRouterContext, useSearchParams } from 'react-router-dom';
 import { Agent, AppEngine, Assistant, Config, Page, UserProfile } from '../types';
 import * as api from '../services/apiService';
-import ProjectInput from '../components/ProjectInput';
-import CloudConsoleButton from '../components/CloudConsoleButton';
+import PageShell from '../components/layout/PageShell';
+import PageHeader from '../components/layout/PageHeader';
+import ScopeBar from '../components/layout/ScopeBar';
+import { Tabs, TabItem } from '../components/common/Tabs';
+import { useWorkspaceScope } from '../context/WorkspaceScopeContext';
+import { GEMINI_ENTERPRISE_LOCATIONS } from '../utils/locations';
 import Spinner from '../components/Spinner';
 import AssistantEvaluationModal from '../components/assistants/AssistantEvaluationModal';
 import { usePersistedConfig } from '../hooks/usePersistedConfig';
@@ -50,7 +55,34 @@ export interface LatencyLabPageProps {
   context?: { appEngineId?: string } | null;
 }
 
-type LabTab = 'benchmark' | 'ab-skill' | 'fanout';
+type LabTab = 'benchmark' | 'skill-ab' | 'fan-out';
+
+function getInitialLabTab(): LabTab {
+  if (typeof window === 'undefined') return 'benchmark';
+  const search =
+    window.location.search ||
+    (window.location.hash.includes('?')
+      ? window.location.hash.slice(window.location.hash.indexOf('?'))
+      : '');
+  const param = new URLSearchParams(search).get('tab');
+  if (param === 'benchmark' || param === 'skill-ab' || param === 'fan-out') {
+    return param;
+  }
+  return 'benchmark';
+}
+
+const LatencyLabUrlTabBridge: React.FC<{
+  onSyncFromUrl: (tab: LabTab) => void;
+}> = ({ onSyncFromUrl }) => {
+  const [searchParams] = useSearchParams();
+  const raw = searchParams.get('tab');
+  useEffect(() => {
+    if (raw === 'benchmark' || raw === 'skill-ab' || raw === 'fan-out') {
+      onSyncFromUrl(raw);
+    }
+  }, [raw, onSyncFromUrl]);
+  return null;
+};
 
 const DEFAULT_BENCHMARK_QUERIES = [
   'Summarize our primary architecture guidelines, standard operating procedures, and escalation policies.',
@@ -70,21 +102,38 @@ function computePercentileLatency(values: number[], percentile: number): number 
 const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
   projectNumber,
   projectId,
-  setProjectNumber,
   onNavigate,
   context,
 }) => {
+  const { appLocation: scopedLocation, setAppLocation: setScopedLocation } = useWorkspaceScope();
   const [config, setConfig] = usePersistedConfig<{ appLocation: string }>(
     'latencyLabPageConfig',
-    { appLocation: 'global' },
+    { appLocation: scopedLocation || 'global' },
     {
       migrate: (parsed) => ({
-        appLocation: parsed?.appLocation || 'global',
+        appLocation: parsed?.appLocation || scopedLocation || 'global',
       }),
     },
   );
 
-  const [activeTab, setActiveTab] = useState<LabTab>('benchmark');
+  // Sync location when workspace scope changes externally
+  useEffect(() => {
+    if (scopedLocation && scopedLocation !== config.appLocation && !context?.appEngineId) {
+      setConfig({ appLocation: scopedLocation });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopedLocation]);
+
+  const handleLocationChange = useCallback(
+    (nextLoc: string) => {
+      setConfig({ appLocation: nextLoc });
+      setScopedLocation(nextLoc);
+    },
+    [setConfig, setScopedLocation],
+  );
+
+  const inRouter = useInRouterContext();
+  const [activeTab, setActiveTab] = useState<LabTab>(getInitialLabTab);
   const [engines, setEngines] = useState<AppEngine[]>([]);
   const [selectedEngineName, setSelectedEngineName] = useState<string>('');
   const [assistant, setAssistant] = useState<Assistant | null>(null);
@@ -172,6 +221,7 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
     const targetLocation = parts.length >= 4 ? parts[3] : undefined;
     if (targetLocation && targetLocation !== config.appLocation) {
       setConfig((prev) => ({ ...prev, appLocation: targetLocation }));
+      setScopedLocation(targetLocation);
       return;
     }
 
@@ -191,21 +241,29 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
     }
   }, [context, config.appLocation, setConfig, engines]);
 
+  const enginesFetchSeqRef = useRef(0);
+  const engineContextFetchSeqRef = useRef(0);
+
   const fetchEnginesList = useCallback(async () => {
     if (!projectNumber) return;
+    const seq = ++enginesFetchSeqRef.current;
+    engineContextFetchSeqRef.current += 1;
     setIsLoadingEngines(true);
     setPageError(null);
+    setEngines([]);
+    setSelectedEngineName('');
+    setAssistant(null);
+    setAgents([]);
+    setReport(null);
     try {
       const response = await api.listResources('engines', baseApiConfig);
+      if (seq !== enginesFetchSeqRef.current) return;
       const rawEngines: AppEngine[] = response.engines || [];
       const geEngines = rawEngines.filter((e) => e.appType === 'APP_TYPE_INTRANET' || !e.appType);
       setEngines(geEngines);
 
       if (geEngines.length > 0) {
-        setSelectedEngineName((prev) => {
-          if (prev && geEngines.some((e) => e.name === prev)) return prev;
-          return geEngines[0].name;
-        });
+        setSelectedEngineName(geEngines[0].name);
       } else {
         setSelectedEngineName('');
         setAssistant(null);
@@ -213,9 +271,12 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
         setReport(null);
       }
     } catch (err: unknown) {
+      if (seq !== enginesFetchSeqRef.current) return;
       setPageError(toErrorMessage(err, 'Failed to load Gemini Enterprise engines.'));
     } finally {
-      setIsLoadingEngines(false);
+      if (seq === enginesFetchSeqRef.current) {
+        setIsLoadingEngines(false);
+      }
     }
   }, [projectNumber, baseApiConfig]);
 
@@ -225,6 +286,7 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
 
   const loadSelectedEngineContext = useCallback(
     async (engineObj: AppEngine) => {
+      const ctxSeq = ++engineContextFetchSeqRef.current;
       const engineId = engineObj.name.split('/').pop()!;
       const engineScopedConfig: Config = {
         ...baseApiConfig,
@@ -254,6 +316,7 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
             engineScopedConfig,
           );
         }
+        if (ctxSeq !== engineContextFetchSeqRef.current) return;
 
         const assistantShortId =
           resolvedAssistant.name?.split('/').pop() || 'default_assistant';
@@ -274,6 +337,7 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
             'Could not list assistant agents/skills.',
           )}`;
         }
+        if (ctxSeq !== engineContextFetchSeqRef.current) return;
 
         setAssistant(resolvedAssistant);
         setAgents(fetchedAgents);
@@ -283,8 +347,13 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
           resolvedAssistant,
           fetchedAgents,
           fullConfig,
-          (step) => setEvalProgressText(step),
+          (step) => {
+            if (ctxSeq === engineContextFetchSeqRef.current) {
+              setEvalProgressText(step);
+            }
+          },
         );
+        if (ctxSeq !== engineContextFetchSeqRef.current) return;
         const mergedReport: AssistantEvaluationReport = agentsFetchWarning
           ? {
               ...evalReport,
@@ -352,12 +421,15 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
           }
         }
       } catch (err: unknown) {
+        if (ctxSeq !== engineContextFetchSeqRef.current) return;
         setPageError(
           toErrorMessage(err, 'Failed to evaluate selected engine and assistant configuration.'),
         );
       } finally {
-        setIsEvaluatingEngine(false);
-        setEvalProgressText('');
+        if (ctxSeq === engineContextFetchSeqRef.current) {
+          setIsEvaluatingEngine(false);
+          setEvalProgressText('');
+        }
       }
     },
     [baseApiConfig],
@@ -990,47 +1062,70 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
     };
   }, [suiteResult]);
 
-  return (
-    <div className="p-4 sm:p-6 space-y-6">
-      {/* Top Banner & Project / Engine Selector */}
-      <div className="bg-gray-800 p-5 rounded-xl shadow-md border border-gray-700 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-900/50 text-indigo-300 border border-indigo-700/60 rounded-lg">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-6 w-6"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </div>
-            <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-xl font-bold text-white">
-                  Gemini Enterprise Latency Testing Lab
-                </h1>
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-indigo-950/90 text-indigo-300 border border-indigo-700/70">
-                  :streamAssist Telemetry &bull; Skill A/B Lab &bull; Fan-Out Diagnostics
-                </span>
-              </div>
-              <p className="text-xs text-gray-400 mt-0.5">
-                Benchmark live Time-to-First-Byte (TTFB), total response latency, planner deliberation steps, grounded citations, and Before/After Skill routing speedups.
-              </p>
-            </div>
-          </div>
+  const labTabItems: readonly TabItem<LabTab>[] = useMemo(
+    () => [
+      {
+        id: 'benchmark',
+        label: '1. :streamAssist Latency Benchmark',
+        badge: suiteResult ? `${suiteResult.avgLatencyMs} ms avg` : 'Live Probe',
+      },
+      {
+        id: 'skill-ab',
+        label: '2. Before vs. After Skill A/B Lab',
+        badge: `${availableSkillOptions.length} Skills`,
+      },
+      {
+        id: 'fan-out',
+        label: '3. DataStore & Connector Fan-Out Inspector',
+        badge: report ? `${report.metrics.connectedDataStoresCount} Stores` : undefined,
+      },
+    ],
+    [suiteResult, availableSkillOptions.length, report],
+  );
 
-          <div className="flex flex-wrap items-center gap-2">
+  return (
+    <PageShell variant="wide">
+      {inRouter && <LatencyLabUrlTabBridge onSyncFromUrl={setActiveTab} />}
+      <PageHeader
+        title="Latency Testing Lab"
+        subtitle="Benchmark live Time-to-First-Byte (TTFB), total response latency, planner deliberation steps, grounded citations, and Before/After Skill routing speedups."
+        icon={
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fillRule="evenodd"
+              d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"
+              clipRule="evenodd"
+            />
+          </svg>
+        }
+        badges={
+          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-indigo-950/90 text-indigo-300 border border-indigo-700/70">
+            :streamAssist Telemetry &bull; Skill A/B Lab &bull; Fan-Out Diagnostics
+          </span>
+        }
+        consolePage={Page.LATENCY_LAB}
+        projectId={projectId}
+        projectNumber={projectNumber}
+        onRefresh={() => {
+          if (selectedEngine) {
+            void loadSelectedEngineContext(selectedEngine);
+          } else {
+            void fetchEnginesList();
+          }
+        }}
+        isRefreshing={isLoadingEngines || isEvaluatingEngine}
+        secondaryActions={
+          <>
             {selectedEngine && assistant && (
               <button
                 type="button"
                 onClick={() => setIsEvalModalOpen(true)}
-                className="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg shadow transition-colors flex items-center gap-1.5"
+                className="inline-flex items-center gap-1.5 px-3 h-9 bg-purple-600 hover:bg-purple-500 text-white text-xs sm:text-sm font-semibold rounded-lg shadow-xs transition-colors"
               >
                 <span>🛡️ Open Full Evaluation Studio</span>
               </button>
@@ -1041,150 +1136,101 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
                 onClick={() =>
                   onNavigate(Page.ASSISTANT, { appEngineId: selectedEngine.name })
                 }
-                className="px-3.5 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-semibold rounded-lg border border-gray-600 transition-colors"
+                className="inline-flex items-center px-3 h-9 bg-gray-800 hover:bg-gray-700 text-gray-200 hover:text-white text-xs sm:text-sm font-medium rounded-lg border border-gray-700 transition-colors"
               >
                 View in Engines &amp; Assistants
               </button>
             )}
-            <CloudConsoleButton
-              url={`https://console.cloud.google.com/gemini-enterprise/apps?project=${projectNumber}`}
-            />
-          </div>
-        </div>
+          </>
+        }
+      >
+        <div className="space-y-3.5">
+          <ScopeBar
+            embedded
+            locationId="latencyLabLocation"
+            locationLabel="Location"
+            locationValue={config.appLocation}
+            onLocationChange={handleLocationChange}
+            locationOptions={GEMINI_ENTERPRISE_LOCATIONS.map((loc) => ({
+              value: loc.id,
+              label: loc.label,
+            }))}
+            engineId="latencyLabEngineSelect"
+            engineLabel="Target Gemini Enterprise App Engine"
+            engineValue={selectedEngineName}
+            onEngineChange={setSelectedEngineName}
+            engineOptions={engines.map((eng) => {
+              const shortId = eng.name.split('/').pop() || eng.name;
+              return {
+                value: eng.name,
+                label: `${eng.displayName} (${shortId})`,
+              };
+            })}
+            enginePlaceholder={engines.length === 0 ? 'No engines found in location' : ''}
+            engineLoading={isLoadingEngines}
+            engineDisabled={engines.length === 0}
+          />
 
-        {/* Project / Location / Engine Controls */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end pt-2 border-t border-gray-700/70">
-          <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">
-              Project ID / Number
-            </label>
-            <ProjectInput value={projectNumber} onChange={setProjectNumber} />
-          </div>
-          <div>
-            <label
-              htmlFor="latencyLabLocation"
-              className="block text-xs font-medium text-gray-400 mb-1"
-            >
-              Location
-            </label>
-            <select
-              id="latencyLabLocation"
-              value={config.appLocation}
-              onChange={(e) => setConfig({ appLocation: e.target.value })}
-              className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] focus:ring-indigo-500"
-            >
-              <option value="global">global</option>
-              <option value="us">us</option>
-              <option value="eu">eu</option>
-            </select>
-          </div>
-          <div className="md:col-span-2">
-            <label
-              htmlFor="latencyLabEngineSelect"
-              className="block text-xs font-medium text-gray-400 mb-1"
-            >
-              Target Gemini Enterprise App Engine
-            </label>
-            <div className="flex gap-2">
-              <select
-                id="latencyLabEngineSelect"
-                value={selectedEngineName}
-                onChange={(e) => setSelectedEngineName(e.target.value)}
-                disabled={isLoadingEngines || engines.length === 0}
-                className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 flex-1 h-[42px] focus:ring-indigo-500 disabled:opacity-50"
-              >
-                {engines.length === 0 ? (
-                  <option value="">
-                    {isLoadingEngines ? 'Loading engines...' : 'No engines found in location'}
-                  </option>
-                ) : (
-                  engines.map((eng) => {
-                    const shortId = eng.name.split('/').pop() || eng.name;
-                    return (
-                      <option key={eng.name} value={eng.name}>
-                        {eng.displayName} ({shortId})
-                      </option>
-                    );
-                  })
-                )}
-              </select>
-              <button
-                type="button"
-                onClick={() => {
-                  if (selectedEngine) {
-                    void loadSelectedEngineContext(selectedEngine);
-                  } else {
-                    void fetchEnginesList();
-                  }
-                }}
-                disabled={isLoadingEngines || isEvaluatingEngine}
-                className="px-3.5 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 text-xs font-semibold rounded-md border border-gray-600 h-[42px] shrink-0"
-              >
-                {isEvaluatingEngine ? 'Syncing...' : 'Refresh'}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Engine Telemetry Pill Strip */}
-        {report && (
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-3 border-t border-gray-700/70">
-            <div className="bg-gray-900/70 border border-gray-700/80 rounded-lg p-3">
-              <span className="text-[11px] uppercase tracking-wider text-gray-400 block">
-                Architecture Grade
-              </span>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-lg font-bold text-white">
-                  Grade {report.grade}
+          {/* Engine Telemetry Pill Strip */}
+          {report && (
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-3 border-t border-gray-800/80">
+              <div className="bg-gray-950/60 border border-gray-800 rounded-lg p-3">
+                <span className="text-[11px] uppercase tracking-wider text-gray-400 block">
+                  Architecture Grade
                 </span>
-                <span className="text-xs text-gray-400 font-mono">
-                  ({report.overallScore}/100)
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-lg font-bold text-white">
+                    Grade {report.grade}
+                  </span>
+                  <span className="text-xs text-gray-400 font-mono">
+                    ({report.overallScore}/100)
+                  </span>
+                </div>
+              </div>
+              <div className="bg-gray-950/60 border border-gray-800 rounded-lg p-3">
+                <span className="text-[11px] uppercase tracking-wider text-gray-400 block">
+                  Fan-Out Latency Risk
+                </span>
+                <span
+                  className={`inline-block mt-1 px-2 py-0.5 rounded text-xs font-bold ${
+                    report.latencyRiskLevel === 'LOW'
+                      ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/60'
+                      : report.latencyRiskLevel === 'MODERATE'
+                      ? 'bg-amber-950/80 text-amber-300 border border-amber-700/60'
+                      : 'bg-red-950/80 text-red-300 border border-red-700/60'
+                  }`}
+                >
+                  {report.latencyRiskLevel}
+                </span>
+              </div>
+              <div className="bg-gray-950/60 border border-gray-800 rounded-lg p-3">
+                <span className="text-[11px] uppercase tracking-wider text-gray-400 block">
+                  Connected DataStores
+                </span>
+                <span className="text-lg font-bold text-white mt-1 block">
+                  {report.metrics.connectedDataStoresCount}
+                </span>
+              </div>
+              <div className="bg-gray-950/60 border border-gray-800 rounded-lg p-3">
+                <span className="text-[11px] uppercase tracking-wider text-gray-400 block">
+                  BYOMCP Connectors
+                </span>
+                <span className="text-lg font-bold text-white mt-1 block">
+                  {report.metrics.byomcpConnectorsCount}
+                </span>
+              </div>
+              <div className="bg-gray-950/60 border border-gray-800 rounded-lg p-3">
+                <span className="text-[11px] uppercase tracking-wider text-gray-400 block">
+                  Active Org Skills
+                </span>
+                <span className="text-lg font-bold text-white mt-1 block">
+                  {report.metrics.enabledSkillsCount}
                 </span>
               </div>
             </div>
-            <div className="bg-gray-900/70 border border-gray-700/80 rounded-lg p-3">
-              <span className="text-[11px] uppercase tracking-wider text-gray-400 block">
-                Fan-Out Latency Risk
-              </span>
-              <span
-                className={`inline-block mt-1 px-2 py-0.5 rounded text-xs font-bold ${
-                  report.latencyRiskLevel === 'LOW'
-                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/60'
-                    : report.latencyRiskLevel === 'MODERATE'
-                    ? 'bg-amber-950/80 text-amber-300 border border-amber-700/60'
-                    : 'bg-red-950/80 text-red-300 border border-red-700/60'
-                }`}
-              >
-                {report.latencyRiskLevel}
-              </span>
-            </div>
-            <div className="bg-gray-900/70 border border-gray-700/80 rounded-lg p-3">
-              <span className="text-[11px] uppercase tracking-wider text-gray-400 block">
-                Connected DataStores
-              </span>
-              <span className="text-lg font-bold text-white mt-1 block">
-                {report.metrics.connectedDataStoresCount}
-              </span>
-            </div>
-            <div className="bg-gray-900/70 border border-gray-700/80 rounded-lg p-3">
-              <span className="text-[11px] uppercase tracking-wider text-gray-400 block">
-                BYOMCP Connectors
-              </span>
-              <span className="text-lg font-bold text-white mt-1 block">
-                {report.metrics.byomcpConnectorsCount}
-              </span>
-            </div>
-            <div className="bg-gray-900/70 border border-gray-700/80 rounded-lg p-3">
-              <span className="text-[11px] uppercase tracking-wider text-gray-400 block">
-                Active Org Skills
-              </span>
-              <span className="text-lg font-bold text-white mt-1 block">
-                {report.metrics.enabledSkillsCount}
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </PageHeader>
 
       {pageError && (
         <div
@@ -1207,43 +1253,13 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
 
       {/* Workspace Mode Tabs */}
       {selectedEngine && (
-        <div className="border-b border-gray-700 flex flex-wrap gap-2">
-          {[
-            {
-              id: 'benchmark' as LabTab,
-              label: '1. :streamAssist Latency Benchmark',
-              badge: suiteResult ? `${suiteResult.avgLatencyMs} ms avg` : 'Live Probe',
-            },
-            {
-              id: 'ab-skill' as LabTab,
-              label: '2. Before vs. After Skill A/B Lab',
-              badge: `${availableSkillOptions.length} Skills`,
-            },
-            {
-              id: 'fanout' as LabTab,
-              label: '3. DataStore & Connector Fan-Out Inspector',
-              badge: report ? `${report.metrics.connectedDataStoresCount} Stores` : undefined,
-            },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
-                activeTab === tab.id
-                  ? 'border-indigo-500 text-indigo-300 bg-gray-800/60 rounded-t-lg'
-                  : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
-              }`}
-            >
-              <span>{tab.label}</span>
-              {tab.badge && (
-                <span className="px-2 py-0.5 text-[10px] font-mono rounded-full bg-gray-700 text-gray-200 border border-gray-600">
-                  {tab.badge}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          items={labTabItems}
+          activeTab={activeTab}
+          onChange={setActiveTab}
+          ariaLabel="Latency Testing Lab Modes"
+          syncSearchParam="tab"
+        />
       )}
 
       {/* =====================================================================
@@ -1797,7 +1813,7 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
       {/* =====================================================================
           TAB 2: BEFORE VS. AFTER SKILL A/B LATENCY COMPARISON LAB
          ===================================================================== */}
-      {selectedEngine && activeTab === 'ab-skill' && (
+      {selectedEngine && activeTab === 'skill-ab' && (
         <div className="space-y-6">
           <div className="bg-gray-800 border border-gray-700 rounded-xl p-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2133,7 +2149,7 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
       {/* =====================================================================
           TAB 3: DATASTORE & CONNECTOR FAN-OUT BOTTLENECK INSPECTOR
          ===================================================================== */}
-      {selectedEngine && activeTab === 'fanout' && report && (
+      {selectedEngine && activeTab === 'fan-out' && report && (
         <div className="space-y-6" data-testid="fanout-inspector-panel">
           <div className="bg-gray-800 border border-gray-700 rounded-xl p-5 space-y-4">
             <h2 className="text-base font-bold text-white">
@@ -2239,7 +2255,7 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
                           type="button"
                           onClick={() => {
                             handleSelectSkillOption(finding.recommendedSkillId!);
-                            setActiveTab('ab-skill');
+                            setActiveTab('skill-ab');
                           }}
                           className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded"
                         >
@@ -2271,7 +2287,7 @@ const LatencyLabPage: React.FC<LatencyLabPageProps> = ({
           }}
         />
       )}
-    </div>
+    </PageShell>
   );
 };
 

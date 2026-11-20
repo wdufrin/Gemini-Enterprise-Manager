@@ -60,7 +60,7 @@ interface ListResourcesConfig {
 }
 
 const openPolicyTab = async () => {
-  fireEvent.click(screen.getByRole('button', { name: 'Policy Configuration' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Policy Configuration' }));
   await waitFor(() => expect(mockedApi.fetchModelArmorTemplates).toHaveBeenCalled());
 };
 
@@ -727,6 +727,34 @@ describe('ModelArmorPage - real template creation', () => {
         filterType: 'PROMPT_INJECTION_AND_JAILBREAK',
       }),
     ).rejects.toThrow(/empty sanitizationInput\.text/i);
+  });
+
+  it('exposes explicit Template Location selector for standalone templates instead of forcing global', async () => {
+    const regionalName = `projects/${PROJECT}/locations/europe-west1/templates/my-safety-policy-input`;
+    mockedApi.createModelArmorTemplate.mockResolvedValue({ name: regionalName });
+
+    renderPage();
+    expect(screen.getByRole('heading', { name: 'Model Armor' })).toBeInTheDocument();
+    await openPolicyTab();
+
+    const locSelect = (await screen.findByLabelText('Template Location')) as HTMLSelectElement;
+    expect(Array.from(locSelect.options).map((o) => o.value)).toEqual([
+      'global',
+      'us',
+      'eu',
+      'us-central1',
+      'europe-west1',
+    ]);
+
+    fireEvent.change(locSelect, { target: { value: 'europe-west1' } });
+    fireEvent.click(screen.getByRole('button', { name: /Create Template/ }));
+
+    await waitFor(() => expect(mockedApi.createModelArmorTemplate).toHaveBeenCalledTimes(1));
+    const [calledProject, calledLoc, calledId] = mockedApi.createModelArmorTemplate.mock.calls[0];
+    expect(calledProject).toBe(PROJECT);
+    expect(calledLoc).toBe('europe-west1');
+    expect(calledId).toBe('my-safety-policy-input');
+    expect(screen.getByText(/modelarmor\.europe-west1\.rep\.googleapis\.com/)).toBeInTheDocument();
   });
 });
 

@@ -116,9 +116,12 @@ describe('SkillsRegistryPage Component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Enterprise Skills Registry')).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Skills Registry' }),
+      ).toBeInTheDocument();
       expect(screen.getByText('agentregistry.googleapis.com (v1 GA)')).toBeInTheDocument();
       expect(screen.getByText('Corporate Brand Voice')).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: 'Inspect' }).length).toBeGreaterThan(0);
       expect(screen.getByText('gke-storage')).toBeInTheDocument();
       expect(screen.getByText('Jira Custom MCP Skill')).toBeInTheDocument();
       expect(screen.getByText('Data Connector MCP')).toBeInTheDocument();

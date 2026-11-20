@@ -15,12 +15,11 @@
  */
 
 import React from "react";
-import ProjectInput from "../ProjectInput";
-import CloudConsoleButton from "../CloudConsoleButton";
+import { GEMINI_ENTERPRISE_LOCATIONS } from "../../utils/locations";
 
 interface ConnectorConfigHeaderProps {
-  projectNumber: string;
-  setProjectNumber: (val: string) => void;
+  projectNumber?: string;
+  setProjectNumber?: (val: string) => void;
   appLocation: string;
   onLocationChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
   scanDurationHours: number | "";
@@ -34,7 +33,6 @@ interface ConnectorConfigHeaderProps {
 
 export const ConnectorConfigHeader: React.FC<ConnectorConfigHeaderProps> = ({
   projectNumber,
-  setProjectNumber,
   appLocation,
   onLocationChange,
   scanDurationHours,
@@ -46,26 +44,12 @@ export const ConnectorConfigHeader: React.FC<ConnectorConfigHeaderProps> = ({
   onBulkDiagnostics,
 }) => {
   return (
-    <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700">
-      <div className="flex justify-between items-center mb-3">
-        <h2 className="text-lg font-semibold text-white">
-          Connector Configuration
-        </h2>
-        <CloudConsoleButton
-          url={`https://console.cloud.google.com/gemini-enterprise/data-stores?project=${projectNumber}`}
-        />
-      </div>
-      <div className="flex flex-col lg:flex-row lg:items-end gap-3 xl:gap-4">
-        <div className="flex-1 min-w-[220px]">
-          <label className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap">
-            Project ID / Number
-          </label>
-          <ProjectInput value={projectNumber} onChange={setProjectNumber} />
-        </div>
-        <div className="w-full sm:w-36 shrink-0">
+    <div className="bg-gray-900/75 border border-gray-800/90 rounded-xl px-4 py-3 flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end gap-3 min-w-0 flex-1">
+        <div className="min-w-[190px] sm:min-w-[230px]">
           <label
             htmlFor="appLocation"
-            className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap"
+            className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1 whitespace-nowrap"
           >
             Location
           </label>
@@ -74,17 +58,20 @@ export const ConnectorConfigHeader: React.FC<ConnectorConfigHeaderProps> = ({
             name="appLocation"
             value={appLocation}
             onChange={onLocationChange}
-            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 w-full h-[38px] focus:ring-blue-500"
+            className="w-full h-9 bg-gray-950/90 border border-gray-700/90 rounded-lg px-3 text-xs sm:text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="global">global</option>
-            <option value="us">us</option>
-            <option value="eu">eu</option>
+            {GEMINI_ENTERPRISE_LOCATIONS.map((loc) => (
+              <option key={loc.id} value={loc.id}>
+                {loc.label}
+              </option>
+            ))}
           </select>
         </div>
-        <div className="w-full sm:w-44 shrink-0">
+
+        <div className="w-full sm:w-48 shrink-0">
           <label
             htmlFor="scanDuration"
-            className="block text-sm font-medium text-gray-400 mb-1 whitespace-nowrap"
+            className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1 whitespace-nowrap"
           >
             Log Scan Duration (Hours)
           </label>
@@ -95,52 +82,54 @@ export const ConnectorConfigHeader: React.FC<ConnectorConfigHeaderProps> = ({
             onChange={(e) => {
               const val = e.target.value;
               setScanDurationHours(
-                val === "" ? "" : Math.max(1, parseInt(val, 10) || 1)
+                val === "" ? "" : Math.max(1, parseInt(val, 10) || 1),
               );
             }}
-            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-sm text-gray-200 w-full h-[38px] focus:ring-blue-500"
+            className="w-full h-9 bg-gray-950/90 border border-gray-700/90 rounded-lg px-3 text-xs sm:text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             min="1"
           />
         </div>
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={onScanCollections}
-            disabled={isLoading || !projectNumber}
-            className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 min-h-[38px] h-auto whitespace-nowrap shrink-0 flex items-center justify-center"
-          >
-            {isLoading ? "Scanning..." : "Scan Collections"}
-          </button>
-          <button
-            type="button"
-            onClick={onBulkDiagnostics}
-            disabled={collectionsCount === 0 || isBulkScanning}
-            className="px-4 py-1.5 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-700 disabled:text-gray-500 min-h-[38px] h-auto whitespace-nowrap shrink-0 flex items-center justify-center"
-          >
-            {isBulkScanning && (
-              <svg
-                className="animate-spin -ml-1 mr-2 h-4 w-4 text-white shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                ></circle>
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                ></path>
-              </svg>
-            )}
-            {isBulkScanning ? "Scanning..." : "Run Bulk Diagnosis"}
-          </button>
-        </div>
+      </div>
+
+      <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={onScanCollections}
+          disabled={isLoading || !projectNumber}
+          className="px-3.5 h-9 bg-blue-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-500 whitespace-nowrap shrink-0 inline-flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+        >
+          {isLoading ? "Scanning..." : "Scan Collections"}
+        </button>
+        <button
+          type="button"
+          onClick={onBulkDiagnostics}
+          disabled={collectionsCount === 0 || isBulkScanning}
+          className="px-3.5 h-9 bg-emerald-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-500 whitespace-nowrap shrink-0 inline-flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+        >
+          {isBulkScanning && (
+            <svg
+              className="animate-spin -ml-1 mr-2 h-4 w-4 text-white shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              ></circle>
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
+          )}
+          {isBulkScanning ? "Scanning..." : "Run Bulk Diagnosis"}
+        </button>
       </div>
     </div>
   );

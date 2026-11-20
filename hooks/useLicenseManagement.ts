@@ -19,6 +19,7 @@ import * as api from '../services/apiService';
 import { Config, DistributeModalData, RetractModalData } from '../types';
 import { toErrorMessage } from '../utils/errors';
 import { useToast } from '../context/ToastContext';
+import { useWorkspaceScope } from '../context/WorkspaceScopeContext';
 import {
   getCachedUserLicenses,
   setCachedUserLicenses,
@@ -37,14 +38,43 @@ import {
 import { filterUserLicenses, sortUserLicenses } from '../components/license/licenseFilters';
 import { useGroupLicensing } from './useGroupLicensing';
 
+export type LicenseTabId =
+  | 'user_licenses'
+  | 'allocations'
+  | 'user_store_policy'
+  | 'group_assignments'
+  | 'automated_pruner';
+
+const VALID_LICENSE_TABS: readonly LicenseTabId[] = [
+  'user_licenses',
+  'allocations',
+  'user_store_policy',
+  'group_assignments',
+  'automated_pruner',
+];
+
+function getInitialLicenseTab(): LicenseTabId {
+  if (typeof window === 'undefined') return 'user_licenses';
+  const search = window.location.search || window.location.hash.split('?')[1] || '';
+  const tabParam = new URLSearchParams(search).get('tab');
+  if (tabParam && (VALID_LICENSE_TABS as readonly string[]).includes(tabParam)) {
+    return tabParam as LicenseTabId;
+  }
+  return 'user_licenses';
+}
+
 export function useLicenseManagement(projectNumber: string) {
   const { toast } = useToast();
+  const { appLocation, userStoreId, setAppLocation, setUserStoreId } = useWorkspaceScope();
 
-  // --- Cloud License API State ---
-  const [apiConfig, setApiConfig] = useState({
-    appLocation: 'global',
-    userStoreId: 'default_user_store',
-  });
+  // --- Cloud License API State (synced with shared WorkspaceScopeContext) ---
+  const apiConfig = useMemo(
+    () => ({
+      appLocation,
+      userStoreId,
+    }),
+    [appLocation, userStoreId]
+  );
 
   // User Licenses List State
   const [userLicenses, setUserLicenses] = useState<UserLicense[]>([]);
@@ -93,13 +123,7 @@ export function useLicenseManagement(projectNumber: string) {
   const [inputDateValue, setInputDateValue] = useState<string>('');
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<
-    | 'user_licenses'
-    | 'allocations'
-    | 'user_store_policy'
-    | 'group_assignments'
-    | 'automated_pruner'
-  >('user_licenses');
+  const [activeTab, setActiveTab] = useState<LicenseTabId>(getInitialLicenseTab);
 
   // Billing Account State
   const [billingAccountId, setBillingAccountId] = useState('');
@@ -133,9 +157,17 @@ export function useLicenseManagement(projectNumber: string) {
     setCurrentPage(1);
   }, [filterPrincipal, filterStatus, filterConfig, filterDateValue, filterDateOperator, sortConfig]);
 
-  const handleApiConfigChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
-    setApiConfig({ ...apiConfig, [e.target.name]: e.target.value });
-  };
+  const handleApiConfigChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
+      const { name, value } = e.target;
+      if (name === 'appLocation') {
+        setAppLocation(value);
+      } else if (name === 'userStoreId') {
+        setUserStoreId(value);
+      }
+    },
+    [setAppLocation, setUserStoreId]
+  );
 
   const resolvedLicenseNamesRef = useRef<Set<string>>(new Set());
   const resolveLicenseNames = useCallback(async (licenses: UserLicense[]) => {
@@ -175,10 +207,14 @@ export function useLicenseManagement(projectNumber: string) {
     setLicenseNames((prev) => ({ ...prev, ...newNames }));
   }, [projectNumber, apiConfig.appLocation]);
 
+  const licensesFetchSeqRef = useRef(0);
+
   const fetchUserLicenses = useCallback(async (forceRefresh: boolean = false) => {
     if (!projectNumber) return;
+    const seq = ++licensesFetchSeqRef.current;
     setIsLicensesLoading(true);
     setLicensesError(null);
+    setUserLicenses([]);
 
     try {
       if (!forceRefresh) {
@@ -188,6 +224,7 @@ export function useLicenseManagement(projectNumber: string) {
           DEFAULT_LICENSE_CACHE_TTL_MS,
           apiConfig.appLocation,
         );
+        if (seq !== licensesFetchSeqRef.current) return;
         if (cached && cached.data && cached.data.length > 0) {
           setUserLicenses(cached.data);
           setCacheTimestamp(cached.timestamp);
@@ -212,6 +249,7 @@ export function useLicenseManagement(projectNumber: string) {
 
       do {
         const result = await api.listUserStoreLicenses(config, apiConfig.userStoreId, userLicensesFilter, nextPageToken, 1000);
+        if (seq !== licensesFetchSeqRef.current) return;
         if (result.userLicenses) {
           allLicenses = [...allLicenses, ...result.userLicenses];
           setFetchProgress({ loaded: allLicenses.length, isFetching: true });
@@ -219,6 +257,7 @@ export function useLicenseManagement(projectNumber: string) {
         nextPageToken = result.nextPageToken;
       } while (nextPageToken);
 
+      if (seq !== licensesFetchSeqRef.current) return;
       setUserLicenses(allLicenses);
       const now = Date.now();
       setCacheTimestamp(now);
@@ -228,12 +267,16 @@ export function useLicenseManagement(projectNumber: string) {
         allLicenses,
         apiConfig.appLocation,
       );
+      if (seq !== licensesFetchSeqRef.current) return;
       resolveLicenseNames(allLicenses);
     } catch (err: unknown) {
+      if (seq !== licensesFetchSeqRef.current) return;
       setLicensesError(toErrorMessage(err) || 'Failed to list user licenses.');
     } finally {
-      setIsLicensesLoading(false);
-      setFetchProgress(null);
+      if (seq === licensesFetchSeqRef.current) {
+        setIsLicensesLoading(false);
+        setFetchProgress(null);
+      }
     }
   }, [projectNumber, apiConfig.userStoreId, apiConfig.appLocation, userLicensesFilter, resolveLicenseNames]);
 
@@ -692,6 +735,8 @@ export function useLicenseManagement(projectNumber: string) {
 
   return {
     apiConfig,
+    setAppLocation,
+    setUserStoreId,
     handleApiConfigChange,
     activeTab,
     setActiveTab,

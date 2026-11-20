@@ -202,7 +202,7 @@ export const AssistantListTable: React.FC<AssistantListTableProps> = ({
   setSearchQuery,
   sortConfig,
   onSort,
-  onRefresh,
+  onRefresh: _onRefresh,
   onRowClick,
   onChatClick,
   onEvaluateClick,
@@ -392,14 +392,6 @@ export const AssistantListTable: React.FC<AssistantListTableProps> = ({
               </div>
             )}
           </div>
-
-          <button
-            onClick={onRefresh}
-            disabled={isListLoading}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 min-w-fit"
-          >
-            Refresh
-          </button>
         </div>
       </div>
 

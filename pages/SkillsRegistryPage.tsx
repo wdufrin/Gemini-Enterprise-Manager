@@ -14,13 +14,16 @@
  * limitations under the License.
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Config, Page, RegistrySkill, SkillScanningPolicy, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import PublishSkillModal from '../components/registry/PublishSkillModal';
 import RegistrySkillDetailModal from '../components/registry/RegistrySkillDetailModal';
 import ExportSkillsModal from '../components/assistants/ExportSkillsModal';
 import CurlInfoModal from '../components/CurlInfoModal';
+import { PageShell } from '../components/layout/PageShell';
+import { PageHeader } from '../components/layout/PageHeader';
+import { useWorkspaceScope } from '../context/WorkspaceScopeContext';
 import { useToast } from '../context/ToastContext';
 import { normalizeRegistrySkillForExport } from '../utils/skillExportUtils';
 import { GEMINI_ENTERPRISE_LOCATIONS } from '../utils/locations';
@@ -59,7 +62,10 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   userProfile: _userProfile,
 }) => {
   const { toast } = useToast();
-  const [selectedLocation, setSelectedLocation] = useState<string>('global');
+  const {
+    appLocation: selectedLocation,
+    setAppLocation: setSelectedLocation,
+  } = useWorkspaceScope();
   const [skills, setSkills] = useState<RegistrySkill[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +80,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   const [isPublishModalOpen, setIsPublishModalOpen] = useState<boolean>(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [inspectingSkill, setInspectingSkill] = useState<RegistrySkill | null>(null);
+  const skillsFetchSeqRef = useRef(0);
 
   const currentConfig: Config = useMemo(
     () => ({
@@ -87,12 +94,16 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   );
 
   const fetchSkills = useCallback(async () => {
+    const seq = ++skillsFetchSeqRef.current;
     setIsLoading(true);
     setError(null);
+    setSkills([]);
     try {
       const result = await api.listRegistrySkills(currentConfig);
+      if (seq !== skillsFetchSeqRef.current) return;
       setSkills(result);
     } catch (err: unknown) {
+      if (seq !== skillsFetchSeqRef.current) return;
       console.error('Failed to list Agent Registry skills:', err);
       setError(
         err instanceof Error
@@ -100,7 +111,9 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
           : 'Failed to fetch enterprise skills from Google Cloud Agent Registry.',
       );
     } finally {
-      setIsLoading(false);
+      if (seq === skillsFetchSeqRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [currentConfig]);
 
@@ -204,38 +217,90 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header Banner */}
-      <div className="bg-gray-800 rounded-lg p-5 border border-gray-700 shadow-md">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="p-3 bg-purple-900/40 text-purple-400 border border-purple-700/50 rounded-xl shrink-0">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+    <PageShell variant="wide" className="animate-fade-in">
+      <PageHeader
+        title="Skills Registry"
+        subtitle={
+          <>
+            Central organization-wide catalog with automated LLM security scanning. Active skills populate the Gemini Enterprise <strong>Browse skills</strong> gallery where employees click <strong>+ Install</strong> to add them to their workspace.
+          </>
+        }
+        badges={
+          <span className="px-2 py-0.5 text-xs font-semibold bg-purple-900/60 text-purple-300 rounded border border-purple-700 font-mono">
+            agentregistry.googleapis.com (v1 GA)
+          </span>
+        }
+        icon={
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+        }
+        consolePage={Page.SKILLS_REGISTRY}
+        projectId={projectId}
+        projectNumber={projectNumber}
+        onRefresh={fetchSkills}
+        isRefreshing={isLoading}
+        secondaryActions={
+          <>
+            <button
+              type="button"
+              data-testid="toggle-org-scan-policy-btn"
+              onClick={() => setIsOrgPolicyOpen((prev) => !prev)}
+              className={`px-3 h-9 text-xs font-semibold rounded-lg border transition-colors shrink-0 inline-flex items-center gap-1.5 ${
+                isOrgPolicyOpen
+                  ? 'bg-emerald-800/70 text-emerald-100 border-emerald-500'
+                  : 'bg-gray-800 hover:bg-gray-700 text-emerald-300 border-emerald-500/40'
+              }`}
+              title="View Google Cloud Custom Org Policy constraint for enforcing skill auto-scanning"
+            >
+              <span>🛡️ Org Scan Policy</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsCurlModalOpen(true)}
+              aria-label="View REST API (cURL) Reference"
+              className="px-2.5 h-9 bg-gray-800 hover:bg-gray-700 text-purple-300 hover:text-purple-200 rounded-lg transition-colors border border-purple-500/30 shrink-0 inline-flex items-center justify-center"
+              title="View REST API (cURL) Reference for agentregistry.googleapis.com"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
               </svg>
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl font-bold text-gray-100">Enterprise Skills Registry</h2>
-                <span className="px-2 py-0.5 text-xs font-semibold bg-purple-900/60 text-purple-300 rounded border border-purple-700 font-mono">
-                  agentregistry.googleapis.com (v1 GA)
-                </span>
-              </div>
-              <p className="text-sm text-gray-400 mt-1 max-w-3xl leading-relaxed">
-                Central organization-wide catalog with automated LLM security scanning. Active skills populate the Gemini Enterprise <strong>Browse skills</strong> gallery where employees click <strong>+ Install</strong> to add them to their workspace.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 self-end xl:self-center shrink-0">
-            {/* Region Selector */}
-            <div className="flex items-center bg-gray-900 border border-gray-700 rounded-lg px-2 py-1 shrink-0">
-              <span className="text-[11px] text-gray-400 font-semibold mr-1.5">Region:</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              disabled={filteredSkills.length === 0}
+              className="px-3 h-9 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-100 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 border border-gray-700 transition-colors shrink-0"
+              title="Export filtered registry skills to CSV, JSON, JSONL, or SKILL.md"
+            >
+              <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              <span>Export Skills</span>
+            </button>
+          </>
+        }
+        primaryAction={{
+          label: '+ Publish Enterprise Skill',
+          onClick: () => setIsPublishModalOpen(true),
+        }}
+      >
+        <div className="space-y-3.5">
+          {/* Region Selector synced with WorkspaceScopeContext */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-[210px] sm:min-w-[260px]">
+              <label
+                htmlFor="skills-registry-location-select"
+                className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1"
+              >
+                Region
+              </label>
               <select
+                id="skills-registry-location-select"
                 aria-label="Agent Registry location"
                 value={selectedLocation}
                 onChange={(e) => setSelectedLocation(e.target.value)}
-                className="bg-transparent text-xs text-blue-300 font-bold focus:outline-none cursor-pointer"
+                className="w-full h-9 bg-gray-950/90 border border-gray-700/90 rounded-lg px-3 text-xs sm:text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {(
                   GEMINI_ENTERPRISE_LOCATIONS as unknown as ReadonlyArray<
@@ -254,98 +319,41 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                 })}
               </select>
             </div>
+          </div>
 
-            <button
-              type="button"
-              onClick={fetchSkills}
-              disabled={isLoading}
-              className="p-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors shrink-0"
-              title="Refresh Registry"
-            >
-              <svg className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              data-testid="toggle-org-scan-policy-btn"
-              onClick={() => setIsOrgPolicyOpen((prev) => !prev)}
-              className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-colors shrink-0 flex items-center gap-1.5 ${
-                isOrgPolicyOpen
-                  ? 'bg-emerald-800/70 text-emerald-100 border-emerald-500'
-                  : 'bg-gray-700 hover:bg-gray-600 text-emerald-300 border-emerald-500/40'
-              }`}
-              title="View Google Cloud Custom Org Policy constraint for enforcing skill auto-scanning"
-            >
-              <span>🛡️ Org Scan Policy</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsCurlModalOpen(true)}
-              className="p-2 bg-gray-700 hover:bg-gray-600 text-purple-300 hover:text-purple-200 rounded-lg transition-colors border border-purple-500/30 shrink-0"
-              title="View REST API (cURL) Reference for agentregistry.googleapis.com"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsExportModalOpen(true)}
-              disabled={filteredSkills.length === 0}
-              className="px-3.5 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 text-xs font-semibold rounded-lg flex items-center gap-1.5 border border-gray-600 transition-colors shrink-0"
-              title="Export filtered registry skills to CSV, JSON, JSONL, or SKILL.md"
-            >
-              <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              <span>Export Skills</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsPublishModalOpen(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow transition-colors whitespace-nowrap shrink-0"
-            >
-              <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              <span>+ Publish Enterprise Skill</span>
-            </button>
+          {/* KPI Summary Strip */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="p-3 bg-gray-950/60 rounded-lg border border-gray-800 flex items-center justify-between">
+              <span className="text-xs text-gray-400 font-medium">Total Central Skills</span>
+              <span className="text-base font-bold text-white">{totalCount}</span>
+            </div>
+            <div className="p-3 bg-gray-950/60 rounded-lg border border-gray-800 flex items-center justify-between">
+              <span className="text-xs text-green-400 font-medium flex items-center gap-1.5">
+                🟢 Active in Catalog
+              </span>
+              <span className="text-base font-bold text-green-300">{activeCount}</span>
+            </div>
+            <div className="p-3 bg-gray-950/60 rounded-lg border border-gray-800 flex items-center justify-between">
+              <span className="text-xs text-yellow-400 font-medium flex items-center gap-1.5">
+                🟡 Draft / Staging
+              </span>
+              <span className="text-base font-bold text-yellow-300">{draftCount}</span>
+            </div>
+            <div className="p-3 bg-gray-950/60 rounded-lg border border-gray-800 flex items-center justify-between">
+              <span className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
+                🛡️ Blocking Scan
+              </span>
+              <span className="text-base font-bold text-emerald-300">{blockingProtectedCount}</span>
+            </div>
+            <div className="p-3 bg-gray-950/60 rounded-lg border border-gray-800 flex items-center justify-between col-span-2 lg:col-span-1">
+              <span className="text-xs text-purple-400 font-medium flex items-center gap-1.5">
+                🏷️ Publishers
+              </span>
+              <span className="text-base font-bold text-purple-300">{publisherCount}</span>
+            </div>
           </div>
         </div>
-
-        {/* Stats Metrics */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5 pt-4 border-t border-gray-700/60">
-          <div className="p-3 bg-gray-900/60 rounded-lg border border-gray-700/50 flex items-center justify-between">
-            <span className="text-xs text-gray-400 font-medium">Total Central Skills</span>
-            <span className="text-base font-bold text-white">{totalCount}</span>
-          </div>
-          <div className="p-3 bg-gray-900/60 rounded-lg border border-gray-700/50 flex items-center justify-between">
-            <span className="text-xs text-green-400 font-medium flex items-center gap-1.5">
-              🟢 Active in Catalog
-            </span>
-            <span className="text-base font-bold text-green-300">{activeCount}</span>
-          </div>
-          <div className="p-3 bg-gray-900/60 rounded-lg border border-gray-700/50 flex items-center justify-between">
-            <span className="text-xs text-yellow-400 font-medium flex items-center gap-1.5">
-              🟡 Draft / Staging
-            </span>
-            <span className="text-base font-bold text-yellow-300">{draftCount}</span>
-          </div>
-          <div className="p-3 bg-gray-900/60 rounded-lg border border-gray-700/50 flex items-center justify-between">
-            <span className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
-              🛡️ Blocking Scan
-            </span>
-            <span className="text-base font-bold text-emerald-300">{blockingProtectedCount}</span>
-          </div>
-          <div className="p-3 bg-gray-900/60 rounded-lg border border-gray-700/50 flex items-center justify-between col-span-2 lg:col-span-1">
-            <span className="text-xs text-purple-400 font-medium flex items-center gap-1.5">
-              🏷️ Publishers
-            </span>
-            <span className="text-base font-bold text-purple-300">{publisherCount}</span>
-          </div>
-        </div>
-      </div>
+      </PageHeader>
 
       {/* Expandable Org-Wide Scan Enforcement Constraint Guide */}
       {isOrgPolicyOpen && (
@@ -686,13 +694,14 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
                           <button
                             type="button"
                             onClick={() => setInspectingSkill(skill)}
-                            className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 rounded transition-colors"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-600/20 hover:bg-blue-600/35 border border-blue-500/40 text-blue-300 hover:text-white text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                             title="Inspect Skill & Revisions"
                           >
-                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                             </svg>
+                            <span>Inspect</span>
                           </button>
                         </div>
                       </td>
@@ -738,7 +747,7 @@ const SkillsRegistryPage: React.FC<SkillsRegistryPageProps> = ({
           onClose={() => setIsCurlModalOpen(false)}
         />
       )}
-    </div>
+    </PageShell>
   );
 };
 
